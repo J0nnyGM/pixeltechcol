@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Departamentos - PixelTech Admin</title>
+    <link rel="stylesheet" href="../css/styles.css">
+    <script src="https://kit.fontawesome.com/0d623ded97.js" crossorigin="anonymous"></script>
+    <style> .hidden { display: none; } </style>
+</head>
+<body class="bg-gray-100 font-sans text-brand-black hidden flex h-screen overflow-hidden">
+
+    <div id="admin-sidebar"></div>
+
+    <main class="flex-grow overflow-y-auto p-8 bg-slate-50">
+        <h1 class="text-3xl font-black mb-2">Estructura de la Tienda</h1>
+        <p class="text-gray-500 mb-8 text-sm">Define los departamentos principales y sus subcategorías.</p>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <div class="bg-white p-6 rounded-2xl shadow-xl border border-gray-100 h-fit sticky top-8">
+                <form id="cat-form" class="space-y-4">
+                    <input type="text" id="cat-name" placeholder="Ej: Computación" required class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-brand-cyan outline-none transition">
+                    <textarea id="cat-subs" placeholder="Subcategorías (Separadas por comas)" required class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-brand-cyan outline-none h-32 transition"></textarea>
+                    <button type="submit" class="w-full bg-brand-black text-white font-black py-4 rounded-xl hover:bg-brand-cyan transition uppercase text-[10px] tracking-widest shadow-lg">
+                        Guardar Departamento
+                    </button>
+                </form>
+            </div>
+
+            <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                <div id="categories-list" class="divide-y divide-gray-100">
+                    </div>
+            </div>
+        </div>
+    </main>
+
+    <script type="module">
+        import '../js/admin-guard.js'; // El guardia ya carga el sidebar automáticamente
+        import { db, collection, addDoc, getDocs, doc, deleteDoc } from '../js/firebase-init.js';
+
+        const form = document.getElementById('cat-form');
+        const list = document.getElementById('categories-list');
+
+        async function loadCategories() {
+            const snap = await getDocs(collection(db, "categories"));
+            list.innerHTML = "";
+            snap.forEach(d => {
+                const data = d.data();
+                list.innerHTML += `
+                    <div class="p-6 flex justify-between items-start group hover:bg-slate-50 transition">
+                        <div>
+                            <h3 class="font-black text-brand-black text-lg">${data.name}</h3>
+                            <div class="flex flex-wrap gap-2 mt-3">
+                                ${data.subcategories.map(s => `<span class="bg-brand-cyan/10 text-brand-cyan text-[10px] font-black px-3 py-1 rounded-full border border-brand-cyan/20">${s.trim()}</span>`).join('')}
+                            </div>
+                        </div>
+                        <button onclick="window.deleteCat('${d.id}')" class="text-gray-200 hover:text-brand-red p-2 transition">
+                            <i class="fa-solid fa-trash-can"></i>
+                        </button>
+                    </div>
+                `;
+            });
+        }
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const name = document.getElementById('cat-name').value;
+            const subs = document.getElementById('cat-subs').value.split(',').map(s => s.trim()).filter(s => s !== "");
+
+            await addDoc(collection(db, "categories"), {
+                name: name,
+                subcategories: subs,
+                createdAt: new Date()
+            });
+            form.reset();
+            loadCategories();
+        });
+
+        window.deleteCat = async (id) => {
+            if(confirm("¿Eliminar este departamento?")) {
+                await deleteDoc(doc(db, "categories", id));
+                loadCategories();
+            }
+        };
+
+        loadCategories();
+    </script>
+</body>
+</html>

@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mi Panel - PixelTech</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <script src="https://kit.fontawesome.com/0d623ded97.js" crossorigin="anonymous"></script>
+    <style>
+        .page-section {
+            display: none;
+        }
+
+        .page-section.active {
+            display: block;
+        }
+
+        .nav-link.active {
+            @apply bg-brand-cyan text-brand-black shadow-lg shadow-cyan-500/20;
+        }
+
+        /* El contenedor principal ocupa el alto restante después del header */
+        .dashboard-container {
+            height: calc(100vh - 116px);
+        }
+
+        /* Ajuste según altura de tu header */
+    </style>
+</head>
+
+<body class="bg-gray-100 font-sans text-brand-black overflow-hidden">
+
+    <div id="global-header"></div>
+
+    <div class="flex dashboard-container">
+
+        <aside
+            class="w-20 md:w-72 bg-brand-black text-white flex-shrink-0 flex flex-col border-r border-white/5 shadow-2xl">
+            <div class="p-8 hidden md:block">
+                <div class="bg-slate-900/50 p-6 rounded-[2.5rem] border border-white/5 text-center">
+                    <div id="user-avatar"
+                        class="w-16 h-16 bg-brand-cyan text-brand-black rounded-2xl flex items-center justify-center font-black text-2xl shadow-lg mx-auto mb-4">
+                        --
+                    </div>
+                    <p id="user-name-side" class="font-black text-sm truncate uppercase tracking-tighter">Cargando...
+                    </p>
+                    <p id="user-email-side" class="text-[10px] text-gray-500 font-bold truncate">...</p>
+                </div>
+            </div>
+
+            <nav class="flex-grow p-4 space-y-3">
+                <button
+                    class="nav-link active w-full flex items-center gap-4 px-5 py-4 rounded-2xl transition-all font-bold text-sm"
+                    data-target="section-orders">
+                    <i class="fa-solid fa-box-open w-5 text-center"></i>
+                    <span class="hidden md:block">Mis Compras</span>
+                </button>
+                <button
+                    class="nav-link w-full flex items-center gap-4 px-5 py-4 rounded-2xl transition-all font-bold text-sm text-gray-400 hover:bg-white/5"
+                    data-target="section-data">
+                    <i class="fa-solid fa-user-shield w-5 text-center"></i>
+                    <span class="hidden md:block">Datos de Cuenta</span>
+                </button>
+                <button
+                    class="nav-link w-full flex items-center gap-4 px-5 py-4 rounded-2xl transition-all font-bold text-sm text-gray-400 hover:bg-white/5"
+                    data-target="section-addresses">
+                    <i class="fa-solid fa-location-dot w-5 text-center"></i>
+                    <span class="hidden md:block">Direcciones</span>
+                </button>
+            </nav>
+
+            <div class="p-6 border-t border-white/5">
+                <button id="btn-logout-profile"
+                    class="w-full flex items-center justify-center md:justify-start gap-4 px-4 py-3 rounded-xl text-gray-500 hover:text-brand-red transition duration-300">
+                    <i class="fa-solid fa-power-off"></i>
+                    <span class="hidden md:block font-black uppercase text-[10px] tracking-widest">Cerrar Sesión</span>
+                </button>
+            </div>
+        </aside>
+
+        <main class="flex-grow overflow-y-auto p-6 md:p-12 bg-slate-50 custom-scroll">
+
+            <section id="section-orders" class="page-section active animate-in fade-in slide-in-from-left-4">
+                <div class="mb-10">
+                    <h1 class="text-4xl font-black tracking-tighter uppercase text-brand-black">Historial de Compras
+                    </h1>
+                    <p class="text-gray-400 font-medium">Consulta el estado de tus equipos y garantías.</p>
+                </div>
+                <div id="orders-container" class="space-y-6">
+                </div>
+            </section>
+
+            <section id="section-data" class="page-section animate-in fade-in slide-in-from-bottom-4">
+                <div class="mb-10">
+                    <h1 class="text-4xl font-black tracking-tighter uppercase text-brand-black">Datos de Cuenta</h1>
+                    <p class="text-gray-400 font-medium">Actualiza tu información para facturación y contacto.</p>
+                </div>
+                <div class="bg-white rounded-[2.5rem] p-10 border border-gray-100 shadow-sm max-w-3xl">
+                    <form id="profile-form" class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                        <div class="space-y-2">
+                            <label class="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Nombre
+                                Completo</label>
+                            <input type="text" id="form-name"
+                                class="w-full bg-gray-50 border-none rounded-2xl px-6 py-4 text-sm font-bold outline-none focus:ring-2 focus:ring-brand-cyan/20 transition">
+                        </div>
+                        <div class="space-y-2">
+                            <label class="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Cédula /
+                                NIT</label>
+                            <input type="text" id="form-id"
+                                class="w-full bg-gray-50 border-none rounded-2xl px-6 py-4 text-sm font-bold outline-none focus:ring-2 focus:ring-brand-cyan/20 transition">
+                        </div>
+                        <div class="space-y-2">
+                            <label
+                                class="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">WhatsApp</label>
+                            <input type="text" id="form-phone"
+                                class="w-full bg-gray-50 border-none rounded-2xl px-6 py-4 text-sm font-bold outline-none focus:ring-2 focus:ring-brand-cyan/20 transition">
+                        </div>
+                        <div class="space-y-2">
+                            <label class="text-[10px] font-black text-gray-400 uppercase tracking-widest ml-1">Fecha de
+                                Nacimiento</label>
+                            <input type="date" id="form-birth"
+                                class="w-full bg-gray-50 border-none rounded-2xl px-6 py-4 text-sm font-bold outline-none focus:ring-2 focus:ring-brand-cyan/20 transition">
+                        </div>
+                        <div class="md:col-span-2 pt-4">
+                            <button type="submit"
+                                class="bg-brand-black text-white px-10 py-5 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-brand-cyan transition-all shadow-xl">Guardar
+                                Información</button>
+                        </div>
+                    </form>
+                </div>
+            </section>
+
+        </main>
+
+    </div>
+
+    <script type="module">
+        import { loadGlobalHeader } from './js/global-components.js';
+        loadGlobalHeader();
+    </script>
+
+    <script type="module" src="js/profile.js"></script>
+</body>
+
+</html>

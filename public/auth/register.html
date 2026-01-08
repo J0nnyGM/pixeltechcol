@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crear Cuenta - PixelTech</title>
+    <link rel="stylesheet" href="../css/styles.css">
+    <script src="https://kit.fontawesome.com/0d623ded97.js" crossorigin="anonymous"></script>
+</head>
+<body class="bg-black font-sans text-gray-300 antialiased h-screen flex items-center justify-center relative overflow-hidden">
+
+    <div class="absolute top-0 left-0 w-full h-full overflow-hidden z-0">
+        <div class="absolute bottom-[-10%] right-[-10%] w-96 h-96 bg-brand-cyan/10 rounded-full blur-[100px]"></div>
+    </div>
+
+    <div class="relative z-10 w-full max-w-md p-8 bg-brand-black/90 backdrop-blur-md border border-gray-800 rounded-2xl shadow-2xl">
+        
+        <div class="text-center mb-6">
+            <a href="/" class="inline-block mb-4">
+                <img src="../img/logo.png" alt="PixelTech" class="h-10 w-auto mx-auto">
+            </a>
+            <h2 class="text-2xl font-bold text-white">Únete a PixelTech</h2>
+            <p class="text-sm text-gray-500 mt-2">Crea tu cuenta y gestiona tus pedidos</p>
+        </div>
+
+        <div id="auth-message" class="hidden mb-4 p-3 rounded text-sm text-center font-bold"></div>
+
+        <form id="register-form" class="space-y-4">
+            <div>
+                <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Nombre Completo</label>
+                <input type="text" id="reg-name" required class="w-full bg-gray-900 border border-gray-700 text-white text-sm rounded-lg focus:ring-2 focus:ring-brand-cyan outline-none p-3">
+            </div>
+
+            <div>
+                <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Correo Electrónico</label>
+                <input type="email" id="reg-email" required class="w-full bg-gray-900 border border-gray-700 text-white text-sm rounded-lg focus:ring-2 focus:ring-brand-cyan outline-none p-3">
+            </div>
+            
+            <div>
+                <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Contraseña</label>
+                <input type="password" id="reg-password" required minlength="6" class="w-full bg-gray-900 border border-gray-700 text-white text-sm rounded-lg focus:ring-2 focus:ring-brand-cyan outline-none p-3">
+            </div>
+
+            <button type="submit" class="w-full bg-brand-cyan hover:bg-cyan-400 text-black font-bold py-3 rounded-lg transition mt-2">
+                CREAR CUENTA
+            </button>
+        </form>
+
+        <div class="mt-6 text-center text-sm text-gray-500">
+            ¿Ya tienes cuenta? 
+            <a href="/auth/login.html" class="text-brand-cyan font-bold hover:underline">Inicia Sesión</a>
+        </div>
+    </div>
+
+    <script type="module" src="../js/auth-logic.js"></script>
+</body>
+</html>

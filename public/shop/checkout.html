@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Finalizar Compra - PixelTech</title>
+    <link rel="stylesheet" href="../css/styles.css">
+    <script src="https://kit.fontawesome.com/0d623ded97.js" crossorigin="anonymous"></script>
+</head>
+<body class="bg-gray-50 font-sans text-brand-black">
+
+    <nav class="bg-brand-black py-6 shadow-xl">
+        <div class="container mx-auto px-6 flex justify-center">
+            <a href="/" class="flex items-center gap-3">
+                <img src="../img/logo.png" alt="PixelTech" class="h-10 w-auto">
+                <span class="font-black text-xl text-white tracking-tighter uppercase">Pixel<span class="text-brand-cyan">Tech</span></span>
+            </a>
+        </div>
+    </nav>
+
+    <main class="container mx-auto px-6 py-12">
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-12 max-w-6xl mx-auto">
+            
+            <div class="lg:col-span-7 space-y-8">
+                <div>
+                    <h2 class="text-3xl font-black tracking-tight mb-2">Finalizar Pedido</h2>
+                    <p class="text-gray-400 font-medium">Completa tus datos para coordinar la entrega.</p>
+                </div>
+
+                <form id="checkout-form" class="space-y-6">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div class="space-y-2">
+                            <label class="text-[10px] font-black uppercase tracking-widest text-gray-400 ml-1">Nombre Completo</label>
+                            <input type="text" id="cust-name" required class="w-full bg-white border border-gray-200 rounded-2xl px-6 py-4 focus:outline-none focus:border-brand-cyan transition shadow-sm">
+                        </div>
+                        <div class="space-y-2">
+                            <label class="text-[10px] font-black uppercase tracking-widest text-gray-400 ml-1">Teléfono / WhatsApp</label>
+                            <input type="tel" id="cust-phone" required class="w-full bg-white border border-gray-200 rounded-2xl px-6 py-4 focus:outline-none focus:border-brand-cyan transition shadow-sm">
+                        </div>
+                    </div>
+
+                    <div class="space-y-2">
+                        <label class="text-[10px] font-black uppercase tracking-widest text-gray-400 ml-1">Dirección de Entrega</label>
+                        <input type="text" id="cust-address" required placeholder="Calle, Carrera, Apto, Barrio..." class="w-full bg-white border border-gray-200 rounded-2xl px-6 py-4 focus:outline-none focus:border-brand-cyan transition shadow-sm">
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div class="space-y-2">
+                            <label class="text-[10px] font-black uppercase tracking-widest text-gray-400 ml-1">Ciudad</label>
+                            <input type="text" id="cust-city" required class="w-full bg-white border border-gray-200 rounded-2xl px-6 py-4 focus:outline-none focus:border-brand-cyan transition shadow-sm">
+                        </div>
+                        <div class="space-y-2">
+                            <label class="text-[10px] font-black uppercase tracking-widest text-gray-400 ml-1">Notas (Opcional)</label>
+                            <input type="text" id="cust-notes" placeholder="Ej: Portería, dejar con el vecino..." class="w-full bg-white border border-gray-200 rounded-2xl px-6 py-4 focus:outline-none focus:border-brand-cyan transition shadow-sm">
+                        </div>
+                    </div>
+
+                    <div class="p-6 bg-brand-cyan/5 rounded-2xl border border-brand-cyan/20">
+                        <div class="flex gap-4">
+                            <i class="fa-solid fa-circle-info text-brand-cyan mt-1"></i>
+                            <p class="text-xs text-gray-600 leading-relaxed font-medium">
+                                <span class="font-black text-brand-cyan uppercase block mb-1">Método de Pago: Contra Entrega</span>
+                                Al confirmar, tu pedido será procesado y pagarás el total al recibirlo en la puerta de tu casa.
+                            </p>
+                        </div>
+                    </div>
+                </form>
+            </div>
+
+            <div class="lg:col-span-5">
+                <div class="bg-white rounded-[2.5rem] p-8 shadow-2xl border border-gray-100 sticky top-28">
+                    <h3 class="font-black text-xs uppercase tracking-[0.2em] text-gray-400 mb-8">Tu Selección</h3>
+                    
+                    <div id="checkout-items" class="space-y-6 mb-8 max-h-[300px] overflow-y-auto no-scrollbar">
+                        </div>
+
+                    <div class="space-y-4 border-t border-gray-50 pt-8">
+                        <div class="flex justify-between text-gray-400 font-bold text-sm uppercase">
+                            <span>Subtotal</span>
+                            <span id="check-subtotal">$0</span>
+                        </div>
+                        <div class="flex justify-between text-emerald-500 font-black text-sm uppercase">
+                            <span>Envío</span>
+                            <span>Gratis</span>
+                        </div>
+                        <div class="flex justify-between items-end pt-4">
+                            <span class="font-black text-xs uppercase tracking-widest text-gray-400">Total a Pagar</span>
+                            <span id="check-total" class="text-4xl font-black tracking-tighter">$0</span>
+                        </div>
+                    </div>
+
+                    <button id="btn-complete-order" class="w-full mt-10 bg-brand-black text-white font-black py-6 rounded-2xl hover:bg-brand-cyan transition-all duration-300 shadow-xl shadow-brand-cyan/10 uppercase text-xs tracking-[0.2em] flex items-center justify-center gap-3 group">
+                        Confirmar Pedido <i class="fa-solid fa-arrow-right group-hover:translate-x-1 transition"></i>
+                    </button>
+                    
+                    <p class="text-[9px] text-center text-gray-400 font-bold uppercase mt-6 tracking-widest">
+                        <i class="fa-solid fa-lock mr-1"></i> Transacción Segura & Encriptada
+                    </p>
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+    <script type="module" src="../js/checkout.js"></script>
+</body>
+</html>

@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>¡Pedido Exitoso! - PixelTech</title>
+    <link rel="stylesheet" href="../css/styles.css">
+    <script src="https://kit.fontawesome.com/0d623ded97.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+</head>
+<body class="bg-gray-50 h-screen flex items-center justify-center">
+
+    <div class="bg-white p-10 rounded-2xl shadow-2xl text-center max-w-md mx-4 border border-gray-100">
+        
+        <div class="w-24 h-24 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
+            <i class="fa-solid fa-check text-5xl text-green-500"></i>
+        </div>
+
+        <h1 class="text-3xl font-black text-brand-black mb-2">¡Gracias por tu compra!</h1>
+        <p class="text-gray-500 mb-6">Tu pedido ha sido registrado exitosamente en el sistema.</p>
+
+        <div class="bg-gray-50 p-4 rounded-lg border border-gray-200 mb-8 text-left">
+            <p class="text-xs text-gray-400 uppercase font-bold mb-1">Referencia de Pedido</p>
+            <p id="order-id" class="font-mono text-lg text-brand-cyan font-bold">Cargando...</p>
+            
+            <div class="mt-4 pt-4 border-t border-gray-200">
+                <p class="text-xs text-gray-400 uppercase font-bold mb-1">Estado</p>
+                <span class="bg-yellow-100 text-yellow-700 text-xs font-bold px-2 py-1 rounded-full">
+                    PENDIENTE DE PAGO (Simulación)
+                </span>
+            </div>
+        </div>
+
+        <div class="space-y-3">
+            <a href="/index.html" class="block w-full bg-black text-white font-bold py-3 rounded-xl hover:bg-gray-800 transition">
+                Volver a la Tienda
+            </a>
+            <a href="#" class="block w-full text-brand-cyan font-bold text-sm hover:underline">
+                Ver mis pedidos
+            </a>
+        </div>
+    </div>
+
+    <script>
+        // Lanzar confeti al cargar
+        confetti({
+            particleCount: 100,
+            spread: 70,
+            origin: { y: 0.6 }
+        });
+
+        // Mostrar el ID del pedido desde la URL
+        const params = new URLSearchParams(window.location.search);
+        const orderId = params.get('order');
+        if(orderId) {
+            document.getElementById('order-id').textContent = orderId;
+        } else {
+            document.getElementById('order-id').textContent = "Desconocido";
+        }
+    </script>
+
+</body>
+</html>

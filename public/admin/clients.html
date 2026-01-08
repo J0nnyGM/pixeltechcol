@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Clientes - PixelTech Admin</title>
+    <link rel="stylesheet" href="../css/styles.css">
+    <script src="https://kit.fontawesome.com/0d623ded97.js" crossorigin="anonymous"></script>
+</head>
+
+<body class="bg-gray-100 font-sans text-brand-black flex h-screen overflow-hidden">
+    <div id="admin-sidebar"></div>
+    <main class="flex-grow overflow-y-auto bg-slate-50 relative">
+        <header class="bg-white border-b border-gray-200 px-8 py-4 flex justify-between items-center sticky top-0 z-10">
+            <h2 class="font-black text-gray-400 text-[10px] uppercase tracking-[0.3em]">Base de Datos de Clientes</h2>
+            <button id="btn-add-client"
+                class="bg-brand-black text-white px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-brand-cyan transition shadow-lg">
+                <i class="fa-solid fa-user-plus mr-2"></i> Nuevo Cliente Manual
+            </button>
+        </header>
+
+        <div class="p-8">
+            <div class="mb-8 flex justify-between items-end">
+                <div>
+                    <h1 class="text-3xl font-black tracking-tighter">Clientes</h1>
+                    <p class="text-sm text-gray-500">Gestiona compradores web y ventas directas.</p>
+                </div>
+                <div class="relative w-72">
+                    <input type="text" id="search-client" placeholder="Buscar por nombre o cel..."
+                        class="w-full bg-white border border-gray-200 py-3 pl-12 pr-4 rounded-2xl text-xs focus:ring-2 focus:ring-brand-cyan/20 outline-none transition">
+                    <i class="fa-solid fa-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-gray-300"></i>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-3xl shadow-xl border border-gray-100 overflow-hidden">
+                <table class="w-full text-left text-sm">
+                    <thead
+                        class="bg-gray-50 text-[10px] uppercase font-black text-gray-400 tracking-widest border-b border-gray-100">
+                        <tr>
+                            <th class="px-8 py-5">Nombre / Cliente</th>
+                            <th class="px-8 py-5">Contacto</th>
+                            <th class="px-8 py-5">Origen</th>
+                            <th class="px-8 py-5">Fecha Registro</th>
+                            <th class="px-8 py-5 text-center">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody id="clients-table-body" class="divide-y divide-gray-50">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+
+    <div id="client-modal"
+        class="fixed inset-0 z-[100] hidden bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4">
+        <div
+            class="bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in duration-300">
+            <div class="p-8 border-b border-gray-50 flex justify-between items-center">
+                <h3 class="font-black text-xl uppercase tracking-tighter">Registrar Cliente</h3>
+                <button class="close-modal text-gray-400 hover:text-brand-red"><i
+                        class="fa-solid fa-xmark text-xl"></i></button>
+            </div>
+            <div class="p-8 space-y-4">
+                <input type="text" id="new-client-name" placeholder="Nombre Completo"
+                    class="w-full bg-slate-50 border-none p-4 rounded-2xl text-sm outline-brand-cyan">
+                <input type="text" id="new-client-phone" placeholder="Teléfono / WhatsApp"
+                    class="w-full bg-slate-50 border-none p-4 rounded-2xl text-sm outline-brand-cyan">
+                <input type="email" id="new-client-email" placeholder="Email (Opcional)"
+                    class="w-full bg-slate-50 border-none p-4 rounded-2xl text-sm outline-brand-cyan">
+                <input type="text" id="new-client-address" placeholder="Dirección Predeterminada"
+                    class="w-full bg-slate-50 border-none p-4 rounded-2xl text-sm outline-brand-cyan">
+            </div>
+            <div class="p-8 bg-gray-50 flex gap-4">
+                <button id="save-client"
+                    class="w-full bg-brand-cyan text-white font-black py-4 rounded-2xl uppercase text-xs tracking-widest shadow-lg shadow-cyan-500/20">Guardar
+                    Cliente</button>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { loadAdminSidebar } from '../js/admin-ui.js';
+        loadAdminSidebar();
+    </script>
+    <script type="module" src="../js/admin-clients.js"></script>
+</body>
+
+</html>

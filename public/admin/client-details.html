@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Detalle del Cliente - PixelTech Admin</title>
+    <link rel="stylesheet" href="../css/styles.css">
+    <script src="https://kit.fontawesome.com/0d623ded97.js" crossorigin="anonymous"></script>
+    <style>
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        .tab-btn.active { @apply border-brand-cyan text-brand-cyan; }
+    </style>
+</head>
+<body class="bg-gray-100 font-sans text-brand-black flex h-screen overflow-hidden">
+    
+    <div id="admin-sidebar"></div>
+
+    <main class="flex-grow overflow-y-auto bg-slate-50 relative">
+        <header class="bg-white border-b border-gray-200 px-8 py-4 flex justify-between items-center sticky top-0 z-10">
+            <div class="flex items-center gap-4">
+                <a href="clients.html" class="text-gray-400 hover:text-brand-black transition"><i class="fa-solid fa-arrow-left"></i></a>
+                <h2 class="font-black text-gray-400 text-[10px] uppercase tracking-[0.3em]">Expediente del Cliente</h2>
+            </div>
+            <div id="client-badge-header"></div>
+        </header>
+
+        <div class="p-8 max-w-6xl mx-auto">
+            
+            <div class="bg-brand-black rounded-[2.5rem] p-10 text-white shadow-2xl mb-8 flex flex-col md:flex-row justify-between items-center gap-8 relative overflow-hidden">
+                <div class="absolute top-0 right-0 w-64 h-64 bg-brand-cyan/10 blur-[100px] rounded-full"></div>
+                
+                <div class="flex items-center gap-6 relative z-10">
+                    <div class="w-24 h-24 rounded-3xl bg-gradient-to-br from-brand-cyan to-blue-600 flex items-center justify-center text-3xl font-black shadow-lg">
+                        <span id="client-initials">--</span>
+                    </div>
+                    <div>
+                        <h1 id="client-name-big" class="text-3xl font-black tracking-tighter">Cargando...</h1>
+                        <p id="client-email-big" class="text-brand-cyan font-bold text-sm opacity-80">...</p>
+                        <div class="flex gap-2 mt-3" id="client-tags">
+                            </div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-8 relative z-10 bg-white/5 p-6 rounded-3xl backdrop-blur-md border border-white/10">
+                    <div class="text-center">
+                        <p class="text-[9px] font-black uppercase tracking-widest text-gray-400">Total Gastado</p>
+                        <p id="stat-ltv" class="text-xl font-black text-brand-cyan">$0</p>
+                    </div>
+                    <div class="text-center border-l border-white/10 pl-8">
+                        <p class="text-[9px] font-black uppercase tracking-widest text-gray-400">Pedidos</p>
+                        <p id="stat-orders-count" class="text-xl font-black">0</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex border-b border-gray-200 mb-8 gap-10">
+                <button class="tab-btn active border-b-4 border-transparent pb-4 font-black text-xs uppercase tracking-widest transition" data-tab="tab-datos">Datos Generales</button>
+                <button class="tab-btn border-b-4 border-transparent pb-4 font-black text-xs uppercase tracking-widest transition" data-tab="tab-pedidos">Historial de Compras</button>
+                <button class="tab-btn border-b-4 border-transparent pb-4 font-black text-xs uppercase tracking-widest transition" data-tab="tab-seriales">Seriales (Garantía)</button>
+            </div>
+
+            <div id="tab-datos" class="tab-content active animate-in fade-in duration-500">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+                    <div class="md:col-span-2 bg-white rounded-3xl p-8 shadow-sm border border-gray-100">
+                        <h3 class="font-black text-xs uppercase tracking-widest text-gray-400 mb-6 flex items-center gap-2">
+                            <i class="fa-solid fa-id-card text-brand-cyan"></i> Información Personal
+                        </h3>
+                        <div class="grid grid-cols-2 gap-6">
+                            <div class="space-y-1">
+                                <label class="text-[10px] font-black text-gray-400 uppercase ml-1">Cédula / NIT</label>
+                                <input type="text" id="edit-doc" class="w-full bg-slate-50 border-none rounded-2xl p-4 text-sm font-bold">
+                            </div>
+                            <div class="space-y-1">
+                                <label class="text-[10px] font-black text-gray-400 uppercase ml-1">Teléfono Principal</label>
+                                <input type="text" id="edit-phone" class="w-full bg-slate-50 border-none rounded-2xl p-4 text-sm font-bold">
+                            </div>
+                            <div class="col-span-2 space-y-1">
+                                <label class="text-[10px] font-black text-gray-400 uppercase ml-1">Dirección de Despacho</label>
+                                <input type="text" id="edit-address" class="w-full bg-slate-50 border-none rounded-2xl p-4 text-sm font-bold">
+                            </div>
+                        </div>
+                        <button id="btn-update-client" class="mt-8 bg-brand-black text-white px-10 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-brand-cyan transition shadow-lg">Actualizar Expediente</button>
+                    </div>
+
+                    <div class="bg-white rounded-3xl p-8 shadow-sm border border-gray-100">
+                        <h3 class="font-black text-xs uppercase tracking-widest text-gray-400 mb-6 flex items-center gap-2">
+                            <i class="fa-solid fa-note-sticky text-brand-cyan"></i> Notas del Admin
+                        </h3>
+                        <textarea id="edit-notes" placeholder="Escribe detalles importantes sobre este cliente..." class="w-full h-48 bg-slate-50 border-none rounded-2xl p-4 text-sm font-medium resize-none focus:ring-2 focus:ring-brand-cyan/20"></textarea>
+                    </div>
+                </div>
+            </div>
+
+            <div id="tab-pedidos" class="tab-content animate-in slide-in-from-bottom-4 duration-500">
+                <div class="bg-white rounded-3xl shadow-sm border border-gray-100 overflow-hidden">
+                    <table class="w-full text-left text-sm">
+                        <thead class="bg-gray-50 text-[10px] font-black uppercase tracking-widest text-gray-400">
+                            <tr>
+                                <th class="px-8 py-5">Referencia</th>
+                                <th class="px-8 py-5">Fecha</th>
+                                <th class="px-8 py-5">Estado</th>
+                                <th class="px-8 py-5 text-right">Monto</th>
+                            </tr>
+                        </thead>
+                        <tbody id="client-orders-list" class="divide-y divide-gray-50">
+                            </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div id="tab-seriales" class="tab-content animate-in slide-in-from-bottom-4 duration-500">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4" id="client-sn-list">
+                    </div>
+            </div>
+
+        </div>
+    </main>
+
+    <script type="module" src="../js/admin-client-details.js"></script>
+</body>
+</html>

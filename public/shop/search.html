@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Resultados de Búsqueda - PixelTech</title>
+    <link rel="stylesheet" href="../css/styles.css">
+    <script src="https://kit.fontawesome.com/0d623ded97.js" crossorigin="anonymous"></script>
+</head>
+<body class="bg-white font-sans text-brand-black">
+
+    <div id="global-header"></div>
+
+    <main class="container mx-auto px-6 py-12">
+        <div class="mb-12">
+            <p class="text-[10px] font-black uppercase tracking-[0.3em] text-brand-cyan mb-2">Explorando el catálogo</p>
+            <h1 class="text-4xl font-black tracking-tighter uppercase">
+                Resultados para: <span id="search-term" class="text-gray-400">...</span>
+            </h1>
+            <div class="h-1 w-20 bg-brand-cyan mt-4"></div>
+        </div>
+
+        <div id="search-results-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
+            <div class="col-span-full py-20 text-center">
+                <i class="fa-solid fa-circle-notch fa-spin text-4xl text-brand-cyan mb-4"></i>
+                <p class="text-gray-400 font-bold uppercase text-[10px] tracking-widest">Escaneando inventario...</p>
+            </div>
+        </div>
+
+        <div id="no-results" class="hidden py-20 text-center max-w-md mx-auto">
+            <div class="w-24 h-24 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-6 text-gray-200">
+                <i class="fa-solid fa-magnifying-glass text-4xl"></i>
+            </div>
+            <h2 class="text-xl font-black mb-2">No encontramos coincidencias</h2>
+            <p class="text-gray-500 text-sm mb-8">Intenta con palabras más generales o revisa la ortografía.</p>
+            <a href="/index.html" class="inline-block bg-brand-black text-white px-10 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-brand-cyan transition shadow-xl">Ver todo el catálogo</a>
+        </div>
+    </main>
+
+    <script type="module">
+        import { loadGlobalHeader } from '../js/global-components.js';
+        import { initSearch } from '../js/search.js';
+        
+        loadGlobalHeader();
+        initSearch();
+    </script>
+</body>
+</html>
