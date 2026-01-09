@@ -8,14 +8,36 @@
     <link rel="stylesheet" href="css/styles.css">
     <script src="https://kit.fontawesome.com/0d623ded97.js" crossorigin="anonymous"></script>
     <style>
-        .no-scrollbar::-webkit-scrollbar { display: none; }
-        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-        
-        .fade-in { animation: fadeIn 0.8s ease-out forwards; }
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
 
-        .slider-image { transition: transform 0.7s ease-in-out; }
-        .slider-active .slider-image { transform: scale(1.05); }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+
+        .fade-in {
+            animation: fadeIn 0.8s ease-out forwards;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+            }
+
+            to {
+                opacity: 1;
+            }
+        }
+
+        .slider-image {
+            transition: transform 0.7s ease-in-out;
+        }
+
+        .slider-active .slider-image {
+            transform: scale(1.05);
+        }
     </style>
 </head>
 
@@ -25,7 +47,7 @@
 
     <section class="container mx-auto px-6 py-6">
         <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 h-auto lg:h-[650px]">
-            
+
             <div class="lg:col-span-4 relative rounded-[2.5rem] overflow-hidden shadow-xl bg-slate-900 group h-full">
                 <div id="promo-slider-container" class="h-full w-full relative">
                     <div class="flex items-center justify-center h-full">
@@ -35,27 +57,30 @@
             </div>
 
             <div class="lg:col-span-8 grid grid-cols-1 lg:grid-cols-2 gap-6 h-full">
-                
-                <div id="new-launch-banner" class="relative rounded-[2.5rem] overflow-hidden shadow-2xl bg-brand-black h-[400px] lg:h-auto lg:row-span-2">
+
+                <div id="new-launch-banner"
+                    class="relative rounded-[2.5rem] overflow-hidden shadow-2xl bg-brand-black h-[400px] lg:h-auto lg:row-span-2">
                     <div class="animate-pulse bg-slate-800 w-full h-full"></div>
                 </div>
 
-                <div class="bg-white rounded-[2.5rem] shadow-lg border border-gray-100 p-8 flex flex-col h-[400px] lg:h-auto lg:row-span-2">
+                <div
+                    class="bg-white rounded-[2.5rem] shadow-lg border border-gray-100 p-8 flex flex-col h-[400px] lg:h-auto lg:row-span-2">
                     <div class="flex items-center gap-2 mb-6">
                         <div class="w-1.5 h-6 bg-brand-cyan rounded-full"></div>
                         <h3 class="font-black text-sm uppercase tracking-widest text-brand-black">Elección Semanal</h3>
                     </div>
-                    <div id="weekly-choice-container" class="flex-grow space-y-4 overflow-y-auto no-scrollbar">
-                        </div>
+                    <div id="weekly-choice-container" class="flex-grow space-y-4 overflow-y-auto no-scrollbar"></div>
                 </div>
 
-                <div class="lg:col-span-2 bg-slate-50 rounded-[2.5rem] border border-gray-100 p-6 h-[200px] lg:h-auto">
+                <div class="lg:col-span-2 bg-slate-50 rounded-[2.5rem] border border-gray-100 p-6 h-fit lg:h-auto">
                     <div class="flex items-center justify-between mb-4 px-2">
-                        <h3 class="font-black text-[10px] uppercase tracking-[0.2em] text-gray-400">Visto recientemente</h3>
+                        <h3 class="font-black text-[10px] uppercase tracking-[0.2em] text-gray-400">Visto recientemente
+                        </h3>
                         <div class="h-px bg-gray-200 flex-grow mx-4"></div>
                     </div>
                     <div id="view-history-list" class="flex gap-6 overflow-x-auto no-scrollbar py-2">
-                        <p class="text-[10px] text-gray-400 font-bold uppercase w-full text-center py-4">Explora productos para ver tu historial</p>
+                        <p class="text-[10px] text-gray-400 font-bold uppercase w-full text-center py-4">Explora
+                            productos para ver tu historial</p>
                     </div>
                 </div>
             </div>
@@ -65,52 +90,72 @@
     <section class="bg-brand-surface py-16 mb-16">
         <div class="container mx-auto px-6">
             <div class="flex flex-col md:flex-row justify-between items-center mb-10 gap-4">
-                <h2 class="text-3xl font-black tracking-tighter uppercase">Precios <span class="text-brand-red">Especiales</span></h2>
+                <h2 class="text-3xl font-black tracking-tighter uppercase">Precios <span
+                        class="text-brand-red">Especiales</span></h2>
                 <div class="h-[2px] bg-gray-200 flex-grow hidden md:block mx-10"></div>
-                <p class="text-[10px] font-black text-gray-400 uppercase tracking-widest bg-white px-4 py-2 rounded-full shadow-sm">Solo por tiempo limitado</p>
+                <p
+                    class="text-[10px] font-black text-gray-400 uppercase tracking-widest bg-white px-4 py-2 rounded-full shadow-sm">
+                    Solo por tiempo limitado</p>
             </div>
             <div id="promo-products-grid" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6"></div>
         </div>
     </section>
 
     <section class="container mx-auto px-6 mb-20">
-        <div class="bg-white rounded-[2.5rem] p-10 md:p-14 flex flex-wrap justify-around gap-12 border border-brand-border shadow-sm">
+        <div
+            class="bg-white rounded-[2.5rem] p-10 md:p-14 flex flex-wrap justify-around gap-12 border border-gray-100 shadow-sm">
             <div class="flex items-center gap-6 group">
-                <div class="w-16 h-16 rounded-2xl bg-cyan-50 flex items-center justify-center group-hover:scale-110 transition duration-500"><i class="fa-solid fa-truck-fast text-3xl text-brand-cyan"></i></div>
-                <div><h4 class="font-black text-[11px] uppercase tracking-widest">Envío Nacional</h4><p class="text-xs text-gray-400 font-medium">Seguimiento 24/7</p></div>
+                <div
+                    class="w-16 h-16 rounded-2xl bg-cyan-50 flex items-center justify-center group-hover:scale-110 transition duration-500">
+                    <i class="fa-solid fa-truck-fast text-3xl text-brand-cyan"></i></div>
+                <div>
+                    <h4 class="font-black text-[11px] uppercase tracking-widest">Envío Nacional</h4>
+                    <p class="text-xs text-gray-400 font-medium">Seguimiento 24/7</p>
+                </div>
             </div>
             <div class="flex items-center gap-6 group">
-                <div class="w-16 h-16 rounded-2xl bg-emerald-50 flex items-center justify-center group-hover:scale-110 transition duration-500"><i class="fa-solid fa-shield-check text-3xl text-emerald-500"></i></div>
-                <div><h4 class="font-black text-[11px] uppercase tracking-widest">Compra Segura</h4><p class="text-xs text-gray-400 font-medium">Garantía Real</p></div>
+                <div
+                    class="w-16 h-16 rounded-2xl bg-emerald-50 flex items-center justify-center group-hover:scale-110 transition duration-500">
+                    <i class="fa-solid fa-shield-check text-3xl text-emerald-500"></i></div>
+                <div>
+                    <h4 class="font-black text-[11px] uppercase tracking-widest">Compra Segura</h4>
+                    <p class="text-xs text-gray-400 font-medium">Garantía Real</p>
+                </div>
             </div>
             <div class="flex items-center gap-6 group">
-                <div class="w-16 h-16 rounded-2xl bg-yellow-50 flex items-center justify-center group-hover:scale-110 transition duration-500"><i class="fa-solid fa-headset text-3xl text-yellow-500"></i></div>
-                <div><h4 class="font-black text-[11px] uppercase tracking-widest">Soporte Pro</h4><p class="text-xs text-gray-400 font-medium">Expertos tech</p></div>
+                <div
+                    class="w-16 h-16 rounded-2xl bg-yellow-50 flex items-center justify-center group-hover:scale-110 transition duration-500">
+                    <i class="fa-solid fa-headset text-3xl text-yellow-500"></i></div>
+                <div>
+                    <h4 class="font-black text-[11px] uppercase tracking-widest">Soporte Pro</h4>
+                    <p class="text-xs text-gray-400 font-medium">Expertos tech</p>
+                </div>
             </div>
         </div>
     </section>
 
     <main class="container mx-auto px-6 pb-32">
-        <div class="flex flex-col md:flex-row justify-between items-start md:items-end mb-16 gap-6 border-l-8 border-brand-cyan pl-8">
+        <div
+            class="flex flex-col md:flex-row justify-between items-start md:items-end mb-16 gap-6 border-l-8 border-brand-cyan pl-8">
             <div>
-                <p class="text-brand-cyan font-black text-[10px] uppercase tracking-[0.4em] mb-2">Ingeniería para el rendimiento</p>
-                <h2 class="text-5xl font-black text-brand-black tracking-tighter uppercase">Catálogo <span class="text-gray-300">Maestro</span></h2>
+                <p class="text-brand-cyan font-black text-[10px] uppercase tracking-[0.4em] mb-2">Ingeniería para el
+                    rendimiento</p>
+                <h2 class="text-5xl font-black text-brand-black tracking-tighter uppercase">Catálogo <span
+                        class="text-gray-300">Maestro</span></h2>
             </div>
         </div>
         <div id="products-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-10"></div>
     </main>
 
-    <footer class="bg-brand-black text-gray-500 py-24 border-t border-white/5">
-        <div class="container mx-auto px-6 text-center">
-            <img src="img/logo.png" alt="PixelTech" class="h-16 mx-auto mb-12 opacity-80">
-            <p class="text-[10px] uppercase font-black tracking-[0.5em] opacity-30">© 2026 PIXELTECH — GLOBAL TECHNOLOGY LEADER.</p>
-        </div>
-    </footer>
+    <div id="global-footer"></div>
 
     <script type="module">
-        import { loadGlobalHeader } from './js/global-components.js';
-        loadGlobalHeader();
+        import { loadGlobalHeader, loadGlobalFooter } from '../js/global-components.js';
+
+        loadGlobalHeader(); // Inyecta el header
+        loadGlobalFooter(); // Inyecta el nuevo footer
     </script>
     <script type="module" src="js/app.js"></script>
 </body>
+
 </html>

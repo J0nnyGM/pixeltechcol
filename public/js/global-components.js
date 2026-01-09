@@ -60,7 +60,7 @@ export function loadGlobalHeader() {
                         <span class="text-[8px] font-black uppercase tracking-widest text-gray-500 group-hover:text-green-500 text-center">Chat</span>
                     </a>
 
-                    <div id="user-info-global" class="w-10 md:w-14"></div>
+                    <div id="user-info-global" class="hidden lg:block w-14"></div>
 
                     <a href="/shop/cart.html" class="flex flex-col items-center gap-1 group w-10 md:w-14">
                         <div class="w-10 h-10 md:w-12 md:h-12 rounded-xl md:rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center relative group-hover:bg-brand-red group-hover:text-white transition duration-300">
@@ -171,23 +171,25 @@ function initHeaderLogic() {
         const container = document.getElementById('user-info-global');
         if (!container) return;
 
+        // Nota: Como el contenedor ahora tiene "hidden lg:block", este código solo
+        // afectará visualmente a la versión de escritorio.
         if (user) {
             const userSnap = await getDoc(doc(db, "users", user.uid));
             const isAdmin = userSnap.exists() && userSnap.data().role === 'admin';
             const label = isAdmin ? 'Admin' : 'Cuenta';
 
             container.innerHTML = `
-                <a href="${isAdmin ? '/admin/index.html' : '/profile.html'}" class="flex flex-col items-center gap-1 group w-10 md:w-14">
-                    <div class="w-10 h-10 md:w-12 md:h-12 rounded-xl bg-brand-cyan text-brand-black flex items-center justify-center shadow-lg transition duration-300">
-                        <i class="fa-solid ${isAdmin ? 'fa-user-shield' : 'fa-user-check'} text-lg md:text-xl"></i>
+                <a href="${isAdmin ? '/admin/index.html' : '/profile.html'}" class="flex flex-col items-center gap-1 group w-14">
+                    <div class="w-12 h-12 rounded-2xl bg-brand-cyan text-brand-black flex items-center justify-center shadow-lg transition duration-300">
+                        <i class="fa-solid ${isAdmin ? 'fa-user-shield' : 'fa-user-check'} text-xl"></i>
                     </div>
                     <span class="hidden md:block text-[8px] font-black uppercase tracking-widest text-brand-cyan text-center">${label}</span>
                 </a>`;
         } else {
             container.innerHTML = `
-                <a href="/auth/login.html" class="flex flex-col items-center gap-1 group w-10 md:w-14">
-                    <div class="w-10 h-10 md:w-12 md:h-12 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-center group-hover:bg-brand-cyan transition duration-300 shadow-lg">
-                        <i class="fa-regular fa-user text-lg md:text-xl text-white group-hover:text-brand-black"></i>
+                <a href="/auth/login.html" class="flex flex-col items-center gap-1 group w-14">
+                    <div class="w-12 h-12 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center group-hover:bg-brand-cyan transition duration-300 shadow-lg">
+                        <i class="fa-regular fa-user text-xl text-white group-hover:text-brand-black"></i>
                     </div>
                     <span class="hidden md:block text-[8px] font-black uppercase tracking-widest text-gray-500 group-hover:text-brand-cyan text-center">Ingresar</span>
                 </a>`;
@@ -215,7 +217,6 @@ async function syncAllCategories() {
         const q = query(collection(db, "categories"), orderBy("name", "asc"));
         const snap = await getDocs(q);
         
-        // 1. Limpiar y Agregar manualmente la opción "TODOS" al inicio
         if(desktopNav) {
             desktopNav.innerHTML = `
                 <li><a href="/index.html" class="hover:text-brand-black transition duration-300">TODOS</a></li>
@@ -230,7 +231,6 @@ async function syncAllCategories() {
             `;
         }
 
-        // 2. Cargar dinámicamente las categorías de Firestore
         snap.forEach(docSnap => {
             const cat = docSnap.data();
             const url = `/shop/category.html?id=${docSnap.id}`;
@@ -253,4 +253,78 @@ async function syncAllCategories() {
     } catch (e) {
         console.error("Error al sincronizar categorías:", e);
     }
+}
+
+export function loadGlobalFooter() {
+    const footerContainer = document.getElementById('global-footer');
+    if (!footerContainer) return;
+
+    footerContainer.innerHTML = `
+    <footer class="bg-brand-black text-white pt-20 pb-10 border-t border-white/5">
+        <div class="container mx-auto px-6">
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-12 mb-16">
+                
+                <div class="space-y-6">
+                    <img src="/img/logo.png" alt="PixelTech" class="h-10 opacity-90">
+                    <p class="text-gray-500 text-xs leading-relaxed uppercase font-medium tracking-wider">
+                        Líder global en tecnología de alto rendimiento. Ingeniería de vanguardia para entusiastas y profesionales.
+                    </p>
+                    <div class="flex gap-4 text-gray-400">
+                        <a href="#" class="hover:text-brand-cyan transition"><i class="fa-brands fa-instagram text-lg"></i></a>
+                        <a href="#" class="hover:text-brand-cyan transition"><i class="fa-brands fa-facebook text-lg"></i></a>
+                        <a href="#" class="hover:text-brand-cyan transition"><i class="fa-brands fa-x-twitter text-lg"></i></a>
+                    </div>
+                </div>
+
+                <div>
+                    <h4 class="font-black text-[10px] uppercase tracking-[0.3em] text-brand-cyan mb-8">Explorar</h4>
+                    <ul class="space-y-4 text-[10px] font-bold uppercase tracking-widest text-gray-400">
+                        <li><a href="/index.html" class="hover:text-white transition">Inicio</a></li>
+                        <li><a href="/shop/catalog.html" class="hover:text-white transition">Catálogo Completo</a></li>
+                        <li><a href="/shop/promos.html" class="hover:text-white transition">Ofertas Especiales</a></li>
+                        <li><a href="/profile.html" class="hover:text-white transition">Mi Cuenta</a></li>
+                    </ul>
+                </div>
+
+                <div>
+                    <h4 class="font-black text-[10px] uppercase tracking-[0.3em] text-brand-cyan mb-8">Soporte Pro</h4>
+                    <ul class="space-y-4 text-[10px] font-bold uppercase tracking-widest text-gray-400">
+                        <li><a href="#" class="hover:text-white transition">Rastreo de Pedido</a></li>
+                        <li><a href="#" class="hover:text-white transition">Garantía Extendida</a></li>
+                        <li><a href="#" class="hover:text-white transition">Preguntas Frecuentes</a></li>
+                        <li><a href="#" class="hover:text-white transition">Términos de Servicio</a></li>
+                    </ul>
+                </div>
+
+                <div>
+                    <h4 class="font-black text-[10px] uppercase tracking-[0.3em] text-brand-cyan mb-8">Contacto Directo</h4>
+                    <div class="space-y-4">
+                        <a href="https://wa.me/573000000000" class="flex items-center gap-3 group">
+                            <div class="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center group-hover:bg-brand-cyan/20 transition">
+                                <i class="fa-brands fa-whatsapp text-brand-cyan"></i>
+                            </div>
+                            <span class="text-[10px] font-black uppercase tracking-widest text-gray-400">WhatsApp Business</span>
+                        </a>
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center">
+                                <i class="fa-solid fa-envelope text-gray-500"></i>
+                            </div>
+                            <span class="text-[10px] font-black uppercase tracking-widest text-gray-400">soporte@pixeltech.com</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="border-t border-white/5 pt-10 flex flex-col md:flex-row justify-between items-center gap-6">
+                <p class="text-[9px] font-black uppercase tracking-[0.4em] text-gray-600">
+                    © 2026 PIXELTECH — GLOBAL TECHNOLOGY LEADER.
+                </p>
+                <div class="flex gap-6 grayscale opacity-30">
+                    <img src="https://img.icons8.com/color/48/visa.png" class="h-5">
+                    <img src="https://img.icons8.com/color/48/mastercard.png" class="h-5">
+                    <img src="https://img.icons8.com/color/48/paypal.png" class="h-5">
+                </div>
+            </div>
+        </div>
+    </footer>`;
 }

@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Editor Maestro | PixelTech Admin</title>
+    <link rel="stylesheet" href="../css/styles.css">
+    <script src="https://kit.fontawesome.com/0d623ded97.js" crossorigin="anonymous"></script>
+    <style>
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        
+        .admin-input-group {
+            background-color: #ffffff;
+            border: 2px solid #e5e7eb; 
+            border-radius: 1.5rem;
+            padding: 1.25rem;
+            transition: all 0.3s ease;
+        }
+        
+        .admin-input-group:focus-within {
+            border-color: #00AEC7; 
+            box-shadow: 0 10px 15px -3px rgba(0, 174, 199, 0.1);
+        }
+
+        .rich-editor {
+            min-height: 400px;
+            width: 100%;
+            padding: 2.5rem;
+            outline: none;
+            background-color: #ffffff;
+            line-height: 1.6;
+        }
+
+        .rich-editor h1 { font-size: 2.25rem; font-weight: 900; margin-bottom: 1.5rem; text-transform: uppercase; }
+        .rich-editor p { margin-bottom: 1rem; }
+        .rich-editor b { font-weight: 700; }
+        .rich-editor ul { list-style-type: disc; margin-left: 1.5rem; margin-bottom: 1rem; }
+    </style>
+</head>
+<body class="bg-slate-50 font-sans text-brand-black flex h-screen overflow-hidden">
+
+    <div id="admin-sidebar"></div>
+
+    <main class="flex-grow overflow-y-auto no-scrollbar">
+        <header class="bg-white border-b border-gray-200 px-10 py-6 flex justify-between items-center sticky top-0 z-50 shadow-sm">
+            <div class="flex items-center gap-6">
+                <a href="products.html" class="w-12 h-12 rounded-full border-2 border-gray-100 flex items-center justify-center text-gray-400 hover:border-brand-cyan transition">
+                    <i class="fa-solid fa-chevron-left"></i>
+                </a>
+                <div>
+                    <h1 class="text-3xl font-black uppercase tracking-tighter">Editar <span class="text-gray-300">Producto</span></h1>
+                    <p id="product-id-display" class="text-[9px] font-bold text-gray-400 uppercase tracking-[0.2em]">Cargando...</p>
+                </div>
+            </div>
+            <div class="flex items-center gap-4">
+                <button type="button" onclick="location.href='products.html'" class="text-[10px] font-black uppercase tracking-widest text-gray-400 hover:text-brand-red transition">Descartar</button>
+                <button id="btn-update" form="main-form" type="submit" class="bg-brand-black text-white px-10 py-4 rounded-2xl font-black uppercase text-[10px] tracking-[0.2em] shadow-2xl hover:bg-brand-cyan transition-all">
+                    Actualizar Cambios
+                </button>
+            </div>
+        </header>
+
+        <div id="loader-view" class="p-32 text-center">
+            <i class="fa-solid fa-circle-notch fa-spin text-4xl text-brand-cyan opacity-20"></i>
+        </div>
+
+        <div id="edit-view" class="p-10 max-w-7xl mx-auto space-y-10 hidden">
+            <form id="main-form" class="space-y-10">
+                
+                <div class="grid grid-cols-1 lg:grid-cols-12 gap-10">
+                    
+                    <div class="lg:col-span-7 space-y-6">
+                        <div class="admin-input-group">
+                            <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Nombre Comercial</label>
+                            <input type="text" id="p-name" required class="w-full bg-transparent border-none p-0 text-xl text-brand-black font-bold outline-none">
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-6">
+                            <div class="admin-input-group">
+                                <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">SKU</label>
+                                <input type="text" id="p-sku" class="w-full bg-transparent border-none p-0 text-sm font-semibold outline-none">
+                            </div>
+                            <div class="admin-input-group">
+                                <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Marca</label>
+                                <input type="text" id="p-brand" class="w-full bg-transparent border-none p-0 text-sm font-semibold outline-none">
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-6">
+                            <div class="admin-input-group">
+                                <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Precio Base (COP)</label>
+                                <input type="number" id="p-price" required class="w-full bg-transparent border-none p-0 text-lg text-brand-cyan font-black outline-none">
+                            </div>
+                            <div class="admin-input-group">
+                                <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Stock Total</label>
+                                <input type="number" id="p-stock" required class="w-full bg-transparent border-none p-0 text-sm font-semibold outline-none">
+                            </div>
+                        </div>
+
+                        <div class="admin-input-group relative">
+                            <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Categoría</label>
+                            <input type="text" id="cat-search" placeholder="Buscar categoría..." class="w-full bg-transparent border-none p-0 text-sm font-semibold outline-none">
+                            <div id="cat-results" class="absolute z-50 w-full left-0 mt-6 bg-white border-2 border-gray-100 rounded-2xl shadow-2xl hidden max-h-48 overflow-y-auto p-2"></div>
+                            <input type="hidden" id="p-category">
+                        </div>
+
+                        <div class="bg-white border-2 border-gray-200 rounded-[2.5rem] overflow-hidden shadow-sm">
+                            <div class="bg-gray-50 border-b border-gray-100 p-6 flex items-center justify-between">
+                                <span class="block text-[10px] font-black text-brand-black uppercase tracking-[0.2em]">Variaciones de Color</span>
+                                <button type="button" id="btn-add-variant" class="bg-brand-black text-white px-4 py-2 rounded-xl font-black text-[9px] uppercase tracking-widest hover:bg-brand-cyan transition">
+                                    <i class="fa-solid fa-plus mr-2"></i> Agregar
+                                </button>
+                            </div>
+                            <div id="variants-container" class="p-8 space-y-6"></div>
+                        </div>
+
+                        <div class="bg-white border-2 border-gray-200 rounded-[2.5rem] overflow-hidden shadow-sm">
+                            <div class="bg-gray-50 border-b border-gray-100 p-6 flex items-center justify-between">
+                                <span class="block text-[10px] font-black text-brand-black uppercase tracking-[0.2em]">Almacenamiento</span>
+                                <button type="button" id="btn-add-capacity" class="bg-brand-black text-white px-4 py-2 rounded-xl font-black text-[9px] uppercase tracking-widest hover:bg-brand-cyan transition">
+                                    <i class="fa-solid fa-plus mr-2"></i> Agregar
+                                </button>
+                            </div>
+                            <div id="capacities-container" class="p-8 space-y-4"></div>
+                        </div>
+                    </div>
+
+                    <div class="lg:col-span-5">
+                        <div class="bg-white border-2 border-gray-200 rounded-[2.5rem] p-8 h-full flex flex-col shadow-sm">
+                            <div class="flex justify-between items-center mb-6">
+                                <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Multimedia Principal</label>
+                                <span class="text-[8px] font-bold text-brand-cyan uppercase">Global</span>
+                            </div>
+                            
+                            <div id="gallery-container" class="grid grid-cols-2 gap-4 mb-6"></div>
+
+                            <label class="mt-auto w-full flex flex-col items-center justify-center gap-4 py-12 bg-slate-50 border-2 border-dashed border-gray-200 rounded-[2rem] cursor-pointer hover:border-brand-cyan hover:bg-white transition-all group">
+                                <i class="fa-solid fa-camera-retro text-3xl text-gray-300 group-hover:text-brand-cyan transition"></i>
+                                <span class="font-black text-[9px] uppercase text-gray-400 group-hover:text-brand-black">Añadir Fotos Globales</span>
+                                <input type="file" id="p-images" multiple accept="image/*" class="hidden">
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white border-2 border-gray-200 rounded-[2.5rem] overflow-hidden shadow-sm">
+                    <div class="bg-gray-50 border-b border-gray-100 p-6 flex items-center justify-between">
+                        <span class="block text-[10px] font-black text-brand-black uppercase tracking-[0.2em]">Ficha Técnica del Producto</span>
+                        <div class="flex gap-2 bg-white p-1.5 rounded-2xl border border-gray-200 shadow-sm">
+                            <button type="button" onclick="formatDoc('bold')" class="w-10 h-10 rounded-xl hover:bg-gray-100 transition"><i class="fa-solid fa-bold"></i></button>
+                            <button type="button" onclick="formatDoc('formatBlock', 'H1')" class="px-3 h-10 rounded-xl hover:bg-gray-100 transition font-black text-xs">H1</button>
+                            <button type="button" onclick="formatDoc('formatBlock', 'P')" class="px-3 h-10 rounded-xl hover:bg-gray-100 transition font-black text-xs">P</button>
+                            <button type="button" onclick="formatDoc('insertUnorderedList')" class="w-10 h-10 rounded-xl hover:bg-gray-100 transition"><i class="fa-solid fa-list-ul"></i></button>
+                        </div>
+                    </div>
+                    <div id="p-description-editor" contenteditable="true" class="rich-editor no-scrollbar"></div>
+                </div>
+            </form>
+
+            <div class="bg-white border-2 border-gray-200 rounded-[2.5rem] overflow-hidden shadow-sm">
+                <div class="bg-gray-50 border-b border-gray-100 p-6 flex items-center justify-between">
+                    <span class="block text-[10px] font-black text-brand-black uppercase tracking-[0.2em]">Historial de Modificaciones</span>
+                    <i class="fa-solid fa-history text-gray-300"></i>
+                </div>
+                <div id="history-container" class="p-8 space-y-4"></div>
+            </div>
+        </div>
+    </main>
+
+    <script type="module" src="../js/admin-edit-product.js"></script>
+    <script>
+        function formatDoc(cmd, value = null) {
+            document.execCommand(cmd, false, value);
+            document.getElementById('p-description-editor').focus();
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Expediente de Aliado | PixelTech Elite</title>
+    <link rel="stylesheet" href="../css/styles.css">
+    <script src="https://kit.fontawesome.com/0d623ded97.js" crossorigin="anonymous"></script>
+    <style>
+        .hidden { display: none; }
+        .custom-scroll::-webkit-scrollbar { width: 6px; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #00AEC7; border-radius: 10px; }
+        
+        /* TABS EXPANDIDAS Y DINÁMICAS */
+        .tabs-wrapper { @apply flex bg-white border border-gray-100 rounded-[2.5rem] shadow-sm mb-10 overflow-hidden w-full; }
+        
+        .crm-tab-btn { 
+            @apply flex-1 flex items-center justify-center gap-3 py-6 font-black text-[12px] uppercase tracking-[0.2em] text-gray-400 transition-all duration-500 border-b-4 border-transparent; 
+        }
+        
+        /* Colores dinámicos por pestaña activa */
+        .crm-tab-btn.active[data-tab="generales"] { @apply text-brand-black border-brand-cyan bg-cyan-50/30; }
+        .crm-tab-btn.active[data-tab="historial"] { @apply text-brand-black border-brand-cyan bg-blue-50/30; }
+        .crm-tab-btn.active[data-tab="pagos"] { @apply text-brand-black border-green-500 bg-green-50/30; }
+
+        .info-card { @apply bg-white border border-gray-100 p-8 rounded-[2.5rem] shadow-sm hover:shadow-xl transition-all duration-500; }
+        .label-tech { @apply text-[9px] font-black text-gray-400 uppercase tracking-[0.3em] mb-3 block; }
+        
+        .file-card { 
+            @apply flex items-center gap-5 p-6 bg-white border-2 border-gray-50 rounded-[2.2rem] hover:border-brand-cyan hover:bg-slate-50 transition-all cursor-pointer group; 
+        }
+    </style>
+</head>
+
+<body class="bg-slate-50 font-sans text-brand-black flex h-screen overflow-hidden text-left">
+
+    <div id="admin-sidebar"></div>
+
+    <main class="flex-grow overflow-y-auto relative custom-scroll">
+        <header class="bg-white/80 backdrop-blur-md border-b border-gray-100 px-8 py-5 flex justify-between items-center sticky top-0 z-30 shadow-sm">
+            <div class="flex items-center gap-6">
+                <a href="suppliers.html" class="w-12 h-12 bg-slate-100 rounded-2xl flex items-center justify-center text-gray-400 hover:bg-brand-black hover:text-white transition-all shadow-inner">
+                    <i class="fa-solid fa-chevron-left"></i>
+                </a>
+                <h2 class="font-black text-gray-400 text-[10px] uppercase tracking-[0.5em]">Expediente de Abastecimiento</h2>
+            </div>
+            <button id="btn-edit-supplier" class="bg-brand-black text-white px-8 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-brand-cyan hover:text-brand-black transition-all shadow-2xl">
+                <i class="fa-solid fa-pen-to-square mr-2"></i> Editar Perfil
+            </button>
+        </header>
+
+        <div class="p-8 max-w-7xl mx-auto">
+            <div class="flex flex-col lg:flex-row justify-between items-start lg:items-end mb-12 gap-10">
+                <div>
+                    <h1 id="sup-name-title" class="text-6xl font-black text-brand-black tracking-tighter uppercase leading-none mb-4">---</h1>
+                    <span id="sup-nit-title" class="bg-brand-black text-white px-5 py-2 rounded-full text-[10px] font-black uppercase tracking-widest shadow-lg">NIT: ---</span>
+                </div>
+                <div class="flex gap-5">
+                    <div class="bg-white border border-gray-100 p-8 rounded-[2.5rem] shadow-sm text-right min-w-[200px]">
+                        <p class="label-tech mb-1">Inversión Total</p>
+                        <h3 id="sup-total-invested" class="text-4xl font-black text-brand-cyan tracking-tighter">$0</h3>
+                    </div>
+                    <div class="bg-white border border-gray-100 p-8 rounded-[2.5rem] shadow-sm text-right min-w-[150px]">
+                        <p class="label-tech mb-1">Órdenes</p>
+                        <h3 id="sup-orders-count" class="text-4xl font-black text-brand-black tracking-tighter">0</h3>
+                    </div>
+                </div>
+            </div>
+
+            <div class="tabs-wrapper">
+                <button class="crm-tab-btn active" data-tab="generales"><i class="fa-solid fa-address-card"></i> Datos Generales</button>
+                <button class="crm-tab-btn" data-tab="historial"><i class="fa-solid fa-receipt"></i> Historial de Compras</button>
+                <button class="crm-tab-btn" data-tab="pagos"><i class="fa-solid fa-money-bill-transfer"></i> Gestión de Pagos</button>
+            </div>
+
+            <div id="tab-generales" class="tab-content space-y-10">
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-8 text-left">
+                    <div class="lg:col-span-2 space-y-6">
+                        <h4 class="font-black text-brand-black text-[11px] uppercase tracking-[0.3em] flex items-center gap-3"><span class="w-2 h-4 bg-brand-cyan rounded-full"></span> Contacto Directo</h4>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div class="info-card"><label class="label-tech">Asesor</label><p id="sup-contact-person" class="font-black text-brand-black text-sm uppercase">---</p></div>
+                            <div class="info-card"><label class="label-tech">WhatsApp</label><p id="sup-phone" class="text-xl font-black text-brand-cyan tracking-tighter">---</p></div>
+                            <div class="info-card md:col-span-2"><label class="label-tech">E-mail</label><p id="sup-email" class="font-bold text-brand-black text-sm lowercase">---</p></div>
+                        </div>
+                    </div>
+                    <div class="space-y-6">
+                        <h4 class="font-black text-brand-black text-[11px] uppercase tracking-[0.3em] flex items-center gap-3"><span class="w-2 h-4 bg-brand-black rounded-full"></span> Datos de Pago</h4>
+                        <div class="bg-slate-900 p-8 rounded-[3rem] shadow-2xl relative overflow-hidden text-left">
+                            <i class="fa-solid fa-building-columns text-brand-cyan/20 text-4xl mb-8 block"></i>
+                            <p id="sup-bank" class="text-2xl font-black text-white uppercase tracking-tighter">---</p>
+                            <div class="mt-6 pt-6 border-t border-white/10">
+                                <label class="text-[8px] font-black text-white/30 uppercase tracking-[0.3em] block mb-2">Cuenta</label>
+                                <p id="sup-account-num" class="text-lg font-bold text-white tracking-widest">---</p>
+                                <span id="sup-account-type" class="text-brand-cyan text-[9px] font-black uppercase">---</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="space-y-6 text-left">
+                    <h4 class="font-black text-brand-black text-[11px] uppercase tracking-[0.3em] flex items-center gap-3"><span class="w-2 h-4 bg-brand-cyan rounded-full"></span> Documentación Legal</h4>
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        <div class="file-card" onclick="openFilePreview('RUT')"><i class="fa-solid fa-file-pdf text-brand-red text-2xl"></i><div><p class="text-xs font-black uppercase tracking-widest">RUT VIGENTE</p><p class="text-[9px] text-gray-400 font-bold">Previsualizar Documento</p></div></div>
+                        <div class="file-card" onclick="openFilePreview('QR')"><i class="fa-solid fa-qrcode text-brand-cyan text-2xl"></i><div><p class="text-xs font-black uppercase tracking-widest">QR DE PAGOS</p><p class="text-[9px] text-gray-400 font-bold">Escanear para transferencia</p></div></div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="tab-historial" class="tab-content hidden">
+                <div class="bg-white rounded-[3rem] shadow-2xl border border-gray-100 overflow-hidden">
+                    <table class="w-full text-left text-sm">
+                        <thead class="bg-gray-50/50 text-[10px] uppercase font-black text-gray-400 tracking-widest border-b">
+                            <tr><th class="px-8 py-6">Fecha</th><th class="px-8 py-6">Equipos Recibidos</th><th class="px-8 py-6 text-right">Inversión</th><th class="px-8 py-6 text-center">Detalle de la Compra</th></tr>
+                        </thead>
+                        <tbody id="sup-purchases-table" class="divide-y divide-gray-50 text-left"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <div id="purchase-detail-modal" class="fixed inset-0 z-[100] hidden flex items-center justify-center bg-slate-900/90 backdrop-blur-xl p-6">
+        <div class="bg-white w-full max-w-2xl rounded-[3rem] shadow-2xl flex flex-col overflow-hidden text-left">
+            <div class="p-8 border-b border-gray-100 flex justify-between items-center">
+                <h3 class="text-xl font-black uppercase tracking-tighter">Recibo de <span class="text-brand-cyan">Suministro</span></h3>
+                <button onclick="closeModal('purchase-detail-modal')" class="text-gray-400 hover:text-brand-red p-2 bg-gray-50 rounded-xl transition"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div id="purchase-modal-content" class="p-10 space-y-6 overflow-y-auto max-h-[70vh]"></div>
+        </div>
+    </div>
+
+    <div id="file-preview-modal" class="fixed inset-0 z-[100] hidden flex items-center justify-center bg-slate-900/90 backdrop-blur-xl p-6">
+        <div class="bg-white w-full max-w-lg rounded-[3rem] shadow-2xl overflow-hidden text-center p-12">
+            <h3 id="file-title" class="text-xl font-black uppercase mb-8">Archivo</h3>
+            <div class="w-full h-64 bg-slate-100 rounded-[2rem] flex items-center justify-center mb-8 border-2 border-dashed border-gray-200">
+                <i class="fa-solid fa-file-circle-exclamation text-6xl text-slate-300"></i>
+            </div>
+            <p class="text-xs text-gray-400 font-bold uppercase mb-8">El archivo no se ha cargado físicamente al servidor de PixelTech.</p>
+            <button onclick="closeModal('file-preview-modal')" class="bg-brand-black text-white px-10 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl">Cerrar</button>
+        </div>
+    </div>
+
+    <div id="edit-supplier-modal" class="fixed inset-0 z-[100] hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-6">
+        <div class="bg-white w-full max-w-2xl rounded-[3rem] shadow-2xl p-10 flex flex-col text-left">
+            <div class="flex justify-between items-center mb-8 pb-4 border-b">
+                <h3 class="text-2xl font-black tracking-tighter uppercase">Actualizar <span class="text-brand-cyan">Perfil</span></h3>
+                <button onclick="closeModal('edit-supplier-modal')" class="text-gray-400 hover:text-brand-red p-2 bg-gray-50 rounded-xl transition"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <form id="edit-supplier-form" class="grid grid-cols-2 gap-4">
+                <div class="col-span-2 bg-slate-50 p-3 rounded-xl border"><label class="label-tech mb-1">Empresa</label><input type="text" id="e-name" required class="w-full bg-transparent outline-none font-bold text-sm"></div>
+                <div class="bg-slate-50 p-3 rounded-xl border"><label class="label-tech mb-1">NIT</label><input type="text" id="e-nit" required class="w-full bg-transparent outline-none font-bold text-sm"></div>
+                <div class="bg-slate-50 p-3 rounded-xl border"><label class="label-tech mb-1">WhatsApp</label><input type="text" id="e-phone" required class="w-full bg-transparent outline-none font-bold text-sm"></div>
+                <div class="bg-slate-50 p-3 rounded-xl border"><label class="label-tech mb-1">Contacto</label><input type="text" id="e-contact" class="w-full bg-transparent outline-none font-bold text-sm"></div>
+                <div class="bg-slate-50 p-3 rounded-xl border"><label class="label-tech mb-1">E-mail</label><input type="email" id="e-email" class="w-full bg-transparent outline-none font-bold text-sm"></div>
+                <div class="col-span-2 border-t pt-4"><p class="text-[10px] font-black uppercase tracking-widest mb-3">Información de Pago</p></div>
+                <div class="bg-slate-50 p-3 rounded-xl border"><label class="label-tech mb-1">Banco</label><input type="text" id="e-bank" class="w-full bg-transparent outline-none font-bold text-sm"></div>
+                <div class="bg-slate-50 p-3 rounded-xl border"><label class="label-tech mb-1">Número de Cuenta</label><input type="text" id="e-account" class="w-full bg-transparent outline-none font-bold text-sm"></div>
+                <button type="submit" class="col-span-2 bg-brand-black text-white font-black py-5 rounded-2xl shadow-xl uppercase text-xs tracking-widest hover:bg-brand-cyan transition-all mt-4">Actualizar Datos Ahora</button>
+            </form>
+        </div>
+    </div>
+
+    <script type="module">
+        import { db, doc, getDoc, getDocs, collection, query, where, orderBy, updateDoc } from '../js/firebase-init.js';
+        import { loadAdminSidebar } from '../js/admin-ui.js';
+
+        loadAdminSidebar();
+
+        const params = new URLSearchParams(window.location.search);
+        const supplierId = params.get('id');
+
+        if (!supplierId) window.location.href = 'suppliers.html';
+
+        // LÓGICA DE TABS DINÁMICAS
+        document.querySelectorAll('.crm-tab-btn').forEach(btn => {
+            btn.onclick = (e) => {
+                document.querySelectorAll('.crm-tab-btn').forEach(b => b.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
+                e.currentTarget.classList.add('active');
+                document.getElementById(`tab-${e.currentTarget.dataset.tab}`).classList.remove('hidden');
+            };
+        });
+
+        // CARGAR PERFIL
+        async function loadSupplierProfile() {
+            const snap = await getDoc(doc(db, "suppliers", supplierId));
+            if (!snap.exists()) return;
+            const s = snap.data();
+            
+            document.getElementById('sup-name-title').textContent = s.name;
+            document.getElementById('sup-nit-title').textContent = `NIT: ${s.nit || '---'}`;
+            document.getElementById('sup-total-invested').textContent = `$${(s.totalInvested || 0).toLocaleString('es-CO')}`;
+            document.getElementById('sup-orders-count').textContent = s.ordersCount || 0;
+            document.getElementById('sup-contact-person').textContent = s.contactName || 'SIN REGISTRO';
+            document.getElementById('sup-phone').textContent = s.phone || '---';
+            document.getElementById('sup-email').textContent = s.email || 'SIN REGISTRO';
+            document.getElementById('sup-bank').textContent = s.bankName || 'SIN REGISTRO';
+            document.getElementById('sup-account-num').textContent = s.accNum || '---';
+            document.getElementById('sup-account-type').textContent = s.accType || '---';
+            
+            loadPurchaseHistory();
+        }
+
+        // HISTORIAL DE COMPRAS
+        async function loadPurchaseHistory() {
+            const table = document.getElementById('sup-purchases-table');
+            table.innerHTML = "";
+            const q = query(collection(db, "purchases"), where("supplierId", "==", supplierId), orderBy("createdAt", "desc"));
+            const snap = await getDocs(q);
+
+            snap.forEach(d => {
+                const p = d.data();
+                const itemsList = p.items.map(i => `<div class="mb-1">${i.quantity}x <b>${i.name}</b> <span class="text-gray-400">(${i.color || ''} ${i.capacity || ''})</span></div>`).join('');
+                table.innerHTML += `
+                    <tr class="hover:bg-slate-50 transition border-b border-gray-50">
+                        <td class="px-8 py-6 font-bold text-gray-500 text-xs">${p.createdAt?.toDate().toLocaleDateString('es-CO')}</td>
+                        <td class="px-8 py-6 text-[10px] uppercase leading-relaxed text-brand-black">${itemsList}</td>
+                        <td class="px-8 py-6 text-right font-black text-brand-black text-base">$${p.totalCost.toLocaleString('es-CO')}</td>
+                        <td class="px-8 py-6 text-center">
+                            <button onclick="openPurchaseDetail('${d.id}')" class="w-10 h-10 bg-slate-100 rounded-xl text-brand-cyan hover:bg-brand-black hover:text-white transition-all shadow-sm">
+                                <i class="fa-solid fa-receipt text-xs"></i>
+                            </button>
+                        </td>
+                    </tr>`;
+            });
+        }
+
+        // MODAL DETALLE COMPRA
+        window.openPurchaseDetail = async (id) => {
+            const snap = await getDoc(doc(db, "purchases", id));
+            const p = snap.data();
+            const modal = document.getElementById('purchase-detail-modal');
+            const content = document.getElementById('purchase-modal-content');
+
+            content.innerHTML = `
+                <div class="grid grid-cols-2 gap-6 mb-8 bg-slate-50 p-6 rounded-3xl">
+                    <div><p class="label-tech">Fecha</p><p class="font-bold">${p.createdAt?.toDate().toLocaleString()}</p></div>
+                    <div class="text-right"><p class="label-tech">ID Compra</p><p class="font-mono text-xs">#${id.slice(0,8).toUpperCase()}</p></div>
+                </div>
+                <div class="space-y-4">
+                    <p class="label-tech">Equipos Ingresados</p>
+                    ${p.items.map(i => `<div class="flex justify-between border-b pb-3 text-xs uppercase font-bold text-gray-600"><span>${i.quantity}x ${i.name}</span> <span class="text-brand-cyan">$${(i.unitCostBase || 0).toLocaleString()} c/u</span></div>`).join('')}
+                </div>
+                <div class="pt-8 mt-8 border-t flex justify-between items-center">
+                    <h4 class="text-xl font-black uppercase">Inversión Total</h4>
+                    <span class="text-2xl font-black text-brand-black">$${p.totalCost.toLocaleString()}</span>
+                </div>
+            `;
+            modal.classList.remove('hidden');
+        };
+
+        // EDITAR PERFIL (LÓGICA CORREGIDA)
+        document.getElementById('btn-edit-supplier').onclick = async () => {
+            const snap = await getDoc(doc(db, "suppliers", supplierId));
+            const s = snap.data();
+            document.getElementById('e-name').value = s.name;
+            document.getElementById('e-nit').value = s.nit;
+            document.getElementById('e-phone').value = s.phone;
+            document.getElementById('e-contact').value = s.contactName || "";
+            document.getElementById('e-email').value = s.email || "";
+            document.getElementById('e-bank').value = s.bankName || "";
+            document.getElementById('e-account').value = s.accNum || "";
+            document.getElementById('edit-supplier-modal').classList.remove('hidden');
+        };
+
+        document.getElementById('edit-supplier-form').onsubmit = async (e) => {
+            e.preventDefault();
+            const btn = e.target.querySelector('button');
+            btn.disabled = true;
+            try {
+                await updateDoc(doc(db, "suppliers", supplierId), {
+                    name: document.getElementById('e-name').value,
+                    nit: document.getElementById('e-nit').value,
+                    phone: document.getElementById('e-phone').value,
+                    contactName: document.getElementById('e-contact').value,
+                    email: document.getElementById('e-email').value,
+                    bankName: document.getElementById('e-bank').value,
+                    accNum: document.getElementById('e-account').value
+                });
+                alert("✅ Perfil actualizado");
+                location.reload();
+            } catch (err) { alert(err.message); }
+        };
+
+        window.openFilePreview = (title) => {
+            document.getElementById('file-title').textContent = title;
+            document.getElementById('file-preview-modal').classList.remove('hidden');
+        };
+
+        window.closeModal = (id) => document.getElementById(id).classList.add('hidden');
+
+        loadSupplierProfile();
+    </script>
+</body>
+</html>

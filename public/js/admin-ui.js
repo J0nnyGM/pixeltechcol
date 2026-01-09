@@ -1,17 +1,19 @@
-// public/js/admin-ui.js
 import { auth } from './firebase-init.js';
 
 export function loadAdminSidebar() {
     const sidebarContainer = document.getElementById('admin-sidebar');
     if (!sidebarContainer) return;
 
-    // Detectar en qué página estamos para marcar el botón "Activo"
     const currentPage = window.location.pathname;
 
+    // Menú actualizado con los nuevos módulos ERP
     const navItems = [
         { name: 'Dashboard', icon: 'fa-chart-line', path: '/admin/index.html' },
         { name: 'Inventario', icon: 'fa-box-open', path: '/admin/products.html' },
+        { name: 'Nueva Entrada', icon: 'fa-truck-loading', path: '/admin/inventory-entry.html' }, // Nuevo: Carga de Stock
+        { name: 'Proveedores', icon: 'fa-handshake', path: '/admin/suppliers.html' }, // Nuevo: Gestión y Estadísticas
         { name: 'Departamentos', icon: 'fa-tags', path: '/admin/categories.html' },
+        { name: 'Logística', icon: 'fa-truck-fast', path: '/admin/shipping-config.html' },
         { name: 'Banners y Promos', icon: 'fa-bullhorn', path: '/admin/promotions.html' },
         { name: 'Pedidos', icon: 'fa-clipboard-list', path: '/admin/orders.html' },
         { name: 'Clientes', icon: 'fa-users', path: '/admin/clients.html' }
@@ -19,7 +21,6 @@ export function loadAdminSidebar() {
 
     const sidebarHTML = `
         <aside class="w-64 bg-brand-black text-white flex-shrink-0 flex flex-col shadow-2xl z-20 h-screen fixed md:relative transition-all">
-            
             <div class="p-8 border-b border-gray-800 flex flex-col items-center gap-4 text-center">
                 <div class="relative">
                     <div class="absolute inset-0 bg-brand-cyan/20 blur-xl rounded-full"></div>
@@ -30,10 +31,9 @@ export function loadAdminSidebar() {
                 </div>
             </div>
 
-            <nav class="flex-grow p-4 space-y-2 mt-4 overflow-y-auto no-scrollbar">
+            <nav class="flex-grow p-4 space-y-1 mt-4 overflow-y-auto no-scrollbar">
                 ${navItems.map(item => {
-                    const isActive = currentPage === item.path || (item.path === '/admin/index.html' && (currentPage === '/admin/' || currentPage === '/admin/index.html'));
-                    
+                    const isActive = currentPage.includes(item.path);
                     return `
                         <a href="${item.path}" class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-300 font-bold text-sm ${
                             isActive 
@@ -57,17 +57,12 @@ export function loadAdminSidebar() {
 
     sidebarContainer.innerHTML = sidebarHTML;
 
-    // Lógica del botón cerrar sesión
     const logoutBtn = document.getElementById('btn-logout-global');
     if (logoutBtn) {
-        logoutBtn.addEventListener('click', () => {
-            if(confirm("¿Deseas cerrar la sesión administrativa de PixelTech?")) {
-                auth.signOut().then(() => {
-                    window.location.href = '/index.html';
-                }).catch(err => {
-                    console.error("Error al cerrar sesión:", err);
-                });
+        logoutBtn.onclick = () => {
+            if(confirm("¿Deseas cerrar la sesión administrativa?")) {
+                auth.signOut().then(() => window.location.href = '/index.html');
             }
-        });
+        };
     }
 }

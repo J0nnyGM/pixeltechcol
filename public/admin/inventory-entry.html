@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Entrada de Mercancía | PixelTech Admin</title>
+    <link rel="stylesheet" href="../css/styles.css">
+    <script src="https://kit.fontawesome.com/0d623ded97.js" crossorigin="anonymous"></script>
+    <style>
+        .hidden { display: none; }
+        .custom-scroll::-webkit-scrollbar { width: 6px; }
+        .custom-scroll::-webkit-scrollbar-track { background: #f1f1f1; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #00AEC7; border-radius: 10px; }
+        
+        /* Selectores de variantes alineados */
+        .variant-select { 
+            @apply bg-white border border-gray-100 rounded-2xl text-[10px] font-bold px-3 py-4 outline-none focus:ring-2 focus:ring-brand-cyan/20 w-full transition-all; 
+        }
+        
+        /* Estilo premium para el Toggle de IVA */
+        .global-iva-checkbox:checked ~ .iva-bg { 
+            background-color: #00AEC7 !important; 
+            border-color: #00AEC7 !important;
+            box-shadow: 0 4px 15px rgba(0, 174, 199, 0.3);
+        }
+        .global-iva-checkbox:checked ~ .iva-bg .iva-icon { color: white !important; }
+        .global-iva-checkbox:checked ~ .iva-bg .iva-text-status { color: #00AEC7 !important; }
+
+        .input-premium {
+            @apply bg-slate-50 border border-transparent rounded-2xl p-4 text-sm font-black outline-none focus:bg-white focus:border-brand-cyan/30 transition-all w-full;
+        }
+    </style>
+</head>
+
+<body class="bg-slate-50 font-sans text-brand-black flex h-screen overflow-hidden">
+
+    <div id="admin-sidebar"></div>
+
+    <main class="flex-grow overflow-y-auto relative custom-scroll">
+        <header class="bg-white/80 backdrop-blur-md border-b border-gray-100 px-8 py-5 flex justify-between items-center sticky top-0 z-20">
+            <div><h2 class="font-black text-gray-400 text-[10px] uppercase tracking-[0.4em]">Logística & Abastecimiento</h2></div>
+            <div class="flex items-center gap-4">
+                <span id="admin-name" class="text-xs font-black text-brand-black uppercase tracking-widest italic">Admin</span>
+                <div class="w-10 h-10 bg-brand-black text-brand-cyan rounded-2xl flex items-center justify-center font-bold shadow-lg">
+                    <i class="fa-solid fa-boxes-stacked"></i>
+                </div>
+            </div>
+        </header>
+
+        <div class="p-8 max-w-7xl mx-auto text-left">
+            <div class="mb-12">
+                <h1 class="text-5xl font-black text-brand-black tracking-tighter uppercase leading-none">Entrada de <br><span class="text-brand-cyan">Mercancía</span></h1>
+                <p class="text-gray-400 text-sm font-bold mt-4 tracking-wide">Gestión centralizada de costos e incremento de inventario real.</p>
+            </div>
+
+            <div class="bg-white p-8 rounded-[2.5rem] border border-gray-100 shadow-sm mb-10 group hover:border-brand-cyan/20 transition-all duration-500">
+                <label class="text-[9px] font-black text-gray-400 uppercase tracking-[0.2em] mb-4 block">Proveedor de la Factura</label>
+                <select id="entry-supplier" class="input-premium text-gray-500 focus:text-brand-black">
+                    <option value="">Cargando aliados...</option>
+                </select>
+            </div>
+
+            <div class="bg-white rounded-[3rem] shadow-2xl border border-gray-100 overflow-hidden mb-10">
+                <div class="p-8 border-b border-gray-50 flex justify-between items-center bg-gray-50/30">
+                    <h3 class="font-black text-brand-black uppercase text-[11px] tracking-widest flex items-center gap-3"><span class="w-2 h-2 rounded-full bg-brand-cyan"></span> Equipos Recibidos</h3>
+                    <button id="btn-add-item-row" class="bg-brand-black text-white px-8 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-brand-cyan transition-all shadow-xl">
+                        <i class="fa-solid fa-plus mr-2"></i> Añadir Equipo
+                    </button>
+                </div>
+                
+                <div id="entry-items-container" class="p-8 space-y-6"></div>
+
+                <div class="p-10 bg-slate-900 text-white mt-4">
+                    <div class="flex flex-col lg:flex-row justify-between items-center gap-10">
+                        <div class="flex items-center gap-5">
+                            <label class="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" id="global-iva-toggle" class="sr-only global-iva-checkbox">
+                                <div class="w-20 h-12 bg-white/10 border border-white/10 rounded-2xl flex items-center justify-center iva-bg transition-all duration-500">
+                                    <i class="fa-solid fa-percent text-white/20 iva-icon transition-all"></i>
+                                </div>
+                            </label>
+                            <div>
+                                <p class="text-[10px] font-black uppercase text-white/40 iva-text-status tracking-widest">Impuestos (IVA 19%)</p>
+                                <p class="text-[8px] font-bold text-white/20 uppercase mt-1">Afecta el costo base de toda la carga</p>
+                            </div>
+                        </div>
+                        <div class="flex gap-12 text-right">
+                            <div><p class="text-[10px] font-black text-white/30 uppercase tracking-widest mb-1">Base Neta</p><h4 id="display-base" class="text-xl font-bold text-white/60">$0</h4></div>
+                            <div><p class="text-[10px] font-black text-brand-cyan uppercase tracking-widest mb-1">IVA Total</p><h4 id="display-iva" class="text-xl font-bold text-brand-cyan/60">$0</h4></div>
+                            <div class="pl-12 border-l border-white/10"><p class="text-[10px] font-black text-white/30 uppercase tracking-widest mb-1">Total Factura</p><h3 id="display-grand-total" class="text-4xl font-black text-white leading-none">$0</h3></div>
+                        </div>
+                        <button id="btn-save-entry" class="bg-brand-cyan text-brand-black px-14 py-6 rounded-3xl font-black text-[12px] uppercase tracking-[0.3em] shadow-2xl hover:bg-white transition-all">Procesar Entrada</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script type="module">
+        import { db, collection, getDocs, doc, runTransaction, orderBy, query } from '../js/firebase-init.js';
+        import { loadAdminSidebar } from '../js/admin-ui.js';
+
+        loadAdminSidebar();
+
+        const supplierSelect = document.getElementById('entry-supplier');
+        const itemsContainer = document.getElementById('entry-items-container');
+        const btnSave = document.getElementById('btn-save-entry');
+        const ivaToggle = document.getElementById('global-iva-toggle');
+        let allProducts = [];
+
+        window.updateAllTotals = () => {
+            let grandTotal = 0;
+            document.querySelectorAll('.item-row').forEach(row => {
+                const qty = parseInt(row.querySelector('.p-qty').value) || 0;
+                const unitCost = parseFloat(row.querySelector('.p-unit-cost-input').value) || 0;
+                const rowTotal = qty * unitCost;
+                row.querySelector('.p-row-total-display').textContent = `$${Math.round(rowTotal).toLocaleString('es-CO')}`;
+                grandTotal += rowTotal;
+            });
+            const hasIva = ivaToggle.checked;
+            const base = hasIva ? Math.round(grandTotal / 1.19) : grandTotal;
+            const iva = grandTotal - base;
+            document.getElementById('display-grand-total').textContent = `$${Math.round(grandTotal).toLocaleString('es-CO')}`;
+            document.getElementById('display-base').textContent = `$${Math.round(base).toLocaleString('es-CO')}`;
+            document.getElementById('display-iva').textContent = `$${Math.round(iva).toLocaleString('es-CO')}`;
+        };
+
+        window.removeEntryRow = (btn) => { btn.closest('.item-row').remove(); window.updateAllTotals(); };
+
+        async function fetchSuppliers() {
+            const snap = await getDocs(query(collection(db, "suppliers"), orderBy("name", "asc")));
+            supplierSelect.innerHTML = `<option value="">Seleccione proveedor comercial...</option>`;
+            snap.forEach(d => supplierSelect.innerHTML += `<option value="${d.id}">${d.data().name.toUpperCase()}</option>`);
+        }
+
+        async function fetchProducts() {
+            const snap = await getDocs(collection(db, "products"));
+            allProducts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        }
+
+        function addProductRow() {
+            const div = document.createElement('div');
+            div.className = "item-row bg-slate-50/50 p-6 rounded-[2.5rem] border border-gray-100 space-y-4 relative group hover:bg-white hover:border-brand-cyan/20 transition-all duration-300";
+            div.innerHTML = `
+                <div class="grid grid-cols-1 md:grid-cols-12 gap-5 items-end">
+                    <div class="md:col-span-4 relative">
+                        <label class="text-[8px] font-black text-gray-400 uppercase mb-2 block tracking-widest text-left">Equipo</label>
+                        <input type="text" placeholder="Nombre del producto..." class="p-search w-full bg-white border border-gray-100 rounded-2xl p-4 text-xs font-bold outline-none focus:ring-2 focus:ring-brand-cyan/20 transition-all">
+                        <div class="p-results absolute z-50 w-full mt-2 bg-white border border-gray-100 rounded-2xl shadow-2xl hidden max-h-48 overflow-y-auto p-2 custom-scroll"></div>
+                        <input type="hidden" class="p-id">
+                    </div>
+
+                    <div class="md:col-span-3 flex gap-3 p-variants-container"></div>
+
+                    <div class="md:col-span-1">
+                        <label class="text-[8px] font-black text-gray-400 uppercase mb-2 block text-center tracking-widest">Cant.</label>
+                        <input type="number" value="1" min="1" class="p-qty w-full bg-white border border-gray-100 rounded-2xl p-4 text-xs font-black text-center outline-none focus:ring-2 focus:ring-brand-cyan/20 transition-all">
+                    </div>
+
+                    <div class="md:col-span-2">
+                        <label class="text-[8px] font-black text-gray-400 uppercase mb-2 block tracking-widest text-left">Costo Unitario</label>
+                        <div class="flex items-center bg-white border border-gray-100 rounded-2xl px-4 focus-within:ring-2 focus-within:ring-brand-cyan/20 transition-all">
+                            <span class="text-xs font-black text-brand-cyan">$</span>
+                            <input type="number" placeholder="0" class="p-unit-cost-input w-full bg-transparent border-none p-4 text-xs font-black outline-none">
+                        </div>
+                    </div>
+
+                    <div class="md:col-span-2 relative text-right">
+                        <label class="text-[8px] font-black text-gray-400 uppercase mb-2 block tracking-widest pr-10">Total</label>
+                        <div class="flex items-center justify-end pr-12 pb-4">
+                            <span class="text-sm font-black text-brand-black p-row-total-display">$0</span>
+                        </div>
+                        <button class="absolute right-0 bottom-3 text-gray-300 hover:text-brand-red transition-all p-2" onclick="window.removeEntryRow(this)">
+                            <i class="fa-solid fa-trash-can"></i>
+                        </button>
+                    </div>
+                </div>
+            `;
+            itemsContainer.appendChild(div);
+            setupRowLogic(div);
+        }
+
+        function setupRowLogic(row) {
+            const input = row.querySelector('.p-search');
+            const results = row.querySelector('.p-results');
+            const qtyInput = row.querySelector('.p-qty');
+            const unitCostInput = row.querySelector('.p-unit-cost-input');
+
+            input.oninput = (e) => {
+                const term = e.target.value.toLowerCase();
+                results.innerHTML = "";
+                if (term.length < 1) { results.classList.add('hidden'); return; }
+                allProducts.filter(p => p.name.toLowerCase().includes(term)).forEach(p => {
+                    const d = document.createElement('div');
+                    d.className = "p-4 hover:bg-brand-cyan/5 cursor-pointer text-[10px] font-black uppercase rounded-xl border-b border-gray-50 last:border-none transition-colors";
+                    d.textContent = p.name;
+                    d.onclick = () => {
+                        input.value = p.name;
+                        row.querySelector('.p-id').value = p.id;
+                        renderVariants(row, p);
+                        results.classList.add('hidden');
+                    };
+                    results.appendChild(d);
+                });
+                results.classList.remove('hidden');
+            };
+
+            qtyInput.oninput = window.updateAllTotals;
+            unitCostInput.oninput = window.updateAllTotals;
+        }
+
+        function renderVariants(row, product) {
+            const container = row.querySelector('.p-variants-container');
+            container.innerHTML = "";
+
+            // Renderizar select de Color con su etiqueta
+            if (product.variants?.length > 0) {
+                const colDiv = document.createElement('div');
+                colDiv.className = "flex-grow";
+                colDiv.innerHTML = `
+                    <label class="text-[8px] font-black text-gray-400 uppercase mb-2 block tracking-widest text-left">Color</label>
+                    <select class="variant-select p-color">
+                        <option value="">Seleccionar...</option>
+                        ${product.variants.map(v => `<option value="${v.color}">${v.color.toUpperCase()}</option>`).join('')}
+                    </select>
+                `;
+                container.appendChild(colDiv);
+            }
+
+            // Renderizar select de Capacidad con su etiqueta
+            if (product.capacities?.length > 0) {
+                const capDiv = document.createElement('div');
+                capDiv.className = "flex-grow";
+                capDiv.innerHTML = `
+                    <label class="text-[8px] font-black text-gray-400 uppercase mb-2 block tracking-widest text-left">Capacidad</label>
+                    <select class="variant-select p-capacity">
+                        <option value="">Seleccionar...</option>
+                        ${product.capacities.map(c => `<option value="${c.label}">${c.label.toUpperCase()}</option>`).join('')}
+                    </select>
+                `;
+                container.appendChild(capDiv);
+            }
+        }
+
+        ivaToggle.onchange = window.updateAllTotals;
+
+        btnSave.onclick = async () => {
+            const supplierId = supplierSelect.value;
+            const itemRows = document.querySelectorAll('.item-row');
+            if (!supplierId || itemRows.length === 0) return alert("🚨 Faltan datos.");
+
+            btnSave.disabled = true;
+            btnSave.innerHTML = "PROCESANDO...";
+
+            try {
+                await runTransaction(db, async (transaction) => {
+                    const suppRef = doc(db, "suppliers", supplierId);
+                    const suppSnap = await transaction.get(suppRef);
+                    if (!suppSnap.exists()) throw "Proveedor no encontrado";
+
+                    const productsToUpdate = [];
+                    for (const row of itemRows) {
+                        const pid = row.querySelector('.p-id').value;
+                        if (!pid) continue;
+                        const pRef = doc(db, "products", pid);
+                        const pSnap = await transaction.get(pRef);
+                        productsToUpdate.push({ ref: pRef, snap: pSnap, row: row });
+                    }
+
+                    let totalInvoice = 0;
+                    const purchaseItems = [];
+                    const hasIvaGlobal = ivaToggle.checked;
+
+                    productsToUpdate.forEach(({ ref, snap, row }) => {
+                        const qty = parseInt(row.querySelector('.p-qty').value);
+                        const unitCostEntered = parseFloat(row.querySelector('.p-unit-cost-input').value);
+                        const rowTotal = qty * unitCostEntered;
+                        totalInvoice += rowTotal;
+
+                        const unitCostBase = hasIvaGlobal ? Math.round(unitCostEntered / 1.19) : unitCostEntered;
+                        const newStock = (snap.data().stock || 0) + qty;
+
+                        transaction.update(ref, { 
+                            stock: newStock,
+                            lastPurchaseCost: unitCostBase 
+                        });
+
+                        purchaseItems.push({
+                            id: snap.id,
+                            name: row.querySelector('.p-search').value,
+                            quantity: qty,
+                            unitCostBase,
+                            totalRow: Math.round(rowTotal),
+                            color: row.querySelector('.p-color')?.value || null,
+                            capacity: row.querySelector('.p-capacity')?.value || null
+                        });
+                    });
+
+                    transaction.update(suppRef, {
+                        totalInvested: (suppSnap.data().totalInvested || 0) + totalInvoice,
+                        ordersCount: (suppSnap.data().ordersCount || 0) + 1,
+                        lastPurchase: new Date()
+                    });
+
+                    const purchaseRef = doc(collection(db, "purchases"));
+                    transaction.set(purchaseRef, {
+                        supplierId, supplierName: supplierSelect.options[supplierSelect.selectedIndex].text,
+                        totalCost: Math.round(totalInvoice), hasIVA: hasIvaGlobal,
+                        items: purchaseItems, createdAt: new Date()
+                    });
+                });
+
+                alert("✅ Inventario cargado exitosamente.");
+                window.location.reload();
+            } catch (e) {
+                console.error(e);
+                alert("Error técnico: " + e);
+                btnSave.disabled = false;
+            }
+        };
+
+        fetchSuppliers(); fetchProducts(); addProductRow();
+        document.getElementById('btn-add-item-row').onclick = addProductRow;
+    </script>
+</body>
+</html>

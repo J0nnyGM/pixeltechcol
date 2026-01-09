@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,6 +8,7 @@
     <link rel="stylesheet" href="../css/styles.css">
     <script src="https://kit.fontawesome.com/0d623ded97.js" crossorigin="anonymous"></script>
 </head>
+
 <body class="bg-white font-sans text-brand-black">
 
     <div id="global-header"></div>
@@ -33,16 +35,25 @@
             </div>
             <h2 class="text-xl font-black mb-2">No encontramos coincidencias</h2>
             <p class="text-gray-500 text-sm mb-8">Intenta con palabras más generales o revisa la ortografía.</p>
-            <a href="/index.html" class="inline-block bg-brand-black text-white px-10 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-brand-cyan transition shadow-xl">Ver todo el catálogo</a>
+            <a href="/index.html"
+                class="inline-block bg-brand-black text-white px-10 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-brand-cyan transition shadow-xl">Ver
+                todo el catálogo</a>
         </div>
     </main>
 
+    <div id="global-footer"></div>
+
     <script type="module">
-        import { loadGlobalHeader } from '../js/global-components.js';
+        import { loadGlobalHeader, loadGlobalFooter } from '../js/global-components.js';
+
+        loadGlobalHeader(); // Inyecta el header
+        loadGlobalFooter(); // Inyecta el nuevo footer
+    </script>
+
+    <script type="module">
         import { initSearch } from '../js/search.js';
-        
-        loadGlobalHeader();
         initSearch();
     </script>
 </body>
+
 </html>

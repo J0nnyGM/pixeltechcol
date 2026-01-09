@@ -4897,7 +4897,7 @@ async function migrarSaldosAGlobales() {
             if (g.fuentePago === 'Davivienda') saldos.saldoDavivienda -= g.valorTotal;
         });
 
-        // 4. Guardar el resultado en el nuevo documento "Bolsa de Totales"
+        // 4. Guardar el resultado en el nuevo documento "Carrito de Totales"
         await setDoc(doc(db, "estadisticas", "globales"), saldos);
 
         hideModal();

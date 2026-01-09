@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Creador de Productos | PixelTech Admin</title>
+    <link rel="stylesheet" href="../css/styles.css">
+    <script src="https://kit.fontawesome.com/0d623ded97.js" crossorigin="anonymous"></script>
+    <style>
+        /* Optimizaciones para el diseño */
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        
+        /* Corregido: Sintaxis CSS estándar para los bordes visibles */
+        .admin-input-group {
+            background-color: #ffffff;
+            border: 2px solid #e5e7eb; 
+            border-radius: 1.5rem;
+            padding: 1.25rem;
+            transition: all 0.3s ease;
+        }
+        
+        .admin-input-group:focus-within {
+            border-color: #00AEC7; 
+            box-shadow: 0 10px 15px -3px rgba(0, 174, 199, 0.1);
+        }
+
+        /* Corregido: Sintaxis CSS para el editor */
+        .rich-editor {
+            min-height: 400px; /* Cambiado de min-h-[400px] */
+            width: 100%;
+            padding: 2.5rem;
+            outline: none;
+            background-color: #ffffff;
+            line-height: 1.6;
+        }
+
+        /* Estilos base para el contenido del editor */
+        .rich-editor h1 { font-size: 2.25rem; font-weight: 900; margin-bottom: 1.5rem; text-transform: uppercase; letter-spacing: -0.05em; }
+        .rich-editor p { margin-bottom: 1rem; }
+        .rich-editor b { font-weight: 700; }
+        .rich-editor ul { list-style-type: disc; margin-left: 1.5rem; margin-bottom: 1rem; }
+    </style>
+</head>
+<body class="bg-slate-50 font-sans text-brand-black flex h-screen overflow-hidden">
+
+    <div id="admin-sidebar"></div>
+
+    <main class="flex-grow overflow-y-auto">
+        <header class="bg-white border-b border-gray-200 px-10 py-6 flex justify-between items-center sticky top-0 z-50 shadow-sm">
+            <div class="flex items-center gap-6">
+                <a href="products.html" class="w-12 h-12 rounded-full border-2 border-gray-100 flex items-center justify-center text-gray-400 hover:border-brand-cyan hover:text-brand-cyan transition">
+                    <i class="fa-solid fa-chevron-left"></i>
+                </a>
+                <div>
+                    <h1 class="text-3xl font-black uppercase tracking-tighter">Publicar <span class="text-gray-300">Nuevo Ítem</span></h1>
+                    <p class="text-[9px] font-bold text-gray-400 uppercase tracking-[0.2em]">Gestión de catálogo maestro</p>
+                </div>
+            </div>
+            <div class="flex items-center gap-4">
+                <button type="button" onclick="window.location.href='products.html'" class="text-[10px] font-black uppercase tracking-widest text-gray-400 hover:text-brand-red transition">Descartar</button>
+                <button id="btn-publish" form="main-form" type="submit" class="bg-brand-black text-white px-10 py-4 rounded-2xl font-black uppercase text-[10px] tracking-[0.2em] shadow-2xl hover:bg-brand-cyan hover:text-brand-black transition-all">
+                    Guardar en Inventario
+                </button>
+            </div>
+        </header>
+
+        <div class="p-10 max-w-7xl mx-auto">
+            <form id="main-form" class="space-y-10">
+                
+                <div class="grid grid-cols-1 lg:grid-cols-12 gap-10">
+                    
+                    <div class="lg:col-span-7 space-y-6">
+                        <div class="admin-input-group">
+                            <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Nombre Comercial del Producto</label>
+                            <input type="text" id="p-name" placeholder="Ej: Laptop MSI Titan GT77" required 
+                                class="w-full bg-transparent border-none p-0 text-xl text-brand-black font-bold outline-none placeholder:text-gray-200">
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-6">
+                            <div class="admin-input-group">
+                                <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">SKU / Referencia</label>
+                                <input type="text" id="p-sku" placeholder="MSI-001-PRO" 
+                                    class="w-full bg-transparent border-none p-0 text-sm text-brand-black font-semibold outline-none">
+                            </div>
+                            <div class="admin-input-group">
+                                <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Marca</label>
+                                <input type="text" id="p-brand" placeholder="MSI Gaming" 
+                                    class="w-full bg-transparent border-none p-0 text-sm text-brand-black font-semibold outline-none">
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-6">
+                            <div class="admin-input-group">
+                                <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Precio de Venta (COP)</label>
+                                <input type="number" id="p-price" required 
+                                    class="w-full bg-transparent border-none p-0 text-lg text-brand-cyan font-black outline-none">
+                            </div>
+                            <div class="admin-input-group">
+                                <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Stock Disponible</label>
+                                <input type="number" id="p-stock" required 
+                                    class="w-full bg-transparent border-none p-0 text-sm text-brand-black font-semibold outline-none">
+                            </div>
+                        </div>
+
+                        <div class="admin-input-group relative">
+                            <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Buscador Inteligente de Categoría</label>
+                            <input type="text" id="cat-search" placeholder="Escribe para filtrar categorías..." 
+                                class="w-full bg-transparent border-none p-0 text-sm text-brand-black font-semibold outline-none">
+                            <div id="cat-results" class="absolute z-50 w-full left-0 mt-6 bg-white border-2 border-gray-100 rounded-2xl shadow-2xl hidden max-h-48 overflow-y-auto p-2"></div>
+                            <input type="hidden" id="p-category">
+                        </div>
+
+                        <div class="bg-white border-2 border-gray-200 rounded-[2.5rem] overflow-hidden shadow-sm mt-10">
+                            <div class="bg-gray-50 border-b border-gray-100 p-6 flex items-center justify-between">
+                                <span class="block text-[10px] font-black text-brand-black uppercase tracking-[0.2em]">Variaciones de Color</span>
+                                <button type="button" id="btn-add-variant" class="bg-brand-black text-white px-4 py-2 rounded-xl font-black text-[9px] uppercase tracking-widest hover:bg-brand-cyan transition">
+                                    <i class="fa-solid fa-plus mr-2"></i> Agregar Color
+                                </button>
+                            </div>
+                            
+                            <div id="variants-container" class="p-8 space-y-6">
+                                <p class="text-center text-gray-400 text-[10px] font-bold uppercase py-4">No has agregado variantes de color aún.</p>
+                            </div>
+                        </div>
+
+                        <div class="bg-white border-2 border-gray-200 rounded-[2.5rem] overflow-hidden shadow-sm mt-10">
+                            <div class="bg-gray-50 border-b border-gray-100 p-6 flex items-center justify-between">
+                                <div>
+                                    <span class="block text-[10px] font-black text-brand-black uppercase tracking-[0.2em]">Capacidades / Almacenamiento</span>
+                                    <p class="text-[8px] text-gray-400 uppercase font-bold">Define las variantes de memoria y sus precios específicos</p>
+                                </div>
+                                <button type="button" id="btn-add-capacity" class="bg-brand-black text-white px-4 py-2 rounded-xl font-black text-[9px] uppercase tracking-widest hover:bg-brand-cyan transition">
+                                    <i class="fa-solid fa-plus mr-2"></i> Agregar Capacidad
+                                </button>
+                            </div>
+                            
+                            <div id="capacities-container" class="p-8 space-y-4">
+                                <p class="text-center text-gray-400 text-[10px] font-bold uppercase py-4">Este dispositivo no tiene variantes de capacidad.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="lg:col-span-5">
+                        <div class="bg-white border-2 border-gray-200 rounded-[2.5rem] p-8 h-full flex flex-col shadow-sm">
+                            <div class="flex justify-between items-center mb-6">
+                                <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Multimedia del Producto</label>
+                                <span class="text-[8px] font-bold text-brand-cyan uppercase">Usa las flechas para ordenar</span>
+                            </div>
+                            
+                            <div id="gallery-container" class="grid grid-cols-2 gap-4 mb-6">
+                                </div>
+
+                            <label class="mt-auto w-full flex flex-col items-center justify-center gap-4 py-12 bg-slate-50 border-2 border-dashed border-gray-200 rounded-[2rem] cursor-pointer hover:border-brand-cyan hover:bg-white transition-all group">
+                                <i class="fa-solid fa-camera-retro text-3xl text-gray-300 group-hover:text-brand-cyan transition"></i>
+                                <div class="text-center">
+                                    <span class="block font-black text-[10px] uppercase text-gray-400 group-hover:text-brand-black">Cargar Fotografías</span>
+                                    <span class="text-[7px] text-gray-300 uppercase font-bold tracking-widest">JPG, PNG o WEBP</span>
+                                </div>
+                                <input type="file" id="p-images" multiple accept="image/*" class="hidden">
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-white border-2 border-gray-200 rounded-[2.5rem] overflow-hidden shadow-sm">
+                    <div class="bg-gray-50 border-b border-gray-100 p-6 flex items-center justify-between">
+                        <span class="block text-[10px] font-black text-brand-black uppercase tracking-[0.2em]">Editor de Descripción Detallada</span>
+                        
+                        <div class="flex gap-2 bg-white p-1.5 rounded-2xl border border-gray-200 shadow-sm">
+                            <button type="button" onclick="formatDoc('bold')" class="w-10 h-10 rounded-xl hover:bg-gray-100 transition" title="Negrita">
+                                <i class="fa-solid fa-bold"></i>
+                            </button>
+                            <button type="button" onclick="formatDoc('formatBlock', 'H1')" class="px-3 h-10 rounded-xl hover:bg-gray-100 transition font-black text-xs" title="Título Grande">
+                                H1
+                            </button>
+                            <button type="button" onclick="formatDoc('formatBlock', 'P')" class="px-3 h-10 rounded-xl hover:bg-gray-100 transition font-black text-xs" title="Párrafo Estándar">
+                                P
+                            </button>
+                            <div class="w-px h-6 bg-gray-100 mx-1"></div>
+                            <button type="button" onclick="formatDoc('insertUnorderedList')" class="w-10 h-10 rounded-xl hover:bg-gray-100 transition" title="Lista">
+                                <i class="fa-solid fa-list-ul"></i>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div id="p-description-editor" contenteditable="true" class="rich-editor no-scrollbar">
+                        <p>Escribe aquí las especificaciones técnicas y detalles del producto...</p>
+                    </div>
+                </div>
+
+            </form>
+        </div>
+    </main>
+
+    <script type="module" src="../js/admin-create-product.js"></script>
+    <script>
+        // Ayudante para aplicar formato al editor contenteditable
+        function formatDoc(cmd, value = null) {
+            document.execCommand(cmd, false, value);
+            document.getElementById('p-description-editor').focus();
+        }
+    </script>
+</body>
+</html>

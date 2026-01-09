@@ -3,46 +3,58 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // Función para saber si el usuario es Admin
+    // --- FUNCIONES GLOBALES ---
     function isAdmin() {
       return request.auth != null && 
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
 
-    // Reglas para Productos: Cualquiera puede verlos, solo Admin edita
+    // Reglas para Productos
     match /products/{productId} {
-      allow read: if true;
+      allow read: if true; 
       allow write: if isAdmin();
+      match /history/{historyId} {
+        allow read, write: if isAdmin();
+      }
     }
 
-    // Reglas para Categorías: Cualquiera puede verlas, solo Admin edita
+    // Reglas para Categorías
     match /categories/{catId} {
       allow read: if true;
       allow write: if isAdmin();
     }
 
-    // Reglas para Pedidos (Orders): 
-    // - Clientes pueden crear y ver sus propios pedidos
-    // - Admin puede hacer todo
+    // Reglas para Pedidos (Orders)
     match /orders/{orderId} {
       allow create: if request.auth != null;
       allow read: if request.auth != null && (request.auth.uid == resource.data.userId || isAdmin());
       allow update, delete: if isAdmin();
     }
 
-    // Reglas para Remisiones:
-    // - Se permiten crear desde la web al comprar
-    // - Solo Admin las gestiona
+    // Reglas para Remisiones
     match /remissions/{remissionId} {
       allow create: if request.auth != null;
       allow read, update, delete: if isAdmin();
     }
 
-    // Reglas para Usuarios:
-    // - Cada uno ve su perfil, Admin ve todos
+    // Reglas para Usuarios
     match /users/{userId} {
       allow read: if request.auth != null && (request.auth.uid == userId || isAdmin());
       allow write: if request.auth != null && (request.auth.uid == userId || isAdmin());
+    }
+
+    // --- NUEVAS REGLAS ERP (CORRECCIÓN) ---
+
+    // Reglas para Proveedores (Suppliers)
+    match /suppliers/{supplierId} {
+      // Solo el administrador puede ver o modificar proveedores
+      allow read, write: if isAdmin();
+    }
+
+    // Reglas para Historial de Compras (Purchases)
+    match /purchases/{purchaseId} {
+      // Solo el administrador puede ver o registrar compras a proveedores
+      allow read, write: if isAdmin();
     }
   }
 }

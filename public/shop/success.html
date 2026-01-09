@@ -1,63 +1,165 @@
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>¡Pedido Exitoso! - PixelTech</title>
+    <title>¡Pedido Confirmado! | PixelTech Elite Store</title>
     <link rel="stylesheet" href="../css/styles.css">
     <script src="https://kit.fontawesome.com/0d623ded97.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <style>
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .fade-in-up { animation: fadeInUp 0.6s ease-out forwards; }
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
 </head>
-<body class="bg-gray-50 h-screen flex items-center justify-center">
 
-    <div class="bg-white p-10 rounded-2xl shadow-2xl text-center max-w-md mx-4 border border-gray-100">
-        
-        <div class="w-24 h-24 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
-            <i class="fa-solid fa-check text-5xl text-green-500"></i>
+<body class="bg-slate-50 font-sans text-brand-black antialiased">
+
+    <div id="global-header"></div>
+
+    <main class="container mx-auto px-6 py-12">
+        <div class="flex items-center justify-center mb-16 gap-6">
+            <span class="text-[10px] font-black text-gray-300 uppercase tracking-widest">01 Carrito</span>
+            <div class="w-8 h-px bg-gray-200"></div>
+            <span class="text-[10px] font-black text-gray-300 uppercase tracking-widest">02 Envío</span>
+            <div class="w-8 h-px bg-gray-200"></div>
+            <span class="text-[10px] font-black text-brand-black uppercase tracking-widest underline decoration-brand-cyan decoration-2 underline-offset-8">03 Confirmación</span>
         </div>
 
-        <h1 class="text-3xl font-black text-brand-black mb-2">¡Gracias por tu compra!</h1>
-        <p class="text-gray-500 mb-6">Tu pedido ha sido registrado exitosamente en el sistema.</p>
-
-        <div class="bg-gray-50 p-4 rounded-lg border border-gray-200 mb-8 text-left">
-            <p class="text-xs text-gray-400 uppercase font-bold mb-1">Referencia de Pedido</p>
-            <p id="order-id" class="font-mono text-lg text-brand-cyan font-bold">Cargando...</p>
+        <div class="max-w-4xl mx-auto text-center fade-in-up">
+            <h1 class="text-5xl font-black tracking-tighter uppercase mb-4">¡Pedido <span class="text-brand-cyan">Confirmado</span>!</h1>
             
-            <div class="mt-4 pt-4 border-t border-gray-200">
-                <p class="text-xs text-gray-400 uppercase font-bold mb-1">Estado</p>
-                <span class="bg-yellow-100 text-yellow-700 text-xs font-bold px-2 py-1 rounded-full">
-                    PENDIENTE DE PAGO (Simulación)
-                </span>
+            <p class="text-gray-400 font-bold uppercase tracking-[0.2em] text-[10px] mb-12">Gracias por confiar en PixelTech</p>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-10 text-left">
+                
+                <div class="bg-white rounded-[2.5rem] p-10 border border-gray-100 shadow-xl">
+                    <h3 class="font-black text-[10px] uppercase tracking-[0.3em] text-gray-400 mb-8 border-b border-gray-50 pb-6">Detalles de la Orden</h3>
+                    
+                    <div id="success-items-container" class="space-y-6 mb-8 overflow-y-auto max-h-[350px] no-scrollbar">
+                        <div class="animate-pulse flex gap-4">
+                            <div class="w-12 h-12 bg-gray-100 rounded-lg"></div>
+                            <div class="flex-grow space-y-2">
+                                <div class="h-3 bg-gray-100 rounded w-3/4"></div>
+                                <div class="h-2 bg-gray-100 rounded w-1/2"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="border-t border-gray-50 pt-8 space-y-4">
+                        <div class="flex justify-between items-end">
+                            <span class="font-black text-[10px] uppercase text-gray-400">Total Transacción</span>
+                            <span id="order-total" class="text-3xl font-black tracking-tighter text-brand-black">$0</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="space-y-6">
+                    <div class="bg-brand-black rounded-[2.5rem] p-10 text-white shadow-2xl relative overflow-hidden">
+                        <h3 class="font-black text-[10px] uppercase tracking-[0.3em] text-brand-cyan mb-8">Información de Envío</h3>
+                        <div class="space-y-4 relative z-10">
+                            <div>
+                                <p class="text-[9px] font-black text-gray-500 uppercase">Referencia</p>
+                                <p id="order-id" class="text-sm font-bold text-white font-mono uppercase tracking-widest">Cargando...</p>
+                            </div>
+                            <div>
+                                <p class="text-[9px] font-black text-gray-500 uppercase">Destinatario</p>
+                                <p id="order-customer" class="text-sm font-bold text-white"></p>
+                            </div>
+                            <div>
+                                <p class="text-[9px] font-black text-gray-500 uppercase">Dirección</p>
+                                <p id="order-address" class="text-sm font-bold text-white"></p>
+                            </div>
+                        </div>
+                        <i class="fa-solid fa-box-open absolute -right-8 -bottom-8 text-[10rem] opacity-5"></i>
+                    </div>
+
+                    <div class="grid grid-cols-1 gap-4">
+                        <a href="/profile.html" class="w-full bg-brand-cyan text-brand-black font-black py-6 rounded-2xl hover:bg-brand-black hover:text-white transition-all duration-500 uppercase text-xs tracking-[0.2em] flex items-center justify-center gap-3 shadow-xl shadow-cyan-500/10">
+                            Ir a mis pedidos <i class="fa-solid fa-list-check"></i>
+                        </a>
+                        <a href="/index.html" class="w-full bg-white border border-gray-200 text-gray-400 font-black py-5 rounded-2xl hover:border-brand-cyan hover:text-brand-black transition-all uppercase text-[10px] tracking-[0.2em] flex items-center justify-center gap-3">
+                            Volver al Catálogo
+                        </a>
+                    </div>
+                </div>
+
             </div>
         </div>
+    </main>
 
-        <div class="space-y-3">
-            <a href="/index.html" class="block w-full bg-black text-white font-bold py-3 rounded-xl hover:bg-gray-800 transition">
-                Volver a la Tienda
-            </a>
-            <a href="#" class="block w-full text-brand-cyan font-bold text-sm hover:underline">
-                Ver mis pedidos
-            </a>
-        </div>
-    </div>
+    <div id="global-footer"></div>
 
-    <script>
-        // Lanzar confeti al cargar
+    <script type="module">
+        import { loadGlobalHeader, loadGlobalFooter } from '../js/global-components.js';
+        import { db, doc, getDoc } from '../js/firebase-init.js';
+
+        loadGlobalHeader();
+        loadGlobalFooter();
+
         confetti({
-            particleCount: 100,
-            spread: 70,
-            origin: { y: 0.6 }
+            particleCount: 150,
+            spread: 80,
+            origin: { y: 0.7 },
+            colors: ['#00AEC7', '#111827', '#ffffff']
         });
 
-        // Mostrar el ID del pedido desde la URL
-        const params = new URLSearchParams(window.location.search);
-        const orderId = params.get('order');
-        if(orderId) {
-            document.getElementById('order-id').textContent = orderId;
-        } else {
-            document.getElementById('order-id').textContent = "Desconocido";
-        }
-    </script>
+        async function loadOrderDetails() {
+            const params = new URLSearchParams(window.location.search);
+            const orderId = params.get('order');
+            
+            if (!orderId) {
+                window.location.href = "/";
+                return;
+            }
 
+            try {
+                const docRef = doc(db, "orders", orderId);
+                const docSnap = await getDoc(docRef);
+
+                if (docSnap.exists()) {
+                    const order = docSnap.data();
+                    
+                    document.getElementById('order-id').textContent = orderId;
+                    document.getElementById('order-customer').textContent = order.userName;
+                    document.getElementById('order-address').textContent = `${order.address}, ${order.city}`;
+                    document.getElementById('order-total').textContent = `$${order.total.toLocaleString('es-CO')}`;
+
+                    // Renderizado dinámico de items con Color y Capacidad
+                    const itemsContainer = document.getElementById('success-items-container');
+                    itemsContainer.innerHTML = order.items.map(item => `
+                        <div class="flex items-center gap-4 group">
+                            <div class="w-14 h-14 bg-slate-50 rounded-xl p-2 border border-gray-100 shrink-0">
+                                <img src="${item.mainImage || item.image}" class="w-full h-full object-contain">
+                            </div>
+                            <div class="flex-grow">
+                                <h4 class="font-black text-[10px] uppercase text-brand-black line-clamp-1">${item.name}</h4>
+                                <div class="flex flex-wrap gap-2 mt-1">
+                                    ${item.color ? `<span class="text-[7px] font-black uppercase bg-slate-100 px-1.5 py-0.5 rounded text-gray-400 border border-gray-200">Color: ${item.color}</span>` : ''}
+                                    ${item.capacity ? `<span class="text-[7px] font-black uppercase bg-brand-cyan/5 px-1.5 py-0.5 rounded text-brand-cyan border border-brand-cyan/10">Cap: ${item.capacity}</span>` : ''}
+                                </div>
+                            </div>
+                            <div class="text-right">
+                                <p class="text-[9px] font-black text-gray-300 uppercase">x${item.quantity}</p>
+                                <p class="text-xs font-black text-brand-black">$${(item.price * item.quantity).toLocaleString('es-CO')}</p>
+                            </div>
+                        </div>
+                    `).join('');
+
+                } else {
+                    document.getElementById('order-id').textContent = "Orden no encontrada";
+                }
+            } catch (error) {
+                console.error("Error al cargar orden:", error);
+            }
+        }
+
+        loadOrderDetails();
+    </script>
 </body>
 </html>

@@ -1,208 +1,107 @@
 <!DOCTYPE html>
 <html lang="es">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Inventario - PixelTech Admin</title>
+    <title>Inventario Maestro | PixelTech Admin</title>
     <link rel="stylesheet" href="../css/styles.css">
     <script src="https://kit.fontawesome.com/0d623ded97.js" crossorigin="anonymous"></script>
     <style>
-        .hidden {
-            display: none;
+        /* Estilos específicos para la tabla de inventario */
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        
+        .status-pill {
+            @apply px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest;
         }
+
+        /* Aseguramos que las filas tengan una transición suave */
+        tr { transition: all 0.2s ease; }
     </style>
 </head>
-
-<body class="bg-gray-100 font-sans text-brand-black hidden flex h-screen overflow-hidden">
+<body class="bg-slate-50 font-sans text-brand-black flex h-screen overflow-hidden">
 
     <div id="admin-sidebar"></div>
 
-    <main class="flex-grow overflow-y-auto bg-slate-50">
-        <header class="bg-white border-b border-gray-200 px-8 py-4 flex justify-between items-center sticky top-0 z-10">
-            <h2 class="font-bold text-gray-500 text-sm uppercase tracking-widest">Gestión de Inventario</h2>
+    <main class="flex-grow overflow-y-auto flex flex-col no-scrollbar">
+        
+        <header class="bg-white border-b border-gray-200 px-10 py-6 flex justify-between items-center sticky top-0 z-30 shadow-sm">
+            <div>
+                <h2 class="font-black text-[10px] uppercase tracking-[0.3em] text-gray-400 mb-1">Catálogo Maestro</h2>
+                <h1 class="text-3xl font-black text-brand-black tracking-tighter uppercase">Gestión de <span class="text-gray-300">Inventario</span></h1>
+            </div>
+            
             <div class="flex items-center gap-4">
-                <div class="w-10 h-10 bg-brand-cyan text-white rounded-full flex items-center justify-center font-bold">
-                    <i class="fa-solid fa-user-tie"></i>
-                </div>
+                <button onclick="window.location.href='create-product.html'" 
+                    class="bg-brand-black text-white px-8 py-4 rounded-2xl font-black uppercase text-[10px] tracking-[0.2em] shadow-2xl hover:bg-brand-cyan hover:text-brand-black transition-all flex items-center gap-3">
+                    <i class="fa-solid fa-plus text-xs"></i> Nuevo Producto
+                </button>
             </div>
         </header>
 
-        <div class="p-8">
-            <div class="mb-8">
-                <h1 class="text-3xl font-black text-brand-black tracking-tight">Inventario</h1>
-                <p class="text-gray-500 text-sm">Gestiona los productos disponibles en PixelTech.</p>
-            </div>
-
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                <div class="lg:col-span-1">
-                    <div class="bg-white p-6 rounded-2xl shadow-xl border border-gray-100 sticky top-24">
-                        <form id="product-form" class="space-y-4">
-                            <div>
-                                <label class="block text-[10px] font-black text-gray-400 uppercase mb-1">Nombre</label>
-                                <input type="text" id="p-name" required
-                                    class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-brand-cyan outline-none transition">
-                            </div>
-
-                            <div class="grid grid-cols-2 gap-4">
-                                <div>
-                                    <label class="block text-[10px] font-black text-gray-400 uppercase mb-1">Precio
-                                        Venta</label>
-                                    <input type="number" id="p-price" required
-                                        class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-brand-cyan outline-none transition">
-                                </div>
-                                <div>
-                                    <label class="block text-[10px] font-black text-gray-400 uppercase mb-1">Precio
-                                        Antes</label>
-                                    <input type="number" id="p-original"
-                                        class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-brand-cyan outline-none transition">
-                                </div>
-                            </div>
-
-                            <div>
-                                <label class="block text-[10px] font-black text-gray-400 uppercase mb-1">Categoría /
-                                    Departamento</label>
-                                <select id="p-category"
-                                    class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-brand-cyan outline-none transition">
-                                    <option value="">Cargando categorías...</option>
-                                </select>
-                            </div>
-
-                            <div>
-                                <label class="block text-[10px] font-black text-gray-400 uppercase mb-1">Imagen</label>
-                                <input type="file" id="p-image" accept="image/*" required
-                                    class="w-full text-xs text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-[10px] file:font-black file:bg-brand-black file:text-white hover:file:bg-brand-cyan cursor-pointer transition">
-                            </div>
-
-                            <button type="submit" id="btn-save"
-                                class="w-full bg-brand-black text-white font-black py-4 rounded-xl hover:bg-brand-cyan transition shadow-lg mt-4 uppercase tracking-widest text-xs">
-                                <i class="fa-solid fa-cloud-arrow-up mr-2"></i> Publicar Producto
-                            </button>
-                        </form>
+        <div class="p-10 max-w-[1600px] mx-auto w-full">
+            
+            <div class="flex flex-col md:flex-row gap-6 mb-10">
+                <div class="relative flex-grow group">
+                    <div class="absolute left-5 top-1/2 -translate-y-1/2 text-gray-300 group-focus-within:text-brand-cyan transition">
+                        <i class="fa-solid fa-magnifying-glass"></i>
                     </div>
+                    <input type="text" id="inventory-search" placeholder="Buscar por nombre, SKU o marca del equipo..." 
+                        class="w-full bg-white border-2 border-gray-100 rounded-[1.5rem] py-4 pl-14 pr-6 text-sm font-semibold outline-none focus:border-brand-cyan focus:shadow-lg focus:shadow-cyan-500/5 transition-all shadow-sm">
                 </div>
 
-                <div class="lg:col-span-2">
-                    <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                        <div id="products-list" class="divide-y divide-gray-100">
-                        </div>
+                <div class="md:w-64">
+                    <select id="filter-status" 
+                        class="w-full bg-white border-2 border-gray-100 rounded-[1.5rem] py-4 px-6 text-xs font-black uppercase tracking-widest outline-none cursor-pointer focus:border-brand-cyan transition shadow-sm appearance-none">
+                        <option value="all">Todos los Estados</option>
+                        <option value="active">🟢 Solo Activos</option>
+                        <option value="draft">🟡 Solo Borradores</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-[2.5rem] shadow-xl shadow-slate-200/50 border border-gray-100 overflow-hidden">
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse">
+                        <thead class="bg-gray-50/50 border-b border-gray-100">
+                            <tr>
+                                <th class="p-6 text-[10px] font-black uppercase text-gray-400 tracking-widest w-24">Vista</th>
+                                <th class="p-6 text-[10px] font-black uppercase text-gray-400 tracking-widest">Producto / Referencia</th>
+                                <th class="p-6 text-[10px] font-black uppercase text-gray-400 tracking-widest">Categoría / Marca</th>
+                                <th class="p-6 text-[10px] font-black uppercase text-gray-400 tracking-widest">Valor / Disponibilidad</th>
+                                <th class="p-6 text-[10px] font-black uppercase text-gray-400 tracking-widest text-center">Estado</th>
+                                <th class="p-6 text-[10px] font-black uppercase text-gray-400 tracking-widest text-right">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="products-table-body" class="divide-y divide-gray-50 font-medium">
+                            <tr>
+                                <td colspan="6" class="p-20 text-center">
+                                    <i class="fa-solid fa-circle-notch fa-spin text-3xl text-brand-cyan opacity-20"></i>
+                                    <p class="mt-4 text-[10px] font-black uppercase text-gray-300 tracking-widest">Sincronizando Inventario...</p>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="mt-10 flex justify-between items-center px-6">
+                <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                    Tip: Haz clic en el icono de edición para modificar un producto existente.
+                </p>
+                <div class="flex gap-4">
+                    <div class="flex items-center gap-2">
+                        <div class="w-2 h-2 rounded-full bg-green-500"></div>
+                        <span class="text-[9px] font-black uppercase text-gray-500">Visible</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <div class="w-2 h-2 rounded-full bg-yellow-500"></div>
+                        <span class="text-[9px] font-black uppercase text-gray-500">Borrador</span>
                     </div>
                 </div>
             </div>
         </div>
     </main>
 
-    <script type="module">
-        import '../js/admin-guard.js';
-        import { db, collection, addDoc, getDocs, storage, ref, uploadBytes, getDownloadURL, query, orderBy, deleteDoc, doc } from '../js/firebase-init.js';
-
-        // --- 1. CARGAR CATEGORÍAS DINÁMICAS ---
-        async function populateCategories() {
-            const select = document.getElementById('p-category');
-            const snap = await getDocs(collection(db, "categories"));
-
-            select.innerHTML = '<option value="">Selecciona una subcategoría...</option>';
-
-            snap.forEach(d => {
-                const cat = d.data();
-                const group = document.createElement('optgroup');
-                group.label = cat.name;
-
-                cat.subcategories.forEach(sub => {
-                    const opt = document.createElement('option');
-                    opt.value = sub.trim();
-                    opt.textContent = sub.trim();
-                    group.appendChild(opt);
-                });
-                select.appendChild(group);
-            });
-        }
-
-        // --- 2. CARGAR PRODUCTOS ---
-        async function loadProducts() {
-            const list = document.getElementById('products-list');
-            const snapshot = await getDocs(collection(db, "products"));
-
-            list.innerHTML = "";
-            if (snapshot.empty) {
-                list.innerHTML = "<p class='p-12 text-center text-gray-400'>No hay productos en inventario.</p>";
-                return;
-            }
-
-            snapshot.forEach(d => {
-                const p = d.data();
-                list.innerHTML += `
-                    <div class="p-4 flex items-center gap-6 group hover:bg-slate-50 transition">
-                        <div class="w-16 h-16 rounded-xl overflow-hidden border border-gray-100 shrink-0">
-                            <img src="${p.image}" class="w-full h-full object-cover">
-                        </div>
-                        <div class="flex-grow">
-                            <h4 class="font-black text-brand-black text-sm">${p.name}</h4>
-                            <span class="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">${p.category}</span>
-                        </div>
-                        <div class="text-right">
-                            <div class="font-black text-brand-black">$${p.price.toLocaleString('es-CO')}</div>
-                        </div>
-                        <button onclick="window.deleteProduct('${d.id}')" class="text-gray-200 hover:text-brand-red p-2 transition">
-                            <i class="fa-solid fa-trash-can"></i>
-                        </button>
-                    </div>
-                `;
-            });
-        }
-
-        // --- 3. GUARDAR PRODUCTO ---
-        const form = document.getElementById('product-form');
-        const btnSave = document.getElementById('btn-save');
-
-        form.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            btnSave.disabled = true;
-            btnSave.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> SUBIENDO...';
-
-            try {
-                const file = document.getElementById('p-image').files[0];
-                const storageRef = ref(storage, 'products/' + Date.now() + '-' + file.name);
-                await uploadBytes(storageRef, file);
-                const imageUrl = await getDownloadURL(storageRef);
-
-                await addDoc(collection(db, "products"), {
-                    name: document.getElementById('p-name').value,
-                    price: Number(document.getElementById('p-price').value),
-                    originalPrice: Number(document.getElementById('p-original').value) || 0,
-                    category: document.getElementById('p-category').value,
-                    image: imageUrl,
-                    createdAt: new Date()
-                });
-
-                form.reset();
-                loadProducts();
-                alert("Producto publicado!");
-            } catch (error) {
-                alert("Error: " + error.message);
-            } finally {
-                btnSave.disabled = false;
-                btnSave.innerHTML = '<i class="fa-solid fa-cloud-arrow-up mr-2"></i> Publicar Producto';
-            }
-        });
-
-        // --- 4. BORRAR PRODUCTO ---
-        window.deleteProduct = async (id) => {
-            if (confirm("¿Eliminar este producto?")) {
-                await deleteDoc(doc(db, "products", id));
-                loadProducts();
-            }
-        };
-
-        // Inicialización
-        populateCategories();
-        loadProducts();
-
-    </script>
-    <script type="module">
-        import { loadAdminSidebar } from '../js/admin-ui.js';
-        loadAdminSidebar();
-    </script>
+    <script type="module" src="../js/admin-inventory.js"></script>
 </body>
-
 </html>
