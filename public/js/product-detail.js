@@ -264,7 +264,6 @@ function handleAddToCart() {
     setTimeout(() => {
         els.btnAdd.innerText = originalText;
         els.btnAdd.classList.remove('bg-green-500', 'text-white');
-        if(confirm("Producto agregado. ¿Ir al carrito?")) window.location.href = "/shop/cart.html";
     }, 500);
 }
 
