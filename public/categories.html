@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Categorías | PixelTech</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <script src="https://kit.fontawesome.com/0d623ded97.js" crossorigin="anonymous"></script>
+    <style>
+        .fade-in { animation: fadeIn 0.8s ease-out forwards; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    </style>
+</head>
+
+<body class="bg-white font-sans text-brand-black antialiased flex flex-col min-h-screen">
+
+    <div id="global-header"></div>
+
+    <main class="flex-grow w-full px-[3%] py-12 fade-in">
+        
+        <div class="flex flex-col md:flex-row justify-between items-start md:items-end mb-12 gap-6 border-l-8 border-brand-cyan pl-8">
+            <div>
+                <h2 class="text-4xl md:text-5xl font-black text-brand-black tracking-tighter uppercase">Explora por <span class="text-gray-300">Categoría</span></h2>
+                <p class="text-gray-400 font-bold text-sm mt-2 uppercase tracking-widest">Encuentra exactamente lo que buscas</p>
+            </div>
+        </div>
+
+        <div id="categories-grid" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+            <div class="col-span-full flex justify-center py-20">
+                <i class="fa-solid fa-circle-notch fa-spin text-4xl text-brand-cyan"></i>
+            </div>
+        </div>
+
+    </main>
+
+    <div id="global-footer"></div>
+
+    <script type="module">
+        import { loadGlobalHeader, loadGlobalFooter } from './js/global-components.js';
+        loadGlobalHeader();
+        loadGlobalFooter();
+    </script>
+    <script type="module" src="js/categories-public.js"></script>
+
+</body>
+</html>

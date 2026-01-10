@@ -52,6 +52,10 @@ export async function initProductDetail() {
         state.currentPrice = p.price;
         state.currentImage = p.mainImage || p.image || 'https://placehold.co/500';
 
+        // --- NUEVO: GUARDAR EN HISTORIAL ---
+        saveToHistory(p);
+        // -----------------------------------
+
         // 1. Renderizar Datos Básicos
         document.title = `${p.name} | PixelTech`;
         els.name.textContent = p.name;
@@ -78,6 +82,35 @@ export async function initProductDetail() {
         els.btnAdd.onclick = handleAddToCart;
 
     } catch (e) { console.error(e); }
+}
+
+// --- NUEVA FUNCIÓN PARA GUARDAR EL HISTORIAL ---
+function saveToHistory(product) {
+    try {
+        const historyKey = 'pixeltech_view_history';
+        let history = JSON.parse(localStorage.getItem(historyKey)) || [];
+
+        // 1. Si el producto ya existe, lo quitamos para ponerlo al principio (efecto "reciente")
+        history = history.filter(item => item.id !== product.id);
+
+        // 2. Agregamos el producto al inicio del array
+        // Guardamos solo lo necesario para no llenar la memoria
+        history.unshift({
+            id: product.id,
+            name: product.name,
+            price: product.price,
+            mainImage: product.mainImage || product.image, // Aseguramos que guarde alguna imagen
+            category: product.category
+        });
+
+        // 3. Limitamos a los últimos 10 vistos
+        if (history.length > 10) history = history.slice(0, 10);
+
+        // 4. Guardamos
+        localStorage.setItem(historyKey, JSON.stringify(history));
+    } catch (e) {
+        console.error("Error guardando historial:", e);
+    }
 }
 
 function renderOptions(p) {

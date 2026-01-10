@@ -13,7 +13,6 @@
         .custom-scroll::-webkit-scrollbar-track { background: #f1f1f1; }
         .custom-scroll::-webkit-scrollbar-thumb { background: #00AEC7; border-radius: 10px; }
         
-        /* Animaciones */
         .fade-in { animation: fadeIn 0.4s ease-out forwards; opacity: 0; transform: translateY(10px); }
         @keyframes fadeIn { to { opacity: 1; transform: translateY(0); } }
     </style>
@@ -24,7 +23,7 @@
     <div id="admin-sidebar"></div>
 
     <main class="flex-grow overflow-y-auto relative custom-scroll">
-        <header class="bg-white/90 backdrop-blur-xl border-b border-gray-100 px-8 py-5 flex justify-between items-center sticky top-0 z-20 shadow-sm">
+        <header class="bg-white/90 backdrop-blur-xl border-b border-gray-100 px-8 py-5 flex justify-between items-center sticky top-0 z-40 shadow-sm">
             <div><h2 class="font-black text-gray-400 text-[9px] uppercase tracking-[0.4em]">Logística & Abastecimiento</h2></div>
             <div class="flex items-center gap-4">
                 <div class="text-right hidden md:block">
@@ -37,8 +36,7 @@
             </div>
         </header>
 
-        <div class="p-8 max-w-7xl mx-auto text-left pb-20">
-            <div class="mb-10 flex flex-col md:flex-row justify-between items-end gap-6">
+        <div class="p-8 max-w-7xl mx-auto text-left pb-40"> <div class="mb-10 flex flex-col md:flex-row justify-between items-end gap-6">
                 <div>
                     <h1 class="text-4xl lg:text-5xl font-black text-brand-black tracking-tighter uppercase leading-none">Entrada de <br><span class="text-brand-cyan">Mercancía</span></h1>
                     <p class="text-gray-400 text-sm font-bold mt-2 tracking-wide">Gestión de compras, costos e incremento de stock.</p>
@@ -66,8 +64,8 @@
                 </div>
             </div>
 
-            <div class="bg-white rounded-[3rem] shadow-xl border border-gray-100 overflow-hidden mb-10 fade-in relative z-0" style="animation-delay: 100ms;">
-                <div class="p-8 border-b border-gray-50 flex justify-between items-center bg-slate-50/50">
+            <div class="bg-white rounded-[3rem] shadow-xl border border-gray-100 overflow-visible mb-10 fade-in relative z-20" style="animation-delay: 100ms;">
+                <div class="p-8 border-b border-gray-50 flex justify-between items-center bg-slate-50/50 rounded-t-[3rem]">
                     <h3 class="font-black text-brand-black uppercase text-[11px] tracking-widest flex items-center gap-3">
                         <span class="w-2 h-2 rounded-full bg-brand-cyan shadow-[0_0_10px_#00AEC7]"></span> Equipos Recibidos
                     </h3>
@@ -79,7 +77,7 @@
                 <div id="entry-items-container" class="p-8 space-y-4 bg-white min-h-[200px]">
                     </div>
 
-                <div class="p-10 bg-slate-900 text-white mt-4 relative overflow-hidden">
+                <div class="p-10 bg-slate-900 text-white mt-4 relative overflow-hidden rounded-b-[3rem]">
                     <div class="absolute top-0 right-0 w-64 h-64 bg-brand-cyan/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none"></div>
 
                     <div class="flex flex-col lg:flex-row justify-between items-center gap-10 relative z-10">
@@ -127,11 +125,9 @@
 
         loadAdminSidebar();
 
-        // Referencias DOM
         const supplierSearchInput = document.getElementById('supplier-search');
         const supplierResults = document.getElementById('supplier-results');
         const supplierIdField = document.getElementById('entry-supplier-id');
-        
         const itemsContainer = document.getElementById('entry-items-container');
         const btnSave = document.getElementById('btn-save-entry');
         const ivaToggle = document.getElementById('global-iva-toggle');
@@ -139,7 +135,6 @@
         let allProducts = [];
         let allSuppliers = [];
 
-        // --- 1. LÓGICA DE PROVEEDOR INTELIGENTE ---
         async function fetchSuppliers() {
             try {
                 const snap = await getDocs(query(collection(db, "suppliers"), orderBy("name", "asc")));
@@ -147,11 +142,10 @@
             } catch (e) { console.error("Error proveedores:", e); }
         }
 
-        // Evento Input Buscador Proveedor
         supplierSearchInput.oninput = (e) => {
             const term = e.target.value.toLowerCase();
             supplierResults.innerHTML = "";
-            supplierIdField.value = ""; // Limpiar ID si se borra texto
+            supplierIdField.value = ""; 
 
             if (term.length < 1) { 
                 supplierResults.classList.add('hidden'); 
@@ -184,23 +178,18 @@
             supplierResults.classList.remove('hidden');
         };
 
-        // Cerrar resultados al hacer clic fuera
         document.addEventListener('click', (e) => {
             if (!supplierSearchInput.contains(e.target) && !supplierResults.contains(e.target)) {
                 supplierResults.classList.add('hidden');
             }
         });
 
-
-        // --- 2. CÁLCULO DE TOTALES ---
         window.updateAllTotals = () => {
             let grandTotal = 0;
             document.querySelectorAll('.item-row').forEach(row => {
                 const qty = parseInt(row.querySelector('.p-qty').value) || 0;
                 const unitCost = parseFloat(row.querySelector('.p-unit-cost-input').value) || 0;
                 const rowTotal = qty * unitCost;
-                
-                // Actualizar total de la fila
                 row.querySelector('.p-row-total-display').textContent = `$${Math.round(rowTotal).toLocaleString('es-CO')}`;
                 grandTotal += rowTotal;
             });
@@ -231,11 +220,14 @@
             } catch (e) { console.error("Error productos:", e); }
         }
 
-        // --- 3. AÑADIR FILAS (ALINEADAS) ---
         function addProductRow() {
             const div = document.createElement('div');
-            // Usamos items-center para alinear verticalmente el contenido
-            div.className = "item-row bg-slate-50 p-5 rounded-[2rem] border border-gray-100 relative group hover:bg-white hover:shadow-lg hover:border-brand-cyan/30 transition-all duration-300 fade-in";
+            // CORRECCIÓN: Z-Index relativo para que el buscador de esta fila quede encima de la siguiente
+            div.className = "item-row bg-slate-50 p-5 rounded-[2rem] border border-gray-100 relative group hover:bg-white hover:shadow-lg hover:border-brand-cyan/30 transition-all duration-300 fade-in z-10";
+            // Truco: Al hacer hover, subimos el z-index de la fila para que su dropdown tape a la de abajo
+            div.onmouseenter = () => div.style.zIndex = "50"; 
+            div.onmouseleave = () => div.style.zIndex = "10";
+
             div.innerHTML = `
                 <div class="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
                     
@@ -245,7 +237,7 @@
                             <i class="fa-solid fa-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-gray-300 text-xs z-10"></i>
                             <input type="text" placeholder="Buscar por nombre..." class="p-search w-full bg-white border border-gray-200 rounded-xl py-3 pl-10 pr-4 text-xs font-bold outline-none focus:border-brand-cyan focus:ring-4 focus:ring-cyan-500/10 transition-all">
                         </div>
-                        <div class="p-results absolute z-50 w-full mt-2 bg-white border border-gray-100 rounded-xl shadow-2xl hidden max-h-48 overflow-y-auto p-2 custom-scroll"></div>
+                        <div class="p-results absolute z-[100] w-full mt-2 bg-white border border-gray-100 rounded-xl shadow-2xl hidden max-h-60 overflow-y-auto p-2 custom-scroll"></div>
                         <input type="hidden" class="p-id">
                     </div>
 
@@ -289,7 +281,6 @@
             const qtyInput = row.querySelector('.p-qty');
             const unitCostInput = row.querySelector('.p-unit-cost-input');
 
-            // Búsqueda en tiempo real
             input.oninput = (e) => {
                 const term = e.target.value.toLowerCase();
                 results.innerHTML = "";
@@ -335,34 +326,40 @@
             const container = row.querySelector('.p-variants-container');
             container.innerHTML = "";
 
-            if (!product.variants && !product.capacities) {
+            // Lógica actualizada para detectar variantes (Matriz nueva o estructura vieja)
+            const hasColors = (product.definedColors && product.definedColors.length > 0) || (product.variants && product.variants.length > 0);
+            const hasCaps = (product.definedCapacities && product.definedCapacities.length > 0) || (product.capacities && product.capacities.length > 0);
+
+            if (!hasColors && !hasCaps) {
                 container.innerHTML = `<div class="w-full h-[42px] flex items-center pl-2"><span class="text-[9px] font-bold text-gray-300 uppercase bg-gray-50 px-2 py-1 rounded">Producto Único</span></div>`;
                 return;
             }
 
-            // Select Color
-            if (product.variants?.length > 0) {
+            // Normalizar datos (compatibilidad)
+            const colors = product.definedColors || (product.variants ? product.variants.map(v => v.color) : []);
+            const caps = product.definedCapacities || (product.capacities ? product.capacities.map(c => c.label) : []);
+
+            if (colors.length > 0) {
                 const wrap = document.createElement('div');
                 wrap.className = "flex-1";
                 wrap.innerHTML = `
                     <label class="text-[8px] font-black text-gray-400 uppercase mb-2 block tracking-widest ml-1">Color</label>
                     <select class="variant-select p-color w-full bg-white border border-gray-200 rounded-xl px-2 h-[42px] text-xs font-bold outline-none focus:border-brand-cyan">
                         <option value="">N/A</option>
-                        ${product.variants.map(v => `<option value="${v.color}">${v.color}</option>`).join('')}
+                        ${colors.map(c => `<option value="${c}">${c}</option>`).join('')}
                     </select>
                 `;
                 container.appendChild(wrap);
             }
 
-            // Select Capacidad
-            if (product.capacities?.length > 0) {
+            if (caps.length > 0) {
                 const wrap = document.createElement('div');
                 wrap.className = "flex-1";
                 wrap.innerHTML = `
                     <label class="text-[8px] font-black text-gray-400 uppercase mb-2 block tracking-widest ml-1">Capacidad</label>
                     <select class="variant-select p-capacity w-full bg-white border border-gray-200 rounded-xl px-2 h-[42px] text-xs font-bold outline-none focus:border-brand-cyan">
                         <option value="">N/A</option>
-                        ${product.capacities.map(c => `<option value="${c.label}">${c.label}</option>`).join('')}
+                        ${caps.map(c => `<option value="${c}">${c}</option>`).join('')}
                     </select>
                 `;
                 container.appendChild(wrap);
@@ -371,9 +368,8 @@
 
         ivaToggle.onchange = window.updateAllTotals;
 
-        // --- 4. GUARDAR ENTRADA ---
-        btnSave.onclick = async () => {
-            const supplierId = supplierIdField.value; // Usamos el ID del input oculto
+ btnSave.onclick = async () => {
+            const supplierId = supplierIdField.value; 
             const itemRows = document.querySelectorAll('.item-row');
             
             if (!supplierId) return alert("⚠️ Seleccione un proveedor válido de la lista.");
@@ -384,62 +380,119 @@
             btnSave.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> PROCESANDO...';
 
             try {
+                // 1. PREPARAR DATOS DEL DOM (Evitar leer DOM dentro de la transacción)
+                const itemsToProcess = [];
+                for (const row of itemRows) {
+                    const pid = row.querySelector('.p-id').value;
+                    if (!pid) continue;
+
+                    const qty = parseInt(row.querySelector('.p-qty').value);
+                    const unitCostEntered = parseFloat(row.querySelector('.p-unit-cost-input').value);
+                    const selectedColor = row.querySelector('.p-color')?.value;
+                    const selectedCap = row.querySelector('.p-capacity')?.value;
+                    const name = row.querySelector('.p-search').value;
+
+                    if (!qty || qty <= 0) throw "Cantidad inválida en una fila";
+                    if (isNaN(unitCostEntered)) throw "Costo inválido en una fila";
+
+                    itemsToProcess.push({
+                        pid,
+                        qty,
+                        unitCostEntered,
+                        selectedColor,
+                        selectedCap,
+                        name,
+                        rowElement: row // Referencia por si necesitamos algo más
+                    });
+                }
+
                 await runTransaction(db, async (transaction) => {
+                    // --- FASE 1: LECTURAS (TODO LO QUE SEA GET) ---
+                    
+                    // A. Leer Proveedor
                     const suppRef = doc(db, "suppliers", supplierId);
                     const suppSnap = await transaction.get(suppRef);
                     if (!suppSnap.exists()) throw "Proveedor no encontrado";
 
-                    const productsToUpdate = [];
+                    // B. Leer Todos los Productos (En paralelo es más eficiente)
+                    const productReads = itemsToProcess.map(item => {
+                        const ref = doc(db, "products", item.pid);
+                        return transaction.get(ref);
+                    });
+                    
+                    const productSnaps = await Promise.all(productReads);
+
+
+                    // --- FASE 2: CÁLCULOS Y ESCRITURAS (TODO LO QUE SEA SET/UPDATE) ---
+                    
                     let totalInvoice = 0;
                     const purchaseItems = [];
                     const hasIvaGlobal = ivaToggle.checked;
 
-                    for (const row of itemRows) {
-                        const pid = row.querySelector('.p-id').value;
-                        if (!pid) continue;
+                    // Iteramos sobre los datos procesados, emparejándolos con su snapshot
+                    itemsToProcess.forEach((item, index) => {
+                        const pSnap = productSnaps[index];
+                        if (!pSnap.exists()) throw `Producto ${item.name} ya no existe en BD`;
 
-                        const qty = parseInt(row.querySelector('.p-qty').value);
-                        const unitCostEntered = parseFloat(row.querySelector('.p-unit-cost-input').value);
-                        
-                        if (!qty || qty <= 0) throw "Cantidad inválida en una fila";
-                        if (isNaN(unitCostEntered)) throw "Costo inválido en una fila";
+                        const pData = pSnap.data();
+                        const pRef = doc(db, "products", item.pid);
 
-                        const pRef = doc(db, "products", pid);
-                        const pSnap = await transaction.get(pRef);
-                        
-                        const rowTotal = qty * unitCostEntered;
+                        // Cálculos
+                        const rowTotal = item.qty * item.unitCostEntered;
                         totalInvoice += rowTotal;
-                        
-                        const unitCostBase = hasIvaGlobal ? Math.round(unitCostEntered / 1.19) : unitCostEntered;
-                        const newStock = (pSnap.data().stock || 0) + qty;
+                        const unitCostBase = hasIvaGlobal ? Math.round(item.unitCostEntered / 1.19) : item.unitCostEntered;
 
+                        // Lógica de Stock (Matriz)
+                        let newStock = (pData.stock || 0) + item.qty;
+                        let newCombinations = pData.combinations || [];
+
+                        if (item.selectedColor || item.selectedCap) {
+                            if (pData.combinations) {
+                                const comboIndex = pData.combinations.findIndex(c => 
+                                    (c.color === item.selectedColor || (!c.color && !item.selectedColor)) &&
+                                    (c.capacity === item.selectedCap || (!c.capacity && !item.selectedCap))
+                                );
+
+                                if (comboIndex >= 0) {
+                                    newCombinations[comboIndex].stock += item.qty;
+                                    // Recalcular stock global basado en la suma de combinaciones para asegurar consistencia
+                                    newStock = newCombinations.reduce((sum, i) => sum + i.stock, 0);
+                                }
+                            }
+                        }
+
+                        // WRITES: Actualizar Producto
                         transaction.update(pRef, { 
                             stock: newStock,
+                            combinations: newCombinations,
                             lastPurchaseCost: unitCostBase,
                             updatedAt: new Date()
                         });
 
+                        // Preparar dato para historial de compra
                         purchaseItems.push({
                             id: pSnap.id,
-                            name: row.querySelector('.p-search').value,
-                            quantity: qty,
+                            name: item.name,
+                            quantity: item.qty,
                             unitCostBase,
                             totalRow: Math.round(rowTotal),
-                            color: row.querySelector('.p-color')?.value || null,
-                            capacity: row.querySelector('.p-capacity')?.value || null
+                            color: item.selectedColor || null,
+                            capacity: item.selectedCap || null
                         });
-                    }
+                    });
 
+                    // WRITES: Actualizar Proveedor
                     transaction.update(suppRef, {
                         totalInvested: (suppSnap.data().totalInvested || 0) + totalInvoice,
                         ordersCount: (suppSnap.data().ordersCount || 0) + 1,
                         lastPurchase: new Date()
                     });
 
+                    // WRITES: Crear Documento de Compra
                     const purchaseRef = doc(collection(db, "purchases"));
                     transaction.set(purchaseRef, {
                         supplierId, 
-                        supplierName: supplierSearchInput.value, // Guardar nombre actual
+                        supplierName: supplierSearchInput.value, 
                         totalCost: Math.round(totalInvoice), 
                         hasIVA: hasIvaGlobal,
                         items: purchaseItems, 

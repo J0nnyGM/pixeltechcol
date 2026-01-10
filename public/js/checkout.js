@@ -264,7 +264,7 @@ function toggleSubmitBtn(enable) {
     }
 }
 
-// --- 5. SUBMIT Y GUARDADO ---
+// --- 5. SUBMIT Y GUARDADO (CORREGIDO) ---
 els.btnSubmit.addEventListener('click', async (e) => {
     e.preventDefault();
     if (!els.name.value || !els.phone.value || !els.citySelect.value || !els.address.value) {
@@ -294,19 +294,48 @@ els.btnSubmit.addEventListener('click', async (e) => {
         const deptName = els.deptSelect.options[els.deptSelect.selectedIndex].dataset.name;
         
         await runTransaction(db, async (transaction) => {
-            // Stock Check
+            // ----------------------------------------------------
+            // FASE 1: LECTURAS (READS) - Verificar TODO el stock primero
+            // ----------------------------------------------------
+            const productsToUpdate = [];
+
             for (const item of cart) {
                 const pRef = doc(db, "products", item.id);
+                // Leemos el documento
                 const pSnap = await transaction.get(pRef);
-                if (!pSnap.exists()) throw `Producto ${item.name} no existe.`;
-                const stock = pSnap.data().stock || 0;
-                if (stock < item.quantity) throw `Stock insuficiente: ${item.name}`;
-                transaction.update(pRef, { stock: stock - item.quantity });
+
+                if (!pSnap.exists()) {
+                    throw `Producto "${item.name}" ya no existe.`;
+                }
+
+                const currentStock = pSnap.data().stock || 0;
+                
+                // Verificamos stock en memoria
+                if (currentStock < item.quantity) {
+                    throw `Stock insuficiente para: ${item.name} (Quedan: ${currentStock})`;
+                }
+
+                // Guardamos los datos para la fase de escritura
+                productsToUpdate.push({
+                    ref: pRef,
+                    newStock: currentStock - item.quantity
+                });
             }
 
-            // Crear Orden
+            // ----------------------------------------------------
+            // FASE 2: ESCRITURAS (WRITES) - Solo si todo lo anterior pasó
+            // ----------------------------------------------------
+            
+            // 1. Actualizar Stock de todos los productos
+            productsToUpdate.forEach(p => {
+                transaction.update(p.ref, { stock: p.newStock });
+            });
+
+            // 2. Crear Orden (CORREGIDO)
             const newOrderRef = doc(collection(db, "orders"));
+            
             const orderData = {
+                source: 'TIENDA', // <--- ¡AQUÍ ESTÁ LA CLAVE! Agregamos el origen
                 userId: currentUser.uid,
                 userName: els.name.value,
                 userEmail: currentUser.email,
@@ -329,23 +358,23 @@ els.btnSubmit.addEventListener('click', async (e) => {
                 paymentMethod: 'CONTRAENTREGA',
                 createdAt: serverTimestamp()
             };
+            
             transaction.set(newOrderRef, orderData);
         });
 
         // --- LÓGICA DE GUARDAR NUEVA DIRECCIÓN ---
         if (els.saveAddrCheck.checked) {
             const newAddr = {
-                alias: `Envío ${new Date().toLocaleDateString()}`, // Alias automático
+                alias: `Envío ${new Date().toLocaleDateString()}`,
                 address: els.address.value,
-                dept: els.deptSelect.options[els.deptSelect.selectedIndex].dataset.name, // Nombre Texto
-                city: els.citySelect.value, // Nombre Texto
+                dept: els.deptSelect.options[els.deptSelect.selectedIndex].dataset.name,
+                city: els.citySelect.value,
                 zip: els.postal.value,
                 notes: els.notes.value,
-                isDefault: false // No la hacemos default forzosamente
+                isDefault: false
             };
 
             try {
-                // Usamos arrayUnion para agregar a la lista 'addresses' que usa profile.js
                 await updateDoc(doc(db, "users", currentUser.uid), {
                     addresses: arrayUnion(newAddr)
                 });
@@ -360,7 +389,7 @@ els.btnSubmit.addEventListener('click', async (e) => {
 
     } catch (error) {
         console.error(error);
-        alert("Error: " + error);
+        alert("Error en el pedido: " + error);
         els.btnSubmit.disabled = false;
         els.btnSubmit.innerHTML = btnHtml;
     }

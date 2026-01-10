@@ -3,39 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Creador de Productos | PixelTech Admin</title>
+    <title>Publicar Producto | PixelTech Admin</title>
     <link rel="stylesheet" href="../css/styles.css">
     <script src="https://kit.fontawesome.com/0d623ded97.js" crossorigin="anonymous"></script>
     <style>
-        /* Optimizaciones para el diseño */
         .no-scrollbar::-webkit-scrollbar { display: none; }
-        
-        /* Corregido: Sintaxis CSS estándar para los bordes visibles */
-        .admin-input-group {
-            background-color: #ffffff;
-            border: 2px solid #e5e7eb; 
-            border-radius: 1.5rem;
-            padding: 1.25rem;
-            transition: all 0.3s ease;
-        }
-        
-        .admin-input-group:focus-within {
-            border-color: #00AEC7; 
-            box-shadow: 0 10px 15px -3px rgba(0, 174, 199, 0.1);
-        }
-
-        /* Corregido: Sintaxis CSS para el editor */
-        .rich-editor {
-            min-height: 400px; /* Cambiado de min-h-[400px] */
-            width: 100%;
-            padding: 2.5rem;
-            outline: none;
-            background-color: #ffffff;
-            line-height: 1.6;
-        }
-
-        /* Estilos base para el contenido del editor */
-        .rich-editor h1 { font-size: 2.25rem; font-weight: 900; margin-bottom: 1.5rem; text-transform: uppercase; letter-spacing: -0.05em; }
+        .admin-input-group { background-color: #ffffff; border: 2px solid #e5e7eb; border-radius: 1.5rem; padding: 1.25rem; transition: all 0.3s ease; }
+        .admin-input-group:focus-within { border-color: #00AEC7; box-shadow: 0 10px 15px -3px rgba(0, 174, 199, 0.1); }
+        .rich-editor { min-height: 400px; width: 100%; padding: 2.5rem; outline: none; background-color: #ffffff; line-height: 1.6; }
+        .rich-editor h1 { font-size: 2.25rem; font-weight: 900; margin-bottom: 1.5rem; text-transform: uppercase; }
         .rich-editor p { margin-bottom: 1rem; }
         .rich-editor b { font-weight: 700; }
         .rich-editor ul { list-style-type: disc; margin-left: 1.5rem; margin-bottom: 1rem; }
@@ -66,12 +42,11 @@
 
         <div class="p-10 max-w-7xl mx-auto">
             <form id="main-form" class="space-y-10">
-                
                 <div class="grid grid-cols-1 lg:grid-cols-12 gap-10">
                     
                     <div class="lg:col-span-7 space-y-6">
                         <div class="admin-input-group">
-                            <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Nombre Comercial del Producto</label>
+                            <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Nombre Comercial</label>
                             <input type="text" id="p-name" placeholder="Ej: Laptop MSI Titan GT77" required 
                                 class="w-full bg-transparent border-none p-0 text-xl text-brand-black font-bold outline-none placeholder:text-gray-200">
                         </div>
@@ -79,122 +54,134 @@
                         <div class="grid grid-cols-2 gap-6">
                             <div class="admin-input-group">
                                 <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">SKU / Referencia</label>
-                                <input type="text" id="p-sku" placeholder="MSI-001-PRO" 
-                                    class="w-full bg-transparent border-none p-0 text-sm text-brand-black font-semibold outline-none">
+                                <input type="text" id="p-sku" placeholder="MSI-001-PRO" class="w-full bg-transparent border-none p-0 text-sm text-brand-black font-semibold outline-none">
                             </div>
                             <div class="admin-input-group">
                                 <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Marca</label>
-                                <input type="text" id="p-brand" placeholder="MSI Gaming" 
-                                    class="w-full bg-transparent border-none p-0 text-sm text-brand-black font-semibold outline-none">
+                                <input type="text" id="p-brand" placeholder="MSI Gaming" class="w-full bg-transparent border-none p-0 text-sm text-brand-black font-semibold outline-none">
                             </div>
                         </div>
 
                         <div class="grid grid-cols-2 gap-6">
                             <div class="admin-input-group">
-                                <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Precio de Venta (COP)</label>
-                                <input type="number" id="p-price" required 
-                                    class="w-full bg-transparent border-none p-0 text-lg text-brand-cyan font-black outline-none">
+                                <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Precio Base (COP)</label>
+                                <input type="number" id="p-price" required class="w-full bg-transparent border-none p-0 text-lg text-brand-cyan font-black outline-none">
                             </div>
+                            
                             <div class="admin-input-group">
-                                <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Stock Disponible</label>
-                                <input type="number" id="p-stock" required 
-                                    class="w-full bg-transparent border-none p-0 text-sm text-brand-black font-semibold outline-none">
+                                <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Garantía</label>
+                                <div class="flex gap-4">
+                                    <input type="number" id="p-warranty-time" placeholder="12" class="w-20 bg-transparent border-b border-gray-200 p-1 text-sm font-bold outline-none text-center">
+                                    <select id="p-warranty-unit" class="flex-grow bg-transparent border-b border-gray-200 p-1 text-xs font-bold outline-none cursor-pointer">
+                                        <option value="months">Meses</option>
+                                        <option value="days">Días</option>
+                                        <option value="years">Años</option>
+                                    </select>
+                                </div>
                             </div>
                         </div>
 
                         <div class="admin-input-group relative">
-                            <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Buscador Inteligente de Categoría</label>
-                            <input type="text" id="cat-search" placeholder="Escribe para filtrar categorías..." 
-                                class="w-full bg-transparent border-none p-0 text-sm text-brand-black font-semibold outline-none">
+                            <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Categoría</label>
+                            <input type="text" id="cat-search" placeholder="Filtrar categorías..." class="w-full bg-transparent border-none p-0 text-sm text-brand-black font-semibold outline-none">
                             <div id="cat-results" class="absolute z-50 w-full left-0 mt-6 bg-white border-2 border-gray-100 rounded-2xl shadow-2xl hidden max-h-48 overflow-y-auto p-2"></div>
                             <input type="hidden" id="p-category">
                         </div>
 
                         <div class="bg-white border-2 border-gray-200 rounded-[2.5rem] overflow-hidden shadow-sm mt-10">
-                            <div class="bg-gray-50 border-b border-gray-100 p-6 flex items-center justify-between">
-                                <span class="block text-[10px] font-black text-brand-black uppercase tracking-[0.2em]">Variaciones de Color</span>
-                                <button type="button" id="btn-add-variant" class="bg-brand-black text-white px-4 py-2 rounded-xl font-black text-[9px] uppercase tracking-widest hover:bg-brand-cyan transition">
-                                    <i class="fa-solid fa-plus mr-2"></i> Agregar Color
-                                </button>
+                            <div class="bg-gray-50 border-b border-gray-100 p-6">
+                                <span class="block text-[10px] font-black text-brand-black uppercase tracking-[0.2em] mb-4">Definición de Variantes</span>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div class="bg-white p-4 rounded-2xl border border-gray-200">
+                                        <label class="block text-[8px] font-black text-gray-400 uppercase mb-2">1. Colores</label>
+                                        <div class="flex gap-2 mb-3">
+                                            <input type="text" id="new-color-input" placeholder="Ej: Negro" class="flex-grow bg-slate-50 border border-gray-200 rounded-xl p-2 text-xs outline-none">
+                                            <button type="button" id="btn-add-color" class="bg-brand-black text-white px-3 rounded-xl hover:bg-brand-cyan transition"><i class="fa-solid fa-plus text-xs"></i></button>
+                                        </div>
+                                        <div id="tags-colors" class="flex flex-wrap gap-2"></div>
+                                    </div>
+                                    <div class="bg-white p-4 rounded-2xl border border-gray-200">
+                                        <label class="block text-[8px] font-black text-gray-400 uppercase mb-2">2. Capacidades</label>
+                                        <div class="flex gap-2 mb-3">
+                                            <input type="text" id="new-cap-input" placeholder="Ej: 128GB" class="flex-grow bg-slate-50 border border-gray-200 rounded-xl p-2 text-xs outline-none">
+                                            <button type="button" id="btn-add-cap" class="bg-brand-black text-white px-3 rounded-xl hover:bg-brand-cyan transition"><i class="fa-solid fa-plus text-xs"></i></button>
+                                        </div>
+                                        <div id="tags-caps" class="flex flex-wrap gap-2"></div>
+                                    </div>
+                                </div>
                             </div>
-                            
-                            <div id="variants-container" class="p-8 space-y-6">
-                                <p class="text-center text-gray-400 text-[10px] font-bold uppercase py-4">No has agregado variantes de color aún.</p>
+                            <div id="color-images-section" class="p-6 border-b border-gray-100 hidden">
+                                <span class="block text-[9px] font-black text-gray-400 uppercase tracking-widest mb-4">Fotos por Color</span>
+                                <div id="color-uploaders-container" class="grid grid-cols-1 gap-4"></div>
+                            </div>
+                            <div class="p-6">
+                                <div class="flex justify-between items-center mb-4">
+                                    <span class="text-[10px] font-black text-brand-cyan uppercase tracking-widest">Matriz de Inventario</span>
+                                </div>
+                                <div class="overflow-x-auto border rounded-2xl border-gray-100">
+                                    <table class="w-full text-left border-collapse">
+                                        <thead class="bg-gray-50 text-[8px] font-black text-gray-400 uppercase tracking-wider">
+                                            <tr><th class="p-4">Combinación</th><th class="p-4 w-40">Precio (COP)</th><th class="p-4 w-32">Stock</th></tr>
+                                        </thead>
+                                        <tbody id="matrix-tbody" class="text-sm font-bold text-brand-black">
+                                            <tr><td colspan="3" class="p-8 text-center text-gray-300 text-xs uppercase">Agrega colores/capacidades.</td></tr>
+                                        </tbody>
+                                    </table>
+                                </div>
                             </div>
                         </div>
 
-                        <div class="bg-white border-2 border-gray-200 rounded-[2.5rem] overflow-hidden shadow-sm mt-10">
+                        <div class="bg-white border-2 border-gray-200 rounded-[2.5rem] overflow-hidden shadow-sm">
                             <div class="bg-gray-50 border-b border-gray-100 p-6 flex items-center justify-between">
-                                <div>
-                                    <span class="block text-[10px] font-black text-brand-black uppercase tracking-[0.2em]">Capacidades / Almacenamiento</span>
-                                    <p class="text-[8px] text-gray-400 uppercase font-bold">Define las variantes de memoria y sus precios específicos</p>
+                                <span class="block text-[10px] font-black text-brand-black uppercase tracking-[0.2em]">Descripción</span>
+                                <div class="flex gap-2 bg-white p-1.5 rounded-2xl border border-gray-200 shadow-sm">
+                                    <button type="button" onclick="formatDoc('bold')" class="w-10 h-10 rounded-xl hover:bg-gray-100 transition"><i class="fa-solid fa-bold"></i></button>
+                                    <button type="button" onclick="formatDoc('insertUnorderedList')" class="w-10 h-10 rounded-xl hover:bg-gray-100 transition"><i class="fa-solid fa-list-ul"></i></button>
                                 </div>
-                                <button type="button" id="btn-add-capacity" class="bg-brand-black text-white px-4 py-2 rounded-xl font-black text-[9px] uppercase tracking-widest hover:bg-brand-cyan transition">
-                                    <i class="fa-solid fa-plus mr-2"></i> Agregar Capacidad
-                                </button>
                             </div>
-                            
-                            <div id="capacities-container" class="p-8 space-y-4">
-                                <p class="text-center text-gray-400 text-[10px] font-bold uppercase py-4">Este dispositivo no tiene variantes de capacidad.</p>
-                            </div>
+                            <div id="p-description-editor" contenteditable="true" class="rich-editor no-scrollbar"><p>Especificaciones...</p></div>
                         </div>
                     </div>
 
-                    <div class="lg:col-span-5">
-                        <div class="bg-white border-2 border-gray-200 rounded-[2.5rem] p-8 h-full flex flex-col shadow-sm">
+                    <div class="lg:col-span-5 space-y-6">
+                        <div class="admin-input-group bg-slate-50 border-dashed">
+                            <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">
+                                Stock Total <span id="stock-label-type" class="text-brand-cyan">(Inicial)</span>
+                            </label>
+                            <input type="number" id="p-stock" required class="w-full bg-transparent border-none p-0 text-2xl text-brand-black font-black outline-none transition-colors" placeholder="0">
+                            <p class="text-[8px] text-gray-400 mt-1" id="stock-help-text">Calculado automáticamente.</p>
+                        </div>
+
+                        <div class="bg-white border-2 border-gray-200 rounded-[2.5rem] p-8 h-fit shadow-sm">
                             <div class="flex justify-between items-center mb-6">
-                                <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Multimedia del Producto</label>
-                                <span class="text-[8px] font-bold text-brand-cyan uppercase">Usa las flechas para ordenar</span>
+                                <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest">Multimedia Global</label>
+                                <span class="text-[8px] font-bold text-brand-cyan uppercase">Usa flechas para ordenar</span>
                             </div>
                             
-                            <div id="gallery-container" class="grid grid-cols-2 gap-4 mb-6">
-                                </div>
+                            <div id="gallery-container" class="grid grid-cols-2 gap-4 mb-6"></div>
 
                             <label class="mt-auto w-full flex flex-col items-center justify-center gap-4 py-12 bg-slate-50 border-2 border-dashed border-gray-200 rounded-[2rem] cursor-pointer hover:border-brand-cyan hover:bg-white transition-all group">
                                 <i class="fa-solid fa-camera-retro text-3xl text-gray-300 group-hover:text-brand-cyan transition"></i>
-                                <div class="text-center">
-                                    <span class="block font-black text-[10px] uppercase text-gray-400 group-hover:text-brand-black">Cargar Fotografías</span>
-                                    <span class="text-[7px] text-gray-300 uppercase font-bold tracking-widest">JPG, PNG o WEBP</span>
-                                </div>
+                                <span class="font-black text-[9px] uppercase text-gray-400 group-hover:text-brand-black">Cargar Fotos</span>
                                 <input type="file" id="p-images" multiple accept="image/*" class="hidden">
                             </label>
                         </div>
-                    </div>
-                </div>
 
-                <div class="bg-white border-2 border-gray-200 rounded-[2.5rem] overflow-hidden shadow-sm">
-                    <div class="bg-gray-50 border-b border-gray-100 p-6 flex items-center justify-between">
-                        <span class="block text-[10px] font-black text-brand-black uppercase tracking-[0.2em]">Editor de Descripción Detallada</span>
-                        
-                        <div class="flex gap-2 bg-white p-1.5 rounded-2xl border border-gray-200 shadow-sm">
-                            <button type="button" onclick="formatDoc('bold')" class="w-10 h-10 rounded-xl hover:bg-gray-100 transition" title="Negrita">
-                                <i class="fa-solid fa-bold"></i>
-                            </button>
-                            <button type="button" onclick="formatDoc('formatBlock', 'H1')" class="px-3 h-10 rounded-xl hover:bg-gray-100 transition font-black text-xs" title="Título Grande">
-                                H1
-                            </button>
-                            <button type="button" onclick="formatDoc('formatBlock', 'P')" class="px-3 h-10 rounded-xl hover:bg-gray-100 transition font-black text-xs" title="Párrafo Estándar">
-                                P
-                            </button>
-                            <div class="w-px h-6 bg-gray-100 mx-1"></div>
-                            <button type="button" onclick="formatDoc('insertUnorderedList')" class="w-10 h-10 rounded-xl hover:bg-gray-100 transition" title="Lista">
-                                <i class="fa-solid fa-list-ul"></i>
-                            </button>
+                        <div class="admin-input-group">
+                            <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Estado</label>
+                            <select id="p-status" class="w-full bg-transparent border-none p-0 text-sm font-bold uppercase outline-none cursor-pointer">
+                                <option value="active">🟢 Activo</option>
+                                <option value="draft">🟡 Borrador</option>
+                            </select>
                         </div>
                     </div>
-                    
-                    <div id="p-description-editor" contenteditable="true" class="rich-editor no-scrollbar">
-                        <p>Escribe aquí las especificaciones técnicas y detalles del producto...</p>
-                    </div>
                 </div>
-
             </form>
         </div>
     </main>
 
     <script type="module" src="../js/admin-create-product.js"></script>
     <script>
-        // Ayudante para aplicar formato al editor contenteditable
         function formatDoc(cmd, value = null) {
             document.execCommand(cmd, false, value);
             document.getElementById('p-description-editor').focus();

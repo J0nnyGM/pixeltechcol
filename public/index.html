@@ -12,8 +12,20 @@
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
         .fade-in { animation: fadeIn 0.8s ease-out forwards; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-        .slider-image { transition: transform 0.7s ease-in-out; }
-        .slider-active .slider-image { transform: scale(1.05); }
+        /* Scroll suave para el historial */
+        .smooth-scroll { scroll-behavior: smooth; }
+
+        /* --- Animación para el Carrusel de Promociones --- */
+        @keyframes scrollLeft {
+            0% { transform: translateX(0); }
+            100% { transform: translateX(-50%); } 
+        }
+        .animate-scroll {
+            animation: scrollLeft 60s linear infinite; 
+        }
+        .pause-animation:hover {
+            animation-play-state: paused;
+        }
     </style>
 </head>
 
@@ -21,10 +33,10 @@
 
     <div id="global-header"></div>
 
-    <section class="container mx-auto px-6 py-6">
-        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 h-auto lg:h-[650px]">
+    <section class="w-full px-[3%] py-6">
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 h-auto lg:h-[620px]">
 
-            <div class="lg:col-span-4 relative rounded-[2.5rem] overflow-hidden shadow-xl bg-slate-900 group h-full">
+            <div class="lg:col-span-4 relative rounded-[2.5rem] overflow-hidden shadow-xl bg-slate-900 group h-[400px] lg:h-full">
                 <div id="promo-slider-container" class="h-full w-full relative">
                     <div class="flex items-center justify-center h-full">
                         <i class="fa-solid fa-circle-notch fa-spin text-brand-cyan text-3xl"></i>
@@ -32,77 +44,122 @@
                 </div>
             </div>
 
-            <div class="lg:col-span-8 grid grid-cols-1 lg:grid-cols-2 lg:grid-rows-3 gap-6 h-full">
+            <div class="lg:col-span-8 grid grid-cols-1 lg:grid-cols-2 lg:grid-rows-3 gap-6 h-auto lg:h-full">
 
                 <div id="new-launch-banner"
-                    class="relative rounded-[2.5rem] overflow-hidden shadow-2xl bg-brand-black h-[400px] lg:h-auto lg:row-span-2">
+                    class="relative rounded-[2.5rem] overflow-hidden shadow-2xl bg-brand-black h-[300px] lg:h-auto lg:row-span-2">
                     <div class="animate-pulse bg-slate-800 w-full h-full"></div>
                 </div>
 
-                <div class="bg-white rounded-[2.5rem] shadow-lg border border-gray-100 p-8 flex flex-col h-[400px] lg:h-auto lg:row-span-2 overflow-hidden">
+                <div class="bg-white rounded-[2.5rem] shadow-lg border border-gray-100 p-6 flex flex-col h-[300px] lg:h-auto lg:row-span-2 overflow-hidden">
                     <div class="flex items-center gap-2 mb-4 shrink-0">
                         <div class="w-1.5 h-6 bg-brand-cyan rounded-full"></div>
                         <h3 class="font-black text-sm uppercase tracking-widest text-brand-black">Elección Semanal</h3>
                     </div>
-                    <div id="weekly-choice-container" class="flex-grow space-y-4 overflow-y-auto no-scrollbar pr-2">
+                    <div id="weekly-choice-container" class="flex-grow space-y-3 overflow-y-auto no-scrollbar pr-1">
                         </div>
                 </div>
 
-                <div class="lg:col-span-2 lg:row-span-1 bg-slate-50 rounded-[2.5rem] border border-gray-100 p-6 h-fit lg:h-auto flex flex-col justify-center">
+                <div class="lg:col-span-2 lg:row-span-1 bg-slate-50 rounded-[2.5rem] border border-gray-100 p-4 h-fit lg:h-auto flex flex-col justify-center relative group-history z-0">
                     <div class="flex items-center justify-between mb-2 px-2 shrink-0">
                         <h3 class="font-black text-[10px] uppercase tracking-[0.2em] text-gray-400">Visto recientemente</h3>
                         <div class="h-px bg-gray-200 flex-grow mx-4"></div>
                     </div>
-                    <div id="view-history-list" class="flex gap-6 overflow-x-auto no-scrollbar py-2 items-center h-full">
-                        <p class="text-[10px] text-gray-400 font-bold uppercase w-full text-center">Explora productos para ver tu historial</p>
+                    
+                    <div class="relative w-full flex items-center flex-grow">
+                        <button id="hist-btn-left" class="hidden md:flex absolute -left-3 z-20 w-8 h-8 bg-white border border-gray-100 rounded-full shadow-lg items-center justify-center text-brand-black hover:bg-brand-black hover:text-brand-cyan transition scale-90 hover:scale-110">
+                            <i class="fa-solid fa-chevron-left text-xs"></i>
+                        </button>
+
+                        <div id="view-history-list" class="flex gap-4 overflow-x-auto no-scrollbar smooth-scroll px-1 py-4 -my-4 items-center h-full w-full min-h-[90px]">
+                            <p class="text-[10px] text-gray-400 font-bold uppercase w-full text-center">Explora productos para ver tu historial</p>
+                        </div>
+
+                        <button id="hist-btn-right" class="hidden md:flex absolute -right-3 z-20 w-8 h-8 bg-white border border-gray-100 rounded-full shadow-lg items-center justify-center text-brand-black hover:bg-brand-black hover:text-brand-cyan transition scale-90 hover:scale-110">
+                            <i class="fa-solid fa-chevron-right text-xs"></i>
+                        </button>
                     </div>
                 </div>
             </div>
         </div>
     </section>
 
-    <section class="bg-brand-surface py-16 mb-16">
-        <div class="container mx-auto px-6">
-            <div class="flex flex-col md:flex-row justify-between items-center mb-10 gap-4">
+    <section class="bg-brand-surface h-[500px] mt-20 mb-6 relative z-10 overflow-hidden flex flex-col justify-center">
+        <div class="w-full px-[3%] mb-6">
+            <div class="flex flex-col md:flex-row justify-between items-center gap-4">
                 <h2 class="text-3xl font-black tracking-tighter uppercase">Precios <span class="text-brand-red">Especiales</span></h2>
                 <div class="h-[2px] bg-gray-200 flex-grow hidden md:block mx-10"></div>
                 <p class="text-[10px] font-black text-gray-400 uppercase tracking-widest bg-white px-4 py-2 rounded-full shadow-sm">
                     Solo por tiempo limitado</p>
             </div>
-            <div id="promo-products-grid" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6"></div>
+        </div>
+
+        <div class="relative w-full">
+            <div class="absolute left-0 top-0 bottom-0 w-16 md:w-32 bg-gradient-to-r from-brand-surface to-transparent z-10 pointer-events-none"></div>
+            <div class="absolute right-0 top-0 bottom-0 w-16 md:w-32 bg-gradient-to-l from-brand-surface to-transparent z-10 pointer-events-none"></div>
+
+            <div id="promo-track" class="flex gap-8 w-max animate-scroll pause-animation px-[3%]">
+                </div>
         </div>
     </section>
 
-    <section class="container mx-auto px-6 mb-20">
-        <div class="bg-white rounded-[2.5rem] p-10 md:p-14 flex flex-wrap justify-around gap-12 border border-gray-100 shadow-sm">
-            <div class="flex items-center gap-6 group">
-                <div class="w-16 h-16 rounded-2xl bg-cyan-50 flex items-center justify-center group-hover:scale-110 transition duration-500">
-                    <i class="fa-solid fa-truck-fast text-3xl text-brand-cyan"></i></div>
+    <section class="w-full px-[3%] mb-12">
+        <div class="bg-white rounded-[2.5rem] p-8 md:p-10 flex flex-wrap justify-center xl:justify-around gap-8 border border-gray-100 shadow-sm">
+            
+            <div class="flex items-center gap-4 group min-w-[200px]">
+                <div class="w-14 h-14 rounded-2xl bg-cyan-50 flex items-center justify-center group-hover:scale-110 transition duration-500 shrink-0">
+                    <i class="fa-solid fa-truck-fast text-2xl text-brand-cyan"></i>
+                </div>
                 <div>
-                    <h4 class="font-black text-[11px] uppercase tracking-widest">Envío Nacional</h4>
-                    <p class="text-xs text-gray-400 font-medium">Seguimiento 24/7</p>
+                    <h4 class="font-black text-[10px] uppercase tracking-widest text-brand-black">Envíos a todo Colombia</h4>
+                    <p class="text-[10px] text-gray-400 font-bold">Despacho rápido asegurado</p>
                 </div>
             </div>
-            <div class="flex items-center gap-6 group">
-                <div class="w-16 h-16 rounded-2xl bg-emerald-50 flex items-center justify-center group-hover:scale-110 transition duration-500">
-                    <i class="fa-solid fa-shield-check text-3xl text-emerald-500"></i></div>
+
+            <div class="flex items-center gap-4 group min-w-[200px]">
+                <div class="w-14 h-14 rounded-2xl bg-emerald-50 flex items-center justify-center group-hover:scale-110 transition duration-500 shrink-0">
+                    <i class="fa-solid fa-hand-holding-dollar text-2xl text-emerald-500"></i>
+                </div>
                 <div>
-                    <h4 class="font-black text-[11px] uppercase tracking-widest">Compra Segura</h4>
-                    <p class="text-xs text-gray-400 font-medium">Garantía Real</p>
+                    <h4 class="font-black text-[10px] uppercase tracking-widest text-brand-black">Pago Contra entrega</h4>
+                    <p class="text-[10px] text-gray-400 font-bold">Paga al recibir tu pedido</p>
                 </div>
             </div>
-            <div class="flex items-center gap-6 group">
-                <div class="w-16 h-16 rounded-2xl bg-yellow-50 flex items-center justify-center group-hover:scale-110 transition duration-500">
-                    <i class="fa-solid fa-headset text-3xl text-yellow-500"></i></div>
+
+            <div class="flex items-center gap-4 group min-w-[200px]">
+                <div class="w-14 h-14 rounded-2xl bg-purple-50 flex items-center justify-center group-hover:scale-110 transition duration-500 shrink-0">
+                    <i class="fa-solid fa-medal text-2xl text-purple-500"></i>
+                </div>
                 <div>
-                    <h4 class="font-black text-[11px] uppercase tracking-widest">Soporte Pro</h4>
-                    <p class="text-xs text-gray-400 font-medium">Expertos tech</p>
+                    <h4 class="font-black text-[10px] uppercase tracking-widest text-brand-black">Productos Tendencia</h4>
+                    <p class="text-[10px] text-gray-400 font-bold">100% Garantizados</p>
                 </div>
             </div>
+
+            <div class="flex items-center gap-4 group min-w-[200px]">
+                <div class="w-14 h-14 rounded-2xl bg-pink-50 flex items-center justify-center group-hover:scale-110 transition duration-500 shrink-0">
+                    <i class="fa-solid fa-credit-card text-2xl text-pink-500"></i>
+                </div>
+                <div>
+                    <h4 class="font-black text-[10px] uppercase tracking-widest text-brand-black">Crédito Fácil y Seguro</h4>
+                    <p class="text-[10px] text-gray-400 font-bold">Addi</p>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-4 group min-w-[200px]">
+                <div class="w-14 h-14 rounded-2xl bg-yellow-50 flex items-center justify-center group-hover:scale-110 transition duration-500 shrink-0">
+                    <i class="fa-solid fa-headset text-2xl text-yellow-500"></i>
+                </div>
+                <div>
+                    <h4 class="font-black text-[10px] uppercase tracking-widest text-brand-black">Asesoría Personalizada</h4>
+                    <p class="text-[10px] text-gray-400 font-bold">Resolvemos todas tus dudas</p>
+                </div>
+            </div>
+
         </div>
     </section>
 
-    <main class="container mx-auto px-6 pb-32">
+    <main class="w-full px-[3%] pb-32">
         <div class="flex flex-col md:flex-row justify-between items-start md:items-end mb-16 gap-6 border-l-8 border-brand-cyan pl-8">
             <div>
                     <h2 class="text-5xl font-black text-brand-black tracking-tighter uppercase">Catálogo <span class="text-gray-300">Maestro</span></h2>
@@ -120,66 +177,5 @@
     </script>
     <script type="module" src="js/app.js"></script>
 
-    <script type="module">
-        import { db, collection, getDocs } from "./js/firebase-init.js";
-
-        async function loadWeeklyChoiceLogic() {
-            const container = document.getElementById('weekly-choice-container');
-            if(!container) return;
-
-            try {
-                // 1. Obtener todos los productos
-                const snap = await getDocs(collection(db, "products"));
-                let products = [];
-                snap.forEach(d => products.push({id: d.id, ...d.data()}));
-
-                // 2. Filtrar los que tienen el flag 'isWeeklyChoice' (o como lo llames en tu admin)
-                // Asumo que tienes un flag, si no, filtraremos aleatorio directo.
-                let weeklyItems = products.filter(p => p.isWeeklyChoice === true);
-
-                // 3. LOGICA ALEATORIA: Si no hay establecidos, tomar 3 aleatorios
-                if (weeklyItems.length === 0 && products.length > 0) {
-                    // Mezclar array (Fisher-Yates shuffle simplificado)
-                    const shuffled = products.sort(() => 0.5 - Math.random());
-                    // Tomar los primeros 3
-                    weeklyItems = shuffled.slice(0, 3);
-                }
-
-                // 4. Renderizar
-                container.innerHTML = "";
-                if(weeklyItems.length === 0) {
-                    container.innerHTML = `<p class="text-xs text-gray-400">Pronto nuevas elecciones.</p>`;
-                    return;
-                }
-
-                weeklyItems.forEach(p => {
-                    const div = document.createElement('div');
-                    // Diseño de tarjeta horizontal pequeña
-                    div.className = "flex items-center gap-4 p-3 rounded-2xl hover:bg-slate-50 transition cursor-pointer group border border-transparent hover:border-gray-100";
-                    div.onclick = () => window.location.href = `/shop/product.html?id=${p.id}`;
-                    div.innerHTML = `
-                        <div class="w-16 h-16 bg-white rounded-xl border border-gray-100 p-1 shrink-0 flex items-center justify-center">
-                            <img src="${p.mainImage || p.image}" class="max-w-full max-h-full object-contain group-hover:scale-105 transition">
-                        </div>
-                        <div class="flex-grow min-w-0">
-                            <h4 class="font-bold text-xs uppercase text-brand-black truncate group-hover:text-brand-cyan transition">${p.name}</h4>
-                            <p class="text-[10px] text-gray-400 font-bold uppercase mt-1">${p.category || 'Tech'}</p>
-                            <p class="text-sm font-black text-brand-black mt-1">$${(p.price || 0).toLocaleString('es-CO')}</p>
-                        </div>
-                        <div class="w-8 h-8 rounded-full bg-slate-100 text-brand-black flex items-center justify-center group-hover:bg-brand-black group-hover:text-white transition">
-                            <i class="fa-solid fa-arrow-right text-[10px]"></i>
-                        </div>
-                    `;
-                    container.appendChild(div);
-                });
-
-            } catch (e) {
-                console.error("Error cargando elección semanal:", e);
-            }
-        }
-
-        // Ejecutar
-        loadWeeklyChoiceLogic();
-    </script>
 </body>
 </html>

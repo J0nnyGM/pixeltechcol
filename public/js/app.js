@@ -1,10 +1,9 @@
+// IMPORTANTE: Agregamos 'removeOneUnit' a los imports
 import { auth, db, onAuthStateChanged, collection, getDocs, query, where, limit, doc, getDoc, orderBy } from "./firebase-init.js";
-import { addToCart, updateCartCount, getProductQtyInCart, removeFromCart } from "./cart.js";
+import { addToCart, updateCartCount, getProductQtyInCart, removeFromCart, removeOneUnit } from "./cart.js";
 
 console.log("🚀 PixelTech Store Iniciada");
 
-// Almacenamiento temporal en memoria (RUNTIME) para que los botones sepan qué agregar.
-// Esto NO es caché persistente, se borra al recargar la página.
 let runtimeProductsMap = {}; 
 
 /**
@@ -44,56 +43,53 @@ onAuthStateChanged(auth, async (user) => {
    LÓGICA DE BOTONES INTELIGENTES (AGREGAR vs CANTIDAD)
    ========================================================================== */
 
-// Genera el HTML del botón dependiendo si ya está en el carrito
-function getActionButtonsHTML(product) {
+function getActionButtonsHTML(product, isSmall = false) {
     const qtyInCart = getProductQtyInCart(product.id);
 
+    const containerClass = isSmall ? "h-8 px-1 rounded-lg" : "h-12 px-2 rounded-2xl"; 
+    const btnClass = isSmall ? "w-6 text-xs" : "w-8 text-lg";
+    const textClass = isSmall ? "w-4 text-xs" : "w-6 text-sm";
+    const addBtnClass = isSmall ? "w-8 h-8 rounded-lg text-xs" : "w-12 h-12 rounded-2xl";
+
     if (qtyInCart > 0) {
-        // MODO CONTROL: [-] 1 [+]
         return `
-            <div class="flex items-center bg-brand-black text-white rounded-2xl h-12 px-2 shadow-xl shadow-cyan-500/10 gap-2" onclick="event.stopPropagation()">
-                <button onclick="window.updateCardQty('${product.id}', -1)" class="w-8 h-full flex items-center justify-center hover:text-brand-cyan transition font-bold text-lg active:scale-90">-</button>
-                <span class="w-6 text-center text-sm font-black">${qtyInCart}</span>
-                <button onclick="window.updateCardQty('${product.id}', 1)" class="w-8 h-full flex items-center justify-center hover:text-brand-cyan transition font-bold text-lg active:scale-90">+</button>
+            <div class="flex items-center bg-brand-black text-white shadow-xl shadow-cyan-500/10 gap-1 ${containerClass}" onclick="event.stopPropagation()">
+                <button onclick="window.updateCardQty('${product.id}', -1)" class="${btnClass} h-full flex items-center justify-center hover:text-brand-cyan transition font-bold active:scale-90">-</button>
+                <span class="${textClass} text-center font-black">${qtyInCart}</span>
+                <button onclick="window.updateCardQty('${product.id}', 1)" class="${btnClass} h-full flex items-center justify-center hover:text-brand-cyan transition font-bold active:scale-90">+</button>
             </div>
         `;
     } else {
-        // MODO AGREGAR: [ CARRITO + ]
         return `
-            <button class="add-btn w-12 h-12 rounded-2xl bg-brand-black text-white hover:bg-brand-cyan hover:text-brand-black transition-all shadow-xl flex items-center justify-center group-btn active:scale-95" onclick="window.quickAdd('${product.id}')">
+            <button class="add-btn ${addBtnClass} bg-brand-black text-white hover:bg-brand-cyan hover:text-brand-black transition-all shadow-xl flex items-center justify-center group-btn active:scale-95" onclick="window.quickAdd('${product.id}')">
                 <i class="fa-solid fa-cart-plus transition-transform group-hover:scale-110"></i>
             </button>
         `;
     }
 }
 
-// Agregar rápido (Con auto-selección de primera variante)
 window.quickAdd = (id) => {
     event.stopPropagation();
     const p = runtimeProductsMap[id];
     if (!p) return;
 
-    // --- AUTO-SELECCIÓN DE PRIMERA OPCIÓN ---
     let finalPrice = p.price;
     let finalImage = p.mainImage || p.image;
     let selectedColor = null;
     let selectedCapacity = null;
 
-    // 1. Si tiene capacidades, tomar la primera
     if (p.hasCapacities && p.capacities && p.capacities.length > 0) {
         selectedCapacity = p.capacities[0].label;
-        finalPrice = p.capacities[0].price; // Usar precio de la capacidad
+        finalPrice = p.capacities[0].price; 
     }
 
-    // 2. Si tiene colores, tomar el primero
     if (p.hasVariants && p.variants && p.variants.length > 0) {
         selectedColor = p.variants[0].color;
         if (p.variants[0].images && p.variants[0].images.length > 0) {
-            finalImage = p.variants[0].images[0]; // Usar foto del color
+            finalImage = p.variants[0].images[0]; 
         }
     }
 
-    // Agregar al carrito
     addToCart({
         id: p.id,
         name: p.name,
@@ -105,56 +101,20 @@ window.quickAdd = (id) => {
     });
 
     updateCartCount();
-    refreshAllGrids(); // Actualizar UI para mostrar controles
+    refreshAllGrids(); 
 };
 
-// Actualizar cantidad desde la tarjeta (+ / -)
 window.updateCardQty = (id, delta) => {
     event.stopPropagation();
-    
-    const currentQty = getProductQtyInCart(id);
-    const newQty = currentQty + delta;
-
-    if (newQty <= 0) {
-        removeFromCart(id); // Si llega a 0, borrar
+    if (delta > 0) {
+        window.quickAdd(id);
     } else {
-        if(delta > 0) {
-            window.quickAdd(id); // Sumar es igual a agregar otro default
-        } else {
-            // Restar es complejo si hay variantes mixtas. 
-            // Para Home, simplificamos borrando todo y reconstruyendo o usando lógica avanzada.
-            // Por seguridad UX en Home: Borrar el producto y notificar o redirigir es lo más limpio sin una gestión compleja.
-            // Pero intentaremos restar "inteligentemente" borrando el último item agregado de ese ID en cart.js (si implementas esa lógica).
-            // A falta de lógica "removeOne", removemos todo y agregamos (qty - 1).
-            
-            // Hack rápido para restar sin borrar variantes específicas incorrectas:
-            // 1. Obtener carrito
-            // 2. Buscar item con este ID
-            // 3. Restar cantidad.
-            // Nota: Esto depende de tu implementación exacta en cart.js.
-            // Asumiremos que quickAdd suma y removeFromCart borra todo.
-            // Para soporte completo +/- en home se requiere gestión de variantes en modal.
-            
-            // Solución Segura MVP:
-            removeFromCart(id); 
-            // Si la cantidad deseada era > 0, volvemos a agregar (n-1) veces la default.
-            // Esto resetea variantes a default. Es el trade-off de hacerlo desde el home sin modal.
-            for(let i=0; i<newQty; i++) {
-                const p = runtimeProductsMap[id];
-                // Lógica de añadir sin refresh intermedio...
-                // (Omitido para no complicar, usamos removeFromCart como "Reset" si el usuario baja).
-            }
-            // MEJOR: Si el usuario quiere bajar cantidad, que vaya al carrito.
-            // Aquí solo permitimos ELIMINAR si baja de 1, o SUMAR.
-            // El botón "-" actuará como "Eliminar Todo" si no tenemos lógica de variante específica.
-            // O, mostramos alerta.
-        }
+        removeOneUnit(id); 
     }
     updateCartCount();
     refreshAllGrids();
 };
 
-// Re-renderizar solo la parte visual (usando los datos ya descargados)
 function refreshAllGrids() {
     renderWeeklyHTML();
     renderPromosHTML();
@@ -162,17 +122,13 @@ function refreshAllGrids() {
 }
 
 /* ==========================================================================
-   CARGADORES DE DATOS (SIN CACHÉ PERSISTENTE)
+   CARGADORES DE DATOS 
    ========================================================================== */
-
-// Variables para guardar datos descargados solo durante la sesión (para re-renderizar rápido)
 let weeklyData = [];
 let promoData = [];
 let catalogData = [];
 
-/**
- * --- 2. SLIDER PROMO ---
- */
+// --- 2. SLIDER PROMO ---
 async function loadPromoSlider() {
     const container = document.getElementById('promo-slider-container');
     if (!container) return;
@@ -185,7 +141,7 @@ async function loadPromoSlider() {
         snap.forEach(doc => {
             const p = { id: doc.id, ...doc.data() };
             promos.push(p);
-            runtimeProductsMap[p.id] = p; // Guardar para QuickAdd
+            runtimeProductsMap[p.id] = p;
         });
         
         if (promos.length === 0) {
@@ -238,9 +194,7 @@ async function loadPromoSlider() {
     } catch (e) { console.error("Slider Error:", e); }
 }
 
-/**
- * --- 3. LANZAMIENTO ---
- */
+// --- 3. LANZAMIENTO ---
 async function loadNewLaunch() {
     const container = document.getElementById('new-launch-banner');
     if (!container) return;
@@ -293,35 +247,56 @@ async function loadNewLaunch() {
     } catch (e) { console.error("Launch Error:", e); }
 }
 
-/**
- * --- 4. HISTORIAL ---
- */
+// --- 4. HISTORIAL CON BOTONES Y ORDEN ---
 function loadViewHistory() {
     const container = document.getElementById('view-history-list');
+    const btnLeft = document.getElementById('hist-btn-left');
+    const btnRight = document.getElementById('hist-btn-right');
+
     if (!container) return;
+
     const history = JSON.parse(localStorage.getItem('pixeltech_view_history')) || [];
+    
     if (history.length === 0) {
         container.innerHTML = `<p class="text-[9px] text-gray-400 font-bold uppercase w-full text-center py-4">Explora productos para ver tu historial</p>`;
         return;
     }
+
     container.innerHTML = "";
-    [...history].reverse().slice(0, 5).forEach(p => {
+
+    const itemsToShow = history.slice(0, 10).reverse();
+
+    itemsToShow.forEach(p => {
         container.innerHTML += `
-            <a href="/shop/product.html?id=${p.id}" class="flex items-center gap-3 shrink-0 bg-white p-2 rounded-2xl border border-gray-100 hover:shadow-md transition min-w-[180px] group">
-                <div class="w-10 h-10 bg-slate-50 rounded-lg p-1 shrink-0 border border-gray-50 flex items-center justify-center">
-                    <img src="${p.mainImage || p.image || 'https://placehold.co/40'}" class="max-w-full max-h-full object-contain">
+            <a href="/shop/product.html?id=${p.id}" class="relative flex items-center gap-3 shrink-0 bg-white p-3 rounded-2xl border border-gray-100 shadow-sm hover:shadow-xl hover:border-brand-cyan hover:-translate-y-1 transition-all duration-300 w-60 group h-full overflow-hidden">
+                
+                <div class="w-14 h-14 bg-slate-50 rounded-xl flex items-center justify-center shrink-0 group-hover:bg-white transition-colors border border-slate-100">
+                    <img src="${p.mainImage || p.image || 'https://placehold.co/60'}" class="max-w-full max-h-full p-1 object-contain group-hover:scale-110 transition-transform duration-500">
                 </div>
-                <div class="overflow-hidden min-w-0">
-                    <p class="text-[8px] font-bold text-gray-500 truncate uppercase leading-tight group-hover:text-brand-black transition">${p.name}</p>
-                    <p class="text-brand-cyan font-black text-[9px] mt-0.5">$${(p.price || 0).toLocaleString('es-CO')}</p>
+                
+                <div class="flex flex-col justify-center min-w-0 flex-grow pr-4">
+                    <p class="text-[8px] text-gray-400 font-bold uppercase tracking-wider mb-0.5 truncate">${p.category || 'Tech'}</p>
+                    <h4 class="text-[10px] font-black text-brand-black leading-tight line-clamp-2 group-hover:text-brand-cyan transition-colors mb-1 h-6 flex items-center">${p.name}</h4>
+                    <p class="text-brand-black font-black text-xs group-hover:text-brand-red transition-colors">$${(p.price || 0).toLocaleString('es-CO')}</p>
+                </div>
+
+                <div class="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 -translate-x-2 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-300">
+                    <i class="fa-solid fa-chevron-right text-gray-300 text-xs"></i>
                 </div>
             </a>`;
     });
+
+    // Auto-Scroll al final
+    setTimeout(() => {
+        container.scrollLeft = container.scrollWidth;
+    }, 100);
+
+    // Ajustamos el scroll para que coincida con el ancho de la tarjeta nueva (w-60 + gap)
+    if(btnLeft) btnLeft.onclick = () => container.scrollBy({ left: -256, behavior: 'smooth' });
+    if(btnRight) btnRight.onclick = () => container.scrollBy({ left: 256, behavior: 'smooth' });
 }
 
-/**
- * --- 5. ELECCIÓN SEMANAL ---
- */
+// --- 5. ELECCIÓN SEMANAL ---
 async function loadWeeklyChoices() {
     try {
         const snap = await getDocs(collection(db, "products"));
@@ -332,7 +307,6 @@ async function loadWeeklyChoices() {
             runtimeProductsMap[p.id] = p;
         });
 
-        // Filtrar o Aleatorio
         weeklyData = allProducts.filter(p => p.isWeeklyChoice === true);
         if (weeklyData.length < 3 && allProducts.length > 0) {
             const pool = allProducts.filter(p => !weeklyData.includes(p));
@@ -365,8 +339,7 @@ function renderWeeklyHTML() {
                 </div>`;
         }
 
-        // Obtener botones inteligentes
-        const actionButtons = getActionButtonsHTML(p);
+        const actionButtons = getActionButtonsHTML(p, true); 
 
         container.innerHTML += `
             <div class="flex items-center gap-4 p-3 rounded-2xl hover:bg-slate-50 transition cursor-pointer group border border-transparent hover:border-gray-100" onclick="window.location.href='/shop/product.html?id=${p.id}'">
@@ -386,52 +359,54 @@ function renderWeeklyHTML() {
     });
 }
 
-/**
- * --- 6. PRECIOS ESPECIALES ---
- */
+// --- 6. PRECIOS ESPECIALES ---
 async function loadPromotionsGrid() {
     try {
-        const q = query(collection(db, "products"), where("originalPrice", ">", 0), limit(5));
+        const q = query(collection(db, "products"), where("originalPrice", ">", 0), limit(50));
         const snap = await getDocs(q);
-        promoData = [];
+        let tempPromos = [];
         
         snap.forEach(docSnap => {
             const p = { id: docSnap.id, ...docSnap.data() };
             if (p.price < p.originalPrice) {
-                promoData.push(p);
+                tempPromos.push(p);
                 runtimeProductsMap[p.id] = p;
             }
         });
+        
+        tempPromos.sort(() => 0.5 - Math.random());
+        promoData = tempPromos.slice(0, 15);
         
         renderPromosHTML();
     } catch (e) { console.error("Promos Grid Error:", e); }
 }
 
 function renderPromosHTML() {
-    const grid = document.getElementById('promo-products-grid');
-    if (!grid) return;
-    grid.innerHTML = "";
+    const track = document.getElementById('promo-track');
+    if (!track) return;
+    track.innerHTML = "";
     
     if(promoData.length === 0) {
-        grid.innerHTML = `<p class="col-span-full text-center text-gray-300 text-xs font-bold uppercase py-10">No hay ofertas flash.</p>`;
+        track.parentElement.innerHTML = `<p class="text-center text-gray-300 text-xs font-bold uppercase py-10 w-full">No hay ofertas flash.</p>`;
         return;
     }
 
-    promoData.forEach(p => {
+    const cardsHTML = promoData.map(p => {
         const disc = Math.round(((p.originalPrice - p.price) / p.originalPrice) * 100);
         const actionButtons = getActionButtonsHTML(p);
 
-        const card = document.createElement('div');
-        card.className = "bg-white rounded-[2rem] p-5 border border-gray-100 shadow-sm hover:shadow-2xl transition-all group relative flex flex-col";
-        card.onclick = () => window.location.href=`/shop/product.html?id=${p.id}`;
-        
-        card.innerHTML = `
+        // CAMBIO: w-[280px] y h-[400px] FIJOS. No más variaciones.
+        return `
+        <div class="w-[280px] h-[400px] bg-white rounded-[2rem] p-5 border border-gray-100 shadow-sm hover:shadow-2xl transition-all group relative flex flex-col shrink-0 cursor-pointer" onclick="window.location.href='/shop/product.html?id=${p.id}'">
             <span class="absolute top-4 left-4 z-20 bg-brand-red text-white text-[8px] font-black px-3 py-1 rounded-full uppercase shadow-lg">-${disc}%</span>
+            
             <div class="h-44 bg-brand-surface rounded-2xl overflow-hidden mb-5 flex items-center justify-center p-4">
                 <img src="${p.mainImage || p.image || 'https://placehold.co/150'}" class="max-w-full max-h-full object-contain group-hover:scale-110 transition duration-700">
             </div>
+            
             <p class="text-[9px] font-black text-brand-cyan uppercase mb-1 tracking-widest">${p.category || 'Oferta'}</p>
             <h3 class="font-bold text-xs text-brand-black mb-4 line-clamp-1 uppercase group-hover:text-brand-cyan transition">${p.name}</h3>
+            
             <div class="mt-auto flex justify-between items-end">
                 <div>
                     <p class="text-gray-300 text-[10px] line-through font-bold leading-none">$${p.originalPrice.toLocaleString('es-CO')}</p>
@@ -440,14 +415,15 @@ function renderPromosHTML() {
                 <div>
                     ${actionButtons}
                 </div>
-            </div>`;
-        grid.appendChild(card);
-    });
+            </div>
+        </div>`;
+    }).join('');
+
+    track.innerHTML = cardsHTML + cardsHTML;
 }
 
-/**
- * --- 7. CATÁLOGO GENERAL ---
- */
+
+// --- 7. CATÁLOGO GENERAL ---
 async function loadProducts() {
     try {
         const snap = await getDocs(query(collection(db, "products"), orderBy("name", "asc"), limit(12)));
@@ -487,7 +463,7 @@ function renderCatalogHTML() {
                 </div>`;
         }
         
-        const actionButtons = getActionButtonsHTML(p);
+        const actionButtons = getActionButtonsHTML(p); 
 
         const card = document.createElement('div');
         card.className = "bg-white rounded-[2rem] border border-gray-100 hover:shadow-2xl transition-all duration-500 group flex flex-col overflow-hidden p-6 shadow-sm relative";
@@ -512,9 +488,7 @@ function renderCatalogHTML() {
     });
 }
 
-/**
- * --- 8. INICIALIZACIÓN ---
- */
+// --- 8. INICIALIZACIÓN ---
 document.addEventListener('DOMContentLoaded', () => {
     loadPromoSlider();
     loadNewLaunch();

@@ -1,7 +1,7 @@
 import { auth, db, onAuthStateChanged, doc, getDoc, collection, getDocs, query, orderBy } from "./firebase-init.js";
 
 /**
- * Inyecta todos los componentes de navegación global con el nuevo logo imponente
+ * Inyecta todos los componentes de navegación global
  */
 export function loadGlobalHeader() {
     const headerContainer = document.getElementById('global-header');
@@ -171,8 +171,6 @@ function initHeaderLogic() {
         const container = document.getElementById('user-info-global');
         if (!container) return;
 
-        // Nota: Como el contenedor ahora tiene "hidden lg:block", este código solo
-        // afectará visualmente a la versión de escritorio.
         if (user) {
             const userSnap = await getDoc(doc(db, "users", user.uid));
             const isAdmin = userSnap.exists() && userSnap.data().role === 'admin';
@@ -207,7 +205,9 @@ function initHeaderLogic() {
 }
 
 /**
- * Carga las categorías desde Firebase e inyecta manualmente la opción "TODOS"
+ * Carga las categorías y configura los enlaces correctamente:
+ * - "TODOS" -> categories.html
+ * - Categoría Específica -> search.html?category=Nombre
  */
 async function syncAllCategories() {
     const desktopNav = document.getElementById('dynamic-nav');
@@ -217,23 +217,27 @@ async function syncAllCategories() {
         const q = query(collection(db, "categories"), orderBy("name", "asc"));
         const snap = await getDocs(q);
         
+        // --- DESKTOP: Botón TODOS lleva a la vista de categorías ---
         if(desktopNav) {
             desktopNav.innerHTML = `
-                <li><a href="/index.html" class="hover:text-brand-black transition duration-300">TODOS</a></li>
+                <li><a href="/categories.html" class="hover:text-brand-black transition duration-300 font-black">TODOS</a></li>
             `;
         }
+
+        // --- MOBILE: Enlace destacado a la vista de categorías ---
         if(mobileList) {
             mobileList.innerHTML = `
-                <a href="/index.html" class="flex items-center justify-between p-4 bg-gray-50 rounded-2xl hover:bg-brand-cyan/10 group transition duration-300 mb-2">
-                    <span class="font-bold text-xs text-gray-700 group-hover:text-brand-cyan uppercase tracking-tight">TODOS LOS PRODUCTOS</span>
-                    <i class="fa-solid fa-chevron-right text-[10px] text-gray-300 group-hover:text-brand-cyan"></i>
+                <a href="/categories.html" class="flex items-center justify-between p-4 bg-brand-cyan/10 rounded-2xl hover:bg-brand-cyan/20 group transition duration-300 mb-2 border border-brand-cyan/20">
+                    <span class="font-bold text-xs text-brand-cyan group-hover:text-brand-black uppercase tracking-tight">VER TODAS LAS CATEGORÍAS</span>
+                    <i class="fa-solid fa-layer-group text-[10px] text-brand-cyan group-hover:text-brand-black"></i>
                 </a>
             `;
         }
 
         snap.forEach(docSnap => {
             const cat = docSnap.data();
-            const url = `/shop/category.html?id=${docSnap.id}`;
+            // Lógica de filtrado: Llevar a search.html con el parámetro ?category=
+            const url = `/shop/search.html?category=${encodeURIComponent(cat.name)}`;
 
             if(desktopNav) {
                 desktopNav.innerHTML += `
@@ -280,6 +284,7 @@ export function loadGlobalFooter() {
                     <h4 class="font-black text-[10px] uppercase tracking-[0.3em] text-brand-cyan mb-8">Explorar</h4>
                     <ul class="space-y-4 text-[10px] font-bold uppercase tracking-widest text-gray-400">
                         <li><a href="/index.html" class="hover:text-white transition">Inicio</a></li>
+                        <li><a href="/categories.html" class="hover:text-white transition text-brand-cyan">Categorías</a></li>
                         <li><a href="/shop/catalog.html" class="hover:text-white transition">Catálogo Completo</a></li>
                         <li><a href="/shop/promos.html" class="hover:text-white transition">Ofertas Especiales</a></li>
                         <li><a href="/profile.html" class="hover:text-white transition">Mi Cuenta</a></li>
