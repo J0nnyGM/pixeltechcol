@@ -8,110 +8,74 @@
     <link rel="stylesheet" href="../css/styles.css">
     <script src="https://kit.fontawesome.com/0d623ded97.js" crossorigin="anonymous"></script>
     <style>
-        .page-section {
-            display: none;
-        }
+        /* Ocultar secciones no activas */
+        .page-section { display: none; opacity: 0; transition: opacity 0.3s ease; }
+        .page-section.active { display: block; opacity: 1; }
 
-        .page-section.active {
-            display: block;
-        }
-
+        /* Estilo activo del menú */
         .nav-link.active {
             background-color: #00AEC7;
             color: #111827;
             box-shadow: 0 10px 15px -3px rgba(0, 174, 199, 0.2);
         }
+        .nav-link.active i { color: #111827; }
+        .nav-link.active span { font-weight: 900; }
 
-        /* ESTRUCTURA DASHBOARD: Altura fija para Sidebar y pegajosa */
+        /* Estructura Dashboard */
         .dashboard-container {
             display: flex;
-            align-items: flex-start; /* Permite que el aside se ancle arriba */
+            align-items: flex-start;
             background-color: #f8fafc;
-            width: 100%;
+            min-height: calc(100vh - 80px);
             position: relative;
         }
 
-        /* SIDEBAR: Siempre ocupa el alto de la pantalla menos el header */
-        aside {
-            position: sticky;
-            top: 80px; /* Ajusta este valor al alto real de tu header */
-            height: calc(100vh - 80px); /* Alto exacto solicitado */
-            flex-shrink: 0;
-            z-index: 40;
-            background-color: #111827; /* brand-black */
+        /* Sidebar Desktop */
+        @media (min-width: 768px) {
+            aside {
+                position: sticky;
+                top: 90px;
+                height: calc(100vh - 90px);
+                flex-shrink: 0;
+            }
         }
 
-        /* CONTENIDO PRINCIPAL: Crece según la información */
-        main {
-            flex-grow: 1;
-            min-height: calc(100vh - 80px);
-        }
+        #orders-container { max-height: 70vh; overflow-y: auto; padding-right: 10px; }
 
-        /* SCROLL INTERNO: Evita que el historial de órdenes sea infinito */
-        #orders-container {
-            max-height: 70vh;
-            overflow-y: auto;
-            padding-right: 15px;
-        }
-
+        /* Inputs */
         .profile-input-group {
             background-color: #f9fafb;
-            border-radius: 1.25rem;
-            padding: 0.75rem 1.5rem;
-            transition: all 0.3s ease;
+            border-radius: 1rem;
+            padding: 0.75rem 1.25rem;
             border: 1px solid #f3f4f6;
+            transition: all 0.3s ease;
         }
-
         .profile-input-group:focus-within {
             background-color: #ffffff;
             border-color: #00AEC7;
             box-shadow: 0 4px 12px rgba(0, 174, 199, 0.1);
         }
-
         .profile-input-group label {
-            display: block;
-            font-size: 8px;
-            font-weight: 900;
-            text-transform: uppercase;
-            letter-spacing: 0.1em;
-            color: #9ca3af;
-            margin-bottom: 0.15rem;
+            display: block; font-size: 9px; font-weight: 900; 
+            text-transform: uppercase; letter-spacing: 0.1em; color: #9ca3af; margin-bottom: 4px;
         }
-
         .profile-input-group input {
-            width: 100%;
-            background: transparent;
-            border: none;
-            outline: none;
-            font-weight: 700;
-            font-size: 0.875rem;
-            color: #111827;
+            width: 100%; background: transparent; border: none; outline: none;
+            font-weight: 700; font-size: 0.875rem; color: #111827;
         }
 
+        /* Modales */
         .modal-overlay {
-            display: none;
-            position: fixed;
-            inset: 0;
-            background: rgba(17, 24, 39, 0.8);
-            backdrop-filter: blur(8px);
-            z-index: 999;
-            align-items: center;
-            justify-content: center;
-            padding: 1.5rem;
+            display: none; position: fixed; inset: 0; z-index: 100;
+            background: rgba(15, 23, 42, 0.8); backdrop-filter: blur(8px);
+            align-items: center; justify-content: center; padding: 1.5rem;
         }
-
-        .modal-overlay.active {
-            display: flex;
-        }
-
-        .custom-scroll::-webkit-scrollbar {
-            width: 6px;
-        }
-
-        .custom-scroll::-webkit-scrollbar-thumb {
-            background: #e5e7eb;
-            border-radius: 10px;
-        }
+        .modal-overlay.active { display: flex; animation: fadeIn 0.3s ease-out; }
+        
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        
+        .custom-scroll::-webkit-scrollbar { width: 6px; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
     </style>
 </head>
 
@@ -121,90 +85,113 @@
 
     <div class="dashboard-container">
         
-        <aside class="w-20 md:w-80 text-white flex flex-col border-r border-white/5 shadow-2xl">
-            <div class="p-8 hidden md:block">
-                <div class="bg-slate-900/50 p-6 rounded-[2.5rem] border border-white/5 text-center">
-                    <div id="user-avatar"
-                        class="w-16 h-16 bg-brand-cyan text-brand-black rounded-2xl flex items-center justify-center font-black text-2xl shadow-lg mx-auto mb-4">
-                        --
+        <aside id="profile-sidebar" class="fixed inset-y-0 left-0 z-50 w-72 bg-slate-900 text-white transform -translate-x-full transition-transform duration-300 md:translate-x-0 md:relative md:w-80 md:block flex flex-col border-r border-white/5 shadow-2xl">
+            <div class="flex justify-between items-center p-6 md:hidden border-b border-white/5">
+                <span class="text-xs font-black uppercase tracking-widest text-brand-cyan">Menú</span>
+                <button id="btn-close-sidebar" class="text-gray-400 hover:text-white transition"><i class="fa-solid fa-xmark text-xl"></i></button>
+            </div>
+
+            <div class="p-8">
+                <div class="bg-white/5 p-6 rounded-[2rem] border border-white/5 text-center relative overflow-hidden group">
+                    <div class="absolute inset-0 bg-gradient-to-tr from-brand-cyan/20 to-transparent opacity-0 group-hover:opacity-100 transition duration-500"></div>
+                    <div id="user-avatar" class="relative z-10 w-16 h-16 bg-brand-cyan text-brand-black rounded-2xl flex items-center justify-center font-black text-2xl shadow-lg mx-auto mb-4">
+                        <i class="fa-regular fa-user"></i>
                     </div>
-                    <p id="user-name-side" class="font-black text-sm truncate uppercase tracking-tighter">Cargando...</p>
-                    <p id="user-email-side" class="text-[10px] text-gray-500 font-bold truncate">...</p>
+                    <p id="user-name-side" class="relative z-10 font-black text-sm truncate uppercase tracking-tight">Cargando...</p>
+                    <p id="user-email-side" class="relative z-10 text-[10px] text-gray-400 font-bold truncate mt-1">...</p>
                 </div>
             </div>
 
-            <nav class="flex-grow p-4 flex flex-col gap-3">
-                <button class="nav-link active w-full flex items-center gap-4 px-5 py-4 rounded-2xl transition-all font-bold text-sm" data-target="section-orders">
-                    <i class="fa-solid fa-box-open w-5 text-center"></i>
-                    <span class="hidden md:block">Mis Compras</span>
+            <nav class="flex-grow px-4 flex flex-col gap-2 custom-scroll overflow-y-auto">
+                <button class="nav-link active w-full flex items-center gap-4 px-5 py-4 rounded-2xl transition-all font-bold text-sm text-gray-400 hover:bg-white/5 hover:text-white group" data-target="section-orders">
+                    <i class="fa-solid fa-box-open w-5 text-center transition group-hover:scale-110"></i>
+                    <span class="uppercase tracking-wide text-[11px]">Mis Compras</span>
                 </button>
-                <button class="nav-link w-full flex items-center gap-4 px-5 py-4 rounded-2xl transition-all font-bold text-sm text-gray-400 hover:bg-white/5" data-target="section-data">
-                    <i class="fa-solid fa-user-shield w-5 text-center"></i>
-                    <span class="hidden md:block">Datos de Cuenta</span>
+                <button class="nav-link w-full flex items-center gap-4 px-5 py-4 rounded-2xl transition-all font-bold text-sm text-gray-400 hover:bg-white/5 hover:text-white group" data-target="section-data">
+                    <i class="fa-solid fa-id-card w-5 text-center transition group-hover:scale-110"></i>
+                    <span class="uppercase tracking-wide text-[11px]">Datos Personales</span>
                 </button>
-                <button class="nav-link w-full flex items-center gap-4 px-5 py-4 rounded-2xl transition-all font-bold text-sm text-gray-400 hover:bg-white/5" data-target="section-addresses">
-                    <i class="fa-solid fa-location-dot w-5 text-center"></i>
-                    <span class="hidden md:block">Mis Ubicaciones</span>
+                <button class="nav-link w-full flex items-center gap-4 px-5 py-4 rounded-2xl transition-all font-bold text-sm text-gray-400 hover:bg-white/5 hover:text-white group" data-target="section-addresses">
+                    <i class="fa-solid fa-map-location-dot w-5 text-center transition group-hover:scale-110"></i>
+                    <span class="uppercase tracking-wide text-[11px]">Direcciones</span>
                 </button>
-
-                <div class="mt-auto pt-6 border-t border-white/5">
-                    <button id="btn-logout-profile"
-                        class="w-full flex items-center justify-center md:justify-start gap-4 px-4 py-3 rounded-xl text-gray-400 hover:text-brand-red transition duration-300">
-                        <i class="fa-solid fa-power-off"></i>
-                        <span class="hidden md:block font-black uppercase text-[10px] tracking-widest">Cerrar Sesión</span>
-                    </button>
-                </div>
             </nav>
+
+            <div class="p-6 mt-auto border-t border-white/5">
+                <button id="btn-logout-profile" class="w-full flex items-center justify-center gap-3 px-4 py-4 rounded-xl bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white transition duration-300 font-black uppercase text-[10px] tracking-widest border border-red-500/20 group">
+                    <i class="fa-solid fa-power-off transition group-hover:rotate-90"></i>
+                    <span>Cerrar Sesión</span>
+                </button>
+            </div>
         </aside>
 
-        <main class="flex-grow p-6 md:p-12 bg-slate-50">
-            <section id="section-orders" class="page-section active">
-                <div class="mb-10">
-                    <h1 class="text-4xl font-black tracking-tighter uppercase text-brand-black">Historial de <span class="text-gray-300">ordenes</span></h1>
-                    <p class="text-xs font-bold text-gray-400 uppercase tracking-widest">Consulta tus pedidos y garantías activas.</p>
+        <div id="mobile-sidebar-overlay" class="fixed inset-0 bg-slate-900/80 z-40 hidden md:hidden backdrop-blur-sm transition-opacity"></div>
+
+        <main class="flex-grow p-6 md:p-10 lg:p-14 w-full overflow-hidden">
+            
+            <div class="md:hidden flex items-center gap-4 mb-8">
+                <button id="btn-open-sidebar" class="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-brand-black shadow-sm border border-gray-100 active:scale-95 transition">
+                    <i class="fa-solid fa-bars-staggered text-lg"></i>
+                </button>
+                <div>
+                    <h1 class="text-2xl font-black text-brand-black uppercase tracking-tighter leading-none">Mi Cuenta</h1>
+                    <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Panel de Control</p>
                 </div>
-                <div id="orders-container" class="space-y-6 custom-scroll"></div>
+            </div>
+
+            <section id="section-orders" class="page-section active">
+                <div class="mb-10 hidden md:block">
+                    <h1 class="text-4xl lg:text-5xl font-black tracking-tighter uppercase text-brand-black">Historial de <span class="text-brand-cyan">Pedidos</span></h1>
+                    <p class="text-xs font-bold text-gray-400 uppercase tracking-widest mt-2">Haz clic en una orden para gestionar garantías.</p>
+                </div>
+                <div id="orders-container" class="space-y-6 custom-scroll pb-20">
+                    </div>
             </section>
 
             <section id="section-data" class="page-section">
-                <div class="mb-10">
-                    <h1 class="text-4xl font-black tracking-tighter uppercase text-brand-black">Datos de <span class="text-gray-300">Cuenta</span></h1>
-                    <p class="text-xs font-bold text-gray-400 uppercase tracking-widest">Actualiza tu identidad de usuario.</p>
+                <div class="mb-10 hidden md:block">
+                    <h1 class="text-4xl lg:text-5xl font-black tracking-tighter uppercase text-brand-black">Datos de <span class="text-brand-cyan">Perfil</span></h1>
+                    <p class="text-xs font-bold text-gray-400 uppercase tracking-widest mt-2">Mantén tu información actualizada.</p>
                 </div>
-                <div class="bg-white rounded-[2.5rem] p-10 border border-gray-100 shadow-sm max-w-2xl">
-                    <form id="profile-form" class="space-y-6">
-                        <div class="profile-input-group">
+                <div class="bg-white rounded-[2.5rem] p-8 md:p-12 border border-gray-100 shadow-xl max-w-3xl">
+                    <form id="profile-form" class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div class="profile-input-group md:col-span-2">
                             <label>Nombre Completo</label>
-                            <input type="text" id="form-name" required>
+                            <input type="text" id="form-name" required placeholder="Tu nombre">
                         </div>
                         <div class="profile-input-group">
-                            <label>Documento de Identidad</label>
-                            <input type="text" id="form-id">
+                            <label>Documento ID</label>
+                            <input type="text" id="form-id" placeholder="Cédula o NIT">
                         </div>
                         <div class="profile-input-group">
-                            <label>WhatsApp Móvil</label>
-                            <input type="text" id="form-phone">
+                            <label>WhatsApp / Teléfono</label>
+                            <input type="text" id="form-phone" placeholder="Contacto principal">
                         </div>
                         <div class="profile-input-group">
                             <label>Fecha de Nacimiento</label>
                             <input type="date" id="form-birth">
                         </div>
-                        <button type="submit" class="bg-brand-black text-white px-12 py-5 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-brand-cyan hover:text-brand-black transition-all shadow-xl">Actualizar Perfil</button>
+                        <div class="md:col-span-2 pt-6">
+                            <button type="submit" class="w-full bg-brand-black text-white py-5 rounded-2xl font-black text-[11px] uppercase tracking-[0.2em] hover:bg-brand-cyan hover:text-brand-black transition-all shadow-lg hover:shadow-cyan-500/20 transform hover:-translate-y-1">
+                                Guardar Cambios
+                            </button>
+                        </div>
                     </form>
                 </div>
             </section>
 
             <section id="section-addresses" class="page-section">
-                <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-10 gap-4">
-                    <div>
-                        <h1 class="text-4xl font-black tracking-tighter uppercase text-brand-black">Mis <span class="text-gray-300">Ubicaciones</span></h1>
-                        <p class="text-xs font-bold text-gray-400 uppercase tracking-widest">Gestiona tus puntos de despacho.</p>
+                <div class="flex flex-col md:flex-row justify-between items-start md:items-end mb-10 gap-6">
+                    <div class="hidden md:block">
+                        <h1 class="text-4xl lg:text-5xl font-black tracking-tighter uppercase text-brand-black">Mis <span class="text-brand-cyan">Ubicaciones</span></h1>
+                        <p class="text-xs font-bold text-gray-400 uppercase tracking-widest mt-2">Gestiona tus puntos de entrega.</p>
                     </div>
-                    <button id="btn-open-address-modal" class="bg-brand-black text-white px-8 py-4 rounded-2xl font-black text-[9px] uppercase tracking-widest shadow-lg hover:bg-brand-cyan hover:text-brand-black transition-all">
-                        <i class="fa-solid fa-plus mr-2"></i> Añadir Nueva
+                    <button id="btn-open-address-modal" class="bg-brand-black text-white px-8 py-4 rounded-2xl font-black text-[10px] uppercase tracking-[0.15em] shadow-xl hover:bg-brand-cyan hover:text-brand-black transition-all transform active:scale-95 w-full md:w-auto flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-plus"></i> Nueva Dirección
                     </button>
                 </div>
-                <div id="addresses-list" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6"></div>
+                <div id="addresses-list" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 pb-20">
+                    </div>
             </section>
         </main>
     </div>
@@ -212,46 +199,100 @@
     <div id="global-footer"></div>
 
     <div id="address-modal" class="modal-overlay">
-        <div class="bg-white w-full max-w-lg rounded-[2.5rem] p-10 shadow-2xl animate-in zoom-in-95 duration-300">
-            <div class="flex justify-between items-center mb-8">
-                <h3 class="text-2xl font-black tracking-tighter uppercase">Nueva <span class="text-gray-300">Ubicación</span></h3>
-                <button id="btn-close-modal" class="text-gray-400 hover:text-brand-red transition"><i class="fa-solid fa-xmark text-xl"></i></button>
+        <div class="bg-white w-full max-w-lg rounded-[2.5rem] p-8 md:p-10 shadow-2xl relative overflow-hidden flex flex-col max-h-[90vh]">
+            <div class="flex justify-between items-center mb-6 shrink-0">
+                <div>
+                    <h3 class="text-2xl font-black tracking-tighter uppercase text-brand-black" id="modal-addr-title">Nueva <span class="text-brand-cyan">Ubicación</span></h3>
+                    <p class="text-[9px] font-bold text-gray-400 uppercase tracking-widest mt-1">Detalles de envío</p>
+                </div>
+                <button id="btn-close-modal" class="w-10 h-10 bg-slate-50 rounded-full flex items-center justify-center text-gray-400 hover:text-brand-red hover:bg-red-50 transition"><i class="fa-solid fa-xmark"></i></button>
             </div>
 
-            <form id="address-form" class="space-y-6">
-                <div class="profile-input-group">
-                    <label>Nombre / Alias (Ej: Casa, Oficina)</label>
-                    <input type="text" id="modal-addr-alias" required placeholder="Mi Apartamento">
-                </div>
-                <div class="profile-input-group">
-                    <label>Dirección Exacta</label>
-                    <input type="text" id="modal-addr-value" required placeholder="Calle 100 # 15 - 20">
-                </div>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div class="relative">
-                        <div class="profile-input-group">
-                            <label>Departamento</label>
-                            <input type="text" id="modal-dept-search" placeholder="Escribe para buscar..." autocomplete="off" required>
-                            <input type="hidden" id="modal-addr-dept-id">
-                        </div>
-                        <div id="dept-results" class="absolute z-50 w-full mt-2 bg-white border border-gray-100 rounded-2xl shadow-xl hidden max-h-48 overflow-y-auto p-2 custom-scroll"></div>
+            <div class="overflow-y-auto custom-scroll pr-2">
+                <form id="address-form" class="space-y-5">
+                    <div class="profile-input-group">
+                        <label>Alias (Ej: Casa, Oficina)</label>
+                        <input type="text" id="modal-addr-alias" required placeholder="Nombre corto">
                     </div>
-                    <div class="relative">
-                        <div class="profile-input-group opacity-50" id="city-input-container">
-                            <label>Ciudad / Municipio</label>
-                            <input type="text" id="modal-city-search" placeholder="Selecciona Depto primero" autocomplete="off" required disabled>
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+                        <div class="relative">
+                            <div class="profile-input-group">
+                                <label>Departamento</label>
+                                <input type="text" id="modal-dept-search" placeholder="Buscar..." autocomplete="off" required>
+                                <input type="hidden" id="modal-addr-dept-id">
+                            </div>
+                            <div id="dept-results" class="absolute z-50 w-full mt-2 bg-white border border-gray-100 rounded-2xl shadow-xl hidden max-h-40 overflow-y-auto p-2 custom-scroll"></div>
                         </div>
-                        <div id="city-results" class="absolute z-50 w-full mt-2 bg-white border border-gray-100 rounded-2xl shadow-xl hidden max-h-48 overflow-y-auto p-2 custom-scroll"></div>
+                        <div class="relative">
+                            <div class="profile-input-group opacity-50 transition-opacity" id="city-input-container">
+                                <label>Ciudad / Municipio</label>
+                                <input type="text" id="modal-city-search" placeholder="---" autocomplete="off" required disabled>
+                            </div>
+                            <div id="city-results" class="absolute z-50 w-full mt-2 bg-white border border-gray-100 rounded-2xl shadow-xl hidden max-h-40 overflow-y-auto p-2 custom-scroll"></div>
+                        </div>
                     </div>
-                </div>
 
-                <div class="flex gap-4 pt-4">
-                    <button type="button" id="btn-cancel-modal" class="flex-grow bg-slate-100 text-gray-400 py-5 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition">Cancelar</button>
-                    <button type="submit" class="flex-grow bg-brand-cyan text-brand-black py-5 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-brand-black hover:text-white transition shadow-lg">Guardar Dirección</button>
-                </div>
-            </form>
+                    <div class="profile-input-group">
+                        <label>Dirección Exacta</label>
+                        <input type="text" id="modal-addr-value" required placeholder="Calle, Carrera, #, Apto...">
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+                        <div class="profile-input-group">
+                            <label>Código Postal (Opcional)</label>
+                            <input type="text" id="modal-addr-zip" placeholder="Ej: 110111">
+                        </div>
+                        <div class="bg-brand-cyan/5 border border-brand-cyan/10 p-3 rounded-2xl flex items-center justify-between">
+                            <p class="text-[9px] font-black uppercase text-brand-black ml-2">¿Predeterminada?</p>
+                            <label class="relative inline-flex items-center cursor-pointer mr-1">
+                                <input type="checkbox" id="modal-addr-default" class="sr-only peer">
+                                <div class="w-10 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:bg-brand-cyan after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all"></div>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="profile-input-group">
+                        <label>Observaciones (Opcional)</label>
+                        <input type="text" id="modal-addr-notes" placeholder="Ej: Dejar en portería, timbre dañado...">
+                    </div>
+
+                    <div class="pt-4 flex gap-4">
+                        <button type="button" id="btn-cancel-modal" class="flex-1 bg-slate-100 text-gray-500 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-200 transition">Cancelar</button>
+                        <button type="submit" class="flex-1 bg-brand-cyan text-brand-black py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-brand-black hover:text-white transition shadow-lg">Guardar</button>
+                    </div>
+                </form>
+            </div>
         </div>
     </div>
+
+    <script>
+        // Sidebar Mobile
+        const sidebar = document.getElementById('profile-sidebar');
+        const overlay = document.getElementById('mobile-sidebar-overlay');
+        const btnOpen = document.getElementById('btn-open-sidebar');
+        const btnClose = document.getElementById('btn-close-sidebar');
+
+        function toggleSidebar() {
+            const isClosed = sidebar.classList.contains('-translate-x-full');
+            if (isClosed) { sidebar.classList.remove('-translate-x-full'); overlay.classList.remove('hidden'); } 
+            else { sidebar.classList.add('-translate-x-full'); overlay.classList.add('hidden'); }
+        }
+        if(btnOpen) btnOpen.onclick = toggleSidebar;
+        if(btnClose) btnClose.onclick = toggleSidebar;
+        if(overlay) overlay.onclick = toggleSidebar;
+
+        // Tabs
+        document.querySelectorAll('.nav-link').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.nav-link').forEach(b => b.classList.remove('active'));
+                document.querySelectorAll('.page-section').forEach(s => s.classList.remove('active'));
+                btn.classList.add('active');
+                document.getElementById(btn.dataset.target).classList.add('active');
+                if(window.innerWidth < 768) toggleSidebar();
+            });
+        });
+    </script>
 
     <script type="module">
         import { loadGlobalHeader, loadGlobalFooter } from '../js/global-components.js';
@@ -260,5 +301,4 @@
     </script>
     <script type="module" src="../js/profile.js"></script>
 </body>
-
 </html>

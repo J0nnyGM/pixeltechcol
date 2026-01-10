@@ -12,10 +12,10 @@ export function loadGlobalHeader() {
         <div class="container mx-auto px-6 flex justify-between items-center font-black uppercase tracking-widest">
             <div class="flex gap-6">
                 <span class="flex items-center gap-2 text-brand-cyan">
-                    <i class="fa-solid fa-bolt animate-pulse"></i> Envío Express Hoy
+                    <i class="fa-solid fa-bolt animate-pulse"></i> Despacho Express Hoy
                 </span>
                 <span class="flex items-center gap-2">
-                    <i class="fa-solid fa-headset text-brand-cyan"></i> Soporte Premium 24/7
+                    <i class="fa-solid fa-headset text-brand-cyan"></i> Soporte Premium
                 </span>
             </div>
             <div class="flex gap-6">

@@ -4,7 +4,7 @@ import { getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signO
 
 // LIBRERÍA DE FIRESTORE (Base de datos)
 import { 
-    getFirestore, collection, addDoc, getDocs, doc, getDoc, setDoc, updateDoc, deleteDoc, query, where, orderBy, limit, runTransaction
+    getFirestore, collection, addDoc, getDocs, doc, getDoc, setDoc, updateDoc, deleteDoc, query, where, orderBy, limit, runTransaction, onSnapshot, serverTimestamp, arrayUnion
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
 // LIBRERÍA DE STORAGE (Imágenes) - ¡Aquí estaba el error!
@@ -49,5 +49,8 @@ export {
     ref,
     uploadBytes,
     getDownloadURL,
-    runTransaction
+    runTransaction,
+    onSnapshot,
+    serverTimestamp,
+    arrayUnion
 };

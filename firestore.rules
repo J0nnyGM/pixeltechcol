@@ -3,58 +3,88 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // --- FUNCIONES GLOBALES ---
+    // --- FUNCIONES AUXILIARES ---
     function isAdmin() {
       return request.auth != null && 
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
 
-    // Reglas para Productos
+    function isOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    // --- REGLAS DE NEGOCIO ---
+
+    // 1. Usuarios (Perfil)
+    match /users/{userId} {
+      allow read, write: if isOwner(userId) || isAdmin();
+    }
+
+    // 2. Productos (Catálogo)
     match /products/{productId} {
       allow read: if true; 
       allow write: if isAdmin();
+
       match /history/{historyId} {
         allow read, write: if isAdmin();
       }
     }
 
-    // Reglas para Categorías
+    // 3. Categorías
     match /categories/{catId} {
       allow read: if true;
       allow write: if isAdmin();
     }
 
-    // Reglas para Pedidos (Orders)
+    // 4. Pedidos (Orders)
     match /orders/{orderId} {
       allow create: if request.auth != null;
-      allow read: if request.auth != null && (request.auth.uid == resource.data.userId || isAdmin());
+      allow read: if request.auth != null && (resource.data.userId == request.auth.uid || isAdmin());
       allow update, delete: if isAdmin();
     }
 
-    // Reglas para Remisiones
+    // 5. Remisiones
     match /remissions/{remissionId} {
       allow create: if request.auth != null;
       allow read, update, delete: if isAdmin();
     }
 
-    // Reglas para Usuarios
-    match /users/{userId} {
-      allow read: if request.auth != null && (request.auth.uid == userId || isAdmin());
-      allow write: if request.auth != null && (request.auth.uid == userId || isAdmin());
+    // 6. Garantías
+    match /warranties/{warrantyId} {
+      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      allow read: if request.auth != null && (resource.data.userId == request.auth.uid || isAdmin());
+      allow update, delete: if isAdmin();
     }
 
-    // --- NUEVAS REGLAS ERP (CORRECCIÓN) ---
+    // 7. Inventario RMA
+    match /warranty_inventory/{itemId} {
+      allow read, write: if isAdmin();
+    }
 
-    // Reglas para Proveedores (Suppliers)
+    // 8. Proveedores
     match /suppliers/{supplierId} {
-      // Solo el administrador puede ver o modificar proveedores
       allow read, write: if isAdmin();
     }
 
-    // Reglas para Historial de Compras (Purchases)
+    // 9. Compras
     match /purchases/{purchaseId} {
-      // Solo el administrador puede ver o registrar compras a proveedores
       allow read, write: if isAdmin();
+    }
+
+    // 10. Carrito de Compras (Si decidieras volver a usar Firebase para el carrito)
+    match /carts/{cartItemId} {
+      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      allow read, update, delete: if request.auth != null && resource.data.userId == request.auth.uid;
+    }
+
+    // 11. CONFIGURACIÓN DEL SISTEMA (AQUÍ ESTABA EL ERROR)
+    // Esta colección guarda la configuración de envíos ('config/shipping')
+    match /config/{configDoc} {
+      // Admin: Puede leer y editar (para guardar precios de envío)
+      // Usuario Autenticado: Puede leer (para calcular cuánto le cuesta el envío en el checkout)
+      allow read: if request.auth != null; 
+      allow write: if isAdmin();
     }
   }
 }

@@ -34,6 +34,10 @@ async function initEdit() {
         document.getElementById('p-stock').value = p.stock || 0;
         document.getElementById('p-category').value = p.category || '';
         document.getElementById('cat-search').value = p.category || '';
+        
+        // --- ESTADO (NUEVO) ---
+        document.getElementById('p-status').value = p.status || 'active';
+
         document.getElementById('product-id-display').textContent = `ID: ${productId}`;
         descriptionEditor.innerHTML = p.description || '';
 
@@ -184,7 +188,6 @@ function renderVariantImages(v) {
     });
 }
 
-// Lógica de movimiento por variante
 window.moveVariantImg = (vId, index, direction) => {
     const v = productVariants.find(item => item.id === vId);
     if (!v) return;
@@ -194,7 +197,7 @@ window.moveVariantImg = (vId, index, direction) => {
     const temp = v.images[index];
     v.images[index] = v.images[newIdx];
     v.images[newIdx] = temp;
-    renderVariants(); // Renderizamos el contenedor completo para refrescar
+    renderVariants();
 };
 
 window.updateVariantColor = (id, val) => { productVariants.find(v => v.id === id).color = val; };
@@ -315,6 +318,10 @@ form.onsubmit = async (e) => {
             price: Number(document.getElementById('p-price').value),
             stock: Number(document.getElementById('p-stock').value),
             category: pCategoryHidden.value || document.getElementById('p-category').value,
+            
+            // --- ESTADO (NUEVO) ---
+            status: document.getElementById('p-status').value,
+
             description: descriptionEditor.innerHTML,
             images: imageUrls,
             hasVariants: finalVariants.length > 0,
@@ -328,11 +335,11 @@ form.onsubmit = async (e) => {
         await updateDoc(doc(db, "products", productId), updateData);
         await addDoc(collection(db, "products", productId, "history"), {
             adminEmail: auth.currentUser.email,
-            action: "Edición masiva de información y variantes",
+            action: `Edición masiva (Estado: ${updateData.status})`,
             timestamp: new Date()
         });
 
-        alert("✅ Producto actualizado.");
+        alert("✅ Producto actualizado correctamente.");
         window.location.href = "products.html";
 
     } catch (err) { alert(err.message); btnUpdate.disabled = false; }

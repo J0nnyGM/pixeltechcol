@@ -6,16 +6,18 @@ export function loadAdminSidebar() {
 
     const currentPage = window.location.pathname;
 
-    // Menú actualizado con los nuevos módulos ERP
+    // Menú actualizado con TODOS los módulos (Incluyendo Inventario RMA)
     const navItems = [
         { name: 'Dashboard', icon: 'fa-chart-line', path: '/admin/index.html' },
         { name: 'Inventario', icon: 'fa-box-open', path: '/admin/products.html' },
-        { name: 'Nueva Entrada', icon: 'fa-truck-loading', path: '/admin/inventory-entry.html' }, // Nuevo: Carga de Stock
-        { name: 'Proveedores', icon: 'fa-handshake', path: '/admin/suppliers.html' }, // Nuevo: Gestión y Estadísticas
+        { name: 'Nueva Entrada', icon: 'fa-truck-loading', path: '/admin/inventory-entry.html' },
+        { name: 'Proveedores', icon: 'fa-handshake', path: '/admin/suppliers.html' },
         { name: 'Departamentos', icon: 'fa-tags', path: '/admin/categories.html' },
         { name: 'Logística', icon: 'fa-truck-fast', path: '/admin/shipping-config.html' },
         { name: 'Banners y Promos', icon: 'fa-bullhorn', path: '/admin/promotions.html' },
         { name: 'Pedidos', icon: 'fa-clipboard-list', path: '/admin/orders.html' },
+        { name: 'Garantías', icon: 'fa-shield-cat', path: '/admin/warranties.html' },
+        { name: 'Inventario RMA', icon: 'fa-warehouse', path: '/admin/warranty-inventory.html' }, // ✅ Nuevo enlace agregado
         { name: 'Clientes', icon: 'fa-users', path: '/admin/clients.html' }
     ];
 

@@ -9,28 +9,21 @@
     <script src="https://kit.fontawesome.com/0d623ded97.js" crossorigin="anonymous"></script>
     <style>
         .thumb-active {
-            border-color: #E63946 !important;
+            border-color: #00AEC7 !important; /* Cyan de tu marca */
             border-width: 2px;
             transform: scale(1.05);
         }
-
-        .no-scrollbar::-webkit-scrollbar {
-            display: none;
+        
+        /* Estilos para opciones seleccionadas */
+        .option-selected {
+            background-color: #00AEC7 !important;
+            color: #ffffff !important;
+            border-color: #00AEC7 !important;
         }
 
-        .fade-in {
-            animation: fadeIn 0.4s ease-out forwards;
-        }
-
-        @keyframes fadeIn {
-            from {
-                opacity: 0;
-            }
-
-            to {
-                opacity: 1;
-            }
-        }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .fade-in { animation: fadeIn 0.4s ease-out forwards; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
     </style>
 </head>
 
@@ -48,16 +41,11 @@
         <div class="grid grid-cols-1 lg:grid-cols-12 gap-12">
 
             <div class="lg:col-span-7 flex gap-6">
-                <div id="p-thumbnails"
-                    class="hidden md:flex flex-col gap-4 w-24 shrink-0 no-scrollbar overflow-y-auto max-h-[600px]">
-                </div>
+                <div id="p-thumbnails" class="hidden md:flex flex-col gap-4 w-24 shrink-0 no-scrollbar overflow-y-auto max-h-[600px]"></div>
 
-                <div
-                    class="flex-grow bg-white rounded-[2.5rem] border border-gray-100 p-10 flex items-center justify-center relative min-h-[500px] shadow-sm overflow-hidden group">
-                    <span id="p-discount-tag"
-                        class="absolute top-8 right-8 bg-brand-red text-white text-[10px] font-black px-4 py-1.5 rounded-full z-10 shadow-lg hidden">DTO</span>
-                    <img id="p-main-image" src="" alt="Producto"
-                        class="max-h-[500px] w-auto object-contain fade-in transition-transform duration-700 group-hover:scale-110">
+                <div class="flex-grow bg-white rounded-[2.5rem] border border-gray-100 p-10 flex items-center justify-center relative min-h-[500px] shadow-sm overflow-hidden group">
+                    <span id="p-discount-tag" class="absolute top-8 right-8 bg-brand-red text-white text-[10px] font-black px-4 py-1.5 rounded-full z-10 shadow-lg hidden">DTO</span>
+                    <img id="p-main-image" src="" alt="Producto" class="max-h-[500px] w-auto object-contain fade-in transition-transform duration-700 group-hover:scale-110">
                 </div>
             </div>
 
@@ -71,32 +59,28 @@
 
                 <div id="p-content" class="hidden space-y-6">
                     <div>
-                        <h1 id="p-name"
-                            class="text-4xl font-black text-brand-black uppercase tracking-tighter leading-[1.1] mb-6">
-                        </h1>
+                        <h1 id="p-name" class="text-4xl font-black text-brand-black uppercase tracking-tighter leading-[1.1] mb-6"></h1>
 
                         <div class="flex items-baseline gap-5">
                             <span id="p-old-price" class="text-2xl text-gray-300 line-through font-bold"></span>
                             <span id="p-price" class="text-5xl font-black text-brand-black tracking-tighter"></span>
                         </div>
-                        <p
-                            class="text-green-600 text-[10px] font-black uppercase tracking-widest mt-4 flex items-center gap-2">
+                        <p class="text-green-600 text-[10px] font-black uppercase tracking-widest mt-4 flex items-center gap-2">
                             <i class="fa-solid fa-circle-check"></i> Hay existencias en bodega
                         </p>
                     </div>
 
+                    <div id="p-options" class="space-y-6 pt-4 border-t border-gray-50">
+                        </div>
+
                     <div id="purchase-section" class="pt-8 border-t border-gray-100 space-y-4">
                         <div class="flex items-center gap-4">
                             <div class="flex items-center border-2 border-gray-100 rounded-2xl p-1 bg-gray-50">
-                                <button onclick="changeQty(-1)"
-                                    class="w-12 h-12 flex items-center justify-center font-bold text-gray-400 hover:text-brand-black transition text-xl">-</button>
-                                <input type="number" id="p-qty" value="1" min="1"
-                                    class="w-12 text-center font-black text-sm outline-none bg-transparent">
-                                <button onclick="changeQty(1)"
-                                    class="w-12 h-12 flex items-center justify-center font-bold text-gray-400 hover:text-brand-black transition text-xl">+</button>
+                                <button onclick="changeQty(-1)" class="w-12 h-12 flex items-center justify-center font-bold text-gray-400 hover:text-brand-black transition text-xl">-</button>
+                                <input type="number" id="p-qty" value="1" min="1" class="w-12 text-center font-black text-sm outline-none bg-transparent">
+                                <button onclick="changeQty(1)" class="w-12 h-12 flex items-center justify-center font-bold text-gray-400 hover:text-brand-black transition text-xl">+</button>
                             </div>
-                            <button id="btn-add-main"
-                                class="flex-grow bg-brand-cyan text-brand-black h-14 rounded-2xl font-black uppercase text-xs tracking-[0.2em] hover:bg-brand-black hover:text-white transition-all shadow-xl shadow-cyan-500/10">
+                            <button id="btn-add-main" class="flex-grow bg-brand-cyan text-brand-black h-14 rounded-2xl font-black uppercase text-xs tracking-[0.2em] hover:bg-brand-black hover:text-white transition-all shadow-xl shadow-cyan-500/10">
                                 Agregar al carrito
                             </button>
                         </div>
@@ -104,32 +88,25 @@
 
                     <div class="bg-slate-50 rounded-[2rem] p-8 space-y-8 border border-gray-100">
                         <div class="flex items-start gap-5">
-                            <div
-                                class="w-12 h-12 rounded-2xl bg-white shadow-sm flex items-center justify-center shrink-0">
+                            <div class="w-12 h-12 rounded-2xl bg-white shadow-sm flex items-center justify-center shrink-0">
                                 <i class="fa-solid fa-truck-fast text-brand-cyan text-xl"></i>
                             </div>
                             <div>
-                                <h4 class="text-[11px] font-black uppercase tracking-widest mb-1">Entrega Nacional Pro
-                                </h4>
-                                <p class="text-[10px] text-gray-400 leading-tight">Envío prioritario de 1 a 3 días
-                                    hábiles en ciudades principales.</p>
+                                <h4 class="text-[11px] font-black uppercase tracking-widest mb-1">Entrega Nacional Pro</h4>
+                                <p class="text-[10px] text-gray-400 leading-tight">Envío prioritario de 1 a 3 días hábiles en ciudades principales.</p>
                             </div>
                         </div>
                         <div class="flex items-start gap-5">
-                            <div
-                                class="w-12 h-12 rounded-2xl bg-white shadow-sm flex items-center justify-center shrink-0">
+                            <div class="w-12 h-12 rounded-2xl bg-white shadow-sm flex items-center justify-center shrink-0">
                                 <i class="fa-solid fa-shield-check text-brand-cyan text-xl"></i>
                             </div>
                             <div>
-                                <h4 class="text-[11px] font-black uppercase tracking-widest mb-1">Garantía PixelTech
-                                </h4>
-                                <p class="text-[10px] text-gray-400 leading-tight">Cobertura total por defectos de
-                                    fábrica y soporte especializado.</p>
+                                <h4 class="text-[11px] font-black uppercase tracking-widest mb-1">Garantía PixelTech</h4>
+                                <p class="text-[10px] text-gray-400 leading-tight">Cobertura total por defectos de fábrica y soporte especializado.</p>
                             </div>
                         </div>
 
-                        <a id="whatsapp-buy" href="" target="_blank"
-                            class="flex items-center justify-center gap-3 w-full py-4 bg-white border border-gray-200 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:border-brand-cyan transition shadow-sm">
+                        <a id="whatsapp-buy" href="" target="_blank" class="flex items-center justify-center gap-3 w-full py-4 bg-white border border-gray-200 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:border-brand-cyan transition shadow-sm">
                             <i class="fa-brands fa-whatsapp text-green-500 text-lg"></i> Consultar por WhatsApp
                         </a>
                     </div>
@@ -139,8 +116,7 @@
 
         <section class="mt-24 border-t border-gray-100 pt-16">
             <div class="max-w-4xl mx-auto">
-                <h3 class="text-3xl font-black uppercase tracking-tighter mb-10 text-center">Ficha <span
-                        class="text-gray-300">Técnica</span></h3>
+                <h3 class="text-3xl font-black uppercase tracking-tighter mb-10 text-center">Ficha <span class="text-gray-300">Técnica</span></h3>
                 <div id="p-description" class="rich-content text-gray-600 leading-loose"></div>
             </div>
         </section>
@@ -150,9 +126,8 @@
 
     <script type="module">
         import { loadGlobalHeader, loadGlobalFooter } from '../js/global-components.js';
-
-        loadGlobalHeader(); // Inyecta el header
-        loadGlobalFooter(); // Inyecta el nuevo footer
+        loadGlobalHeader(); 
+        loadGlobalFooter(); 
     </script>
 
     <script type="module">
@@ -160,5 +135,4 @@
         initProductDetail();
     </script>
 </body>
-
 </html>

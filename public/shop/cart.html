@@ -1,6 +1,5 @@
 <!DOCTYPE html>
 <html lang="es">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -19,7 +18,8 @@
 
     <div id="global-header"></div>
 
-    <main class="container mx-auto px-6 py-12">
+    <main class="container mx-auto px-6 py-12 min-h-[70vh]">
+        
         <div class="flex items-center justify-between mb-16">
             <a href="/index.html" class="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-gray-400 hover:text-brand-cyan transition">
                 <i class="fa-solid fa-arrow-left-long"></i> Seguir Explorando
@@ -27,30 +27,26 @@
             <div class="hidden md:flex items-center gap-6">
                 <span class="text-[10px] font-black text-brand-black uppercase tracking-widest underline decoration-brand-cyan decoration-2 underline-offset-8">01 Carrito</span>
                 <div class="w-8 h-px bg-gray-200"></div>
-                <span class="text-[10px] font-black text-gray-300 uppercase tracking-widest">02 Datos de Envío</span>
+                <span class="text-[10px] font-black text-gray-300 uppercase tracking-widest">02 Envío</span>
                 <div class="w-8 h-px bg-gray-200"></div>
-                <span class="text-[10px] font-black text-gray-300 uppercase tracking-widest">03 Confirmación</span>
+                <span class="text-[10px] font-black text-gray-300 uppercase tracking-widest">03 Pago</span>
             </div>
         </div>
 
         <h1 class="text-5xl font-black mb-12 tracking-tighter uppercase">Tu <span class="text-gray-300">Carrito</span></h1>
 
-        <div class="flex flex-col lg:flex-row gap-16">
+        <div id="cart-container" class="flex flex-col lg:flex-row gap-16 hidden">
             
             <div class="lg:w-2/3 space-y-6">
                 <div class="hidden md:grid grid-cols-12 gap-4 px-8 mb-4 text-[9px] font-black text-gray-400 uppercase tracking-[0.2em]">
-                    <div class="col-span-6">Detalles del Producto</div>
+                    <div class="col-span-6">Detalle del Producto</div>
                     <div class="col-span-2 text-center">Cantidad</div>
                     <div class="col-span-2 text-right">Unitario</div>
                     <div class="col-span-2 text-right">Subtotal</div>
                 </div>
 
-                <div id="cart-items-container" class="space-y-4">
-                    <div class="p-24 text-center bg-white rounded-[2.5rem] border border-gray-100">
-                        <i class="fa-solid fa-circle-notch fa-spin text-4xl text-brand-cyan opacity-20"></i>
-                        <p class="mt-6 font-black text-[10px] uppercase tracking-widest text-gray-400">Sincronizando inventario...</p>
+                <div id="cart-items-list" class="space-y-4">
                     </div>
-                </div>
             </div>
 
             <div class="lg:w-1/3">
@@ -59,12 +55,8 @@
 
                     <div class="space-y-5 mb-10">
                         <div class="flex justify-between text-gray-400 font-black text-[10px] uppercase tracking-widest">
-                            <span>Valor de Artículos</span>
+                            <span>Subtotal</span>
                             <span id="summary-subtotal" class="text-brand-black">$0</span>
-                        </div>
-                        <div class="flex justify-between text-brand-cyan font-black text-[10px] uppercase tracking-widest">
-                            <span>Descuento Aplicado</span>
-                            <span>-$0</span>
                         </div>
                         <div class="flex justify-between text-gray-400 font-black text-[10px] uppercase tracking-widest">
                             <span>Envío Nacional</span>
@@ -74,90 +66,96 @@
 
                     <div class="flex justify-between items-end mb-12 border-t border-gray-50 pt-8">
                         <span class="font-black text-xs uppercase tracking-[0.2em] text-gray-400">Total Neto</span>
-                        <span id="summary-total" class="text-4xl font-black tracking-tighter text-brand-black leading-none">$0</span>
+                        <span id="cart-total-display" class="text-4xl font-black tracking-tighter text-brand-black leading-none">$0</span>
                     </div>
 
-                    <button id="btn-checkout" class="w-full bg-brand-cyan text-brand-black font-black py-6 rounded-2xl shadow-xl shadow-cyan-500/10 hover:bg-brand-black hover:text-white transition-all duration-500 uppercase text-xs tracking-[0.25em] flex items-center justify-center gap-3 group disabled:opacity-30">
+                    <button id="btn-checkout" class="w-full bg-brand-cyan text-brand-black font-black py-6 rounded-2xl shadow-xl shadow-cyan-500/10 hover:bg-brand-black hover:text-white transition-all duration-500 uppercase text-xs tracking-[0.25em] flex items-center justify-center gap-3 group">
                         Finalizar Pedido <i class="fa-solid fa-chevron-right group-hover:translate-x-1 transition"></i>
                     </button>
 
                     <div class="mt-8 flex flex-col items-center gap-6">
-                        <div class="flex gap-5 grayscale opacity-30">
-                            <img src="https://img.icons8.com/color/48/visa.png" class="h-4">
-                            <img src="https://img.icons8.com/color/48/mastercard.png" class="h-4">
-                            <img src="https://img.icons8.com/color/48/paypal.png" class="h-4">
-                        </div>
                         <p class="text-[8px] font-black text-gray-300 uppercase tracking-[0.3em] flex items-center gap-2">
-                            <i class="fa-solid fa-shield-check text-brand-cyan text-[10px]"></i> Compras protegidas por PixelTech SSL
+                            <i class="fa-solid fa-shield-check text-brand-cyan text-[10px]"></i> Pagos Seguros SSL
                         </p>
                     </div>
                 </div>
             </div>
         </div>
+
+        <div id="empty-cart-msg" class="hidden p-20 text-center bg-white rounded-[2.5rem] border border-gray-100 max-w-2xl mx-auto shadow-sm">
+            <div class="w-24 h-24 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-8 text-gray-200">
+                <i class="fa-solid fa-cart-shopping text-4xl"></i>
+            </div>
+            <h3 class="font-black text-sm uppercase tracking-widest text-gray-400 mb-8">Tu carrito está vacío</h3>
+            <a href="/index.html" class="inline-block bg-brand-black text-white px-12 py-4 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] hover:bg-brand-cyan hover:text-brand-black transition-all shadow-xl">
+                Ir al Catálogo
+            </a>
+        </div>
+
     </main>
 
     <div id="global-footer"></div>
 
     <script type="module">
-        import { getCart, updateQuantity, removeFromCart, getCartTotal } from '../js/cart.js';
-        import { auth } from '../js/firebase-init.js';
+        import { getCart, updateQuantity, removeFromCart, getCartTotal, updateCartCount } from '../js/cart.js';
+        import { auth } from '../js/firebase-init.js'; // Solo importamos auth para el checkout
         import { loadGlobalHeader, loadGlobalFooter } from '../js/global-components.js';
 
-        // Inicializar Componentes Globales
+        // Cargar componentes globales
         loadGlobalHeader();
         loadGlobalFooter();
 
-        const container = document.getElementById('cart-items-container');
-        const totalEl = document.getElementById('summary-total');
-        const subtotalEl = document.getElementById('summary-subtotal');
+        const container = document.getElementById('cart-items-list');
+        const mainContainer = document.getElementById('cart-container');
+        const emptyMsg = document.getElementById('empty-cart-msg');
+        const totalDisplay = document.getElementById('cart-total-display');
+        const subtotalDisplay = document.getElementById('summary-subtotal');
         const checkoutBtn = document.getElementById('btn-checkout');
 
-        function renderCart() {
+        // Función Principal de Renderizado
+        function render() {
             const cart = getCart();
+            const total = getCartTotal();
+
+            // Actualizar badge del header (por si acaso)
+            updateCartCount();
+
             if (cart.length === 0) {
-                container.innerHTML = `
-                    <div class="p-20 text-center bg-white rounded-[2.5rem] border border-gray-100">
-                        <div class="w-24 h-24 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-8 text-gray-200">
-                            <i class="fa-solid fa-cart-flatbed-suitcases text-4xl"></i>
-                        </div>
-                        <h3 class="font-black text-xs uppercase tracking-widest text-gray-400 mb-8">Tu carrito está vacía actualmente</h3>
-                        <a href="/index.html" class="inline-block bg-brand-black text-white px-12 py-4 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] hover:bg-brand-cyan hover:text-brand-black transition-all shadow-xl">
-                            Volver al Catálogo
-                        </a>
-                    </div>`;
-                updateTotals(0);
-                checkoutBtn.disabled = true;
+                mainContainer.classList.add('hidden');
+                emptyMsg.classList.remove('hidden');
                 return;
             }
 
-            checkoutBtn.disabled = false;
+            mainContainer.classList.remove('hidden');
+            emptyMsg.classList.add('hidden');
+            
+            const formattedTotal = `$${total.toLocaleString('es-CO')}`;
+            totalDisplay.textContent = formattedTotal;
+            subtotalDisplay.textContent = formattedTotal;
 
+            // Generar HTML de los items
             container.innerHTML = cart.map(item => `
-                <div class="cart-item-card bg-white p-8 rounded-[2rem] flex flex-col md:grid md:grid-cols-12 gap-8 items-center relative overflow-hidden">
+                <div class="cart-item-card bg-white p-6 md:p-8 rounded-[2rem] flex flex-col md:grid md:grid-cols-12 gap-6 items-center relative group">
                     
-                    <div class="col-span-6 flex items-center gap-8 w-full">
-                        <div class="w-24 h-24 bg-white border border-gray-50 rounded-2xl p-2 shrink-0 flex items-center justify-center group-hover:scale-105 transition-transform duration-500">
-                            <img src="${item.mainImage || item.image}" class="max-h-full object-contain">
+                    <div class="col-span-6 flex items-center gap-6 w-full">
+                        <div class="w-20 h-20 md:w-24 md:h-24 bg-white border border-gray-50 rounded-2xl p-2 shrink-0 flex items-center justify-center">
+                            <img src="${item.image || 'https://placehold.co/100'}" class="max-h-full max-w-full object-contain">
                         </div>
-                        <div class="flex-grow">
-                            <h3 class="font-black text-sm text-brand-black uppercase tracking-tight mb-2 leading-tight">${item.name}</h3>
-                            
-                            <div class="flex flex-wrap gap-2 mb-4">
-                                ${item.color ? `<span class="bg-slate-50 text-[8px] font-black uppercase px-2 py-1 rounded-md text-gray-400 border border-gray-100">Color: ${item.color}</span>` : ''}
-                                ${item.capacity ? `<span class="bg-brand-cyan/5 text-brand-cyan text-[8px] font-black uppercase px-2 py-1 rounded-md border border-brand-cyan/10">Capacidad: ${item.capacity}</span>` : ''}
-                            </div>
-
-                            <button onclick="window.removeItem('${item.cartItemId}')" class="text-red-400 text-[8px] font-black uppercase tracking-widest hover:text-red-600 transition flex items-center gap-2">
-                                <i class="fa-solid fa-trash-can"></i> Eliminar ítem
+                        <div class="min-w-0 flex-grow">
+                            <h3 class="font-black text-xs md:text-sm text-brand-black uppercase tracking-tight mb-2 leading-tight cursor-pointer hover:text-brand-cyan transition truncate" onclick="window.location.href='/shop/product.html?id=${item.id}'">
+                                ${item.name}
+                            </h3>
+                            <button onclick="window.removeItem('${item.id}')" class="text-red-400 text-[8px] font-black uppercase tracking-widest hover:text-red-600 transition flex items-center gap-2">
+                                <i class="fa-solid fa-trash-can"></i> Eliminar
                             </button>
                         </div>
                     </div>
 
-                    <div class="col-span-2 flex justify-center">
-                        <div class="flex items-center bg-slate-50 border border-gray-100 rounded-xl p-1 h-12 shadow-inner">
-                            <button onclick="window.changeQty('${item.cartItemId}', ${item.quantity - 1})" class="w-10 h-full flex items-center justify-center text-gray-400 hover:text-brand-cyan transition text-lg">-</button>
-                            <input type="text" value="${item.quantity}" readonly class="w-10 text-center text-xs font-black bg-transparent border-none outline-none text-brand-black">
-                            <button onclick="window.changeQty('${item.cartItemId}', ${item.quantity + 1})" class="w-10 h-full flex items-center justify-center text-gray-400 hover:text-brand-cyan transition text-lg">+</button>
+                    <div class="col-span-2 flex justify-center w-full md:w-auto">
+                        <div class="flex items-center bg-slate-50 border border-gray-100 rounded-xl p-1 h-10 shadow-inner">
+                            <button onclick="window.changeQty('${item.id}', ${item.quantity - 1})" class="w-8 h-full flex items-center justify-center text-gray-400 hover:text-brand-cyan transition font-bold text-sm">-</button>
+                            <span class="w-8 text-center text-xs font-black text-brand-black">${item.quantity}</span>
+                            <button onclick="window.changeQty('${item.id}', ${item.quantity + 1})" class="w-8 h-full flex items-center justify-center text-gray-400 hover:text-brand-cyan transition font-bold text-sm">+</button>
                         </div>
                     </div>
 
@@ -166,38 +164,44 @@
                         <span class="text-xs font-bold text-gray-500">$${item.price.toLocaleString('es-CO')}</span>
                     </div>
 
-                    <div class="col-span-2 text-right w-full md:w-auto">
-                        <span class="text-[10px] font-black text-brand-cyan uppercase block mb-1 md:hidden">Subtotal</span>
+                    <div class="col-span-2 text-right w-full md:w-auto flex justify-between md:block items-center">
+                        <span class="text-[10px] font-black text-brand-cyan uppercase md:hidden">Subtotal</span>
                         <span class="text-lg font-black text-brand-black tracking-tighter">$${(item.price * item.quantity).toLocaleString('es-CO')}</span>
                     </div>
                 </div>
             `).join('');
-
-            updateTotals(getCartTotal());
         }
 
-        function updateTotals(total) {
-            const formatted = `$${total.toLocaleString('es-CO')}`;
-            totalEl.textContent = formatted;
-            subtotalEl.textContent = formatted;
-        }
+        // Exponer funciones globales para los onclick del HTML
+        window.changeQty = (id, qty) => {
+            updateQuantity(id, qty);
+            render();
+        };
 
-        // Funciones Globales para Variantes
-        window.changeQty = (cartItemId, qty) => { updateQuantity(cartItemId, qty); renderCart(); };
-        window.removeItem = (cartItemId) => { if (confirm('¿Retirar este equipo de la Carrito?')) { removeFromCart(cartItemId); renderCart(); } };
+        window.removeItem = (id) => {
+            if (confirm("¿Eliminar producto del carrito?")) {
+                removeFromCart(id);
+                render();
+            }
+        };
 
-        renderCart();
-
-        checkoutBtn.addEventListener('click', () => {
+        // Lógica de Checkout (Login Obligatorio AQUÍ)
+        checkoutBtn.onclick = () => {
             const user = auth.currentUser;
             if (!user) {
-                alert("Por favor inicia sesión para continuar con tu orden premium.");
-                window.location.href = "/auth/login.html";
+                // Guardar intención de ir al checkout
+                sessionStorage.setItem('redirect_after_login', '/shop/checkout.html');
+                if(confirm("🔒 Para finalizar tu compra de forma segura, necesitas iniciar sesión o registrarte.\n\n¿Deseas ir al login?")) {
+                    window.location.href = "/auth/login.html";
+                }
             } else {
                 window.location.href = "/shop/checkout.html";
             }
-        });
+        };
+
+        // Inicializar
+        render();
+
     </script>
 </body>
-
 </html>

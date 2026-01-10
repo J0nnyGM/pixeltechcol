@@ -6,52 +6,88 @@
     <title>Crear Cuenta - PixelTech</title>
     <link rel="stylesheet" href="../css/styles.css">
     <script src="https://kit.fontawesome.com/0d623ded97.js" crossorigin="anonymous"></script>
+    <style>
+        .custom-scroll::-webkit-scrollbar { width: 6px; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #00AEC7; border-radius: 10px; }
+    </style>
 </head>
-<body class="bg-black font-sans text-gray-300 antialiased h-screen flex items-center justify-center relative overflow-hidden">
+<body class="bg-white font-sans text-brand-black flex flex-col min-h-screen">
 
-    <div class="absolute top-0 left-0 w-full h-full overflow-hidden z-0">
-        <div class="absolute bottom-[-10%] right-[-10%] w-96 h-96 bg-brand-cyan/10 rounded-full blur-[100px]"></div>
-    </div>
+    <div id="global-header"></div>
 
-    <div class="relative z-10 w-full max-w-md p-8 bg-brand-black/90 backdrop-blur-md border border-gray-800 rounded-2xl shadow-2xl">
-        
-        <div class="text-center mb-6">
-            <a href="/" class="inline-block mb-4">
-                <img src="../img/logo.png" alt="PixelTech" class="h-10 w-auto mx-auto">
-            </a>
-            <h2 class="text-2xl font-bold text-white">Únete a PixelTech</h2>
-            <p class="text-sm text-gray-500 mt-2">Crea tu cuenta y gestiona tus pedidos</p>
-        </div>
-
-        <div id="auth-message" class="hidden mb-4 p-3 rounded text-sm text-center font-bold"></div>
-
-        <form id="register-form" class="space-y-4">
-            <div>
-                <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Nombre Completo</label>
-                <input type="text" id="reg-name" required class="w-full bg-gray-900 border border-gray-700 text-white text-sm rounded-lg focus:ring-2 focus:ring-brand-cyan outline-none p-3">
-            </div>
-
-            <div>
-                <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Correo Electrónico</label>
-                <input type="email" id="reg-email" required class="w-full bg-gray-900 border border-gray-700 text-white text-sm rounded-lg focus:ring-2 focus:ring-brand-cyan outline-none p-3">
-            </div>
+    <main class="flex-grow container mx-auto px-6 py-16">
+        <div class="max-w-6xl mx-auto">
+            <h1 class="text-3xl font-black uppercase tracking-tighter mb-10 text-center md:text-left">Crear Cuenta</h1>
             
-            <div>
-                <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Contraseña</label>
-                <input type="password" id="reg-password" required minlength="6" class="w-full bg-gray-900 border border-gray-700 text-white text-sm rounded-lg focus:ring-2 focus:ring-brand-cyan outline-none p-3">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-16">
+                <div>
+                    <h2 class="text-xs font-black uppercase tracking-widest text-gray-400 mb-6 border-b border-gray-100 pb-2">Información Personal</h2>
+                    
+                    <div id="auth-message" class="hidden mb-6 p-4 bg-red-50 text-red-500 text-xs font-bold rounded-lg border border-red-100"></div>
+
+                    <form id="register-form" class="space-y-6">
+                        <div>
+                            <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">Nombre Completo <span class="text-red-500">*</span></label>
+                            <input type="text" id="reg-name" required class="w-full bg-gray-50 border border-gray-200 text-brand-black text-sm p-4 outline-none focus:border-brand-cyan focus:ring-1 focus:ring-brand-cyan transition-all placeholder-gray-400 font-medium" placeholder="Ej: Juan Pérez">
+                        </div>
+
+                        <div>
+                            <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">Correo Electrónico <span class="text-red-500">*</span></label>
+                            <input type="email" id="reg-email" required class="w-full bg-gray-50 border border-gray-200 text-brand-black text-sm p-4 outline-none focus:border-brand-cyan focus:ring-1 focus:ring-brand-cyan transition-all placeholder-gray-400 font-medium" placeholder="tu@email.com">
+                        </div>
+
+                        <div>
+                            <label class="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-2">Contraseña <span class="text-red-500">*</span></label>
+                            <input type="password" id="reg-password" required minlength="6" class="w-full bg-gray-50 border border-gray-200 text-brand-black text-sm p-4 outline-none focus:border-brand-cyan focus:ring-1 focus:ring-brand-cyan transition-all placeholder-gray-400 font-medium" placeholder="Mínimo 6 caracteres">
+                        </div>
+
+                        <div class="pt-4">
+                            <button type="submit" class="bg-brand-black text-white px-10 py-4 font-black text-xs uppercase tracking-[0.2em] hover:bg-brand-cyan hover:text-brand-black transition-all duration-300 shadow-lg hover:shadow-cyan-500/20 w-full md:w-auto text-center">
+                                Registrarse
+                            </button>
+                        </div>
+                    </form>
+                    
+                    <p class="mt-8 text-xs text-gray-500">
+                        ¿Ya tienes una cuenta? <a href="/auth/login.html" class="text-brand-cyan font-bold hover:underline">Inicia sesión aquí</a>
+                    </p>
+                </div>
+
+                <div class="md:pl-10 md:border-l border-gray-100">
+                    <h2 class="text-xs font-black uppercase tracking-widest text-gray-400 mb-6 border-b border-gray-100 pb-2">Beneficios de la Cuenta</h2>
+                    
+                    <div class="prose prose-sm text-gray-500">
+                        <p class="mb-6 leading-relaxed font-medium">
+                            Registrarse en este sitio le permite acceder al estado e historial de su pedido. Simplemente complete los campos a continuación y configuraremos una nueva cuenta para usted en un abrir y cerrar de ojos. Solo te pediremos la información necesaria para que el proceso de compra sea más rápido y sencillo.
+                        </p>
+                        
+                        <ul class="space-y-4 list-none pl-0 mt-8">
+                            <li class="flex items-center gap-3">
+                                <i class="fa-solid fa-bolt text-brand-cyan"></i>
+                                <span class="text-xs font-bold text-gray-700">Proceso de pago más rápido</span>
+                            </li>
+                            <li class="flex items-center gap-3">
+                                <i class="fa-solid fa-box-open text-brand-cyan"></i>
+                                <span class="text-xs font-bold text-gray-700">Rastreo de pedidos en tiempo real</span>
+                            </li>
+                            <li class="flex items-center gap-3">
+                                <i class="fa-solid fa-clock-rotate-left text-brand-cyan"></i>
+                                <span class="text-xs font-bold text-gray-700">Historial de compras completo</span>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
             </div>
-
-            <button type="submit" class="w-full bg-brand-cyan hover:bg-cyan-400 text-black font-bold py-3 rounded-lg transition mt-2">
-                CREAR CUENTA
-            </button>
-        </form>
-
-        <div class="mt-6 text-center text-sm text-gray-500">
-            ¿Ya tienes cuenta? 
-            <a href="/auth/login.html" class="text-brand-cyan font-bold hover:underline">Inicia Sesión</a>
         </div>
-    </div>
+    </main>
 
+    <div id="global-footer"></div>
+
+    <script type="module">
+        import { loadGlobalHeader, loadGlobalFooter } from '../js/global-components.js';
+        loadGlobalHeader();
+        loadGlobalFooter();
+    </script>
     <script type="module" src="../js/auth-logic.js"></script>
 </body>
 </html>

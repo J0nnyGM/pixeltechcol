@@ -8,36 +8,12 @@
     <link rel="stylesheet" href="css/styles.css">
     <script src="https://kit.fontawesome.com/0d623ded97.js" crossorigin="anonymous"></script>
     <style>
-        .no-scrollbar::-webkit-scrollbar {
-            display: none;
-        }
-
-        .no-scrollbar {
-            -ms-overflow-style: none;
-            scrollbar-width: none;
-        }
-
-        .fade-in {
-            animation: fadeIn 0.8s ease-out forwards;
-        }
-
-        @keyframes fadeIn {
-            from {
-                opacity: 0;
-            }
-
-            to {
-                opacity: 1;
-            }
-        }
-
-        .slider-image {
-            transition: transform 0.7s ease-in-out;
-        }
-
-        .slider-active .slider-image {
-            transform: scale(1.05);
-        }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        .fade-in { animation: fadeIn 0.8s ease-out forwards; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        .slider-image { transition: transform 0.7s ease-in-out; }
+        .slider-active .slider-image { transform: scale(1.05); }
     </style>
 </head>
 
@@ -56,31 +32,29 @@
                 </div>
             </div>
 
-            <div class="lg:col-span-8 grid grid-cols-1 lg:grid-cols-2 gap-6 h-full">
+            <div class="lg:col-span-8 grid grid-cols-1 lg:grid-cols-2 lg:grid-rows-3 gap-6 h-full">
 
                 <div id="new-launch-banner"
                     class="relative rounded-[2.5rem] overflow-hidden shadow-2xl bg-brand-black h-[400px] lg:h-auto lg:row-span-2">
                     <div class="animate-pulse bg-slate-800 w-full h-full"></div>
                 </div>
 
-                <div
-                    class="bg-white rounded-[2.5rem] shadow-lg border border-gray-100 p-8 flex flex-col h-[400px] lg:h-auto lg:row-span-2">
-                    <div class="flex items-center gap-2 mb-6">
+                <div class="bg-white rounded-[2.5rem] shadow-lg border border-gray-100 p-8 flex flex-col h-[400px] lg:h-auto lg:row-span-2 overflow-hidden">
+                    <div class="flex items-center gap-2 mb-4 shrink-0">
                         <div class="w-1.5 h-6 bg-brand-cyan rounded-full"></div>
                         <h3 class="font-black text-sm uppercase tracking-widest text-brand-black">Elección Semanal</h3>
                     </div>
-                    <div id="weekly-choice-container" class="flex-grow space-y-4 overflow-y-auto no-scrollbar"></div>
+                    <div id="weekly-choice-container" class="flex-grow space-y-4 overflow-y-auto no-scrollbar pr-2">
+                        </div>
                 </div>
 
-                <div class="lg:col-span-2 bg-slate-50 rounded-[2.5rem] border border-gray-100 p-6 h-fit lg:h-auto">
-                    <div class="flex items-center justify-between mb-4 px-2">
-                        <h3 class="font-black text-[10px] uppercase tracking-[0.2em] text-gray-400">Visto recientemente
-                        </h3>
+                <div class="lg:col-span-2 lg:row-span-1 bg-slate-50 rounded-[2.5rem] border border-gray-100 p-6 h-fit lg:h-auto flex flex-col justify-center">
+                    <div class="flex items-center justify-between mb-2 px-2 shrink-0">
+                        <h3 class="font-black text-[10px] uppercase tracking-[0.2em] text-gray-400">Visto recientemente</h3>
                         <div class="h-px bg-gray-200 flex-grow mx-4"></div>
                     </div>
-                    <div id="view-history-list" class="flex gap-6 overflow-x-auto no-scrollbar py-2">
-                        <p class="text-[10px] text-gray-400 font-bold uppercase w-full text-center py-4">Explora
-                            productos para ver tu historial</p>
+                    <div id="view-history-list" class="flex gap-6 overflow-x-auto no-scrollbar py-2 items-center h-full">
+                        <p class="text-[10px] text-gray-400 font-bold uppercase w-full text-center">Explora productos para ver tu historial</p>
                     </div>
                 </div>
             </div>
@@ -90,11 +64,9 @@
     <section class="bg-brand-surface py-16 mb-16">
         <div class="container mx-auto px-6">
             <div class="flex flex-col md:flex-row justify-between items-center mb-10 gap-4">
-                <h2 class="text-3xl font-black tracking-tighter uppercase">Precios <span
-                        class="text-brand-red">Especiales</span></h2>
+                <h2 class="text-3xl font-black tracking-tighter uppercase">Precios <span class="text-brand-red">Especiales</span></h2>
                 <div class="h-[2px] bg-gray-200 flex-grow hidden md:block mx-10"></div>
-                <p
-                    class="text-[10px] font-black text-gray-400 uppercase tracking-widest bg-white px-4 py-2 rounded-full shadow-sm">
+                <p class="text-[10px] font-black text-gray-400 uppercase tracking-widest bg-white px-4 py-2 rounded-full shadow-sm">
                     Solo por tiempo limitado</p>
             </div>
             <div id="promo-products-grid" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6"></div>
@@ -102,11 +74,9 @@
     </section>
 
     <section class="container mx-auto px-6 mb-20">
-        <div
-            class="bg-white rounded-[2.5rem] p-10 md:p-14 flex flex-wrap justify-around gap-12 border border-gray-100 shadow-sm">
+        <div class="bg-white rounded-[2.5rem] p-10 md:p-14 flex flex-wrap justify-around gap-12 border border-gray-100 shadow-sm">
             <div class="flex items-center gap-6 group">
-                <div
-                    class="w-16 h-16 rounded-2xl bg-cyan-50 flex items-center justify-center group-hover:scale-110 transition duration-500">
+                <div class="w-16 h-16 rounded-2xl bg-cyan-50 flex items-center justify-center group-hover:scale-110 transition duration-500">
                     <i class="fa-solid fa-truck-fast text-3xl text-brand-cyan"></i></div>
                 <div>
                     <h4 class="font-black text-[11px] uppercase tracking-widest">Envío Nacional</h4>
@@ -114,8 +84,7 @@
                 </div>
             </div>
             <div class="flex items-center gap-6 group">
-                <div
-                    class="w-16 h-16 rounded-2xl bg-emerald-50 flex items-center justify-center group-hover:scale-110 transition duration-500">
+                <div class="w-16 h-16 rounded-2xl bg-emerald-50 flex items-center justify-center group-hover:scale-110 transition duration-500">
                     <i class="fa-solid fa-shield-check text-3xl text-emerald-500"></i></div>
                 <div>
                     <h4 class="font-black text-[11px] uppercase tracking-widest">Compra Segura</h4>
@@ -123,8 +92,7 @@
                 </div>
             </div>
             <div class="flex items-center gap-6 group">
-                <div
-                    class="w-16 h-16 rounded-2xl bg-yellow-50 flex items-center justify-center group-hover:scale-110 transition duration-500">
+                <div class="w-16 h-16 rounded-2xl bg-yellow-50 flex items-center justify-center group-hover:scale-110 transition duration-500">
                     <i class="fa-solid fa-headset text-3xl text-yellow-500"></i></div>
                 <div>
                     <h4 class="font-black text-[11px] uppercase tracking-widest">Soporte Pro</h4>
@@ -135,13 +103,10 @@
     </section>
 
     <main class="container mx-auto px-6 pb-32">
-        <div
-            class="flex flex-col md:flex-row justify-between items-start md:items-end mb-16 gap-6 border-l-8 border-brand-cyan pl-8">
+        <div class="flex flex-col md:flex-row justify-between items-start md:items-end mb-16 gap-6 border-l-8 border-brand-cyan pl-8">
             <div>
-                <p class="text-brand-cyan font-black text-[10px] uppercase tracking-[0.4em] mb-2">Ingeniería para el
-                    rendimiento</p>
-                <h2 class="text-5xl font-black text-brand-black tracking-tighter uppercase">Catálogo <span
-                        class="text-gray-300">Maestro</span></h2>
+                <p class="text-brand-cyan font-black text-[10px] uppercase tracking-[0.4em] mb-2">Ingeniería para el rendimiento</p>
+                <h2 class="text-5xl font-black text-brand-black tracking-tighter uppercase">Catálogo <span class="text-gray-300">Maestro</span></h2>
             </div>
         </div>
         <div id="products-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-10"></div>
@@ -151,11 +116,71 @@
 
     <script type="module">
         import { loadGlobalHeader, loadGlobalFooter } from '../js/global-components.js';
-
-        loadGlobalHeader(); // Inyecta el header
-        loadGlobalFooter(); // Inyecta el nuevo footer
+        loadGlobalHeader();
+        loadGlobalFooter();
     </script>
     <script type="module" src="js/app.js"></script>
-</body>
 
+    <script type="module">
+        import { db, collection, getDocs } from "./js/firebase-init.js";
+
+        async function loadWeeklyChoiceLogic() {
+            const container = document.getElementById('weekly-choice-container');
+            if(!container) return;
+
+            try {
+                // 1. Obtener todos los productos
+                const snap = await getDocs(collection(db, "products"));
+                let products = [];
+                snap.forEach(d => products.push({id: d.id, ...d.data()}));
+
+                // 2. Filtrar los que tienen el flag 'isWeeklyChoice' (o como lo llames en tu admin)
+                // Asumo que tienes un flag, si no, filtraremos aleatorio directo.
+                let weeklyItems = products.filter(p => p.isWeeklyChoice === true);
+
+                // 3. LOGICA ALEATORIA: Si no hay establecidos, tomar 3 aleatorios
+                if (weeklyItems.length === 0 && products.length > 0) {
+                    // Mezclar array (Fisher-Yates shuffle simplificado)
+                    const shuffled = products.sort(() => 0.5 - Math.random());
+                    // Tomar los primeros 3
+                    weeklyItems = shuffled.slice(0, 3);
+                }
+
+                // 4. Renderizar
+                container.innerHTML = "";
+                if(weeklyItems.length === 0) {
+                    container.innerHTML = `<p class="text-xs text-gray-400">Pronto nuevas elecciones.</p>`;
+                    return;
+                }
+
+                weeklyItems.forEach(p => {
+                    const div = document.createElement('div');
+                    // Diseño de tarjeta horizontal pequeña
+                    div.className = "flex items-center gap-4 p-3 rounded-2xl hover:bg-slate-50 transition cursor-pointer group border border-transparent hover:border-gray-100";
+                    div.onclick = () => window.location.href = `/shop/product.html?id=${p.id}`;
+                    div.innerHTML = `
+                        <div class="w-16 h-16 bg-white rounded-xl border border-gray-100 p-1 shrink-0 flex items-center justify-center">
+                            <img src="${p.mainImage || p.image}" class="max-w-full max-h-full object-contain group-hover:scale-105 transition">
+                        </div>
+                        <div class="flex-grow min-w-0">
+                            <h4 class="font-bold text-xs uppercase text-brand-black truncate group-hover:text-brand-cyan transition">${p.name}</h4>
+                            <p class="text-[10px] text-gray-400 font-bold uppercase mt-1">${p.category || 'Tech'}</p>
+                            <p class="text-sm font-black text-brand-black mt-1">$${(p.price || 0).toLocaleString('es-CO')}</p>
+                        </div>
+                        <div class="w-8 h-8 rounded-full bg-slate-100 text-brand-black flex items-center justify-center group-hover:bg-brand-black group-hover:text-white transition">
+                            <i class="fa-solid fa-arrow-right text-[10px]"></i>
+                        </div>
+                    `;
+                    container.appendChild(div);
+                });
+
+            } catch (e) {
+                console.error("Error cargando elección semanal:", e);
+            }
+        }
+
+        // Ejecutar
+        loadWeeklyChoiceLogic();
+    </script>
+</body>
 </html>

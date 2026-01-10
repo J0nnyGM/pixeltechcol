@@ -1,24 +1,28 @@
 rules_version = '2';
-
 service firebase.storage {
   match /b/{bucket}/o {
     
-    // --- LECTURA PÚBLICA ---
-    // Permite que cualquier usuario vea las imágenes de la tienda
-    match /{allPaths=**} {
-      allow read: if true;
+    // 1. GARANTÍAS (Evidencia del Usuario - Fotos/Video)
+    match /warranties/{orderId}/{fileName} {
+      allow read, write: if request.auth != null;
+    }
+
+    // 2. INFORMES TÉCNICOS (PDFs del Admin) - ¡Necesario para la nueva función!
+    match /warranty_reports/{fileName} {
+      allow read: if request.auth != null; // El usuario debe poder leerlo para descargarlo
+      allow write: if request.auth != null; // El admin debe poder subirlo
     }
     
-    // --- ESCRITURA PARA ADMINISTRADORES ---
-    // El uso de {allPaths=**} permite crear carpetas y subcarpetas 
-    // como 'global' y 'variants' dentro de 'products'
+    // 3. PRODUCTOS (Imágenes de la tienda)
     match /products/{allPaths=**} {
+      allow read: if true; // Público
       allow write: if request.auth != null;
     }
 
-    // Opcional: Si tienes fotos de perfil de usuarios
-    match /users/{userId}/{allPaths=**} {
-      allow write: if request.auth != null && request.auth.uid == userId;
+    // 4. BANNERS Y VITRINA (SOLUCIÓN A TU ERROR ACTUAL)
+    match /banners/{allPaths=**} {
+      allow read: if true; // Público (para que se vean en el index.html)
+      allow write: if request.auth != null; // Solo admin logueado sube
     }
   }
 }

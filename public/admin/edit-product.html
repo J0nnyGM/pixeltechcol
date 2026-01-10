@@ -22,6 +22,7 @@
             box-shadow: 0 10px 15px -3px rgba(0, 174, 199, 0.1);
         }
 
+        /* Estilo para el editor de texto enriquecido */
         .rich-editor {
             min-height: 400px;
             width: 100%;
@@ -30,7 +31,6 @@
             background-color: #ffffff;
             line-height: 1.6;
         }
-
         .rich-editor h1 { font-size: 2.25rem; font-weight: 900; margin-bottom: 1.5rem; text-transform: uppercase; }
         .rich-editor p { margin-bottom: 1rem; }
         .rich-editor b { font-weight: 700; }
@@ -97,11 +97,21 @@
                             </div>
                         </div>
 
-                        <div class="admin-input-group relative">
-                            <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Categoría</label>
-                            <input type="text" id="cat-search" placeholder="Buscar categoría..." class="w-full bg-transparent border-none p-0 text-sm font-semibold outline-none">
-                            <div id="cat-results" class="absolute z-50 w-full left-0 mt-6 bg-white border-2 border-gray-100 rounded-2xl shadow-2xl hidden max-h-48 overflow-y-auto p-2"></div>
-                            <input type="hidden" id="p-category">
+                        <div class="grid grid-cols-2 gap-6">
+                            <div class="admin-input-group relative">
+                                <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Categoría</label>
+                                <input type="text" id="cat-search" placeholder="Buscar..." class="w-full bg-transparent border-none p-0 text-sm font-semibold outline-none">
+                                <div id="cat-results" class="absolute z-50 w-full left-0 mt-6 bg-white border-2 border-gray-100 rounded-2xl shadow-2xl hidden max-h-48 overflow-y-auto p-2"></div>
+                                <input type="hidden" id="p-category">
+                            </div>
+                            
+                            <div class="admin-input-group">
+                                <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">Estado del Producto</label>
+                                <select id="p-status" class="w-full bg-transparent border-none p-0 text-sm font-bold uppercase outline-none cursor-pointer">
+                                    <option value="active">🟢 Activo (Visible)</option>
+                                    <option value="draft">🟡 Borrador (Oculto)</option>
+                                </select>
+                            </div>
                         </div>
 
                         <div class="bg-white border-2 border-gray-200 rounded-[2.5rem] overflow-hidden shadow-sm">

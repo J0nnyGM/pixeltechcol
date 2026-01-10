@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,101 +8,236 @@
     <link rel="stylesheet" href="../css/styles.css">
     <script src="https://kit.fontawesome.com/0d623ded97.js" crossorigin="anonymous"></script>
     <style>
-        /* Estilos específicos para la tabla de inventario */
-        .no-scrollbar::-webkit-scrollbar { display: none; }
-        
-        .status-pill {
-            @apply px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest;
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
         }
 
-        /* Aseguramos que las filas tengan una transición suave */
-        tr { transition: all 0.2s ease; }
+        tr {
+            transition: background-color 0.2s ease;
+        }
+
+        .fade-in {
+            animation: fadeIn 0.3s ease-out forwards;
+            opacity: 0;
+            transform: translateY(5px);
+        }
+
+        @keyframes fadeIn {
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
     </style>
 </head>
-<body class="bg-slate-50 font-sans text-brand-black flex h-screen overflow-hidden">
+
+<body
+    class="bg-slate-50 font-sans text-brand-black flex h-screen overflow-hidden selection:bg-brand-cyan selection:text-white">
 
     <div id="admin-sidebar"></div>
 
-    <main class="flex-grow overflow-y-auto flex flex-col no-scrollbar">
-        
-        <header class="bg-white border-b border-gray-200 px-10 py-6 flex justify-between items-center sticky top-0 z-30 shadow-sm">
+    <main class="flex-grow overflow-y-auto flex flex-col no-scrollbar relative">
+
+        <header
+            class="bg-white/90 backdrop-blur-xl border-b border-gray-100 px-10 py-6 flex justify-between items-center sticky top-0 z-30 shadow-sm transition-all">
             <div>
                 <h2 class="font-black text-[10px] uppercase tracking-[0.3em] text-gray-400 mb-1">Catálogo Maestro</h2>
-                <h1 class="text-3xl font-black text-brand-black tracking-tighter uppercase">Gestión de <span class="text-gray-300">Inventario</span></h1>
+                <h1 class="text-3xl font-black text-brand-black tracking-tighter uppercase">Gestión de <span
+                        class="text-brand-cyan">Inventario</span></h1>
             </div>
-            
+
             <div class="flex items-center gap-4">
-                <button onclick="window.location.href='create-product.html'" 
-                    class="bg-brand-black text-white px-8 py-4 rounded-2xl font-black uppercase text-[10px] tracking-[0.2em] shadow-2xl hover:bg-brand-cyan hover:text-brand-black transition-all flex items-center gap-3">
+                <button onclick="window.location.href='create-product.html'"
+                    class="bg-brand-black text-white px-8 py-4 rounded-2xl font-black uppercase text-[10px] tracking-[0.2em] shadow-xl hover:bg-brand-cyan hover:text-brand-black hover:shadow-cyan-500/20 hover:-translate-y-1 transition-all flex items-center gap-3">
                     <i class="fa-solid fa-plus text-xs"></i> Nuevo Producto
                 </button>
             </div>
         </header>
 
-        <div class="p-10 max-w-[1600px] mx-auto w-full">
-            
-            <div class="flex flex-col md:flex-row gap-6 mb-10">
+        <div class="p-10 max-w-[1600px] mx-auto w-full pb-20">
+
+            <div class="flex flex-col md:flex-row gap-6 mb-10 items-stretch">
                 <div class="relative flex-grow group">
-                    <div class="absolute left-5 top-1/2 -translate-y-1/2 text-gray-300 group-focus-within:text-brand-cyan transition">
-                        <i class="fa-solid fa-magnifying-glass"></i>
+                    <div
+                        class="absolute left-6 top-1/2 -translate-y-1/2 text-gray-300 group-focus-within:text-brand-cyan transition-colors duration-300 pointer-events-none">
+                        <i class="fa-solid fa-magnifying-glass text-lg"></i>
                     </div>
-                    <input type="text" id="inventory-search" placeholder="Buscar por nombre, SKU o marca del equipo..." 
-                        class="w-full bg-white border-2 border-gray-100 rounded-[1.5rem] py-4 pl-14 pr-6 text-sm font-semibold outline-none focus:border-brand-cyan focus:shadow-lg focus:shadow-cyan-500/5 transition-all shadow-sm">
+                    <input type="text" id="inventory-search"
+                        placeholder="Buscar por nombre, referencia, SKU o categoría..."
+                        class="w-full h-full bg-white border-2 border-gray-100 rounded-[2rem] py-4 pl-16 pr-6 text-sm font-bold outline-none focus:border-brand-cyan focus:ring-4 focus:ring-cyan-500/10 transition-all shadow-sm placeholder-gray-300">
                 </div>
 
-                <div class="md:w-64">
-                    <select id="filter-status" 
-                        class="w-full bg-white border-2 border-gray-100 rounded-[1.5rem] py-4 px-6 text-xs font-black uppercase tracking-widest outline-none cursor-pointer focus:border-brand-cyan transition shadow-sm appearance-none">
+                <div class="md:w-72 relative">
+                    <div class="absolute left-6 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none z-10">
+                        <i class="fa-solid fa-filter"></i>
+                    </div>
+                    <select id="filter-status"
+                        class="w-full h-full bg-white border-2 border-gray-100 rounded-[2rem] py-4 pl-14 pr-10 text-xs font-black uppercase tracking-widest outline-none cursor-pointer focus:border-brand-cyan hover:bg-slate-50 transition-all shadow-sm appearance-none relative z-0">
                         <option value="all">Todos los Estados</option>
                         <option value="active">🟢 Solo Activos</option>
-                        <option value="draft">🟡 Solo Borradores</option>
+                        <option value="draft">🟡 Borradores / Ocultos</option>
+                        <option value="lowstock">🔴 Stock Bajo (&lt;5)</option>
                     </select>
+                    <div class="absolute right-6 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none text-xs">
+                        <i class="fa-solid fa-chevron-down"></i>
+                    </div>
                 </div>
             </div>
 
-            <div class="bg-white rounded-[2.5rem] shadow-xl shadow-slate-200/50 border border-gray-100 overflow-hidden">
+            <div class="bg-white rounded-[3rem] shadow-xl shadow-slate-200/50 border border-gray-100 overflow-hidden">
                 <div class="overflow-x-auto">
                     <table class="w-full text-left border-collapse">
-                        <thead class="bg-gray-50/50 border-b border-gray-100">
+                        <thead class="bg-slate-50 border-b border-gray-100">
                             <tr>
-                                <th class="p-6 text-[10px] font-black uppercase text-gray-400 tracking-widest w-24">Vista</th>
-                                <th class="p-6 text-[10px] font-black uppercase text-gray-400 tracking-widest">Producto / Referencia</th>
-                                <th class="p-6 text-[10px] font-black uppercase text-gray-400 tracking-widest">Categoría / Marca</th>
-                                <th class="p-6 text-[10px] font-black uppercase text-gray-400 tracking-widest">Valor / Disponibilidad</th>
-                                <th class="p-6 text-[10px] font-black uppercase text-gray-400 tracking-widest text-center">Estado</th>
-                                <th class="p-6 text-[10px] font-black uppercase text-gray-400 tracking-widest text-right">Acciones</th>
+                                <th class="p-8 text-[9px] font-black uppercase text-gray-400 tracking-widest w-24">
+                                    Imagen</th>
+                                <th class="p-8 text-[9px] font-black uppercase text-gray-400 tracking-widest">Detalle
+                                    del Producto</th>
+                                <th class="p-8 text-[9px] font-black uppercase text-gray-400 tracking-widest">Categoría
+                                </th>
+                                <th class="p-8 text-[9px] font-black uppercase text-gray-400 tracking-widest">Marca</th>
+                                <th class="p-8 text-[9px] font-black uppercase text-gray-400 tracking-widest">Precio /
+                                    Stock</th>
+                                <th
+                                    class="p-8 text-[9px] font-black uppercase text-gray-400 tracking-widest text-center">
+                                    Estado</th>
+                                <th
+                                    class="p-8 text-[9px] font-black uppercase text-gray-400 tracking-widest text-right">
+                                    Acciones</th>
                             </tr>
                         </thead>
-                        <tbody id="products-table-body" class="divide-y divide-gray-50 font-medium">
+                        <tbody id="products-table-body"
+                            class="divide-y divide-gray-50 font-medium text-sm text-brand-black">
                             <tr>
-                                <td colspan="6" class="p-20 text-center">
-                                    <i class="fa-solid fa-circle-notch fa-spin text-3xl text-brand-cyan opacity-20"></i>
-                                    <p class="mt-4 text-[10px] font-black uppercase text-gray-300 tracking-widest">Sincronizando Inventario...</p>
+                                <td colspan="7" class="p-20 text-center">
+                                    <div class="flex flex-col items-center justify-center gap-4">
+                                        <i class="fa-solid fa-circle-notch fa-spin text-4xl text-brand-cyan/50"></i>
+                                        <p
+                                            class="text-[10px] font-black uppercase text-gray-300 tracking-widest animate-pulse">
+                                            Cargando Inventario...</p>
+                                    </div>
                                 </td>
                             </tr>
                         </tbody>
                     </table>
                 </div>
+                <div id="no-results" class="hidden p-20 text-center">
+                    <div
+                        class="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4 text-gray-300 text-3xl">
+                        <i class="fa-solid fa-magnifying-glass-minus"></i>
+                    </div>
+                    <p class="text-sm font-bold text-gray-400">No encontramos productos con ese criterio.</p>
+                    <button
+                        onclick="document.getElementById('inventory-search').value=''; document.getElementById('inventory-search').dispatchEvent(new Event('input'));"
+                        class="mt-4 text-brand-cyan text-xs font-black uppercase hover:underline">Limpiar
+                        Filtros</button>
+                </div>
             </div>
 
-            <div class="mt-10 flex justify-between items-center px-6">
-                <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
-                    Tip: Haz clic en el icono de edición para modificar un producto existente.
+            <div
+                class="mt-8 flex flex-col md:flex-row justify-between items-center px-6 gap-4 opacity-60 hover:opacity-100 transition-opacity">
+                <p class="text-[9px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
+                    <i class="fa-regular fa-lightbulb text-brand-cyan"></i>
+                    Tip: Haz clic en el nombre para ver la vista previa en la tienda.
                 </p>
-                <div class="flex gap-4">
+                <div class="flex gap-6">
                     <div class="flex items-center gap-2">
-                        <div class="w-2 h-2 rounded-full bg-green-500"></div>
+                        <div class="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.4)]"></div>
                         <span class="text-[9px] font-black uppercase text-gray-500">Visible</span>
                     </div>
                     <div class="flex items-center gap-2">
-                        <div class="w-2 h-2 rounded-full bg-yellow-500"></div>
+                        <div class="w-2 h-2 rounded-full bg-amber-400 shadow-[0_0_10px_rgba(251,191,36,0.4)]"></div>
                         <span class="text-[9px] font-black uppercase text-gray-500">Borrador</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <div class="w-2 h-2 rounded-full bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.4)]"></div>
+                        <span class="text-[9px] font-black uppercase text-gray-500">Stock Crítico</span>
                     </div>
                 </div>
             </div>
         </div>
     </main>
 
+    <div id="discount-modal"
+        class="fixed inset-0 z-50 hidden flex items-center justify-center p-4 bg-slate-900/90 backdrop-blur-sm">
+        <div class="bg-white w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl animate-in zoom-in-95">
+            <div class="flex justify-between items-center mb-6">
+                <div>
+                    <h3 class="text-xl font-black uppercase text-brand-black">Aplicar <span
+                            class="text-brand-cyan">Descuento</span></h3>
+                    <p id="d-prod-name" class="text-xs font-bold text-gray-400 mt-1">Producto...</p>
+                </div>
+                <button onclick="closeDiscountModal()"
+                    class="w-10 h-10 rounded-full bg-slate-50 text-gray-400 hover:text-red-500 transition flex items-center justify-center">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <form id="discount-form" class="space-y-5">
+                <div class="flex gap-4">
+                    <div class="w-1/2">
+                        <label class="block text-[9px] font-black text-gray-400 uppercase tracking-widest mb-2">Precio
+                            Original</label>
+                        <input type="text" id="d-original-price" disabled
+                            class="w-full bg-gray-50 border border-gray-100 rounded-xl p-3 text-sm font-bold text-gray-400 cursor-not-allowed">
+                    </div>
+                    <div class="w-1/2">
+                        <label class="block text-[9px] font-black text-brand-cyan uppercase tracking-widest mb-2">Precio
+                            Oferta</label>
+                        <input type="number" id="d-new-price" required
+                            class="w-full bg-white border-2 border-brand-cyan/20 rounded-xl p-3 text-sm font-black text-brand-black outline-none focus:border-brand-cyan transition shadow-sm">
+                    </div>
+                </div>
+
+                <hr class="border-gray-100">
+
+                <div>
+                    <label class="block text-[9px] font-black text-gray-400 uppercase tracking-widest mb-3">Duración de
+                        la Promoción</label>
+
+                    <div class="flex bg-slate-50 p-1 rounded-xl mb-4">
+                        <button type="button" onclick="toggleDurationType('days')" id="btn-type-days"
+                            class="flex-1 py-2 rounded-lg text-[10px] font-black uppercase transition-all bg-white shadow-sm text-brand-black">Por
+                            Días</button>
+                        <button type="button" onclick="toggleDurationType('date')" id="btn-type-date"
+                            class="flex-1 py-2 rounded-lg text-[10px] font-black uppercase transition-all text-gray-400 hover:text-brand-black">Hasta
+                            Fecha</button>
+                    </div>
+
+                    <div id="input-days-container">
+                        <div class="relative">
+                            <input type="number" id="d-duration-days" placeholder="Ej: 3"
+                                class="w-full bg-white border border-gray-200 rounded-xl p-3 text-sm font-bold outline-none focus:border-brand-cyan">
+                            <span
+                                class="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400">Días</span>
+                        </div>
+                        <p class="text-[9px] text-gray-400 mt-2 italic">La oferta expirará automáticamente después de
+                            estos días.</p>
+                    </div>
+
+                    <div id="input-date-container" class="hidden">
+                        <input type="datetime-local" id="d-duration-date"
+                            class="w-full bg-white border border-gray-200 rounded-xl p-3 text-xs font-bold outline-none focus:border-brand-cyan text-gray-600">
+                        <p class="text-[9px] text-gray-400 mt-2 italic">La oferta expirará en la fecha y hora
+                            seleccionada.</p>
+                    </div>
+                </div>
+
+                <div class="pt-4 flex gap-3">
+                    <button type="button" onclick="removeDiscount()" id="btn-remove-discount"
+                        class="hidden flex-1 bg-red-50 text-red-500 py-3 rounded-xl font-black text-[10px] uppercase hover:bg-red-500 hover:text-white transition">
+                        Quitar Oferta
+                    </button>
+                    <button type="submit"
+                        class="flex-[2] bg-brand-black text-white py-3 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-brand-cyan hover:text-brand-black transition shadow-lg">
+                        Aplicar Descuento
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <script type="module" src="../js/admin-inventory.js"></script>
 </body>
+
 </html>

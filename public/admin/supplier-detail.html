@@ -8,156 +8,300 @@
     <link rel="stylesheet" href="../css/styles.css">
     <script src="https://kit.fontawesome.com/0d623ded97.js" crossorigin="anonymous"></script>
     <style>
-        .hidden { display: none; }
+        /* Solo dejamos CSS nativo que el navegador sí entiende */
+        .hidden { display: none !important; }
         .custom-scroll::-webkit-scrollbar { width: 6px; }
-        .custom-scroll::-webkit-scrollbar-thumb { background: #00AEC7; border-radius: 10px; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 10px; }
+        .custom-scroll::-webkit-scrollbar-thumb:hover { background: #00AEC7; }
         
-        /* TABS EXPANDIDAS Y DINÁMICAS */
-        .tabs-wrapper { @apply flex bg-white border border-gray-100 rounded-[2.5rem] shadow-sm mb-10 overflow-hidden w-full; }
-        
-        .crm-tab-btn { 
-            @apply flex-1 flex items-center justify-center gap-3 py-6 font-black text-[12px] uppercase tracking-[0.2em] text-gray-400 transition-all duration-500 border-b-4 border-transparent; 
-        }
-        
-        /* Colores dinámicos por pestaña activa */
-        .crm-tab-btn.active[data-tab="generales"] { @apply text-brand-black border-brand-cyan bg-cyan-50/30; }
-        .crm-tab-btn.active[data-tab="historial"] { @apply text-brand-black border-brand-cyan bg-blue-50/30; }
-        .crm-tab-btn.active[data-tab="pagos"] { @apply text-brand-black border-green-500 bg-green-50/30; }
-
-        .info-card { @apply bg-white border border-gray-100 p-8 rounded-[2.5rem] shadow-sm hover:shadow-xl transition-all duration-500; }
-        .label-tech { @apply text-[9px] font-black text-gray-400 uppercase tracking-[0.3em] mb-3 block; }
-        
-        .file-card { 
-            @apply flex items-center gap-5 p-6 bg-white border-2 border-gray-50 rounded-[2.2rem] hover:border-brand-cyan hover:bg-slate-50 transition-all cursor-pointer group; 
-        }
+        /* Animaciones suaves */
+        .fade-in { animation: fadeIn 0.4s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
     </style>
 </head>
 
-<body class="bg-slate-50 font-sans text-brand-black flex h-screen overflow-hidden text-left">
+<body class="bg-slate-50 font-sans text-brand-black flex h-screen overflow-hidden text-left selection:bg-brand-cyan selection:text-white">
 
     <div id="admin-sidebar"></div>
 
     <main class="flex-grow overflow-y-auto relative custom-scroll">
-        <header class="bg-white/80 backdrop-blur-md border-b border-gray-100 px-8 py-5 flex justify-between items-center sticky top-0 z-30 shadow-sm">
-            <div class="flex items-center gap-6">
-                <a href="suppliers.html" class="w-12 h-12 bg-slate-100 rounded-2xl flex items-center justify-center text-gray-400 hover:bg-brand-black hover:text-white transition-all shadow-inner">
-                    <i class="fa-solid fa-chevron-left"></i>
+        <header class="bg-white/90 backdrop-blur-xl border-b border-gray-100 px-8 py-4 flex justify-between items-center sticky top-0 z-30 shadow-sm">
+            <div class="flex items-center gap-4">
+                <a href="suppliers.html" class="w-10 h-10 bg-slate-100 rounded-xl flex items-center justify-center text-gray-400 hover:bg-brand-black hover:text-white transition-all duration-300 shadow-sm group">
+                    <i class="fa-solid fa-arrow-left group-hover:-translate-x-1 transition-transform"></i>
                 </a>
-                <h2 class="font-black text-gray-400 text-[10px] uppercase tracking-[0.5em]">Expediente de Abastecimiento</h2>
+                <div>
+                    <h2 class="font-black text-gray-400 text-[9px] uppercase tracking-[0.4em]">Gestión de Proveedores</h2>
+                    <p class="text-xs font-bold text-brand-black uppercase">Detalle de Cuenta</p>
+                </div>
             </div>
-            <button id="btn-edit-supplier" class="bg-brand-black text-white px-8 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-brand-cyan hover:text-brand-black transition-all shadow-2xl">
-                <i class="fa-solid fa-pen-to-square mr-2"></i> Editar Perfil
+            <button id="btn-edit-supplier" class="bg-brand-black text-white px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-brand-cyan hover:shadow-lg hover:shadow-cyan-500/20 transition-all duration-300 flex items-center gap-2 transform active:scale-95">
+                <i class="fa-solid fa-pen-to-square"></i> <span>Editar Perfil</span>
             </button>
         </header>
 
-        <div class="p-8 max-w-7xl mx-auto">
-            <div class="flex flex-col lg:flex-row justify-between items-start lg:items-end mb-12 gap-10">
+        <div class="p-8 max-w-7xl mx-auto pb-20">
+            <div class="flex flex-col lg:flex-row justify-between items-start lg:items-end mb-12 gap-8 fade-in">
                 <div>
-                    <h1 id="sup-name-title" class="text-6xl font-black text-brand-black tracking-tighter uppercase leading-none mb-4">---</h1>
-                    <span id="sup-nit-title" class="bg-brand-black text-white px-5 py-2 rounded-full text-[10px] font-black uppercase tracking-widest shadow-lg">NIT: ---</span>
-                </div>
-                <div class="flex gap-5">
-                    <div class="bg-white border border-gray-100 p-8 rounded-[2.5rem] shadow-sm text-right min-w-[200px]">
-                        <p class="label-tech mb-1">Inversión Total</p>
-                        <h3 id="sup-total-invested" class="text-4xl font-black text-brand-cyan tracking-tighter">$0</h3>
+                    <div class="flex items-center gap-3 mb-2">
+                        <span id="sup-nit-title" class="bg-slate-200 text-slate-600 px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest">NIT: ---</span>
+                        <span class="bg-green-100 text-green-600 px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest">Activo</span>
                     </div>
-                    <div class="bg-white border border-gray-100 p-8 rounded-[2.5rem] shadow-sm text-right min-w-[150px]">
-                        <p class="label-tech mb-1">Órdenes</p>
-                        <h3 id="sup-orders-count" class="text-4xl font-black text-brand-black tracking-tighter">0</h3>
+                    <h1 id="sup-name-title" class="text-4xl md:text-5xl lg:text-6xl font-black text-brand-black tracking-tighter uppercase leading-none">
+                        <span class="animate-pulse bg-gray-200 rounded-lg text-transparent">Cargando...</span>
+                    </h1>
+                </div>
+                
+                <div class="flex flex-wrap gap-4 w-full lg:w-auto">
+                    <div class="bg-white border border-gray-100 p-6 rounded-[2rem] shadow-sm flex-1 min-w-[160px] hover:shadow-xl transition-shadow duration-300">
+                        <div class="w-10 h-10 bg-cyan-50 rounded-full flex items-center justify-center mb-3 text-brand-cyan">
+                            <i class="fa-solid fa-chart-line"></i>
+                        </div>
+                        <p class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Inversión Total</p>
+                        <h3 id="sup-total-invested" class="text-2xl font-black text-brand-cyan tracking-tighter">$0</h3>
+                    </div>
+                    <div class="bg-white border border-gray-100 p-6 rounded-[2rem] shadow-sm flex-1 min-w-[140px] hover:shadow-xl transition-shadow duration-300">
+                        <div class="w-10 h-10 bg-purple-50 rounded-full flex items-center justify-center mb-3 text-purple-500">
+                            <i class="fa-solid fa-box-open"></i>
+                        </div>
+                        <p class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Órdenes</p>
+                        <h3 id="sup-orders-count" class="text-2xl font-black text-brand-black tracking-tighter">0</h3>
                     </div>
                 </div>
             </div>
 
-            <div class="tabs-wrapper">
-                <button class="crm-tab-btn active" data-tab="generales"><i class="fa-solid fa-address-card"></i> Datos Generales</button>
-                <button class="crm-tab-btn" data-tab="historial"><i class="fa-solid fa-receipt"></i> Historial de Compras</button>
-                <button class="crm-tab-btn" data-tab="pagos"><i class="fa-solid fa-money-bill-transfer"></i> Gestión de Pagos</button>
+            <div class="flex flex-col md:flex-row bg-white p-2 rounded-[2rem] shadow-sm border border-gray-100 mb-10 gap-2">
+                <button class="crm-tab-btn group flex-1 py-4 px-6 rounded-[1.5rem] flex items-center justify-center gap-3 transition-all duration-300 hover:bg-slate-50 border-2 border-transparent active" data-tab="generales">
+                    <i class="fa-solid fa-id-card text-xl text-gray-300 group-[.active]:text-brand-cyan transition-colors"></i>
+                    <span class="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 group-[.active]:text-brand-black">Datos Generales</span>
+                </button>
+                <button class="crm-tab-btn group flex-1 py-4 px-6 rounded-[1.5rem] flex items-center justify-center gap-3 transition-all duration-300 hover:bg-slate-50 border-2 border-transparent" data-tab="historial">
+                    <i class="fa-solid fa-list-check text-xl text-gray-300 group-[.active]:text-blue-500 transition-colors"></i>
+                    <span class="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 group-[.active]:text-brand-black">Historial Compras</span>
+                </button>
+                <button class="crm-tab-btn group flex-1 py-4 px-6 rounded-[1.5rem] flex items-center justify-center gap-3 transition-all duration-300 hover:bg-slate-50 border-2 border-transparent" data-tab="pagos">
+                    <i class="fa-solid fa-wallet text-xl text-gray-300 group-[.active]:text-emerald-500 transition-colors"></i>
+                    <span class="text-[10px] font-black uppercase tracking-[0.2em] text-gray-400 group-[.active]:text-brand-black">Gestión Pagos</span>
+                </button>
             </div>
 
-            <div id="tab-generales" class="tab-content space-y-10">
-                <div class="grid grid-cols-1 lg:grid-cols-3 gap-8 text-left">
+            <div id="tab-generales" class="tab-content fade-in space-y-8">
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
                     <div class="lg:col-span-2 space-y-6">
-                        <h4 class="font-black text-brand-black text-[11px] uppercase tracking-[0.3em] flex items-center gap-3"><span class="w-2 h-4 bg-brand-cyan rounded-full"></span> Contacto Directo</h4>
+                        <div class="flex items-center gap-3 mb-2">
+                            <span class="w-2 h-2 rounded-full bg-brand-cyan"></span>
+                            <h4 class="font-black text-brand-black text-[10px] uppercase tracking-[0.3em]">Información de Contacto</h4>
+                        </div>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div class="info-card"><label class="label-tech">Asesor</label><p id="sup-contact-person" class="font-black text-brand-black text-sm uppercase">---</p></div>
-                            <div class="info-card"><label class="label-tech">WhatsApp</label><p id="sup-phone" class="text-xl font-black text-brand-cyan tracking-tighter">---</p></div>
-                            <div class="info-card md:col-span-2"><label class="label-tech">E-mail</label><p id="sup-email" class="font-bold text-brand-black text-sm lowercase">---</p></div>
+                            <div class="bg-white p-8 rounded-[2.5rem] border border-gray-100 shadow-sm hover:shadow-lg transition-all group">
+                                <div class="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center text-gray-400 mb-6 group-hover:bg-brand-black group-hover:text-white transition-colors">
+                                    <i class="fa-regular fa-user"></i>
+                                </div>
+                                <label class="block text-[9px] font-black text-gray-300 uppercase tracking-widest mb-1">Nombre Asesor</label>
+                                <p id="sup-contact-person" class="font-bold text-brand-black text-sm uppercase">---</p>
+                            </div>
+
+                            <div class="bg-white p-8 rounded-[2.5rem] border border-gray-100 shadow-sm hover:shadow-lg transition-all group cursor-pointer" onclick="window.open(`https://wa.me/${document.getElementById('sup-phone').innerText}`, '_blank')">
+                                <div class="w-12 h-12 bg-green-50 rounded-2xl flex items-center justify-center text-green-500 mb-6 group-hover:bg-green-500 group-hover:text-white transition-colors">
+                                    <i class="fa-brands fa-whatsapp text-xl"></i>
+                                </div>
+                                <label class="block text-[9px] font-black text-gray-300 uppercase tracking-widest mb-1">WhatsApp Oficial</label>
+                                <p id="sup-phone" class="font-black text-brand-black text-lg tracking-tight">---</p>
+                            </div>
+
+                            <div class="md:col-span-2 bg-white p-8 rounded-[2.5rem] border border-gray-100 shadow-sm hover:shadow-lg transition-all group">
+                                <div class="flex items-center gap-4">
+                                    <div class="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center text-gray-400 group-hover:bg-brand-cyan group-hover:text-white transition-colors shrink-0">
+                                        <i class="fa-regular fa-envelope"></i>
+                                    </div>
+                                    <div>
+                                        <label class="block text-[9px] font-black text-gray-300 uppercase tracking-widest mb-1">Correo Electrónico</label>
+                                        <p id="sup-email" class="font-bold text-brand-black text-sm lowercase">---</p>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
+
                     <div class="space-y-6">
-                        <h4 class="font-black text-brand-black text-[11px] uppercase tracking-[0.3em] flex items-center gap-3"><span class="w-2 h-4 bg-brand-black rounded-full"></span> Datos de Pago</h4>
-                        <div class="bg-slate-900 p-8 rounded-[3rem] shadow-2xl relative overflow-hidden text-left">
-                            <i class="fa-solid fa-building-columns text-brand-cyan/20 text-4xl mb-8 block"></i>
-                            <p id="sup-bank" class="text-2xl font-black text-white uppercase tracking-tighter">---</p>
-                            <div class="mt-6 pt-6 border-t border-white/10">
-                                <label class="text-[8px] font-black text-white/30 uppercase tracking-[0.3em] block mb-2">Cuenta</label>
-                                <p id="sup-account-num" class="text-lg font-bold text-white tracking-widest">---</p>
-                                <span id="sup-account-type" class="text-brand-cyan text-[9px] font-black uppercase">---</span>
+                        <div class="flex items-center gap-3 mb-2">
+                            <span class="w-2 h-2 rounded-full bg-brand-black"></span>
+                            <h4 class="font-black text-brand-black text-[10px] uppercase tracking-[0.3em]">Datos Bancarios</h4>
+                        </div>
+                        
+                        <div class="bg-slate-900 p-8 rounded-[2.5rem] shadow-2xl relative overflow-hidden group h-full flex flex-col justify-between min-h-[250px]">
+                            <div class="absolute -top-10 -right-10 w-40 h-40 bg-brand-cyan/20 rounded-full blur-3xl group-hover:bg-brand-cyan/30 transition-colors"></div>
+                            
+                            <div class="relative z-10 flex justify-between items-start">
+                                <i class="fa-solid fa-building-columns text-white/50 text-3xl"></i>
+                                <span class="bg-white/10 text-white px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest backdrop-blur-sm">Principal</span>
+                            </div>
+
+                            <div class="relative z-10 mt-8">
+                                <p id="sup-bank" class="text-2xl font-black text-white uppercase tracking-tighter mb-1">---</p>
+                                <span id="sup-account-type" class="text-brand-cyan text-[9px] font-black uppercase tracking-widest">---</span>
+                            </div>
+
+                            <div class="relative z-10 mt-8 pt-6 border-t border-white/10">
+                                <p class="text-[8px] text-white/40 uppercase font-black tracking-[0.2em] mb-1">Número de Cuenta</p>
+                                <p id="sup-account-num" class="text-xl font-mono font-bold text-white tracking-widest">---</p>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <div class="space-y-6 text-left">
-                    <h4 class="font-black text-brand-black text-[11px] uppercase tracking-[0.3em] flex items-center gap-3"><span class="w-2 h-4 bg-brand-cyan rounded-full"></span> Documentación Legal</h4>
+                <div>
+                    <div class="flex items-center gap-3 mb-6 mt-4">
+                        <span class="w-2 h-2 rounded-full bg-red-400"></span>
+                        <h4 class="font-black text-brand-black text-[10px] uppercase tracking-[0.3em]">Repositorio Legal</h4>
+                    </div>
                     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        <div class="file-card" onclick="openFilePreview('RUT')"><i class="fa-solid fa-file-pdf text-brand-red text-2xl"></i><div><p class="text-xs font-black uppercase tracking-widest">RUT VIGENTE</p><p class="text-[9px] text-gray-400 font-bold">Previsualizar Documento</p></div></div>
-                        <div class="file-card" onclick="openFilePreview('QR')"><i class="fa-solid fa-qrcode text-brand-cyan text-2xl"></i><div><p class="text-xs font-black uppercase tracking-widest">QR DE PAGOS</p><p class="text-[9px] text-gray-400 font-bold">Escanear para transferencia</p></div></div>
+                        <div onclick="openFilePreview('RUT VIGENTE')" class="bg-white border-2 border-gray-50 hover:border-red-100 hover:bg-red-50/30 p-5 rounded-[2rem] flex items-center gap-5 cursor-pointer transition-all group">
+                            <div class="w-14 h-14 bg-red-50 rounded-2xl flex items-center justify-center text-red-500 text-xl group-hover:scale-110 transition-transform">
+                                <i class="fa-solid fa-file-pdf"></i>
+                            </div>
+                            <div>
+                                <p class="text-[10px] font-black text-brand-black uppercase tracking-widest">RUT Vigente</p>
+                                <p class="text-[9px] font-bold text-gray-400">Ver documento PDF</p>
+                            </div>
+                        </div>
+
+                        <div onclick="openFilePreview('CÓDIGO QR')" class="bg-white border-2 border-gray-50 hover:border-blue-100 hover:bg-blue-50/30 p-5 rounded-[2rem] flex items-center gap-5 cursor-pointer transition-all group">
+                            <div class="w-14 h-14 bg-blue-50 rounded-2xl flex items-center justify-center text-blue-500 text-xl group-hover:scale-110 transition-transform">
+                                <i class="fa-solid fa-qrcode"></i>
+                            </div>
+                            <div>
+                                <p class="text-[10px] font-black text-brand-black uppercase tracking-widest">QR Bancario</p>
+                                <p class="text-[9px] font-bold text-gray-400">Escanear para pagar</p>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
 
-            <div id="tab-historial" class="tab-content hidden">
-                <div class="bg-white rounded-[3rem] shadow-2xl border border-gray-100 overflow-hidden">
-                    <table class="w-full text-left text-sm">
-                        <thead class="bg-gray-50/50 text-[10px] uppercase font-black text-gray-400 tracking-widest border-b">
-                            <tr><th class="px-8 py-6">Fecha</th><th class="px-8 py-6">Equipos Recibidos</th><th class="px-8 py-6 text-right">Inversión</th><th class="px-8 py-6 text-center">Detalle de la Compra</th></tr>
-                        </thead>
-                        <tbody id="sup-purchases-table" class="divide-y divide-gray-50 text-left"></tbody>
-                    </table>
+            <div id="tab-historial" class="tab-content hidden fade-in">
+                <div class="bg-white rounded-[3rem] shadow-xl border border-gray-100 overflow-hidden">
+                    <div class="p-8 border-b border-gray-50 bg-slate-50/50 flex justify-between items-center">
+                        <h3 class="font-black text-sm uppercase tracking-widest text-brand-black">Movimientos Recientes</h3>
+                        <button class="text-[9px] font-black uppercase text-brand-cyan hover:underline">Descargar Reporte</button>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left">
+                            <thead class="bg-slate-50 text-[9px] uppercase font-black text-gray-400 tracking-widest">
+                                <tr>
+                                    <th class="px-8 py-6">Fecha / ID</th>
+                                    <th class="px-8 py-6">Items</th>
+                                    <th class="px-8 py-6 text-right">Monto</th>
+                                    <th class="px-8 py-6 text-center">Acción</th>
+                                </tr>
+                            </thead>
+                            <tbody id="sup-purchases-table" class="divide-y divide-gray-50 text-xs">
+                                </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div id="tab-pagos" class="tab-content hidden fade-in">
+                <div class="bg-white border-2 border-dashed border-gray-200 rounded-[3rem] p-20 text-center">
+                    <div class="w-24 h-24 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-6 text-green-500 text-4xl">
+                        <i class="fa-solid fa-money-bill-transfer"></i>
+                    </div>
+                    <h3 class="text-xl font-black text-brand-black uppercase mb-2">Módulo de Pagos</h3>
+                    <p class="text-sm text-gray-400 font-bold max-w-md mx-auto mb-8">Gestiona las cuentas por pagar, abonos parciales y liquidación de facturas con este proveedor.</p>
+                    <button class="bg-brand-black text-white px-8 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-green-500 transition-colors shadow-xl">
+                        Registrar Nuevo Egreso
+                    </button>
                 </div>
             </div>
         </div>
     </main>
 
-    <div id="purchase-detail-modal" class="fixed inset-0 z-[100] hidden flex items-center justify-center bg-slate-900/90 backdrop-blur-xl p-6">
-        <div class="bg-white w-full max-w-2xl rounded-[3rem] shadow-2xl flex flex-col overflow-hidden text-left">
-            <div class="p-8 border-b border-gray-100 flex justify-between items-center">
-                <h3 class="text-xl font-black uppercase tracking-tighter">Recibo de <span class="text-brand-cyan">Suministro</span></h3>
-                <button onclick="closeModal('purchase-detail-modal')" class="text-gray-400 hover:text-brand-red p-2 bg-gray-50 rounded-xl transition"><i class="fa-solid fa-xmark"></i></button>
+    <div id="purchase-detail-modal" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4">
+        <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-md transition-opacity" onclick="closeModal('purchase-detail-modal')"></div>
+        
+        <div class="relative bg-white w-full max-w-2xl rounded-[2.5rem] shadow-2xl overflow-hidden transform transition-all scale-100 max-h-[90vh] flex flex-col">
+            <div class="p-8 border-b border-gray-50 flex justify-between items-center bg-slate-50/50">
+                <h3 class="text-lg font-black uppercase tracking-tight">Detalle de <span class="text-brand-cyan">Compra</span></h3>
+                <button onclick="closeModal('purchase-detail-modal')" class="w-10 h-10 rounded-full bg-white border border-gray-200 text-gray-400 hover:bg-brand-red hover:text-white hover:border-transparent transition flex items-center justify-center">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
             </div>
-            <div id="purchase-modal-content" class="p-10 space-y-6 overflow-y-auto max-h-[70vh]"></div>
+            
+            <div id="purchase-modal-content" class="p-10 overflow-y-auto custom-scroll space-y-6">
+                </div>
         </div>
     </div>
 
-    <div id="file-preview-modal" class="fixed inset-0 z-[100] hidden flex items-center justify-center bg-slate-900/90 backdrop-blur-xl p-6">
-        <div class="bg-white w-full max-w-lg rounded-[3rem] shadow-2xl overflow-hidden text-center p-12">
-            <h3 id="file-title" class="text-xl font-black uppercase mb-8">Archivo</h3>
-            <div class="w-full h-64 bg-slate-100 rounded-[2rem] flex items-center justify-center mb-8 border-2 border-dashed border-gray-200">
-                <i class="fa-solid fa-file-circle-exclamation text-6xl text-slate-300"></i>
+    <div id="edit-supplier-modal" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4">
+        <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-md" onclick="closeModal('edit-supplier-modal')"></div>
+        
+        <div class="relative bg-white w-full max-w-2xl rounded-[2.5rem] shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
+            <div class="p-8 border-b border-gray-50 flex justify-between items-center">
+                <h3 class="text-xl font-black uppercase tracking-tighter">Actualizar <span class="text-brand-cyan">Perfil</span></h3>
+                <button onclick="closeModal('edit-supplier-modal')" class="w-10 h-10 rounded-full bg-gray-50 text-gray-400 hover:bg-red-500 hover:text-white transition flex items-center justify-center">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
             </div>
-            <p class="text-xs text-gray-400 font-bold uppercase mb-8">El archivo no se ha cargado físicamente al servidor de PixelTech.</p>
-            <button onclick="closeModal('file-preview-modal')" class="bg-brand-black text-white px-10 py-4 rounded-2xl font-black uppercase text-[10px] tracking-widest shadow-xl">Cerrar</button>
+            
+            <div class="p-10 overflow-y-auto custom-scroll">
+                <form id="edit-supplier-form" class="grid grid-cols-1 md:grid-cols-2 gap-5">
+                    <div class="md:col-span-2">
+                        <label class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-2 block">Empresa / Razón Social</label>
+                        <input type="text" id="e-name" required class="w-full bg-slate-50 border border-gray-200 rounded-xl p-4 text-sm font-bold outline-none focus:border-brand-cyan focus:ring-4 focus:ring-cyan-500/10 transition-all">
+                    </div>
+                    
+                    <div>
+                        <label class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-2 block">NIT</label>
+                        <input type="text" id="e-nit" required class="w-full bg-slate-50 border border-gray-200 rounded-xl p-4 text-sm font-bold outline-none focus:border-brand-cyan transition-all">
+                    </div>
+                    
+                    <div>
+                        <label class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-2 block">Teléfono / WhatsApp</label>
+                        <input type="text" id="e-phone" required class="w-full bg-slate-50 border border-gray-200 rounded-xl p-4 text-sm font-bold outline-none focus:border-brand-cyan transition-all">
+                    </div>
+                    
+                    <div>
+                        <label class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-2 block">Contacto Directo</label>
+                        <input type="text" id="e-contact" class="w-full bg-slate-50 border border-gray-200 rounded-xl p-4 text-sm font-bold outline-none focus:border-brand-cyan transition-all">
+                    </div>
+                    
+                    <div>
+                        <label class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-2 block">Email</label>
+                        <input type="email" id="e-email" class="w-full bg-slate-50 border border-gray-200 rounded-xl p-4 text-sm font-bold outline-none focus:border-brand-cyan transition-all">
+                    </div>
+
+                    <div class="md:col-span-2 pt-4 border-t border-gray-100 mt-2">
+                         <span class="text-[10px] font-black uppercase tracking-widest text-brand-cyan bg-cyan-50 px-2 py-1 rounded">Información Financiera</span>
+                    </div>
+
+                    <div>
+                        <label class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-2 block">Banco</label>
+                        <input type="text" id="e-bank" class="w-full bg-slate-50 border border-gray-200 rounded-xl p-4 text-sm font-bold outline-none focus:border-brand-cyan transition-all">
+                    </div>
+                    
+                    <div>
+                        <label class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-2 block">Cuenta</label>
+                        <input type="text" id="e-account" class="w-full bg-slate-50 border border-gray-200 rounded-xl p-4 text-sm font-bold outline-none focus:border-brand-cyan transition-all">
+                    </div>
+
+                    <button type="submit" class="md:col-span-2 mt-4 bg-brand-black text-white py-5 rounded-2xl font-black text-xs uppercase tracking-[0.2em] shadow-xl hover:bg-brand-cyan hover:shadow-cyan-500/30 hover:-translate-y-1 transition-all duration-300">
+                        Guardar Cambios
+                    </button>
+                </form>
+            </div>
         </div>
     </div>
 
-    <div id="edit-supplier-modal" class="fixed inset-0 z-[100] hidden flex items-center justify-center bg-slate-900/60 backdrop-blur-md p-6">
-        <div class="bg-white w-full max-w-2xl rounded-[3rem] shadow-2xl p-10 flex flex-col text-left">
-            <div class="flex justify-between items-center mb-8 pb-4 border-b">
-                <h3 class="text-2xl font-black tracking-tighter uppercase">Actualizar <span class="text-brand-cyan">Perfil</span></h3>
-                <button onclick="closeModal('edit-supplier-modal')" class="text-gray-400 hover:text-brand-red p-2 bg-gray-50 rounded-xl transition"><i class="fa-solid fa-xmark"></i></button>
+    <div id="file-preview-modal" class="fixed inset-0 z-[60] hidden flex items-center justify-center p-4">
+        <div class="absolute inset-0 bg-slate-900/80 backdrop-blur-xl" onclick="closeModal('file-preview-modal')"></div>
+        <div class="relative bg-white w-full max-w-md rounded-[3rem] p-10 text-center shadow-2xl transform scale-100 animate-fadeIn">
+            <div class="w-20 h-20 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                <i class="fa-solid fa-cloud-arrow-down text-3xl text-gray-400"></i>
             </div>
-            <form id="edit-supplier-form" class="grid grid-cols-2 gap-4">
-                <div class="col-span-2 bg-slate-50 p-3 rounded-xl border"><label class="label-tech mb-1">Empresa</label><input type="text" id="e-name" required class="w-full bg-transparent outline-none font-bold text-sm"></div>
-                <div class="bg-slate-50 p-3 rounded-xl border"><label class="label-tech mb-1">NIT</label><input type="text" id="e-nit" required class="w-full bg-transparent outline-none font-bold text-sm"></div>
-                <div class="bg-slate-50 p-3 rounded-xl border"><label class="label-tech mb-1">WhatsApp</label><input type="text" id="e-phone" required class="w-full bg-transparent outline-none font-bold text-sm"></div>
-                <div class="bg-slate-50 p-3 rounded-xl border"><label class="label-tech mb-1">Contacto</label><input type="text" id="e-contact" class="w-full bg-transparent outline-none font-bold text-sm"></div>
-                <div class="bg-slate-50 p-3 rounded-xl border"><label class="label-tech mb-1">E-mail</label><input type="email" id="e-email" class="w-full bg-transparent outline-none font-bold text-sm"></div>
-                <div class="col-span-2 border-t pt-4"><p class="text-[10px] font-black uppercase tracking-widest mb-3">Información de Pago</p></div>
-                <div class="bg-slate-50 p-3 rounded-xl border"><label class="label-tech mb-1">Banco</label><input type="text" id="e-bank" class="w-full bg-transparent outline-none font-bold text-sm"></div>
-                <div class="bg-slate-50 p-3 rounded-xl border"><label class="label-tech mb-1">Número de Cuenta</label><input type="text" id="e-account" class="w-full bg-transparent outline-none font-bold text-sm"></div>
-                <button type="submit" class="col-span-2 bg-brand-black text-white font-black py-5 rounded-2xl shadow-xl uppercase text-xs tracking-widest hover:bg-brand-cyan transition-all mt-4">Actualizar Datos Ahora</button>
-            </form>
+            <h3 id="file-title" class="text-2xl font-black uppercase mb-4">Archivo</h3>
+            <p class="text-sm text-gray-500 mb-8 px-4">Esta es una vista previa simulada. En la versión final aquí se mostrará el PDF o imagen real del documento.</p>
+            <button onclick="closeModal('file-preview-modal')" class="bg-brand-black text-white px-10 py-3 rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-brand-cyan transition-colors">Entendido</button>
         </div>
     </div>
 
@@ -172,85 +316,137 @@
 
         if (!supplierId) window.location.href = 'suppliers.html';
 
-        // LÓGICA DE TABS DINÁMICAS
+        // --- MANEJO DE ESTILOS DE TABS ---
+        // Definimos estilos activos por tipo de tab para dar feedback visual
+        const tabStyles = {
+            'generales': 'border-brand-cyan bg-cyan-50/20 active',
+            'historial': 'border-blue-500 bg-blue-50/20 active',
+            'pagos': 'border-emerald-500 bg-emerald-50/20 active'
+        };
+
         document.querySelectorAll('.crm-tab-btn').forEach(btn => {
             btn.onclick = (e) => {
-                document.querySelectorAll('.crm-tab-btn').forEach(b => b.classList.remove('active'));
+                const targetId = e.currentTarget.dataset.tab;
+
+                // 1. Resetear todos los botones
+                document.querySelectorAll('.crm-tab-btn').forEach(b => {
+                    b.className = `crm-tab-btn group flex-1 py-4 px-6 rounded-[1.5rem] flex items-center justify-center gap-3 transition-all duration-300 hover:bg-slate-50 border-2 border-transparent text-gray-400`;
+                });
+
+                // 2. Activar botón actual con su color específico
+                const activeClasses = tabStyles[targetId] || 'active';
+                e.currentTarget.className = `crm-tab-btn group flex-1 py-4 px-6 rounded-[1.5rem] flex items-center justify-center gap-3 transition-all duration-300 border-2 ${activeClasses}`;
+
+                // 3. Mostrar Contenido
                 document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
-                e.currentTarget.classList.add('active');
-                document.getElementById(`tab-${e.currentTarget.dataset.tab}`).classList.remove('hidden');
+                document.getElementById(`tab-${targetId}`).classList.remove('hidden');
             };
         });
 
-        // CARGAR PERFIL
-        async function loadSupplierProfile() {
-            const snap = await getDoc(doc(db, "suppliers", supplierId));
-            if (!snap.exists()) return;
-            const s = snap.data();
-            
-            document.getElementById('sup-name-title').textContent = s.name;
-            document.getElementById('sup-nit-title').textContent = `NIT: ${s.nit || '---'}`;
-            document.getElementById('sup-total-invested').textContent = `$${(s.totalInvested || 0).toLocaleString('es-CO')}`;
-            document.getElementById('sup-orders-count').textContent = s.ordersCount || 0;
-            document.getElementById('sup-contact-person').textContent = s.contactName || 'SIN REGISTRO';
-            document.getElementById('sup-phone').textContent = s.phone || '---';
-            document.getElementById('sup-email').textContent = s.email || 'SIN REGISTRO';
-            document.getElementById('sup-bank').textContent = s.bankName || 'SIN REGISTRO';
-            document.getElementById('sup-account-num').textContent = s.accNum || '---';
-            document.getElementById('sup-account-type').textContent = s.accType || '---';
-            
-            loadPurchaseHistory();
+        // FUNCIONES GLOBALES (Modales)
+        window.closeModal = (id) => document.getElementById(id).classList.add('hidden');
+        window.openFilePreview = (t) => {
+            document.getElementById('file-title').textContent = t;
+            document.getElementById('file-preview-modal').classList.remove('hidden');
+        };
+
+        // CARGAR DATOS
+        async function loadData() {
+            try {
+                const snap = await getDoc(doc(db, "suppliers", supplierId));
+                if (!snap.exists()) return;
+                const s = snap.data();
+                
+                // Header Stats
+                setText('sup-name-title', s.name);
+                setText('sup-nit-title', `NIT: ${s.nit || '---'}`);
+                setText('sup-total-invested', `$${(s.totalInvested || 0).toLocaleString('es-CO')}`);
+                setText('sup-orders-count', s.ordersCount || 0);
+                
+                // Contact Info
+                setText('sup-contact-person', s.contactName || 'No registrado');
+                setText('sup-phone', s.phone || '---');
+                setText('sup-email', s.email || 'No registrado');
+                
+                // Bank Info
+                setText('sup-bank', s.bankName || 'No registrado');
+                setText('sup-account-num', s.accNum || '---');
+                setText('sup-account-type', s.accType || 'Cuenta');
+
+                loadHistory();
+            } catch (e) { console.error(e); }
         }
 
-        // HISTORIAL DE COMPRAS
-        async function loadPurchaseHistory() {
+        function setText(id, txt) {
+            const el = document.getElementById(id);
+            if(el) el.textContent = txt;
+        }
+
+        async function loadHistory() {
             const table = document.getElementById('sup-purchases-table');
-            table.innerHTML = "";
+            table.innerHTML = `<tr><td colspan="4" class="p-8 text-center"><i class="fa-solid fa-circle-notch fa-spin text-brand-cyan"></i></td></tr>`;
+            
             const q = query(collection(db, "purchases"), where("supplierId", "==", supplierId), orderBy("createdAt", "desc"));
             const snap = await getDocs(q);
+            
+            table.innerHTML = "";
+            if(snap.empty) {
+                table.innerHTML = `<tr><td colspan="4" class="p-8 text-center text-xs text-gray-400 font-bold uppercase">Sin movimientos recientes</td></tr>`;
+                return;
+            }
 
             snap.forEach(d => {
                 const p = d.data();
-                const itemsList = p.items.map(i => `<div class="mb-1">${i.quantity}x <b>${i.name}</b> <span class="text-gray-400">(${i.color || ''} ${i.capacity || ''})</span></div>`).join('');
+                const itemCount = p.items.reduce((acc, i) => acc + i.quantity, 0);
                 table.innerHTML += `
-                    <tr class="hover:bg-slate-50 transition border-b border-gray-50">
-                        <td class="px-8 py-6 font-bold text-gray-500 text-xs">${p.createdAt?.toDate().toLocaleDateString('es-CO')}</td>
-                        <td class="px-8 py-6 text-[10px] uppercase leading-relaxed text-brand-black">${itemsList}</td>
-                        <td class="px-8 py-6 text-right font-black text-brand-black text-base">$${p.totalCost.toLocaleString('es-CO')}</td>
+                    <tr class="hover:bg-slate-50 transition group border-b border-gray-50 last:border-0">
+                        <td class="px-8 py-6">
+                            <p class="font-bold text-brand-black text-xs">${p.createdAt?.toDate().toLocaleDateString('es-CO')}</p>
+                            <p class="font-mono text-[9px] text-gray-400 uppercase">#${d.id.slice(0,6)}</p>
+                        </td>
+                        <td class="px-8 py-6">
+                            <span class="inline-block bg-slate-100 text-slate-600 px-2 py-1 rounded text-[10px] font-black uppercase">${itemCount} Equipos</span>
+                        </td>
+                        <td class="px-8 py-6 text-right font-black text-brand-black text-sm">$${p.totalCost.toLocaleString('es-CO')}</td>
                         <td class="px-8 py-6 text-center">
-                            <button onclick="openPurchaseDetail('${d.id}')" class="w-10 h-10 bg-slate-100 rounded-xl text-brand-cyan hover:bg-brand-black hover:text-white transition-all shadow-sm">
-                                <i class="fa-solid fa-receipt text-xs"></i>
-                            </button>
+                            <button onclick="openPurchaseDetail('${d.id}')" class="w-8 h-8 rounded-lg bg-white border border-gray-200 text-gray-400 hover:text-brand-cyan hover:border-brand-cyan transition shadow-sm"><i class="fa-solid fa-eye text-xs"></i></button>
                         </td>
                     </tr>`;
             });
         }
 
-        // MODAL DETALLE COMPRA
         window.openPurchaseDetail = async (id) => {
             const snap = await getDoc(doc(db, "purchases", id));
             const p = snap.data();
-            const modal = document.getElementById('purchase-detail-modal');
             const content = document.getElementById('purchase-modal-content');
-
+            
             content.innerHTML = `
-                <div class="grid grid-cols-2 gap-6 mb-8 bg-slate-50 p-6 rounded-3xl">
-                    <div><p class="label-tech">Fecha</p><p class="font-bold">${p.createdAt?.toDate().toLocaleString()}</p></div>
-                    <div class="text-right"><p class="label-tech">ID Compra</p><p class="font-mono text-xs">#${id.slice(0,8).toUpperCase()}</p></div>
+                <div class="flex justify-between items-end mb-6 pb-6 border-b border-gray-100">
+                     <div>
+                        <p class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Total Compra</p>
+                        <p class="text-3xl font-black text-brand-black tracking-tighter">$${p.totalCost.toLocaleString('es-CO')}</p>
+                     </div>
+                     <div class="text-right">
+                        <p class="text-[9px] font-bold text-gray-400 uppercase">${p.createdAt?.toDate().toLocaleString()}</p>
+                     </div>
                 </div>
-                <div class="space-y-4">
-                    <p class="label-tech">Equipos Ingresados</p>
-                    ${p.items.map(i => `<div class="flex justify-between border-b pb-3 text-xs uppercase font-bold text-gray-600"><span>${i.quantity}x ${i.name}</span> <span class="text-brand-cyan">$${(i.unitCostBase || 0).toLocaleString()} c/u</span></div>`).join('')}
-                </div>
-                <div class="pt-8 mt-8 border-t flex justify-between items-center">
-                    <h4 class="text-xl font-black uppercase">Inversión Total</h4>
-                    <span class="text-2xl font-black text-brand-black">$${p.totalCost.toLocaleString()}</span>
+                <div class="space-y-3">
+                    ${p.items.map(i => `
+                        <div class="flex items-center gap-4 p-4 bg-slate-50 rounded-2xl">
+                            <div class="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-gray-400 shadow-sm font-black text-xs">${i.quantity}x</div>
+                            <div class="flex-grow">
+                                <p class="text-xs font-black uppercase text-brand-black">${i.name}</p>
+                                <p class="text-[9px] font-bold text-gray-400 uppercase">${i.color || ''} ${i.capacity || ''}</p>
+                            </div>
+                            <p class="text-xs font-bold text-brand-cyan">$${(i.unitCostBase || 0).toLocaleString()}</p>
+                        </div>
+                    `).join('')}
                 </div>
             `;
-            modal.classList.remove('hidden');
+            document.getElementById('purchase-detail-modal').classList.remove('hidden');
         };
 
-        // EDITAR PERFIL (LÓGICA CORREGIDA)
+        // EDITAR
         document.getElementById('btn-edit-supplier').onclick = async () => {
             const snap = await getDoc(doc(db, "suppliers", supplierId));
             const s = snap.data();
@@ -267,7 +463,10 @@
         document.getElementById('edit-supplier-form').onsubmit = async (e) => {
             e.preventDefault();
             const btn = e.target.querySelector('button');
+            const originalHTML = btn.innerHTML;
             btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Guardando...';
+            
             try {
                 await updateDoc(doc(db, "suppliers", supplierId), {
                     name: document.getElementById('e-name').value,
@@ -278,19 +477,16 @@
                     bankName: document.getElementById('e-bank').value,
                     accNum: document.getElementById('e-account').value
                 });
-                alert("✅ Perfil actualizado");
+                alert("✅ Actualizado correctamente");
                 location.reload();
-            } catch (err) { alert(err.message); }
+            } catch (err) { 
+                alert(err.message); 
+                btn.disabled = false;
+                btn.innerHTML = originalHTML;
+            }
         };
 
-        window.openFilePreview = (title) => {
-            document.getElementById('file-title').textContent = title;
-            document.getElementById('file-preview-modal').classList.remove('hidden');
-        };
-
-        window.closeModal = (id) => document.getElementById(id).classList.add('hidden');
-
-        loadSupplierProfile();
+        loadData();
     </script>
 </body>
 </html>

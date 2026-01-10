@@ -8,95 +8,84 @@
     <link rel="stylesheet" href="../css/styles.css">
     <script src="https://kit.fontawesome.com/0d623ded97.js" crossorigin="anonymous"></script>
     <style>
-        .hidden { display: none; }
+        /* Estilos base necesarios que Tailwind no cubre por defecto */
+        .hidden { display: none !important; }
         .custom-scroll::-webkit-scrollbar { width: 6px; }
-        .custom-scroll::-webkit-scrollbar-thumb { background: #00AEC7; border-radius: 10px; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 10px; }
+        .custom-scroll::-webkit-scrollbar-thumb:hover { background: #00AEC7; }
         
-        /* Tarjetas con borde definido y diseño CRM */
-        .supplier-card { 
-            @apply bg-white border-2 border-gray-100 p-7 rounded-[2.5rem] shadow-sm hover:shadow-2xl hover:border-brand-cyan/40 transition-all duration-500 relative overflow-hidden cursor-pointer; 
-        }
-        
-        /* Tabs Premium */
-        .tabs-container {
-            @apply flex bg-white p-1.5 rounded-[2rem] border border-gray-100 shadow-sm inline-flex;
-        }
-
-        .tab-btn { 
-            @apply flex items-center gap-2 px-8 py-3.5 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all duration-300; 
-        }
-
-        .tab-btn.active { 
-            @apply bg-brand-black text-white shadow-xl shadow-brand-black/20; 
-        }
-        
-        .tab-btn.active i { @apply text-brand-cyan; }
-
-        .tab-btn:not(.active) { 
-            @apply text-gray-400 hover:bg-slate-50 hover:text-brand-black; 
-        }
+        /* Animación suave para la entrada de elementos */
+        .fade-in { animation: fadeIn 0.4s ease-out forwards; opacity: 0; transform: translateY(10px); }
+        @keyframes fadeIn { to { opacity: 1; transform: translateY(0); } }
+        /* Stagger delay para las cards */
+        .delay-100 { animation-delay: 100ms; }
+        .delay-200 { animation-delay: 200ms; }
     </style>
 </head>
 
-<body class="bg-slate-50 font-sans text-brand-black flex h-screen overflow-hidden">
+<body class="bg-slate-50 font-sans text-brand-black flex h-screen overflow-hidden selection:bg-brand-cyan selection:text-white">
 
     <div id="admin-sidebar"></div>
 
     <main class="flex-grow overflow-y-auto relative custom-scroll">
-        <header class="bg-white/80 backdrop-blur-md border-b border-gray-100 px-8 py-5 flex justify-between items-center sticky top-0 z-20">
-            <h2 class="font-black text-gray-400 text-[10px] uppercase tracking-[0.4em]">Ecosistema de Proveedores</h2>
+        <header class="bg-white/90 backdrop-blur-xl border-b border-gray-100 px-8 py-4 flex justify-between items-center sticky top-0 z-30 shadow-sm">
+            <h2 class="font-black text-gray-400 text-[9px] uppercase tracking-[0.4em]">Ecosistema de Proveedores</h2>
             <div class="flex items-center gap-4">
-                <button onclick="openSupplierModal()" class="bg-brand-cyan text-brand-black px-8 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest hover:bg-brand-black hover:text-white transition-all shadow-xl shadow-cyan-500/10">
-                    <i class="fa-solid fa-user-plus mr-2"></i> Nuevo Proveedor
+                <button onclick="openSupplierModal()" class="bg-brand-cyan text-brand-black px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-brand-black hover:text-white hover:shadow-lg transition-all duration-300 flex items-center gap-2 transform active:scale-95">
+                    <i class="fa-solid fa-plus"></i>
+                    <span>Nuevo Aliado</span>
                 </button>
-                <div class="w-10 h-10 bg-brand-black text-brand-cyan rounded-2xl flex items-center justify-center font-bold shadow-lg">
+                <div class="w-10 h-10 bg-brand-black text-white rounded-xl flex items-center justify-center shadow-lg">
                     <i class="fa-solid fa-handshake"></i>
                 </div>
             </div>
         </header>
 
-        <div class="p-8 max-w-7xl mx-auto">
-            <div class="flex flex-col lg:flex-row justify-between items-start lg:items-end mb-12 gap-8 text-left">
+        <div class="p-8 max-w-7xl mx-auto pb-20">
+            <div class="flex flex-col lg:flex-row justify-between items-start lg:items-end mb-10 gap-8">
                 <div>
-                    <h1 class="text-5xl font-black text-brand-black tracking-tighter uppercase leading-none">Gestión de <br><span class="text-brand-cyan">Aliados</span></h1>
-                    <p class="text-gray-400 text-sm font-bold mt-4 tracking-wide italic">Ecosistema de datos y auditoría de inventario.</p>
+                    <h1 class="text-4xl lg:text-5xl font-black text-brand-black tracking-tighter uppercase leading-none mb-2">Gestión de <br><span class="text-brand-cyan">Aliados</span></h1>
+                    <p class="text-gray-400 text-xs font-bold tracking-wide">Base de datos centralizada de proveedores y compras.</p>
                 </div>
                 
-                <div class="tabs-container">
-                    <button class="tab-btn active" data-tab="directory">
-                        <i class="fa-solid fa-address-book"></i> Directorio
+                <div class="bg-white p-1.5 rounded-[1.5rem] border border-gray-200 shadow-sm inline-flex gap-1">
+                    <button class="tab-btn px-6 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all duration-300 bg-brand-black text-white shadow-md" data-tab="directory">
+                        <i class="fa-solid fa-address-book mr-2"></i> Directorio
                     </button>
-                    <button class="tab-btn" data-tab="purchases">
-                        <i class="fa-solid fa-receipt"></i> Historial Global
+                    <button class="tab-btn px-6 py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all duration-300 text-gray-400 hover:bg-slate-50 hover:text-brand-black" data-tab="purchases">
+                        <i class="fa-solid fa-clock-rotate-left mr-2"></i> Historial Global
                     </button>
                 </div>
             </div>
 
-            <div id="search-container" class="mb-10 text-left">
-                <div class="relative max-w-md">
-                    <input type="text" id="search-input" placeholder="Buscar por nombre o NIT..." class="w-full bg-white border border-gray-100 p-4 rounded-2xl text-sm font-bold outline-none focus:ring-2 focus:ring-brand-cyan/20 transition-all">
-                    <i class="fa-solid fa-magnifying-glass absolute right-5 top-1/2 -translate-y-1/2 text-gray-300"></i>
+            <div id="search-container" class="mb-8 fade-in">
+                <div class="relative max-w-md group">
+                    <input type="text" id="search-input" placeholder="Buscar por nombre, NIT o contacto..." 
+                        class="w-full bg-white border border-gray-200 p-4 pl-12 rounded-2xl text-sm font-bold outline-none focus:border-brand-cyan focus:ring-4 focus:ring-cyan-500/10 transition-all shadow-sm group-hover:shadow-md">
+                    <i class="fa-solid fa-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 group-hover:text-brand-cyan transition-colors"></i>
                 </div>
             </div>
 
             <div id="section-directory" class="tab-content">
-                <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-8" id="suppliers-grid"></div>
+                <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6" id="suppliers-grid">
+                    </div>
             </div>
 
             <div id="section-purchases" class="tab-content hidden">
-                <div class="bg-white rounded-[3rem] shadow-2xl border border-gray-100 overflow-hidden">
-                    <div class="overflow-x-auto text-left">
-                        <table class="w-full text-left text-sm">
-                            <thead class="bg-gray-50/50 text-[10px] uppercase font-black text-gray-400 tracking-widest border-b">
+                <div class="bg-white rounded-[2.5rem] shadow-xl border border-gray-100 overflow-hidden fade-in">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left">
+                            <thead class="bg-slate-50 text-[9px] uppercase font-black text-gray-400 tracking-widest border-b border-gray-100">
                                 <tr>
-                                    <th class="px-8 py-6">Fecha</th>
-                                    <th class="px-8 py-6">Proveedor</th>
-                                    <th class="px-8 py-6">Resumen de Equipos</th>
-                                    <th class="px-8 py-6 text-right">Inversión</th>
-                                    <th class="px-8 py-6 text-center">Detalle</th>
+                                    <th class="px-8 py-5">Fecha</th>
+                                    <th class="px-8 py-5">Proveedor</th>
+                                    <th class="px-8 py-5">Resumen Compra</th>
+                                    <th class="px-8 py-5 text-right">Total</th>
+                                    <th class="px-8 py-5 text-center">Acción</th>
                                 </tr>
                             </thead>
-                            <tbody id="purchases-table-body" class="divide-y divide-gray-50"></tbody>
+                            <tbody id="purchases-table-body" class="divide-y divide-gray-50 text-sm">
+                                </tbody>
                         </table>
                     </div>
                 </div>
@@ -104,57 +93,77 @@
 
             <div id="loading-state" class="p-20 text-center hidden">
                 <i class="fa-solid fa-circle-notch fa-spin text-4xl text-brand-cyan"></i>
+                <p class="text-[10px] font-black uppercase text-gray-300 mt-4 tracking-widest">Cargando datos...</p>
             </div>
         </div>
     </main>
 
-    <div id="supplier-modal" class="fixed inset-0 z-[90] hidden transition-all duration-300">
-        <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-md" onclick="closeModal()"></div>
-        <div class="fixed inset-0 z-10 overflow-y-auto">
-            <div class="flex min-h-full items-center justify-center p-4">
-                <div class="relative bg-white rounded-[3rem] shadow-2xl w-full max-w-2xl p-10 flex flex-col text-left">
-                    <div class="flex justify-between items-center mb-8 border-b pb-4">
-                        <h3 class="text-2xl font-black tracking-tighter uppercase" id="modal-title">Ficha de <span class="text-gray-300">Proveedor</span></h3>
-                        <button onclick="closeModal()" class="text-gray-400 hover:text-brand-red bg-gray-50 p-2 rounded-xl transition"><i class="fa-solid fa-xmark text-xl"></i></button>
+    <div id="supplier-modal" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4">
+        <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-md transition-opacity" onclick="closeModal()"></div>
+        
+        <div class="relative bg-white w-full max-w-2xl rounded-[2.5rem] shadow-2xl overflow-hidden max-h-[90vh] flex flex-col animate-fadeIn">
+            <div class="p-8 border-b border-gray-50 flex justify-between items-center bg-slate-50/50">
+                <h3 class="text-xl font-black tracking-tighter uppercase" id="modal-title">Ficha de <span class="text-brand-cyan">Aliado</span></h3>
+                <button onclick="closeModal()" class="w-10 h-10 rounded-full bg-white border border-gray-200 text-gray-400 hover:bg-brand-red hover:text-white hover:border-transparent transition flex items-center justify-center">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            
+            <div class="overflow-y-auto p-10 custom-scroll">
+                <form id="supplier-form" class="grid grid-cols-1 md:grid-cols-2 gap-5">
+                    <input type="hidden" id="s-id-field">
+                    
+                    <div class="md:col-span-2 space-y-2">
+                        <label class="text-[9px] font-black text-gray-400 uppercase tracking-widest">Razón Social / Empresa</label>
+                        <input type="text" id="s-name" required class="w-full bg-slate-50 border border-gray-200 p-4 rounded-xl text-sm font-bold outline-none focus:border-brand-cyan transition-all" placeholder="Ej: Tech Distribution SAS">
                     </div>
                     
-                    <form id="supplier-form" class="grid grid-cols-2 gap-4">
-                        <input type="hidden" id="s-id-field">
-                        
-                        <div class="col-span-2 bg-slate-50 p-3 rounded-xl border">
-                            <label class="text-[8px] font-black text-gray-400 uppercase">Nombre de la Empresa</label>
-                            <input type="text" id="s-name" required class="w-full bg-transparent outline-none font-bold text-sm" placeholder="Ej: Distribuidora Global">
-                        </div>
-                        <div class="bg-slate-50 p-3 rounded-xl border">
-                            <label class="text-[8px] font-black text-gray-400 uppercase">NIT / Identificación</label>
-                            <input type="text" id="s-nit" required class="w-full bg-transparent outline-none font-bold text-sm" placeholder="900.000.000-1">
-                        </div>
-                        <div class="bg-slate-50 p-3 rounded-xl border">
-                            <label class="text-[8px] font-black text-gray-400 uppercase">Persona de Contacto</label>
-                            <input type="text" id="s-contact" class="w-full bg-transparent outline-none font-bold text-sm" placeholder="Nombre del asesor">
-                        </div>
-                        <div class="bg-slate-50 p-3 rounded-xl border">
-                            <label class="text-[8px] font-black text-gray-400 uppercase">WhatsApp</label>
-                            <input type="text" id="s-phone" required class="w-full bg-transparent outline-none font-bold text-sm" placeholder="573000000000">
-                        </div>
-                        <div class="bg-slate-50 p-3 rounded-xl border">
-                            <label class="text-[8px] font-black text-gray-400 uppercase">Correo Electrónico</label>
-                            <input type="email" id="s-email" class="w-full bg-transparent outline-none font-bold text-sm" placeholder="aliado@correo.com">
-                        </div>
-                        
-                        <div class="col-span-2 border-t pt-4"><p class="text-[10px] font-black uppercase tracking-widest mb-3">Información Bancaria</p></div>
-                        <div class="bg-slate-50 p-3 rounded-xl border"><label class="text-[8px] font-black text-gray-400 uppercase">Banco</label><input type="text" id="s-bank" class="w-full bg-transparent outline-none font-bold text-sm"></div>
-                        <div class="bg-slate-50 p-3 rounded-xl border"><label class="text-[8px] font-black text-gray-400 uppercase">Tipo Cuenta</label><select id="s-acc-type" class="w-full bg-transparent outline-none font-bold text-sm"><option value="Ahorros">Ahorros</option><option value="Corriente">Corriente</option></select></div>
-                        <div class="col-span-2 bg-slate-50 p-3 rounded-xl border"><label class="text-[8px] font-black text-gray-400 uppercase">Número Cuenta</label><input type="text" id="s-acc-num" class="w-full bg-transparent outline-none font-bold text-sm"></div>
-                        
-                        <div class="col-span-2 border-t pt-4 grid grid-cols-2 gap-4">
-                            <div><label class="text-[8px] font-black text-gray-400 uppercase block mb-1">Cargar RUT</label><input type="file" id="s-rut-file" class="text-[10px]"></div>
-                            <div><label class="text-[8px] font-black text-gray-400 uppercase block mb-1">Cargar QR Pago</label><input type="file" id="s-qr-file" class="text-[10px]"></div>
-                        </div>
+                    <div class="space-y-2">
+                        <label class="text-[9px] font-black text-gray-400 uppercase tracking-widest">NIT / ID</label>
+                        <input type="text" id="s-nit" required class="w-full bg-slate-50 border border-gray-200 p-4 rounded-xl text-sm font-bold outline-none focus:border-brand-cyan transition-all" placeholder="900.123.456-1">
+                    </div>
+                    
+                    <div class="space-y-2">
+                        <label class="text-[9px] font-black text-gray-400 uppercase tracking-widest">Contacto Directo</label>
+                        <input type="text" id="s-contact" class="w-full bg-slate-50 border border-gray-200 p-4 rounded-xl text-sm font-bold outline-none focus:border-brand-cyan transition-all" placeholder="Nombre Asesor">
+                    </div>
 
-                        <button type="submit" class="col-span-2 bg-brand-black text-white font-black py-5 rounded-2xl shadow-xl uppercase text-xs tracking-widest hover:bg-brand-cyan transition-all mt-6">Guardar Aliado</button>
-                    </form>
-                </div>
+                    <div class="space-y-2">
+                        <label class="text-[9px] font-black text-gray-400 uppercase tracking-widest">WhatsApp / Teléfono</label>
+                        <input type="text" id="s-phone" required class="w-full bg-slate-50 border border-gray-200 p-4 rounded-xl text-sm font-bold outline-none focus:border-brand-cyan transition-all">
+                    </div>
+
+                    <div class="space-y-2">
+                        <label class="text-[9px] font-black text-gray-400 uppercase tracking-widest">Email Corporativo</label>
+                        <input type="email" id="s-email" class="w-full bg-slate-50 border border-gray-200 p-4 rounded-xl text-sm font-bold outline-none focus:border-brand-cyan transition-all">
+                    </div>
+                    
+                    <div class="md:col-span-2 pt-6 border-t border-gray-100 mt-2">
+                        <span class="text-[9px] font-black uppercase tracking-widest text-brand-black bg-gray-100 px-3 py-1 rounded-md">Datos de Pago</span>
+                    </div>
+                    
+                    <div class="space-y-2">
+                        <label class="text-[9px] font-black text-gray-400 uppercase tracking-widest">Banco</label>
+                        <input type="text" id="s-bank" class="w-full bg-slate-50 border border-gray-200 p-4 rounded-xl text-sm font-bold outline-none focus:border-brand-cyan transition-all">
+                    </div>
+
+                    <div class="space-y-2">
+                        <label class="text-[9px] font-black text-gray-400 uppercase tracking-widest">Tipo de Cuenta</label>
+                        <select id="s-acc-type" class="w-full bg-slate-50 border border-gray-200 p-4 rounded-xl text-sm font-bold outline-none focus:border-brand-cyan transition-all cursor-pointer">
+                            <option value="Ahorros">Ahorros</option>
+                            <option value="Corriente">Corriente</option>
+                        </select>
+                    </div>
+
+                    <div class="md:col-span-2 space-y-2">
+                        <label class="text-[9px] font-black text-gray-400 uppercase tracking-widest">Número de Cuenta</label>
+                        <input type="text" id="s-acc-num" class="w-full bg-slate-50 border border-gray-200 p-4 rounded-xl text-sm font-bold outline-none focus:border-brand-cyan transition-all">
+                    </div>
+                    
+                    <button type="submit" class="md:col-span-2 mt-4 bg-brand-black text-white py-5 rounded-2xl font-black text-xs uppercase tracking-[0.2em] shadow-xl hover:bg-brand-cyan hover:shadow-cyan-500/30 hover:-translate-y-1 transition-all duration-300">
+                        Guardar Información
+                    </button>
+                </form>
             </div>
         </div>
     </div>
@@ -163,8 +172,10 @@
         import { db, collection, getDocs, getDoc, addDoc, updateDoc, doc, deleteDoc, orderBy, query, where } from '../js/firebase-init.js';
         import { loadAdminSidebar } from '../js/admin-ui.js';
 
+        // Inicializar Sidebar
         loadAdminSidebar();
 
+        // Referencias DOM
         const grid = document.getElementById('suppliers-grid');
         const purchasesTable = document.getElementById('purchases-table-body');
         const loading = document.getElementById('loading-state');
@@ -174,19 +185,7 @@
 
         let allSuppliers = [];
 
-        // Helper para mapear items con color y capacidad
-        function formatItemsWithVariants(items) {
-            return items.map(i => {
-                let detail = `${i.quantity}x ${i.name}`;
-                const extras = [];
-                if (i.color) extras.push(i.color.toUpperCase());
-                if (i.capacity) extras.push(i.capacity.toUpperCase());
-                if (extras.length > 0) detail += ` (${extras.join(' / ')})`;
-                return detail;
-            }).join(', ');
-        }
-
-        // --- DIRECTORIO ---
+        // --- 1. CARGAR PROVEEDORES ---
         async function fetchSuppliers() {
             loading.classList.remove('hidden');
             grid.innerHTML = "";
@@ -194,59 +193,95 @@
                 const snap = await getDocs(query(collection(db, "suppliers"), orderBy("name", "asc")));
                 allSuppliers = [];
                 snap.forEach(d => {
-                    const s = d.data();
-                    allSuppliers.push({ id: d.id, ...s });
+                    allSuppliers.push({ id: d.id, ...d.data() });
                 });
                 renderSupplierGrid(allSuppliers);
-            } catch (e) { console.error(e); }
+            } catch (e) { 
+                console.error("Error cargando proveedores:", e);
+                grid.innerHTML = `<p class="col-span-3 text-center text-red-400 font-bold">Error al cargar datos.</p>`;
+            }
             loading.classList.add('hidden');
         }
 
+        // --- 2. RENDERIZAR GRID (Diseño Cards) ---
         function renderSupplierGrid(data) {
             grid.innerHTML = "";
-            data.forEach(s => {
+            if(data.length === 0) {
+                grid.innerHTML = `<div class="col-span-3 text-center py-10 opacity-50"><i class="fa-solid fa-folder-open text-4xl mb-4"></i><p class="font-bold">No hay proveedores registrados.</p></div>`;
+                return;
+            }
+
+            data.forEach((s, index) => {
                 const card = document.createElement('div');
-                card.className = "supplier-card group";
-                // REDIRECCIÓN A PÁGINA DE DETALLE
+                // Clases de Tailwind directas para la card
+                card.className = "bg-white border-2 border-gray-50 p-7 rounded-[2.5rem] shadow-sm hover:shadow-2xl hover:border-brand-cyan/30 transition-all duration-500 relative overflow-hidden cursor-pointer group fade-in";
+                card.style.animationDelay = `${index * 50}ms`; // Efecto cascada
+                
+                // Redirección al hacer click en la tarjeta
                 card.onclick = () => { window.location.href = `supplier-detail.html?id=${s.id}`; };
                 
                 card.innerHTML = `
                     <div class="flex justify-between items-start mb-6">
-                        <div class="w-14 h-14 bg-slate-900 text-brand-cyan rounded-2xl flex items-center justify-center text-2xl shadow-xl group-hover:scale-110 transition-transform"><i class="fa-solid fa-building-circle-check"></i></div>
-                        <div class="flex gap-2">
-                            <button onclick="event.stopPropagation(); openSupplierModal('${s.id}')" class="text-gray-200 hover:text-brand-cyan transition"><i class="fa-solid fa-pen"></i></button>
-                            <button onclick="event.stopPropagation(); deleteSupplier('${s.id}')" class="text-gray-200 hover:text-brand-red transition"><i class="fa-solid fa-trash-can"></i></button>
+                        <div class="w-14 h-14 bg-slate-50 text-brand-black rounded-2xl flex items-center justify-center text-2xl shadow-sm group-hover:bg-brand-black group-hover:text-brand-cyan transition-colors duration-300">
+                            <i class="fa-solid fa-building"></i>
+                        </div>
+                        <div class="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                            <button onclick="event.stopPropagation(); openSupplierModal('${s.id}')" class="w-8 h-8 rounded-full bg-slate-100 text-gray-500 hover:bg-brand-cyan hover:text-brand-black flex items-center justify-center transition-colors"><i class="fa-solid fa-pen text-xs"></i></button>
+                            <button onclick="event.stopPropagation(); deleteSupplier('${s.id}')" class="w-8 h-8 rounded-full bg-slate-100 text-gray-500 hover:bg-brand-red hover:text-white flex items-center justify-center transition-colors"><i class="fa-solid fa-trash text-xs"></i></button>
                         </div>
                     </div>
-                    <h3 class="font-black text-brand-black uppercase tracking-tighter text-xl mb-1 leading-tight">${s.name}</h3>
-                    <p class="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-8">NIT: ${s.nit || '---'}</p>
-                    <div class="grid grid-cols-2 gap-4 border-t border-gray-50 pt-6">
-                        <div><p class="text-[8px] font-black text-gray-400 uppercase mb-1">Inversión Neta</p><p class="text-sm font-black text-brand-black">$${(s.totalInvested || 0).toLocaleString('es-CO')}</p></div>
-                        <div class="text-right"><p class="text-[8px] font-black text-gray-400 uppercase mb-1">Pedidos</p><p class="text-sm font-black text-brand-black">${s.ordersCount || 0}</p></div>
+                    
+                    <h3 class="font-black text-brand-black uppercase tracking-tight text-xl mb-1 line-clamp-1 group-hover:text-brand-cyan transition-colors">${s.name}</h3>
+                    <p class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-8 bg-gray-50 inline-block px-2 py-1 rounded">NIT: ${s.nit || '---'}</p>
+                    
+                    <div class="grid grid-cols-2 gap-4 border-t border-gray-100 pt-6">
+                        <div>
+                            <p class="text-[8px] font-black text-gray-300 uppercase tracking-widest mb-1">Inversión</p>
+                            <p class="text-sm font-black text-brand-black group-hover:scale-105 transition-transform origin-left">$${(s.totalInvested || 0).toLocaleString('es-CO')}</p>
+                        </div>
+                        <div class="text-right">
+                            <p class="text-[8px] font-black text-gray-300 uppercase tracking-widest mb-1">Órdenes</p>
+                            <span class="bg-brand-cyan/10 text-brand-cyan px-2 py-1 rounded text-xs font-black">${s.ordersCount || 0}</span>
+                        </div>
                     </div>
-                    <div class="absolute bottom-0 left-0 w-full h-1.5 bg-brand-cyan scale-x-0 group-hover:scale-x-100 transition-transform duration-500"></div>
+                    
+                    <div class="absolute bottom-0 left-0 w-full h-1.5 bg-brand-cyan scale-x-0 group-hover:scale-x-100 transition-transform duration-500 origin-left"></div>
                 `;
                 grid.appendChild(card);
             });
         }
 
-        // --- HISTORIAL GLOBAL ---
+        // --- 3. HISTORIAL (TABLA) ---
         async function fetchPurchases() {
             loading.classList.remove('hidden');
             purchasesTable.innerHTML = "";
             try {
                 const snap = await getDocs(query(collection(db, "purchases"), orderBy("createdAt", "desc")));
+                
+                if(snap.empty) {
+                     purchasesTable.innerHTML = `<tr><td colspan="5" class="p-8 text-center text-gray-400 font-bold uppercase text-xs">No hay historial de compras global.</td></tr>`;
+                }
+
                 snap.forEach(d => {
                     const p = d.data();
-                    const itemsPreview = formatItemsWithVariants(p.items); 
+                    
+                    // Formatear items para mostrar resumen
+                    let itemsSummary = p.items.slice(0, 2).map(i => `${i.quantity}x ${i.name}`).join(', ');
+                    if(p.items.length > 2) itemsSummary += ` (+${p.items.length - 2} más)`;
+
                     purchasesTable.innerHTML += `
-                        <tr class="hover:bg-slate-50 transition-colors border-b border-gray-50">
-                            <td class="px-8 py-6 font-bold text-gray-400 text-xs">${p.createdAt?.toDate().toLocaleDateString()}</td>
-                            <td class="px-8 py-6 font-black text-brand-black text-xs uppercase">${p.supplierName}</td>
-                            <td class="px-8 py-6 text-[10px] text-gray-500 italic uppercase font-bold">${itemsPreview}</td>
-                            <td class="px-8 py-6 text-right font-black text-brand-black">$${(p.totalCost || 0).toLocaleString('es-CO')}</td>
+                        <tr class="hover:bg-slate-50 transition-colors border-b border-gray-50 group">
+                            <td class="px-8 py-6">
+                                <p class="font-bold text-brand-black text-xs">${p.createdAt?.toDate().toLocaleDateString()}</p>
+                                <p class="font-mono text-[9px] text-gray-400 uppercase">ID: ${d.id.slice(0,6)}</p>
+                            </td>
+                            <td class="px-8 py-6 font-black text-brand-black text-xs uppercase tracking-wide group-hover:text-brand-cyan transition-colors">${p.supplierName}</td>
+                            <td class="px-8 py-6 text-[10px] text-gray-500 font-bold uppercase truncate max-w-[200px]">${itemsSummary}</td>
+                            <td class="px-8 py-6 text-right font-black text-brand-black text-sm">$${(p.totalCost || 0).toLocaleString('es-CO')}</td>
                             <td class="px-8 py-6 text-center">
-                                <a href="supplier-detail.html?id=${p.supplierId}" class="w-10 h-10 rounded-2xl bg-brand-black text-brand-cyan hover:bg-brand-cyan hover:text-brand-black transition-all flex items-center justify-center mx-auto shadow-lg"><i class="fa-solid fa-address-card"></i></a>
+                                <a href="supplier-detail.html?id=${p.supplierId}" class="inline-flex w-8 h-8 rounded-lg border border-gray-200 text-gray-400 hover:bg-brand-black hover:text-white hover:border-brand-black transition-all items-center justify-center shadow-sm">
+                                    <i class="fa-solid fa-arrow-right text-xs"></i>
+                                </a>
                             </td>
                         </tr>`;
                 });
@@ -254,49 +289,77 @@
             loading.classList.add('hidden');
         }
 
-        // --- BUSCADOR ---
-        searchInput.oninput = (e) => {
-            const term = e.target.value.toLowerCase();
-            const filtered = allSuppliers.filter(s => s.name.toLowerCase().includes(term) || (s.nit && s.nit.includes(term)));
-            renderSupplierGrid(filtered);
-        };
+        // --- 4. LÓGICA DE TABS (Corregida para Tailwind) ---
+        // Definimos las clases para estado Activo e Inactivo
+        const activeClasses = ["bg-brand-black", "text-white", "shadow-md"];
+        const inactiveClasses = ["text-gray-400", "hover:bg-slate-50", "hover:text-brand-black"];
 
-        // --- TABS ---
         document.querySelectorAll('.tab-btn').forEach(btn => {
             btn.onclick = (e) => {
-                document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                const targetBtn = e.currentTarget;
+                const tabId = targetBtn.dataset.tab;
+
+                // 1. Resetear todos los botones a inactivo
+                document.querySelectorAll('.tab-btn').forEach(b => {
+                    b.classList.remove(...activeClasses);
+                    b.classList.add(...inactiveClasses);
+                });
+
+                // 2. Activar botón actual
+                targetBtn.classList.remove(...inactiveClasses);
+                targetBtn.classList.add(...activeClasses);
+
+                // 3. Mostrar Contenido
                 document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
-                const target = e.target.tagName === 'I' ? e.target.parentElement : e.target;
-                target.classList.add('active');
-                document.getElementById(`section-${target.dataset.tab}`).classList.remove('hidden');
-                if(target.dataset.tab === 'purchases') fetchPurchases();
+                document.getElementById(`section-${tabId}`).classList.remove('hidden');
+
+                // 4. Cargar datos si es necesario
+                if(tabId === 'purchases') fetchPurchases();
                 else fetchSuppliers();
             };
         });
 
-        // --- CRUD MODAL ---
+        // --- 5. BUSCADOR ---
+        searchInput.oninput = (e) => {
+            const term = e.target.value.toLowerCase();
+            const filtered = allSuppliers.filter(s => 
+                s.name.toLowerCase().includes(term) || 
+                (s.nit && s.nit.includes(term)) ||
+                (s.contactName && s.contactName.toLowerCase().includes(term))
+            );
+            renderSupplierGrid(filtered);
+        };
+
+        // --- 6. MODAL & CRUD ---
         window.openSupplierModal = async (id = null) => {
             supplierForm.reset();
             document.getElementById('s-id-field').value = id || "";
-            document.getElementById('modal-title').textContent = id ? "Editar Aliado" : "Ficha de Proveedor";
+            document.getElementById('modal-title').innerHTML = id ? `Editar <span class="text-brand-cyan">Aliado</span>` : `Nuevo <span class="text-brand-cyan">Aliado</span>`;
             
             if (id) {
                 const snap = await getDoc(doc(db, "suppliers", id));
-                const s = snap.data();
-                document.getElementById('s-name').value = s.name;
-                document.getElementById('s-nit').value = s.nit;
-                document.getElementById('s-contact').value = s.contactName || "";
-                document.getElementById('s-phone').value = s.phone;
-                document.getElementById('s-email').value = s.email || "";
-                document.getElementById('s-bank').value = s.bankName || "";
-                document.getElementById('s-acc-num').value = s.accNum || "";
-                document.getElementById('s-acc-type').value = s.accType || "Ahorros";
+                if(snap.exists()){
+                    const s = snap.data();
+                    document.getElementById('s-name').value = s.name;
+                    document.getElementById('s-nit').value = s.nit;
+                    document.getElementById('s-contact').value = s.contactName || "";
+                    document.getElementById('s-phone').value = s.phone;
+                    document.getElementById('s-email').value = s.email || "";
+                    document.getElementById('s-bank').value = s.bankName || "";
+                    document.getElementById('s-acc-num').value = s.accNum || "";
+                    document.getElementById('s-acc-type').value = s.accType || "Ahorros";
+                }
             }
             supplierModal.classList.remove('hidden');
         };
 
         supplierForm.onsubmit = async (e) => {
             e.preventDefault();
+            const btn = supplierForm.querySelector('button[type="submit"]');
+            const originalText = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Procesando...';
+
             const id = document.getElementById('s-id-field').value;
             const data = {
                 name: document.getElementById('s-name').value,
@@ -311,16 +374,45 @@
             };
 
             try {
-                if (id) await updateDoc(doc(db, "suppliers", id), data);
-                else await addDoc(collection(db, "suppliers"), { ...data, totalInvested: 0, ordersCount: 0, createdAt: new Date() });
-                alert("✅ Guardado correctamente");
-                closeModal(); fetchSuppliers();
-            } catch (err) { alert(err.message); }
+                if (id) {
+                    await updateDoc(doc(db, "suppliers", id), data);
+                } else {
+                    // Datos iniciales para nuevo proveedor
+                    await addDoc(collection(db, "suppliers"), { 
+                        ...data, 
+                        totalInvested: 0, 
+                        ordersCount: 0, 
+                        createdAt: new Date() 
+                    });
+                }
+                alert("✅ Información guardada exitosamente");
+                closeModal();
+                fetchSuppliers(); // Recargar lista
+            } catch (err) {
+                console.error(err);
+                alert("Error: " + err.message);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+            }
         };
 
-        window.deleteSupplier = async (id) => { if(confirm("¿Eliminar aliado comercial?")) { await deleteDoc(doc(db, "suppliers", id)); fetchSuppliers(); } };
-        window.closeModal = () => { supplierModal.classList.add('hidden'); supplierForm.reset(); };
+        window.deleteSupplier = async (id) => { 
+            if(confirm("¿Estás seguro de eliminar este aliado? Esta acción no se puede deshacer.")) { 
+                try {
+                    await deleteDoc(doc(db, "suppliers", id)); 
+                    fetchSuppliers(); 
+                } catch(e) {
+                    alert("Error al eliminar: " + e.message);
+                }
+            } 
+        };
 
+        window.closeModal = () => { 
+            supplierModal.classList.add('hidden'); 
+        };
+
+        // Carga inicial
         fetchSuppliers();
     </script>
 </body>

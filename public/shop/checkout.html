@@ -42,13 +42,11 @@
             font-size: 0.875rem;
             color: #111827;
         }
-
-        /* Estilo para el checkbox personalizado */
-        .check-custom {
-            accent-color: #00AEC7;
-            width: 1.25rem;
-            height: 1.25rem;
-            cursor: pointer;
+        
+        /* Checkbox personalizado */
+        .checkbox-wrapper input:checked + div {
+            background-color: #00AEC7;
+            border-color: #00AEC7;
         }
     </style>
 </head>
@@ -80,70 +78,104 @@
                 </div>
 
                 <form id="checkout-form" class="space-y-6">
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div class="checkout-input-group">
-                            <label>Nombre Completo *</label>
-                            <input type="text" id="cust-name" required placeholder="Nombre del destinatario">
-                        </div>
-                        <div class="checkout-input-group">
-                            <label>Teléfono / WhatsApp *</label>
-                            <input type="tel" id="cust-phone" required placeholder="300 123 4567">
-                        </div>
-                    </div>
+                    
+                    <div class="space-y-6 bg-slate-50 p-6 rounded-[2rem] border border-gray-100 relative overflow-hidden">
+                        <div class="absolute top-0 right-0 w-32 h-32 bg-brand-cyan/5 rounded-bl-[100%] -z-0 pointer-events-none"></div>
 
-                    <div class="space-y-3">
-                        <div class="flex justify-between items-center px-1">
-                            <label class="text-[10px] font-black uppercase tracking-widest text-gray-400">Dirección de Entrega *</label>
-                            <select id="saved-addresses-select" class="w-auto text-[9px] font-black uppercase bg-slate-200 px-3 py-1.5 rounded-lg text-brand-cyan outline-none border-none cursor-pointer hover:bg-brand-cyan hover:text-brand-black transition">
-                                <option value="">Cargar dirección guardada</option>
+                        <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-4 relative z-10">
+                            <div class="flex items-center gap-2">
+                                <i class="fa-solid fa-map-location-dot text-brand-cyan"></i>
+                                <span class="text-[10px] font-black uppercase tracking-widest text-gray-400">Datos de Envío</span>
+                            </div>
+                            <select id="saved-addresses-select" class="w-full md:w-auto text-[9px] font-black uppercase bg-white border border-gray-200 px-3 py-2 rounded-xl text-brand-cyan outline-none cursor-pointer hover:border-brand-cyan transition shadow-sm">
+                                <option value="">-- Mis Direcciones Guardadas --</option>
                             </select>
                         </div>
-                        <div class="checkout-input-group">
-                            <input type="text" id="cust-address" required placeholder="Calle, Carrera, Conjunto, Apto o Barrio">
+                        
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 relative z-10">
+                            <div class="checkout-input-group bg-white">
+                                <label>Nombre Completo *</label>
+                                <input type="text" id="cust-name" required placeholder="Nombre del destinatario">
+                            </div>
+                            <div class="checkout-input-group bg-white">
+                                <label>Teléfono / Móvil *</label>
+                                <input type="tel" id="cust-phone" required placeholder="300 123 4567">
+                            </div>
                         </div>
-                    </div>
 
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div class="checkout-input-group">
-                            <label>Ciudad *</label>
-                            <input type="text" id="cust-city" required placeholder="Ej: Bogotá D.C.">
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 relative z-10">
+                            <div class="checkout-input-group bg-white md:col-span-2">
+                                <label>Dirección Exacta *</label>
+                                <input type="text" id="cust-address" required placeholder="Calle 123 # 45-67, Apto 101">
+                            </div>
+                            <div class="checkout-input-group bg-white">
+                                <label>Código Postal</label>
+                                <input type="text" id="cust-postal" placeholder="Ej: 110111">
+                            </div>
                         </div>
-                        <div class="checkout-input-group">
-                            <label>Notas / Instrucciones</label>
-                            <input type="text" id="cust-notes" placeholder="Ej: Dejar con el vigilante">
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 relative z-10">
+                            <div class="checkout-input-group bg-white">
+                                <label>Departamento *</label>
+                                <select id="shipping-dept" class="cursor-pointer">
+                                    <option value="">Cargando...</option>
+                                </select>
+                            </div>
+                            <div class="checkout-input-group bg-white">
+                                <label>Ciudad / Municipio *</label>
+                                <select id="shipping-city" class="cursor-pointer" disabled>
+                                    <option value="">Seleccione Depto primero</option>
+                                </select>
+                            </div>
                         </div>
+
+                        <div class="checkout-input-group bg-white relative z-10">
+                            <label>Notas / Referencias de llegada</label>
+                            <input type="text" id="cust-notes" placeholder="Ej: Casa blanca de rejas negras, dejar en portería.">
+                        </div>
+
+                        <label class="checkbox-wrapper flex items-center gap-3 cursor-pointer group relative z-10 w-fit">
+                            <input type="checkbox" id="save-address-check" class="peer hidden">
+                            <div class="w-5 h-5 border-2 border-gray-300 rounded-md flex items-center justify-center transition-colors bg-white">
+                                <i class="fa-solid fa-check text-white text-xs opacity-0 peer-checked:opacity-100"></i>
+                            </div>
+                            <span class="text-[10px] font-black uppercase tracking-widest text-gray-400 peer-checked:text-brand-cyan transition">Guardar esta dirección para futuros pedidos</span>
+                        </label>
                     </div>
 
                     <div class="bg-white p-8 rounded-[2rem] border border-gray-100 shadow-sm mt-8">
-                        <label class="flex items-center gap-4 cursor-pointer group">
-                            <input type="checkbox" id="check-need-invoice" class="w-5 h-5 accent-brand-cyan cursor-pointer">
-                            <span class="text-[10px] font-black uppercase tracking-widest text-gray-500 group-hover:text-brand-cyan transition">¿Necesitas Factura Legal / Datos de Empresa?</span>
+                        <label class="checkbox-wrapper flex items-center gap-4 cursor-pointer group">
+                            <input type="checkbox" id="check-need-invoice" class="peer hidden">
+                            <div class="w-5 h-5 border-2 border-gray-300 rounded-md flex items-center justify-center transition-colors bg-white">
+                                <i class="fa-solid fa-check text-white text-xs opacity-0 peer-checked:opacity-100"></i>
+                            </div>
+                            <span class="text-[10px] font-black uppercase tracking-widest text-gray-500 group-hover:text-brand-cyan transition">¿Necesitas Factura Electrónica a Empresa?</span>
                         </label>
 
                         <div id="billing-form-checkout" class="hidden space-y-6 pt-8 border-t border-gray-50 mt-6 animate-in fade-in slide-in-from-top-2">
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <div class="checkout-input-group">
-                                    <label>Razón Social / Nombre Completo</label>
-                                    <input type="text" id="bill-name" placeholder="Ej: PixelTech S.A.S">
+                                    <label>Razón Social / Nombre</label>
+                                    <input type="text" id="bill-name">
                                 </div>
                                 <div class="checkout-input-group">
-                                    <label>NIT o Cédula</label>
-                                    <input type="text" id="bill-taxid" placeholder="900.000.000-1">
+                                    <label>NIT / Cédula</label>
+                                    <input type="text" id="bill-taxid">
                                 </div>
                                 <div class="checkout-input-group">
                                     <label>Dirección Fiscal</label>
-                                    <input type="text" id="bill-address" placeholder="Dirección registrada en RUT">
+                                    <input type="text" id="bill-address">
                                 </div>
                                 <div class="checkout-input-group">
                                     <label>Ciudad Fiscal</label>
                                     <input type="text" id="bill-city">
                                 </div>
                                 <div class="checkout-input-group">
-                                    <label>Correo Electrónico (Facturación)</label>
-                                    <input type="email" id="bill-email" placeholder="facturacion@empresa.com">
+                                    <label>Correo Facturación</label>
+                                    <input type="email" id="bill-email">
                                 </div>
                                 <div class="checkout-input-group">
-                                    <label>Teléfono de Contacto</label>
+                                    <label>Teléfono Contacto</label>
                                     <input type="text" id="bill-phone">
                                 </div>
                             </div>
@@ -158,7 +190,7 @@
                             <div>
                                 <h4 class="font-black text-xs uppercase tracking-[0.2em] text-brand-cyan mb-2">Pago Contra Entrega</h4>
                                 <p class="text-[11px] text-gray-400 leading-relaxed font-medium uppercase tracking-wider">
-                                    Paga al recibir en tu domicilio. El envío es prioritario y gratuito para todas las órdenes de PixelTech.
+                                    Paga en efectivo o transferencia al recibir tu producto. Sin riesgos.
                                 </p>
                             </div>
                         </div>
@@ -172,8 +204,7 @@
                         Resumen Técnico
                     </h3>
 
-                    <div id="checkout-items" class="space-y-8 mb-10 max-h-[400px] overflow-y-auto no-scrollbar">
-                        </div>
+                    <div id="checkout-items" class="space-y-8 mb-10 max-h-[400px] overflow-y-auto no-scrollbar"></div>
 
                     <div class="space-y-4 border-t border-gray-50 pt-8">
                         <div class="flex justify-between text-gray-400 font-black text-[10px] uppercase tracking-widest">
@@ -182,16 +213,21 @@
                         </div>
                         <div class="flex justify-between text-brand-cyan font-black text-[10px] uppercase tracking-widest">
                             <span>Envío</span>
-                            <span>Gratis</span>
+                            <span id="check-shipping-cost">--</span>
                         </div>
-                        <div class="flex justify-between items-end pt-6">
+                        
+                        <div id="free-shipping-msg" class="hidden text-center bg-green-50 text-green-600 text-[9px] font-black uppercase py-2 rounded-lg border border-green-100">
+                            ¡Envío Gratis Aplicado!
+                        </div>
+
+                        <div class="flex justify-between items-end pt-6 border-t border-gray-50 mt-4">
                             <span class="font-black text-xs uppercase tracking-[0.2em] text-gray-400">Total Neto</span>
                             <span id="check-total" class="text-4xl font-black tracking-tighter text-brand-black leading-none">$0</span>
                         </div>
                     </div>
 
-                    <button id="btn-complete-order"
-                        class="w-full mt-12 bg-brand-cyan text-brand-black font-black py-6 rounded-2xl hover:bg-brand-black hover:text-white transition-all duration-500 shadow-xl shadow-cyan-500/10 uppercase text-xs tracking-[0.25em] flex items-center justify-center gap-3 group">
+                    <button id="btn-complete-order" disabled
+                        class="w-full mt-12 bg-gray-200 text-gray-400 font-black py-6 rounded-2xl transition-all duration-500 uppercase text-xs tracking-[0.25em] flex items-center justify-center gap-3 cursor-not-allowed group">
                         Confirmar Pedido <i class="fa-solid fa-chevron-right group-hover:translate-x-1 transition"></i>
                     </button>
                     
@@ -202,8 +238,6 @@
             </div>
         </div>
     </main>
-
-    <div id="global-footer"></div>
 
     <script type="module">
         import { loadGlobalHeader, loadGlobalFooter } from '../js/global-components.js';
