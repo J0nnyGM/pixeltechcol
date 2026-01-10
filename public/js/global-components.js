@@ -267,7 +267,7 @@ export function loadGlobalFooter() {
                 <div class="space-y-6">
                     <img src="/img/logo.png" alt="PixelTech" class="h-10 opacity-90">
                     <p class="text-gray-500 text-xs leading-relaxed uppercase font-medium tracking-wider">
-                        Líder global en tecnología de alto rendimiento. Ingeniería de vanguardia para entusiastas y profesionales.
+                        Líder en tecnología.
                     </p>
                     <div class="flex gap-4 text-gray-400">
                         <a href="#" class="hover:text-brand-cyan transition"><i class="fa-brands fa-instagram text-lg"></i></a>
