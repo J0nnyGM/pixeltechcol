@@ -317,7 +317,7 @@ export function loadGlobalFooter() {
 
             <div class="border-t border-white/5 pt-10 flex flex-col md:flex-row justify-between items-center gap-6">
                 <p class="text-[9px] font-black uppercase tracking-[0.4em] text-gray-600">
-                    © 2026 PIXELTECH — GLOBAL TECHNOLOGY LEADER.
+                    © 2026 PIXELTECH.
                 </p>
                 <div class="flex gap-6 grayscale opacity-30">
                     <img src="https://img.icons8.com/color/48/visa.png" class="h-5">
