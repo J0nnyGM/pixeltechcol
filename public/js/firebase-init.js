@@ -4,11 +4,14 @@ import { getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signO
 
 // LIBRERÍA DE FIRESTORE (Base de datos)
 import { 
-    getFirestore, collection, addDoc, getDocs, doc, getDoc, setDoc, updateDoc, deleteDoc, query, where, orderBy, limit, runTransaction, onSnapshot, serverTimestamp, arrayUnion
+    getFirestore, collection, addDoc, getDocs, doc, Timestamp, getDoc, setDoc, updateDoc, deleteDoc, query, where, orderBy, limit, runTransaction, onSnapshot, serverTimestamp, arrayUnion
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
-// LIBRERÍA DE STORAGE (Imágenes) - ¡Aquí estaba el error!
+// LIBRERÍA DE STORAGE (Imágenes)
 import { getStorage, ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js";
+
+// --- NUEVO: LIBRERÍA DE FUNCTIONS (Para MercadoPago/Addi) ---
+import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-functions.js";
 
 // Configuración de tu proyecto
 const firebaseConfig = {
@@ -26,7 +29,8 @@ const app = initializeApp(firebaseConfig);
 
 export const auth = getAuth(app);
 export const db = getFirestore(app);
-export const storage = getStorage(app); // Ahora getStorage sí está definido
+export const storage = getStorage(app);
+export const functions = getFunctions(app); // <-- ¡NUEVO! Inicializamos Functions
 export const provider = new GoogleAuthProvider();
 
 // Exportar funciones para toda la app
@@ -52,5 +56,8 @@ export {
     runTransaction,
     onSnapshot,
     serverTimestamp,
-    arrayUnion
+    arrayUnion,
+    Timestamp,
+    // --- NUEVO: Exportar para usar en checkout.js ---
+    httpsCallable 
 };

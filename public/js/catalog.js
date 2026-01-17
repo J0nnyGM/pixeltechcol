@@ -1,5 +1,5 @@
-// 1. IMPORTANTE: Agregamos 'where' a los imports
-import { db, collection, getDocs, query, orderBy, where } from "./firebase-init.js";
+// 1. AGREGAMOS 'query' y 'where' A LOS IMPORTS
+import { db, collection, getDocs, query, where } from "./firebase-init.js";
 import { addToCart, updateCartCount, getProductQtyInCart, removeOneUnit } from "./cart.js";
 import { renderBrandCarousel } from "./global-components.js";
 
@@ -12,17 +12,19 @@ const activeFilters = { category: [], brand: [], color: [], capacity: [] };
 const ITEMS_PER_PAGE = 30;
 let currentPage = 1;
 let currentSort = 'newest';
-let searchQuery = ""; 
+let isPromoMode = false;
 
-// DOM ELEMENTS
+// REFERENCIAS DOM
 const grid = document.getElementById('products-grid');
-const countLabel = document.getElementById('result-count');
+const countLabel = document.getElementById('product-count');
 const filtersContainer = document.getElementById('filters-container');
 const emptyState = document.getElementById('empty-state');
 const btnClear = document.getElementById('btn-clear-filters');
 const paginationContainer = document.getElementById('pagination-controls');
-const searchTitle = document.getElementById('search-title');
-const searchSubtitle = document.getElementById('search-subtitle');
+
+// Header Elements
+const pageTitle = document.querySelector('h1'); 
+const pageSubtitle = document.querySelector('h1')?.previousElementSibling;
 
 // Sort & Mobile
 const sortTrigger = document.getElementById('sort-trigger');
@@ -33,46 +35,47 @@ const drawer = document.getElementById('mobile-filters-drawer');
 const mobileOverlay = document.getElementById('mobile-filters-overlay');
 const mobileContent = document.getElementById('mobile-filters-content');
 
+
 // --- 1. INICIALIZACIÓN ---
-export async function initSearch() {
+document.addEventListener('DOMContentLoaded', async () => {
+    
+    // Detectar Modo Promos
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('mode') === 'promos') {
+        isPromoMode = true;
+        setupPromoView();
+        currentSort = 'discount'; 
+        if(sortLabel) sortLabel.textContent = "Mejores Ofertas";
+    }
+
     await loadProducts();
     
-    const params = new URLSearchParams(window.location.search);
-    
-    // A. Búsqueda por Texto (?q=iphone)
-    const q = params.get('q');
-    if (q) {
-        searchQuery = q.toLowerCase().trim();
-        searchTitle.textContent = `"${q}"`;
-        searchSubtitle.textContent = "Resultados para";
-    }
+    const catParam = urlParams.get('category');
+    const subParam = urlParams.get('subcategory');
 
-    // B. Filtro por Categoría (?category=Celulares)
-    const cat = params.get('category');
-    if (cat) {
-        const decodedCat = decodeURIComponent(cat);
-        activeFilters.category.push(decodedCat);
-        if(!q) {
-            searchTitle.textContent = decodedCat;
-            searchSubtitle.textContent = "Explorando";
-        }
-    }
-
-    // C. Filtro por Subcategoría (?subcategory=Xiaomi)
-    const sub = params.get('subcategory');
-    if (sub) {
-        const decodedSub = decodeURIComponent(sub);
-        activeFilters.brand.push(decodedSub);
-    }
+    if (catParam) activeFilters.category.push(decodeURIComponent(catParam));
+    if (subParam) activeFilters.brand.push(decodeURIComponent(subParam));
 
     syncCheckboxes();
     applySortAndFilter();
+});
+
+// --- FUNCIÓN AUXILIAR VISUAL ---
+function setupPromoView() {
+    if(pageTitle) pageTitle.innerHTML = `OFERTAS <span class="text-brand-red">ESPECIALES</span>`;
+    if(pageSubtitle) {
+        pageSubtitle.textContent = "Tiempo Limitado";
+        pageSubtitle.classList.remove('text-gray-400');
+        pageSubtitle.classList.add('text-brand-red', 'animate-pulse');
+    }
+    const carousel = document.getElementById('brands-carousel-area');
+    if(carousel) carousel.classList.add('hidden');
 }
 
-// --- 2. CARGAR DATOS (CORREGIDO: SOLO ACTIVOS) ---
+// --- 2. CARGAR PRODUCTOS (CORREGIDO: SOLO ACTIVOS) ---
 async function loadProducts() {
     try {
-        // AQUI ESTA LA CORRECCIÓN: Filtramos por status = 'active'
+        // AQUI ESTA EL CAMBIO CLAVE: Filtramos por status = 'active'
         const q = query(
             collection(db, "products"), 
             where("status", "==", "active")
@@ -80,26 +83,35 @@ async function loadProducts() {
 
         const snap = await getDocs(q);
         
-        allProducts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        let rawProducts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+        // Si estamos en modo promo, filtramos adicionales
+        if (isPromoMode) {
+            allProducts = rawProducts.filter(p => p.originalPrice && p.price < p.originalPrice);
+        } else {
+            allProducts = rawProducts;
+        }
+
         filteredProducts = [...allProducts];
         
         renderFiltersUI(); 
         
-        // Carrusel Marcas Activas
-        const activeBrands = new Set();
-        allProducts.forEach(p => {
-            if(p.brand) activeBrands.add(p.brand);
-            if(p.subcategory) activeBrands.add(p.subcategory);
-        });
-        renderBrandCarousel('brands-carousel-area', activeBrands);
+        if (!isPromoMode) {
+            const activeBrands = new Set();
+            allProducts.forEach(p => {
+                if(p.brand) activeBrands.add(p.brand);
+                if(p.subcategory) activeBrands.add(p.subcategory);
+            });
+            renderBrandCarousel('brands-carousel-area', activeBrands);
+        }
 
     } catch (e) {
-        console.error("Error search:", e);
-        grid.innerHTML = `<p class="col-span-full text-center text-red-400">Error de conexión.</p>`;
+        console.error("Error catálogo:", e);
+        grid.innerHTML = `<p class="col-span-full text-center text-red-400 font-bold">Error de conexión.</p>`;
     }
 }
 
-// --- 3. UI FILTROS (Mantenemos tu lógica intacta) ---
+// --- 3. UI FILTROS ---
 function renderFiltersUI() {
     const extractCounts = (key, isVariantField = false) => {
         const counts = {};
@@ -125,7 +137,7 @@ function renderFiltersUI() {
 
     const sections = [
         { id: 'category', label: 'Categorías', items: extractCounts('category') },
-        { id: 'brand', label: 'Marcas', items: extractCounts('brand') }, 
+        { id: 'brand', label: 'Marcas', items: extractCounts('brand') },
         { id: 'color', label: 'Color', items: extractCounts('color', true) },
         { id: 'capacity', label: 'Capacidad', items: extractCounts('capacity', true) },
     ];
@@ -156,7 +168,7 @@ function renderFiltersUI() {
     mobileContent.innerHTML = html;
 }
 
-// --- 4. LÓGICA DE FILTRADO ---
+// --- 4. LOGICA FILTROS ---
 window.toggleFilter = (type, value) => {
     const index = activeFilters[type].indexOf(value);
     if (index === -1) activeFilters[type].push(value);
@@ -176,30 +188,41 @@ function syncCheckboxes() {
 
 window.clearAllFilters = () => {
     Object.keys(activeFilters).forEach(key => activeFilters[key] = []);
-    searchQuery = ""; 
-    searchTitle.textContent = "Catálogo Completo";
-    searchSubtitle.textContent = "Explorando";
-    window.history.pushState({}, '', '/shop/search.html'); 
-    
     document.querySelectorAll('.filter-checkbox').forEach(cb => cb.checked = false);
     applySortAndFilter();
     if(window.innerWidth < 1024) toggleDrawer(false);
 };
 
-// --- 5. MOTOR PRINCIPAL ---
+// --- ORDENAMIENTO ---
+window.setSort = (value, label) => {
+    currentSort = value;
+    sortLabel.textContent = label;
+    sortDropdown.classList.add('hidden');
+    sortIcon.classList.remove('rotate-180');
+    applySortAndFilter();
+};
+
+if (sortTrigger) {
+    sortTrigger.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const isHidden = sortDropdown.classList.contains('hidden');
+        if (isHidden) { sortDropdown.classList.remove('hidden'); sortIcon.classList.add('rotate-180'); }
+        else { sortDropdown.classList.add('hidden'); sortIcon.classList.remove('rotate-180'); }
+    });
+}
+
+document.addEventListener('click', (e) => {
+    if (sortTrigger && !sortTrigger.contains(e.target) && !sortDropdown.contains(e.target)) {
+        sortDropdown.classList.add('hidden');
+        sortIcon.classList.remove('rotate-180');
+    }
+});
+
+// --- 5. APLICAR FILTROS Y SORT ---
 function applySortAndFilter() {
     filteredProducts = allProducts.filter(p => {
         const norm = (str) => str ? str.toLowerCase() : '';
         
-        if (searchQuery) {
-            const textMatch = norm(p.name).includes(searchQuery) || 
-                              norm(p.description).includes(searchQuery) || 
-                              norm(p.category).includes(searchQuery) || 
-                              norm(p.subcategory).includes(searchQuery) ||
-                              (p.tags && p.tags.some(t => norm(t).includes(searchQuery)));
-            if (!textMatch) return false;
-        }
-
         const matchCat = activeFilters.category.length === 0 || activeFilters.category.some(f => norm(p.category) === norm(f));
         const matchBrand = activeFilters.brand.length === 0 || activeFilters.brand.some(f => norm(p.brand) === norm(f) || norm(p.subcategory) === norm(f));
         
@@ -216,20 +239,25 @@ function applySortAndFilter() {
         return matchCat && matchBrand && matchColor && matchCap;
     });
 
-    // Ordenamiento
+    // Sort
     filteredProducts.sort((a, b) => {
         if (currentSort === 'price-asc') return a.price - b.price;
         if (currentSort === 'price-desc') return b.price - a.price;
         if (currentSort === 'alpha-asc') return a.name.localeCompare(b.name);
+        if (currentSort === 'discount') {
+            const discA = a.originalPrice ? (a.originalPrice - a.price) / a.originalPrice : 0;
+            const discB = b.originalPrice ? (b.originalPrice - b.price) / b.originalPrice : 0;
+            return discB - discA;
+        }
         const dateA = a.createdAt?.seconds || 0;
         const dateB = b.createdAt?.seconds || 0;
-        return dateB - dateA; 
+        return dateB - dateA;
     });
 
     // UI Updates
     currentPage = 1;
     if(countLabel) countLabel.textContent = filteredProducts.length;
-    const hasActiveFilters = Object.values(activeFilters).some(arr => arr.length > 0) || searchQuery !== "";
+    const hasActiveFilters = Object.values(activeFilters).some(arr => arr.length > 0);
     if (btnClear) {
         if (hasActiveFilters) { btnClear.classList.remove('hidden'); btnClear.classList.add('flex'); }
         else { btnClear.classList.add('hidden'); btnClear.classList.remove('flex'); }
@@ -238,7 +266,7 @@ function applySortAndFilter() {
     renderPagination();
 }
 
-// --- 6. RENDER GRID (Manteniendo tu diseño unificado) ---
+// --- 6. RENDER GRID ---
 function renderGrid() {
     if (filteredProducts.length === 0) {
         grid.classList.add('hidden');
@@ -299,15 +327,16 @@ function renderGrid() {
                     </div>
                 </div>
             </div>
-        </div>`;
+        </div>
+        `;
     }).join('');
-    
+
     if (currentPage > 1) {
         document.getElementById('global-header').scrollIntoView({ behavior: 'smooth' });
     }
 }
 
-// --- 7. UTILS Y EVENTOS ---
+// --- 7. ACCIONES CARRITO ---
 window.handleCartAction = (productId, delta) => {
     const product = allProducts.find(p => p.id === productId);
     if (!product) return;
@@ -318,54 +347,65 @@ window.handleCartAction = (productId, delta) => {
     else updateCartCount();
 };
 
-window.setSort = (value, label) => {
-    currentSort = value;
-    sortLabel.textContent = label;
-    sortDropdown.classList.add('hidden');
-    sortIcon.classList.remove('rotate-180');
-    applySortAndFilter();
-};
-
-if (sortTrigger) {
-    sortTrigger.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const isHidden = sortDropdown.classList.contains('hidden');
-        if (isHidden) { sortDropdown.classList.remove('hidden'); sortIcon.classList.add('rotate-180'); }
-        else { sortDropdown.classList.add('hidden'); sortIcon.classList.remove('rotate-180'); }
-    });
-}
-document.addEventListener('click', (e) => {
-    if (sortTrigger && !sortTrigger.contains(e.target) && !sortDropdown.contains(e.target)) {
-        sortDropdown.classList.add('hidden');
-        sortIcon.classList.remove('rotate-180');
-    }
-});
-
-// Paginación y Mobile Drawer (Simplificado)
+// --- 8. RENDER PAGINACIÓN ---
 function renderPagination() {
     const totalPages = Math.ceil(filteredProducts.length / ITEMS_PER_PAGE);
     if (totalPages <= 1) { paginationContainer.innerHTML = ''; return; }
-    let html = `<button onclick="window.changePage(${currentPage - 1})" ${currentPage === 1 ? 'disabled' : ''} class="w-10 h-10 flex items-center justify-center rounded-xl border border-gray-200 text-gray-500 hover:border-brand-cyan hover:text-brand-cyan disabled:opacity-30 transition"><i class="fa-solid fa-chevron-left"></i></button>`;
+
+    let html = `
+        <button onclick="window.changePage(${currentPage - 1})" ${currentPage === 1 ? 'disabled' : ''} 
+            class="w-10 h-10 flex items-center justify-center rounded-xl border border-gray-200 text-gray-500 hover:border-brand-cyan hover:text-brand-cyan disabled:opacity-30 disabled:pointer-events-none transition">
+            <i class="fa-solid fa-chevron-left"></i>
+        </button>
+    `;
+
     for (let i = 1; i <= totalPages; i++) {
-        html += `<button onclick="window.changePage(${i})" class="w-10 h-10 flex items-center justify-center rounded-xl font-bold text-xs transition ${i === currentPage ? 'bg-brand-black text-white shadow-lg' : 'bg-white border border-gray-200 hover:bg-gray-50'}">${i}</button>`;
+        if (i === 1 || i === totalPages || (i >= currentPage - 1 && i <= currentPage + 1)) {
+            html += `
+                <button onclick="window.changePage(${i})" 
+                    class="w-10 h-10 flex items-center justify-center rounded-xl font-bold text-xs transition ${i === currentPage ? 'bg-brand-black text-white shadow-lg' : 'bg-white border border-gray-200 text-gray-500 hover:bg-gray-50'}">
+                    ${i}
+                </button>
+            `;
+        } else if (i === currentPage - 2 || i === currentPage + 2) {
+            html += `<span class="text-gray-300 font-bold text-xs">...</span>`;
+        }
     }
-    html += `<button onclick="window.changePage(${currentPage + 1})" ${currentPage === totalPages ? 'disabled' : ''} class="w-10 h-10 flex items-center justify-center rounded-xl border border-gray-200 text-gray-500 hover:border-brand-cyan hover:text-brand-cyan disabled:opacity-30 transition"><i class="fa-solid fa-chevron-right"></i></button>`;
+
+    html += `
+        <button onclick="window.changePage(${currentPage + 1})" ${currentPage === totalPages ? 'disabled' : ''} 
+            class="w-10 h-10 flex items-center justify-center rounded-xl border border-gray-200 text-gray-500 hover:border-brand-cyan hover:text-brand-cyan disabled:opacity-30 disabled:pointer-events-none transition">
+            <i class="fa-solid fa-chevron-right"></i>
+        </button>
+    `;
+
     paginationContainer.innerHTML = html;
 }
-window.changePage = (p) => { currentPage = p; renderGrid(); };
 
-// Drawer Mobile
+window.changePage = (page) => {
+    currentPage = page;
+    renderGrid();
+    renderPagination();
+};
+
+// --- 9. MOBILE DRAWER ---
 const openBtn = document.getElementById('btn-open-filters');
 const closeBtn = document.getElementById('btn-close-filters');
 const applyBtn = document.getElementById('btn-apply-mobile');
+
 const toggleDrawer = (show) => {
-    if (show) { drawer.classList.remove('translate-x-full'); mobileOverlay.classList.remove('hidden'); setTimeout(()=>mobileOverlay.classList.remove('opacity-0'),10); } 
-    else { drawer.classList.add('translate-x-full'); mobileOverlay.classList.add('opacity-0'); setTimeout(()=>mobileOverlay.classList.add('hidden'),300); }
+    if (show) {
+        drawer.classList.remove('translate-x-full');
+        mobileOverlay.classList.remove('hidden');
+        setTimeout(() => mobileOverlay.classList.remove('opacity-0'), 10);
+    } else {
+        drawer.classList.add('translate-x-full');
+        mobileOverlay.classList.add('opacity-0');
+        setTimeout(() => mobileOverlay.classList.add('hidden'), 300);
+    }
 };
+
 if(openBtn) openBtn.onclick = () => toggleDrawer(true);
 if(closeBtn) closeBtn.onclick = () => toggleDrawer(false);
 if(mobileOverlay) mobileOverlay.onclick = () => toggleDrawer(false);
 if(applyBtn) applyBtn.onclick = () => toggleDrawer(false);
-
-// INIT
-initSearch();

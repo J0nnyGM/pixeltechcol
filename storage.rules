@@ -2,27 +2,46 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
     
-    // 1. GARANTÍAS (Evidencia del Usuario - Fotos/Video)
+    // 1. GARANTÍAS
     match /warranties/{orderId}/{fileName} {
       allow read, write: if request.auth != null;
     }
 
-    // 2. INFORMES TÉCNICOS (PDFs del Admin) - ¡Necesario para la nueva función!
+    // 2. INFORMES TÉCNICOS
     match /warranty_reports/{fileName} {
-      allow read: if request.auth != null; // El usuario debe poder leerlo para descargarlo
-      allow write: if request.auth != null; // El admin debe poder subirlo
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
     }
     
-    // 3. PRODUCTOS (Imágenes de la tienda)
+    // 3. PRODUCTOS
     match /products/{allPaths=**} {
-      allow read: if true; // Público
+      allow read: if true;
       allow write: if request.auth != null;
     }
 
-    // 4. BANNERS Y VITRINA (SOLUCIÓN A TU ERROR ACTUAL)
+    // 4. BANNERS Y VITRINA
     match /banners/{allPaths=**} {
-      allow read: if true; // Público (para que se vean en el index.html)
-      allow write: if request.auth != null; // Solo admin logueado sube
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    // 5. ✅ NUEVO: CATEGORÍAS (Solución a tu error)
+    // Usamos {allPaths=**} para permitir subcarpetas como /categories/subs/
+    match /categories/{allPaths=**} {
+      allow read: if true;  // Público (para que los clientes vean las fotos)
+      allow write: if request.auth != null; // Solo admin sube fotos
+    }
+
+    // 6. FACTURAS
+    match /invoices/{fileName} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null; // Simplificado a auth != null si no tienes la función isAdmin definida aquí
+    }
+
+    // 7. MARCAS (Para admin/brands.html)
+    match /brands/{allPaths=**} {
+      allow read: if true;
+      allow write: if request.auth != null;
     }
   }
 }

@@ -22,6 +22,9 @@ firebase-debug.log
 firestore-debug.log
 ui-debug.log
 
+# Cache y Build de Firebase (NUEVO)
+.firebase/
+
 # Carpetas de funciones
 functions/node_modules/
 

@@ -3,82 +3,485 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Departamentos - PixelTech Admin</title>
+    <title>Categorías - PixelTech Admin</title>
     <link rel="stylesheet" href="../css/styles.css">
     <script src="https://kit.fontawesome.com/0d623ded97.js" crossorigin="anonymous"></script>
-    <style> .hidden { display: none; } </style>
+    <style> 
+        .hidden { display: none; } 
+        html { scroll-behavior: auto; }
+    </style>
 </head>
-<body class="bg-gray-100 font-sans text-brand-black hidden flex h-screen overflow-hidden">
+
+<body class="bg-gray-100 font-sans text-brand-black flex h-screen overflow-hidden">
 
     <div id="admin-sidebar"></div>
 
-    <main class="flex-grow overflow-y-auto p-8 bg-slate-50">
-        <h1 class="text-3xl font-black mb-2">Estructura de la Tienda</h1>
-        <p class="text-gray-500 mb-8 text-sm">Define los departamentos principales y sus subcategorías.</p>
+    <main class="flex-grow overflow-y-auto p-8 bg-slate-50 w-full">
+        <h1 class="text-3xl font-black mb-2">Gestor de Categorías</h1>
+        <p class="text-gray-500 mb-8 text-sm">Administra la estructura de tu catálogo (Categorías y Subcategorías).</p>
 
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            <div class="bg-white p-6 rounded-2xl shadow-xl border border-gray-100 h-fit sticky top-8">
-                <form id="cat-form" class="space-y-4">
-                    <input type="text" id="cat-name" placeholder="Ej: Computación" required class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-brand-cyan outline-none transition">
-                    <textarea id="cat-subs" placeholder="Subcategorías (Separadas por comas)" required class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-brand-cyan outline-none h-32 transition"></textarea>
-                    <button type="submit" class="w-full bg-brand-black text-white font-black py-4 rounded-xl hover:bg-brand-cyan transition uppercase text-[10px] tracking-widest shadow-lg">
-                        Guardar Departamento
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+            
+            <div class="lg:col-span-5 space-y-6">
+                
+                <div class="bg-white p-6 rounded-2xl shadow-xl border border-gray-100 relative">
+                    <button id="btn-cancel-edit" onclick="resetForm()" class="hidden absolute top-4 right-4 text-[10px] bg-red-50 text-red-500 px-3 py-1 rounded-full font-bold uppercase hover:bg-red-100 transition">
+                        Cancelar
                     </button>
-                </form>
+
+                    <h3 class="font-black text-sm uppercase mb-4 text-brand-cyan" id="form-title">1. Categoría Principal</h3>
+                    <form id="cat-form" class="space-y-4">
+                        <input type="text" id="cat-name" placeholder="Nombre Principal (Ej: Computación)" required 
+                               class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-brand-cyan outline-none font-bold">
+                        
+                        <label class="flex items-center gap-4 cursor-pointer group">
+                            <div class="w-20 h-20 bg-gray-50 border-2 border-dashed border-gray-300 rounded-xl flex items-center justify-center group-hover:border-brand-cyan transition overflow-hidden relative">
+                                <img id="main-preview" class="absolute inset-0 w-full h-full object-cover hidden">
+                                <i class="fa-solid fa-image text-gray-400 group-hover:text-brand-cyan z-10"></i>
+                            </div>
+                            <div class="flex-1">
+                                <span class="text-xs font-bold text-gray-500 block uppercase">Portada Principal</span>
+                                <span class="text-[10px] text-gray-400" id="main-file-name">Click para cambiar</span>
+                            </div>
+                            <input type="file" id="cat-image" class="hidden" accept="image/*">
+                        </label>
+                    </form>
+                </div>
+
+                <div class="bg-white p-6 rounded-2xl shadow-xl border border-gray-100 relative">
+                    <div id="sub-edit-indicator" class="hidden absolute top-4 right-4 bg-blue-50 text-blue-600 text-[9px] font-black px-2 py-1 rounded uppercase">
+                        Editando Item
+                    </div>
+
+                    <h3 class="font-black text-sm uppercase mb-4 text-brand-cyan">2. Gestionar Subcategorías</h3>
+                    <div class="space-y-4">
+                        <input type="text" id="sub-name" placeholder="Nombre Subcategoría (Ej: Portátiles)" 
+                               class="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 text-sm focus:ring-2 focus:ring-brand-cyan outline-none">
+                        
+                        <label class="flex items-center gap-4 cursor-pointer group">
+                            <div class="w-16 h-16 bg-gray-50 border-2 border-dashed border-gray-300 rounded-xl flex items-center justify-center group-hover:border-brand-cyan transition overflow-hidden relative">
+                                <img id="sub-preview" class="absolute inset-0 w-full h-full object-cover hidden">
+                                <i class="fa-solid fa-plus text-gray-400 group-hover:text-brand-cyan z-10"></i>
+                            </div>
+                            <div class="flex-1">
+                                <span class="text-xs font-bold text-gray-500 block uppercase">Foto Subcategoría</span>
+                                <span class="text-[10px] text-gray-400" id="sub-file-name">Opcional</span>
+                            </div>
+                            <input type="file" id="sub-image" class="hidden" accept="image/*">
+                        </label>
+
+                        <div class="flex gap-2">
+                            <button type="button" id="btn-add-sub" class="flex-1 bg-gray-100 text-brand-black font-bold py-3 rounded-xl hover:bg-gray-200 transition text-xs uppercase flex items-center justify-center gap-2">
+                                <i class="fa-solid fa-plus"></i> <span id="btn-sub-text">Agregar a la Lista</span>
+                            </button>
+                            <button type="button" id="btn-cancel-sub-edit" class="hidden w-12 bg-red-100 text-red-500 rounded-xl hover:bg-red-200 transition flex items-center justify-center">
+                                <i class="fa-solid fa-xmark"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <button onclick="saveFullCategory()" id="btn-save-all" class="w-full bg-brand-black text-white font-black py-4 rounded-xl hover:bg-brand-cyan hover:text-brand-black transition uppercase text-[10px] tracking-widest shadow-lg flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-cloud-arrow-up"></i> <span id="save-btn-text">Guardar Categoría Completa</span>
+                </button>
+
             </div>
 
-            <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-                <div id="categories-list" class="divide-y divide-gray-100">
+            <div class="lg:col-span-7 space-y-6">
+                
+                <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 min-h-[150px]">
+                    <h3 class="font-black text-xs uppercase tracking-widest text-gray-400 mb-4 border-b border-gray-50 pb-2">Estructura Nueva (Previsualización)</h3>
+                    <div id="temp-subs-list" class="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                        <p class="col-span-full text-center text-gray-300 text-xs py-4">Agrega subcategorías para verlas aquí</p>
                     </div>
+                </div>
+
+                <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                    <div class="p-4 border-b border-gray-100 bg-gray-50">
+                        <h3 class="font-black text-xs uppercase tracking-widest text-brand-black">Categorías Activas</h3>
+                    </div>
+                    <div id="categories-list" class="divide-y divide-gray-100 max-h-[600px] overflow-y-auto">
+                        <div class="p-8 text-center text-gray-400">
+                            <i class="fa-solid fa-circle-notch fa-spin"></i> Cargando...
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </main>
 
     <script type="module">
-        import '../js/admin-guard.js'; // El guardia ya carga el sidebar automáticamente
-        import { db, collection, addDoc, getDocs, doc, deleteDoc } from '../js/firebase-init.js';
+        import '../js/admin-guard.js'; 
+        import { loadAdminSidebar } from '../js/admin-ui.js';
+        import { db, storage, collection, addDoc, updateDoc, getDoc, getDocs, doc, deleteDoc, ref, uploadBytes, getDownloadURL } from '../js/firebase-init.js';
 
-        const form = document.getElementById('cat-form');
-        const list = document.getElementById('categories-list');
+        // Carga Sidebar Inmediata
+        loadAdminSidebar();
 
-        async function loadCategories() {
-            const snap = await getDocs(collection(db, "categories"));
-            list.innerHTML = "";
-            snap.forEach(d => {
-                const data = d.data();
-                list.innerHTML += `
-                    <div class="p-6 flex justify-between items-start group hover:bg-slate-50 transition">
-                        <div>
-                            <h3 class="font-black text-brand-black text-lg">${data.name}</h3>
-                            <div class="flex flex-wrap gap-2 mt-3">
-                                ${data.subcategories.map(s => `<span class="bg-brand-cyan/10 text-brand-cyan text-[10px] font-black px-3 py-1 rounded-full border border-brand-cyan/20">${s.trim()}</span>`).join('')}
-                            </div>
-                        </div>
-                        <button onclick="window.deleteCat('${d.id}')" class="text-gray-200 hover:text-brand-red p-2 transition">
-                            <i class="fa-solid fa-trash-can"></i>
-                        </button>
-                    </div>
-                `;
-            });
+        // --- ESTADO GLOBAL ---
+        let tempSubcategories = []; 
+        let isEditing = false;
+        let editCategoryId = null;
+        let currentMainImageUrl = null;
+        let editingSubIndex = -1;
+
+        // DOM Elements
+        const formTitle = document.getElementById('form-title');
+        const btnCancel = document.getElementById('btn-cancel-edit');
+        const saveBtnText = document.getElementById('save-btn-text');
+        
+        const mainNameInput = document.getElementById('cat-name');
+        const mainInput = document.getElementById('cat-image');
+        const mainPreview = document.getElementById('main-preview');
+        const mainNameDisplay = document.getElementById('main-file-name');
+        
+        // Subcategory DOM
+        const subInput = document.getElementById('sub-image');
+        const subPreview = document.getElementById('sub-preview');
+        const subNameDisplay = document.getElementById('sub-file-name');
+        const subNameText = document.getElementById('sub-name');
+        const btnSubText = document.getElementById('btn-sub-text');
+        const btnCancelSubEdit = document.getElementById('btn-cancel-sub-edit');
+        const subEditIndicator = document.getElementById('sub-edit-indicator');
+        
+        const tempContainer = document.getElementById('temp-subs-list');
+        const btnSave = document.getElementById('btn-save-all');
+
+        // --- PREVIEWS ---
+        mainInput.onchange = e => handlePreview(e.target, mainPreview, mainNameDisplay);
+        subInput.onchange = e => handlePreview(e.target, subPreview, subNameDisplay);
+
+        function handlePreview(input, imgEl, textEl) {
+            const file = input.files[0];
+            if(file) {
+                textEl.textContent = file.name;
+                const reader = new FileReader();
+                reader.onload = e => {
+                    imgEl.src = e.target.result;
+                    imgEl.classList.remove('hidden');
+                };
+                reader.readAsDataURL(file);
+            }
         }
 
-        form.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const name = document.getElementById('cat-name').value;
-            const subs = document.getElementById('cat-subs').value.split(',').map(s => s.trim()).filter(s => s !== "");
+        // --- LÓGICA AGREGAR / EDITAR SUBCATEGORÍA ---
+        document.getElementById('btn-add-sub').onclick = () => {
+            const name = subNameText.value.trim();
+            const file = subInput.files[0];
 
-            await addDoc(collection(db, "categories"), {
-                name: name,
-                subcategories: subs,
-                createdAt: new Date()
-            });
-            form.reset();
-            loadCategories();
-        });
+            if(!name) return alert("Escribe un nombre para la subcategoría");
+            
+            // Placeholder por defecto
+            let previewUrl = 'https://placehold.co/100'; 
+            if(file) {
+                previewUrl = URL.createObjectURL(file);
+            }
+
+            if (editingSubIndex === -1) {
+                // AGREGAR NUEVO
+                tempSubcategories.push({ 
+                    name, 
+                    file: file || null, 
+                    image: null, 
+                    previewUrl: file ? previewUrl : 'https://placehold.co/100'
+                });
+            } else {
+                // ACTUALIZAR EXISTENTE
+                const existing = tempSubcategories[editingSubIndex];
+                const newFile = file || existing.file;
+                // Si sube foto nueva, usar nueva preview. Si no, usar la existente.
+                const newPreview = file ? previewUrl : existing.previewUrl;
+
+                tempSubcategories[editingSubIndex] = {
+                    name,
+                    file: newFile,
+                    image: existing.image, 
+                    previewUrl: newPreview
+                };
+                cancelSubEdit();
+            }
+            
+            renderTempList();
+            if(editingSubIndex === -1) clearSubInputs();
+        };
+
+        function clearSubInputs() {
+            subNameText.value = "";
+            subInput.value = "";
+            subPreview.classList.add('hidden');
+            subNameDisplay.textContent = "Opcional";
+        }
+
+        function cancelSubEdit() {
+            editingSubIndex = -1;
+            btnSubText.textContent = "Agregar a la Lista";
+            subEditIndicator.classList.add('hidden');
+            btnCancelSubEdit.classList.add('hidden');
+            clearSubInputs();
+        }
+        btnCancelSubEdit.onclick = cancelSubEdit;
+
+        // --- RENDERIZAR LISTA TEMPORAL ---
+        function renderTempList() {
+            if(tempSubcategories.length === 0) {
+                tempContainer.innerHTML = `<p class="col-span-full text-center text-gray-300 text-xs py-4">Agrega subcategorías para verlas aquí</p>`;
+                return;
+            }
+            
+            tempContainer.innerHTML = tempSubcategories.map((sub, index) => `
+                <div class="relative group rounded-xl overflow-hidden border border-gray-100 shadow-sm aspect-square bg-white ${editingSubIndex === index ? 'ring-2 ring-blue-400' : ''}">
+                    <img src="${sub.previewUrl || 'https://placehold.co/100'}" class="w-full h-full object-cover">
+                    
+                    <div class="absolute inset-0 bg-black/60 flex flex-col items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition duration-300">
+                        <span class="text-white text-[10px] font-bold uppercase text-center px-1 leading-tight">${sub.name}</span>
+                        <div class="flex gap-2">
+                            <button onclick="window.editTempSub(${index})" class="bg-blue-500 text-white w-7 h-7 rounded-full flex items-center justify-center hover:scale-110 transition shadow-md" title="Editar">
+                                <i class="fa-solid fa-pen text-xs"></i>
+                            </button>
+                            <button onclick="window.removeTemp(${index})" class="bg-red-500 text-white w-7 h-7 rounded-full flex items-center justify-center hover:scale-110 transition shadow-md" title="Borrar">
+                                <i class="fa-solid fa-xmark text-xs"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        window.removeTemp = (index) => {
+            if(editingSubIndex === index) cancelSubEdit();
+            tempSubcategories.splice(index, 1);
+            if(editingSubIndex > index) editingSubIndex--;
+            renderTempList();
+        };
+
+        window.editTempSub = (index) => {
+            const sub = tempSubcategories[index];
+            editingSubIndex = index;
+            
+            subNameText.value = sub.name;
+            subPreview.src = sub.previewUrl || 'https://placehold.co/100'; // Fallback
+            subPreview.classList.remove('hidden');
+            subNameDisplay.textContent = "Cambiar imagen (Opcional)";
+            
+            btnSubText.textContent = "Actualizar Item";
+            subEditIndicator.classList.remove('hidden');
+            btnCancelSubEdit.classList.remove('hidden');
+            
+            renderTempList();
+        };
+
+        // --- GUARDADO GENERAL ---
+        window.saveFullCategory = async () => {
+            const catName = mainNameInput.value.trim();
+            const mainFile = mainInput.files[0];
+
+            if(!catName) return alert("Falta el nombre de la Categoría");
+            if(!isEditing && !mainFile) return alert("Falta la imagen principal");
+
+            try {
+                btnSave.disabled = true;
+                btnSave.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Guardando...`;
+
+                // 1. Imagen Principal
+                let mainUrl = currentMainImageUrl;
+                if (mainFile) {
+                    const mainRef = ref(storage, `categories/${Date.now()}_main_${mainFile.name}`);
+                    await uploadBytes(mainRef, mainFile);
+                    mainUrl = await getDownloadURL(mainRef);
+                }
+
+                // 2. Subcategorías
+                const subcategoriesData = await Promise.all(tempSubcategories.map(async (sub) => {
+                    let finalSubUrl = sub.image; 
+                    
+                    if (sub.file) {
+                        const subRef = ref(storage, `categories/subs/${Date.now()}_${sub.name}_${sub.file.name}`);
+                        await uploadBytes(subRef, sub.file);
+                        finalSubUrl = await getDownloadURL(subRef);
+                    } else if (!finalSubUrl) {
+                        finalSubUrl = 'https://placehold.co/300x300?text=No+Img';
+                    }
+
+                    return { name: sub.name, image: finalSubUrl };
+                }));
+
+                // 3. Firestore
+                const docData = {
+                    name: catName,
+                    image: mainUrl || 'https://placehold.co/400x300',
+                    subcategories: subcategoriesData,
+                    updatedAt: new Date()
+                };
+
+                if (isEditing) {
+                    await updateDoc(doc(db, "categories", editCategoryId), docData);
+                    alert("✅ Categoría actualizada");
+                } else {
+                    docData.createdAt = new Date();
+                    await addDoc(collection(db, "categories"), docData);
+                    alert("✅ Categoría creada");
+                }
+
+                window.resetForm();
+                loadCategories();
+
+            } catch (e) {
+                console.error(e);
+                alert("Error: " + e.message);
+                btnSave.disabled = false;
+                btnSave.innerHTML = isEditing ? `Actualizar` : `Guardar Categoría Completa`;
+            }
+        };
+
+        // --- CARGAR LISTA PRINCIPAL (FIXED UNDEFINED) ---
+        async function loadCategories() {
+            const list = document.getElementById('categories-list');
+            try {
+                const snap = await getDocs(collection(db, "categories"));
+                list.innerHTML = "";
+                
+                if (snap.empty) {
+                    list.innerHTML = `<div class="p-8 text-center text-gray-400 text-xs font-bold uppercase">No hay categorías</div>`;
+                    return;
+                }
+
+                snap.forEach(d => {
+                    const data = d.data();
+                    // Fallback para evitar 404
+                    const displayImage = data.image || 'https://placehold.co/100?text=No+Img';
+                    const subcats = data.subcategories || [];
+                    
+                    // Renderizar miniaturas de subcategorías con validación de imagen
+                    let subcatsHTML = "";
+                    if(subcats.length > 0) {
+                        subcatsHTML = `
+                            <div class="mt-3 flex flex-wrap gap-2">
+                                ${subcats.map(s => {
+                                    // Validación: Si es string antiguo o si no tiene imagen
+                                    const sName = typeof s === 'string' ? s : s.name;
+                                    const sImg = (typeof s === 'object' && s.image) ? s.image : 'https://placehold.co/100?text=S';
+                                    return `
+                                    <div class="flex items-center gap-2 bg-gray-50 border border-gray-100 rounded-full pr-3 pl-1 py-1">
+                                        <img src="${sImg}" class="w-5 h-5 rounded-full object-cover">
+                                        <span class="text-[9px] font-bold text-gray-500 uppercase">${sName}</span>
+                                    </div>
+                                    `;
+                                }).join('')}
+                            </div>
+                        `;
+                    } else {
+                        subcatsHTML = `<p class="mt-2 text-[10px] text-gray-300 italic">Sin subcategorías</p>`;
+                    }
+
+                    list.innerHTML += `
+                        <div class="p-5 hover:bg-slate-50 transition border-b border-gray-50 last:border-0 group">
+                            <div class="flex items-start justify-between">
+                                <div class="flex items-center gap-4">
+                                    <div class="w-16 h-16 rounded-xl bg-gray-100 overflow-hidden shrink-0 border border-gray-200 shadow-sm">
+                                        <img src="${displayImage}" class="w-full h-full object-cover">
+                                    </div>
+                                    <div>
+                                        <h3 class="font-black text-brand-black text-sm uppercase">${data.name}</h3>
+                                        <p class="text-[10px] text-gray-400 font-bold">${subcats.length} Colecciones</p>
+                                    </div>
+                                </div>
+                                <div class="flex gap-2 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity">
+                                    <button onclick="window.loadForEdit('${d.id}')" class="w-8 h-8 flex items-center justify-center rounded-lg bg-white border border-gray-200 text-blue-400 hover:text-white hover:bg-blue-500 hover:border-blue-500 transition shadow-sm" title="Editar Categoría">
+                                        <i class="fa-solid fa-pen"></i>
+                                    </button>
+                                    <button onclick="window.deleteCat('${d.id}')" class="w-8 h-8 flex items-center justify-center rounded-lg bg-white border border-gray-200 text-gray-300 hover:text-white hover:bg-red-500 hover:border-red-500 transition shadow-sm" title="Eliminar">
+                                        <i class="fa-solid fa-trash-can"></i>
+                                    </button>
+                                </div>
+                            </div>
+                            ${subcatsHTML}
+                        </div>
+                    `;
+                });
+            } catch (error) {
+                console.error(error);
+                list.innerHTML = `<div class="p-8 text-center text-red-400">Error al cargar datos</div>`;
+            }
+        }
+
+        // --- MODO EDICIÓN CATEGORÍA PRINCIPAL ---
+        window.loadForEdit = async (id) => {
+            try {
+                const snap = await getDoc(doc(db, "categories", id));
+                if (!snap.exists()) return;
+                
+                const data = snap.data();
+                
+                isEditing = true;
+                editCategoryId = id;
+                currentMainImageUrl = data.image;
+
+                formTitle.textContent = `Editando: ${data.name}`;
+                formTitle.classList.remove('text-brand-cyan');
+                formTitle.classList.add('text-blue-500');
+                
+                btnCancel.classList.remove('hidden');
+                saveBtnText.textContent = "Actualizar Categoría";
+                
+                mainNameInput.value = data.name;
+                
+                mainPreview.src = data.image || 'https://placehold.co/100'; // Fallback
+                mainPreview.classList.remove('hidden');
+                mainNameDisplay.textContent = "Imagen actual cargada";
+
+                // Cargar Subcategorías
+                tempSubcategories = [];
+                if (data.subcategories && Array.isArray(data.subcategories)) {
+                    data.subcategories.forEach(sub => {
+                        // Compatibilidad con datos viejos (string) y nuevos (objeto)
+                        const sName = typeof sub === 'string' ? sub : sub.name;
+                        const sImg = typeof sub === 'object' ? sub.image : 'https://placehold.co/100';
+                        
+                        tempSubcategories.push({
+                            name: sName,
+                            file: null,
+                            image: sImg,
+                            previewUrl: sImg 
+                        });
+                    });
+                }
+                
+                renderTempList();
+                document.querySelector('main').scrollTo({ top: 0, behavior: 'auto' });
+
+            } catch (e) {
+                console.error(e);
+                alert("Error al cargar datos");
+            }
+        };
+
+        window.resetForm = () => {
+            isEditing = false;
+            editCategoryId = null;
+            currentMainImageUrl = null;
+            tempSubcategories = [];
+            
+            cancelSubEdit();
+            
+            document.getElementById('cat-form').reset();
+            
+            formTitle.textContent = "1. Categoría Principal";
+            formTitle.classList.add('text-brand-cyan');
+            formTitle.classList.remove('text-blue-500');
+            
+            btnCancel.classList.add('hidden');
+            saveBtnText.textContent = "Guardar Categoría Completa";
+            
+            mainPreview.classList.add('hidden');
+            mainNameDisplay.textContent = "Click para cambiar";
+            
+            renderTempList();
+        };
 
         window.deleteCat = async (id) => {
-            if(confirm("¿Eliminar este departamento?")) {
+            if(confirm("¿Estás seguro de eliminar esta categoría y sus subcategorías?")) {
                 await deleteDoc(doc(db, "categories", id));
+                if(isEditing && editCategoryId === id) resetForm();
                 loadCategories();
             }
         };

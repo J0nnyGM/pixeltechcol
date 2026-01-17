@@ -6,6 +6,7 @@ const orderId = params.get('id');
 if (!orderId) window.location.href = '/profile.html';
 
 const els = {
+    // Info General
     id: document.getElementById('order-id-display'),
     date: document.getElementById('order-date-display'),
     statusBadge: document.getElementById('order-status-badge'),
@@ -15,9 +16,17 @@ const els = {
     guideText: document.getElementById('shipping-guide'),
     itemsCount: document.getElementById('items-count'),
     subtotal: document.getElementById('order-subtotal'), 
+    shipping: document.getElementById('order-shipping'), 
     total: document.getElementById('order-total'),
     itemsList: document.getElementById('order-items-list'),
 
+    // Facturación
+    billingCard: document.getElementById('billing-info-card'),
+    billName: document.getElementById('bill-name'),
+    billTax: document.getElementById('bill-taxid'),
+    billEmail: document.getElementById('bill-email'),
+
+    // Modal Solicitud
     warrantyModal: document.getElementById('warranty-modal'),
     warrantyForm: document.getElementById('warranty-form'),
     modalProdName: document.getElementById('modal-product-name'),
@@ -26,6 +35,7 @@ const els = {
     inpImages: document.getElementById('w-images'),
     filePreview: document.getElementById('file-preview'),
 
+    // Modal Estado
     statusModal: document.getElementById('warranty-status-modal'),
     stDate: document.getElementById('st-date'),
     stBadge: document.getElementById('st-badge'),
@@ -34,7 +44,7 @@ const els = {
     stAdminResp: document.getElementById('st-admin-response'),
     stResolvedDate: document.getElementById('st-resolved-date'),
     stId: document.getElementById('st-id'),
-    stPdfBtn: document.getElementById('st-tech-report-btn') // Referencia al botón PDF
+    stPdfBtn: document.getElementById('st-tech-report-btn')
 };
 
 let currentOrder = null;
@@ -63,12 +73,10 @@ async function loadOrderDetails() {
         if (!snap.exists()) { window.location.href = '/profile.html'; return; }
         currentOrder = snap.data();
 
-        // --- CORRECCIÓN AQUÍ ---
-        // Agregamos where("userId", "==", auth.currentUser.uid) para cumplir con las reglas de seguridad
         const qW = query(
             collection(db, "warranties"),
             where("orderId", "==", orderId),
-            where("userId", "==", auth.currentUser.uid) // <--- FILTRO OBLIGATORIO
+            where("userId", "==", auth.currentUser.uid)
         );
 
         const snapW = await getDocs(qW);
@@ -77,9 +85,7 @@ async function loadOrderDetails() {
         renderHeaderInfo(snap.id, currentOrder);
         renderItems(currentOrder);
     } catch (e) {
-        console.error("Error cargando orden/garantías:", e);
-        // No mostrar alerta intrusiva si es solo un error de permisos de lectura de garantías,
-        // pero sí loguearlo. Si falla la orden, el usuario verá datos vacíos.
+        console.error("Error cargando orden:", e);
     }
 }
 
@@ -87,26 +93,35 @@ function renderHeaderInfo(displayId, order) {
     els.id.textContent = `ORDEN #${displayId.slice(0, 8).toUpperCase()}`;
     els.date.textContent = order.createdAt?.toDate().toLocaleDateString('es-CO');
     
-    let statusClass = "bg-yellow-100 text-yellow-700 border-yellow-200";
-    if (order.status === 'DESPACHADO') statusClass = "bg-green-100 text-green-700 border-green-200";
-    if (order.status === 'CANCELADO') statusClass = "bg-red-100 text-red-700 border-red-200";
+    let statusClass = "bg-yellow-50 text-yellow-700 border-yellow-200";
+    if (order.status === 'DESPACHADO' || order.status === 'ENTREGADO') statusClass = "bg-green-50 text-green-700 border-green-200";
+    if (order.status === 'CANCELADO') statusClass = "bg-red-50 text-red-700 border-red-200";
     els.statusBadge.innerHTML = `<span class="px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest border ${statusClass}">${order.status}</span>`;
 
-    els.address.textContent = order.address || "---";
-    els.city.textContent = order.city || "---";
+    const ship = order.shippingData || {};
+    els.address.textContent = ship.address || order.address || "Dirección no disponible";
+    els.city.textContent = ship.city ? `${ship.city} (${ship.department || ''})` : (order.city || "");
     
     if (order.shippingTracking) {
         els.guideContainer.classList.remove('hidden');
-        els.guideText.textContent = `${order.shippingCarrier || ''} - ${order.shippingTracking}`;
+        els.guideText.textContent = `${order.shippingCarrier || 'Transportadora'} - ${order.shippingTracking}`;
     }
 
-    // Precios
-    const totalVal = (order.total || 0).toLocaleString('es-CO');
-    els.itemsCount.textContent = order.items.length;
-    
-    // Aquí llenamos ambos campos
-    if (els.subtotal) els.subtotal.textContent = `$${totalVal}`;
-    els.total.textContent = `$${totalVal}`;
+    if (order.requiresInvoice && order.billingData) {
+        els.billingCard.classList.remove('hidden');
+        els.billName.textContent = order.billingData.name || "";
+        els.billTax.textContent = order.billingData.taxId || "";
+        els.billEmail.textContent = order.billingData.email || "";
+    } else {
+        els.billingCard.classList.add('hidden');
+    }
+
+    const totalItems = (order.items || []).reduce((acc, item) => acc + (item.quantity || 1), 0);
+    els.itemsCount.textContent = totalItems;
+    els.subtotal.textContent = `$${(order.subtotal || 0).toLocaleString('es-CO')}`;
+    const shipCost = order.shippingCost || 0;
+    els.shipping.textContent = shipCost === 0 ? "Gratis" : `$${shipCost.toLocaleString('es-CO')}`;
+    els.total.textContent = `$${(order.total || 0).toLocaleString('es-CO')}`;
 }
 
 function renderItems(order) {
@@ -116,12 +131,10 @@ function renderItems(order) {
 
     order.items.forEach((item, index) => {
         const warrantyDays = item.warrantyDays || 365;
-        let actionBtnHTML = "";
-        let warrantyStatusHTML = "";
         let isExpired = false;
         let daysLeft = 0;
 
-        // 1. Calcular Tiempos
+        // 1. Calcular Vencimiento
         if (shippedDate) {
             const expirationDate = new Date(shippedDate);
             expirationDate.setDate(expirationDate.getDate() + warrantyDays);
@@ -129,86 +142,105 @@ function renderItems(order) {
             isExpired = daysLeft <= 0;
         }
 
-        // 2. Verificar si YA tiene garantía (INCLUYENDO RECHAZADAS)
-        // CAMBIO: Quitamos el filtro !== 'RECHAZADO' para que detecte también las rechazas
-        const existingClaim = activeWarranties.find(w => w.productId === item.id);
+        // 2. Filtrar Garantías Específicas
+        const itemWarranties = activeWarranties.filter(w => 
+            w.productId === item.id &&
+            w.variantColor === (item.color || null) &&
+            w.variantCapacity === (item.capacity || null)
+        );
 
-        // 3. Determinar Estado Visual
+        // 3. Determinar Acción
+        const canCreateNew = !isExpired && shippedDate && (itemWarranties.length < item.quantity);
+
+        // 4. GENERAR INDICADOR DE TIEMPO (NUEVO)
+        let timeBadgeHTML = "";
         if (!shippedDate) {
-            // Caso: No despachado
-            warrantyStatusHTML = `<span class="text-[9px] font-bold text-gray-400 bg-gray-100 px-2 py-1 rounded">Inicia al despachar</span>`;
-            actionBtnHTML = `<button disabled class="mt-4 w-full md:w-auto bg-gray-100 text-gray-400 px-6 py-3 rounded-xl font-bold text-[10px] uppercase cursor-not-allowed">No disponible</button>`;
-
-        } else if (existingClaim) {
-            // CASO: YA TIENE SOLICITUD (Sea Pendiente, Aprobada o Rechazada)
-            let statusLabel = "En Revisión";
-            let statusColor = "bg-blue-50 text-blue-600 border-blue-200";
-            let icon = "fa-eye";
-
-            if (existingClaim.status === 'APROBADO') {
-                statusLabel = "Aprobada";
-                statusColor = "bg-green-50 text-green-600 border-green-200";
-            } else if (existingClaim.status === 'RECHAZADO') {
-                // CAMBIO: Estado visual para Rechazado
-                statusLabel = "Rechazada";
-                statusColor = "bg-red-50 text-red-600 border-red-200";
-                icon = "fa-circle-exclamation";
-            }
-
-            warrantyStatusHTML = `<span class="text-[9px] font-black uppercase ${statusColor} px-2 py-1 rounded border">Estado: ${statusLabel}</span>`;
-
-            // El botón lleva a VER DETALLES (para ver el motivo de rechazo) en lugar de abrir nueva solicitud
-            actionBtnHTML = `
-                <button onclick="window.openStatusModal('${existingClaim.id}')" class="mt-4 w-full md:w-auto bg-white border-2 border-brand-black text-brand-black px-6 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-brand-black hover:text-white transition shadow-sm transform active:scale-95">
-                    <i class="fa-solid ${icon} mr-2"></i> Ver Detalles
-                </button>`;
-
-        } else if (!isExpired) {
-            // CASO: DISPONIBLE PARA SOLICITAR
-            warrantyStatusHTML = `<span class="text-[9px] font-black text-green-600 bg-green-50 px-2 py-1 rounded border border-green-100 flex items-center gap-1"><i class="fa-solid fa-shield-check"></i> Garantía Activa (${daysLeft} días)</span>`;
-
-            actionBtnHTML = `
-                <button onclick="window.openWarrantyModal(${index})" class="mt-4 w-full md:w-auto bg-brand-black text-white px-6 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-brand-cyan hover:text-brand-black transition shadow-lg transform active:scale-95">
-                    Solicitar Garantía
-                </button>`;
+            timeBadgeHTML = `<span class="text-[9px] font-bold text-gray-400 bg-gray-50 border border-gray-100 px-2 py-0.5 rounded flex items-center gap-1 w-fit"><i class="fa-regular fa-clock"></i> Inicia al recibir</span>`;
+        } else if (isExpired) {
+            timeBadgeHTML = `<span class="text-[9px] font-bold text-red-400 bg-red-50 border border-red-100 px-2 py-0.5 rounded flex items-center gap-1 w-fit"><i class="fa-solid fa-calendar-xmark"></i> Cobertura Finalizada</span>`;
         } else {
-            // CASO: EXPIRADA
-            warrantyStatusHTML = `<span class="text-[9px] font-black text-red-400 bg-red-50 px-2 py-1 rounded border border-red-100">Garantía Expirada</span>`;
-            actionBtnHTML = `<button disabled class="mt-4 w-full md:w-auto bg-gray-50 text-gray-300 px-6 py-3 rounded-xl font-bold text-[10px] uppercase cursor-not-allowed">Expirada</button>`;
+            // Activa
+            timeBadgeHTML = `<span class="text-[9px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded flex items-center gap-1 w-fit"><i class="fa-solid fa-hourglass-half"></i> Quedan ${daysLeft} días</span>`;
         }
 
-        const div = document.createElement('div');
-        div.className = "flex flex-col md:flex-row gap-6 p-6 border-b border-gray-50 last:border-0 hover:bg-slate-50 transition rounded-3xl group";
+        // 5. Botones
+        let createBtnHTML = "";
+        if (canCreateNew) {
+            createBtnHTML = `
+                <button onclick="window.openWarrantyModal(${index})" 
+                    class="group flex items-center gap-2 bg-white border border-gray-200 hover:border-red-400 hover:bg-red-50 text-gray-600 hover:text-red-500 px-4 py-2 rounded-xl font-bold text-[10px] uppercase transition-all shadow-sm">
+                    <i class="fa-solid fa-triangle-exclamation"></i>
+                    Reportar Fallo
+                </button>
+            `;
+        }
 
-        // CAMBIO: Se eliminó el bloque que mostraba los SNs (item.sns.map...)
+        let existingCasesHTML = "";
+        if (itemWarranties.length > 0) {
+            existingCasesHTML = `<div class="flex flex-wrap gap-2 mt-3 w-full justify-end">`;
+            itemWarranties.forEach((w, i) => {
+                let colorClass = "bg-blue-50 text-blue-600 border-blue-100 hover:bg-blue-100";
+                let icon = "fa-spinner fa-spin-pulse";
+                let label = "Revisión";
+
+                if (w.status === 'APROBADO') { colorClass = "bg-green-50 text-green-600 border-green-100 hover:bg-green-100"; icon = "fa-check"; label = "Aprobado"; }
+                if (w.status === 'RECHAZADO') { colorClass = "bg-red-50 text-red-600 border-red-100 hover:bg-red-100"; icon = "fa-xmark"; label = "Rechazado"; }
+                if (w.status === 'FINALIZADO') { colorClass = "bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200"; icon = "fa-archive"; label = "Cerrado"; }
+
+                existingCasesHTML += `
+                    <button onclick="window.openStatusModal('${w.id}')" 
+                        class="flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[9px] font-black uppercase transition ${colorClass}">
+                        <i class="fa-solid ${icon}"></i>
+                        <span>Caso #${i + 1}: ${label}</span>
+                    </button>
+                `;
+            });
+            existingCasesHTML += `</div>`;
+        }
+
+        // Renderizado
+        const div = document.createElement('div');
+        div.className = "flex flex-col sm:flex-row gap-6 p-6 border border-gray-100 rounded-3xl hover:shadow-lg transition-all duration-300 group bg-white";
+
         div.innerHTML = `
-            <div class="w-24 h-24 bg-white rounded-2xl border border-gray-100 p-2 flex items-center justify-center shrink-0">
-                <img src="${item.mainImage || item.image}" class="max-w-full max-h-full object-contain">
+            <div class="w-20 h-20 bg-slate-50 rounded-2xl border border-gray-100 p-2 flex items-center justify-center shrink-0">
+                <img src="${item.mainImage || item.image || 'https://placehold.co/100'}" class="max-w-full max-h-full object-contain group-hover:scale-110 transition duration-500">
             </div>
-            <div class="flex-grow">
-                <div class="flex justify-between items-start">
+            
+            <div class="flex-grow min-w-0">
+                <div class="flex justify-between items-start mb-2">
                     <div>
-                        <h4 class="font-black text-sm uppercase text-brand-black group-hover:text-brand-cyan transition-colors cursor-pointer" onclick="window.location.href='/shop/product.html?id=${item.id}'">${item.name}</h4>
-                        <p class="text-[10px] font-bold text-gray-400 uppercase mt-1">${item.color || ''} ${item.capacity || ''}</p>
+                        <h4 class="font-black text-sm uppercase text-brand-black leading-tight mb-1">${item.name}</h4>
+                        
+                        <div class="flex flex-wrap gap-2 mb-2">
+                            ${item.color ? `<span class="text-[8px] font-bold uppercase bg-white border border-gray-200 px-2 py-0.5 rounded text-gray-500">${item.color}</span>` : ''}
+                            ${item.capacity ? `<span class="text-[8px] font-bold uppercase bg-cyan-50 border border-cyan-100 px-2 py-0.5 rounded text-brand-cyan">${item.capacity}</span>` : ''}
+                        </div>
+
+                        ${timeBadgeHTML}
                     </div>
-                    <p class="font-black text-brand-cyan text-lg">$${(item.price || 0).toLocaleString('es-CO')}</p>
+
+                    <div class="text-right shrink-0">
+                        <p class="font-black text-brand-black text-base">$${(item.price * item.quantity).toLocaleString('es-CO')}</p>
+                        <p class="text-[9px] font-bold text-gray-400 uppercase">Cant: ${item.quantity}</p>
+                    </div>
                 </div>
                 
-                <div class="mt-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    <div class="flex items-center gap-3">
-                        ${warrantyStatusHTML}
-                    </div>
-                    ${actionBtnHTML}
+                <div class="mt-4 pt-3 border-t border-dashed border-gray-100 flex flex-col items-end gap-2">
+                    ${createBtnHTML}
+                    ${existingCasesHTML}
                 </div>
             </div>
         `;
         els.itemsList.appendChild(div);
     });
 }
+
+// --- MODALES (IGUAL QUE ANTES) ---
 window.openWarrantyModal = (index) => {
     selectedItemIndex = index;
     const item = currentOrder.items[index];
-    els.modalProdName.textContent = item.name;
+    els.modalProdName.textContent = `${item.name} (${item.color || ''} ${item.capacity || ''})`;
     els.inpSn.value = "";
     els.inpReason.value = "";
     els.inpImages.value = "";
@@ -226,22 +258,15 @@ window.openStatusModal = (warrantyId) => {
     const claim = activeWarranties.find(w => w.id === warrantyId);
     if (!claim) return;
 
-    els.stId.textContent = claim.id;
+    els.stId.textContent = claim.id.slice(0,8).toUpperCase();
     els.stDate.textContent = "Radicado: " + claim.createdAt?.toDate().toLocaleDateString('es-CO');
     els.stReason.textContent = `"${claim.reason}"`;
 
     let badgeClass = "bg-blue-100 text-blue-700";
     let badgeText = "En Revisión";
-    if (claim.status === 'APROBADO') {
-        badgeClass = "bg-green-100 text-green-700";
-        badgeText = "Aprobada - En Proceso";
-    } else if (claim.status === 'RECHAZADO') {
-        badgeClass = "bg-red-100 text-red-700";
-        badgeText = "Rechazada";
-    } else if (claim.status === 'FINALIZADO') {
-        badgeClass = "bg-gray-100 text-gray-700";
-        badgeText = "Caso Cerrado";
-    }
+    if (claim.status === 'APROBADO') { badgeClass = "bg-green-100 text-green-700"; badgeText = "Aprobada"; }
+    else if (claim.status === 'RECHAZADO') { badgeClass = "bg-red-100 text-red-700"; badgeText = "Rechazada"; }
+    else if (claim.status === 'FINALIZADO') { badgeClass = "bg-gray-100 text-gray-700"; badgeText = "Cerrado"; }
     
     els.stBadge.className = `inline-block px-4 py-2 rounded-full text-xs font-black uppercase tracking-widest mb-2 ${badgeClass}`;
     els.stBadge.textContent = badgeText;
@@ -250,18 +275,15 @@ window.openStatusModal = (warrantyId) => {
         els.stAdminBox.classList.remove('hidden');
         els.stAdminResp.textContent = claim.adminResponse;
         
-        // LÓGICA PDF CORREGIDA
         if (claim.technicalReportUrl && els.stPdfBtn) {
             els.stPdfBtn.href = claim.technicalReportUrl;
-            // Forzamos visibilidad quitando hidden y poniendo flex
             els.stPdfBtn.classList.remove('hidden');
             els.stPdfBtn.classList.add('flex');
         } else if (els.stPdfBtn) {
             els.stPdfBtn.classList.add('hidden');
             els.stPdfBtn.classList.remove('flex');
         }
-
-        els.stResolvedDate.textContent = claim.resolvedAt ? "Actualizado: " + claim.resolvedAt.toDate().toLocaleString() : "";
+        els.stResolvedDate.textContent = claim.resolvedAt ? "Fecha: " + claim.resolvedAt.toDate().toLocaleString() : "";
     } else {
         els.stAdminBox.classList.add('hidden');
     }
@@ -282,7 +304,7 @@ els.warrantyForm.onsubmit = async (e) => {
     const imageFiles = els.inpImages.files;
 
     try {
-        if (!currentOrder.shippedAt) throw new Error("Fecha de despacho no encontrada.");
+        if (!currentOrder.shippedAt) throw new Error("Pedido no despachado aún.");
 
         if (item.sns && item.sns.length > 0) {
             const snFound = item.sns.some(sn => sn.trim().toUpperCase() === snInput.toUpperCase());
@@ -291,7 +313,7 @@ els.warrantyForm.onsubmit = async (e) => {
 
         const qDup = query(
             collection(db, "warranties"),
-            where("userId", "==", auth.currentUser.uid), // <-- FILTRO OBLIGATORIO
+            where("userId", "==", auth.currentUser.uid),
             where("snProvided", "==", snInput)
         );
         const dupSnap = await getDocs(qDup);
@@ -316,6 +338,10 @@ els.warrantyForm.onsubmit = async (e) => {
             productId: item.id || 'unknown',
             productName: item.name,
             productImage: item.mainImage || item.image || '',
+            
+            variantColor: item.color || null,
+            variantCapacity: item.capacity || null,
+
             snProvided: snInput,
             reason: reason,
             evidenceImages: evidenceUrls,
@@ -324,7 +350,7 @@ els.warrantyForm.onsubmit = async (e) => {
             shippedAtDate: currentOrder.shippedAt
         });
 
-        alert("✅ Solicitud creada exitosamente.");
+        alert("✅ Solicitud enviada exitosamente.");
         window.closeWarrantyModal();
         location.reload();
 

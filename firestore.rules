@@ -14,27 +14,30 @@ service cloud.firestore {
       return request.auth != null && request.auth.uid == userId;
     }
 
-    // --- REGLAS DE NEGOCIO ---
-
-    // 1. Usuarios (Perfil)
-    match /users/{userId} {
-      allow read, write: if isOwner(userId) || isAdmin();
+    function isAuthenticated() {
+      return request.auth != null;
     }
 
-    // 2. Productos (Catálogo) - ¡CORREGIDO!
+    // --- REGLAS DE NEGOCIO ---
+
+    // 1. Usuarios (Perfil y Subcolecciones)
+    match /users/{userId} {
+      allow read, write: if isOwner(userId) || isAdmin();
+      
+      // *** CORRECCIÓN AQUÍ *** // Permitir acceso a la subcolección de direcciones
+      match /addresses/{addressId} {
+        allow read, write: if isOwner(userId) || isAdmin();
+      }
+    }
+
+    // 2. Productos (Catálogo)
     match /products/{productId} {
       allow read: if true;
-      
-      // Solo el admin puede CREAR o BORRAR productos
       allow create, delete: if isAdmin();
       
-      // ACTUALIZAR: Admin puede todo. 
-      // El Cliente puede actualizar SOLO si cambia únicamente el 'stock' y el valor es válido.
+      // Permitimos actualización de stock para el proceso de compra
       allow update: if isAdmin() || (
-        request.auth != null &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stock']) && // Solo toca el stock
-        request.resource.data.stock >= 0 && // No puede dejar stock negativo
-        request.resource.data.stock < resource.data.stock // Solo puede restar (comprar), no sumar
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stock', 'combinations', 'updatedAt'])
       );
 
       match /history/{historyId} {
@@ -48,51 +51,79 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
-    // 4. Pedidos (Orders)
+    // 4. Marcas
+    match /brands/{brandId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // 5. Pedidos (Orders)
     match /orders/{orderId} {
-      allow create: if request.auth != null;
-      allow read: if request.auth != null && (resource.data.userId == request.auth.uid || isAdmin());
+      // 1. CREACIÓN: Permitida a todos (para guardar pagos de MP)
+      allow create: if true; 
+      
+      // 2. LECTURA: 
+      // Permitimos leer si: Es Admin O Es el dueño (Logueado) O Es una orden de invitado ('GUEST_MP')
+      allow read: if isAdmin() || 
+                  (request.auth != null && resource.data.userId == request.auth.uid) || 
+                  resource.data.userId == 'GUEST_MP';
+      
       allow update, delete: if isAdmin();
     }
 
-    // 5. Remisiones
+    // 6. Remisiones
     match /remissions/{remissionId} {
-      allow create: if request.auth != null;
+      allow create: if true; 
       allow read, update, delete: if isAdmin();
     }
 
-    // 6. Garantías
+    // 7. Garantías
     match /warranties/{warrantyId} {
-      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
-      allow read: if request.auth != null && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow read: if isAuthenticated() && (resource.data.userId == request.auth.uid || isAdmin());
       allow update, delete: if isAdmin();
     }
 
-    // 7. Inventario RMA
+    // 8. Inventario RMA
     match /warranty_inventory/{itemId} {
       allow read, write: if isAdmin();
     }
 
-    // 8. Proveedores
+    // 9. Proveedores
     match /suppliers/{supplierId} {
       allow read, write: if isAdmin();
     }
 
-    // 9. Compras
+    // 10. Compras (Entradas)
     match /purchases/{purchaseId} {
       allow read, write: if isAdmin();
     }
 
-    // 10. Carrito (Legacy)
+    // 11. Carrito (Legacy)
     match /carts/{cartItemId} {
-      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
-      allow read, update, delete: if request.auth != null && resource.data.userId == request.auth.uid;
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow read, update, delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
     }
 
-    // 11. Configuración
+    // 12. Configuración (Shipping, Banners)
     match /config/{configDoc} {
-      allow read: if request.auth != null; 
+      allow read: if true;
       allow write: if isAdmin();
+    }
+
+    // 13. GASTOS
+    match /expenses/{expenseId} {
+      allow read, write: if isAdmin();
+    }
+
+    // 14. CUENTAS (TESORERÍA)
+    match /accounts/{accountId} {
+      allow read, write: if isAdmin();
+    }
+
+    // 15. CUENTAS POR PAGAR (CARTERA)
+    match /payables/{payableId} {
+      allow read, write: if isAdmin();
     }
   }
 }

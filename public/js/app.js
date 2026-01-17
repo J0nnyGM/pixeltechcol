@@ -1,10 +1,9 @@
-// IMPORTANTE: Agregamos 'removeOneUnit' a los imports
 import { auth, db, onAuthStateChanged, collection, getDocs, query, where, limit, doc, getDoc, orderBy } from "./firebase-init.js";
 import { addToCart, updateCartCount, getProductQtyInCart, removeFromCart, removeOneUnit } from "./cart.js";
 
 console.log("🚀 PixelTech Store Iniciada");
 
-let runtimeProductsMap = {}; 
+let runtimeProductsMap = {};
 
 /**
  * --- 1. MANEJO DE USUARIO (Header) ---
@@ -94,6 +93,7 @@ window.quickAdd = (id) => {
         id: p.id,
         name: p.name,
         price: finalPrice,
+        originalPrice: p.originalPrice || 0,
         image: finalImage,
         color: selectedColor,
         capacity: selectedCapacity,
@@ -128,13 +128,18 @@ let weeklyData = [];
 let promoData = [];
 let catalogData = [];
 
-// --- 2. SLIDER PROMO ---
+// --- 2. SLIDER PROMO (FILTRADO POR ACTIVE) ---
 async function loadPromoSlider() {
     const container = document.getElementById('promo-slider-container');
     if (!container) return;
     
     try {
-        const q = query(collection(db, "products"), where("isHeroPromo", "==", true), limit(5));
+        const q = query(
+            collection(db, "products"), 
+            where("status", "==", "active"), // <--- FILTRO AGREGADO
+            where("isHeroPromo", "==", true), 
+            limit(5)
+        );
         const snap = await getDocs(q);
         let promos = [];
         
@@ -144,8 +149,13 @@ async function loadPromoSlider() {
             runtimeProductsMap[p.id] = p;
         });
         
+        // Fallback si no hay promos marcadas
         if (promos.length === 0) {
-            const fallbackQ = query(collection(db, "products"), limit(3));
+            const fallbackQ = query(
+                collection(db, "products"), 
+                where("status", "==", "active"), // <--- FILTRO AGREGADO
+                limit(3)
+            );
             const fallbackSnap = await getDocs(fallbackQ);
             fallbackSnap.forEach(doc => {
                 const p = { id: doc.id, ...doc.data() };
@@ -194,13 +204,18 @@ async function loadPromoSlider() {
     } catch (e) { console.error("Slider Error:", e); }
 }
 
-// --- 3. LANZAMIENTO ---
+// --- 3. LANZAMIENTO (FILTRADO POR ACTIVE) ---
 async function loadNewLaunch() {
     const container = document.getElementById('new-launch-banner');
     if (!container) return;
 
     try {
-        const q = query(collection(db, "products"), where("isNewLaunch", "==", true), limit(1));
+        const q = query(
+            collection(db, "products"), 
+            where("status", "==", "active"), // <--- FILTRO AGREGADO
+            where("isNewLaunch", "==", true), 
+            limit(1)
+        );
         const snap = await getDocs(q);
         
         let p = null;
@@ -208,7 +223,11 @@ async function loadNewLaunch() {
             p = { id: snap.docs[0].id, ...snap.docs[0].data() };
             runtimeProductsMap[p.id] = p;
         } else {
-            const fallbackQ = query(collection(db, "products"), limit(1)); 
+            const fallbackQ = query(
+                collection(db, "products"), 
+                where("status", "==", "active"), // <--- FILTRO AGREGADO
+                limit(1)
+            ); 
             const fallbackSnap = await getDocs(fallbackQ);
             if(!fallbackSnap.empty) { 
                 p = { id: fallbackSnap.docs[0].id, ...fallbackSnap.docs[0].data() }; 
@@ -291,15 +310,19 @@ function loadViewHistory() {
         container.scrollLeft = container.scrollWidth;
     }, 100);
 
-    // Ajustamos el scroll para que coincida con el ancho de la tarjeta nueva (w-60 + gap)
     if(btnLeft) btnLeft.onclick = () => container.scrollBy({ left: -256, behavior: 'smooth' });
     if(btnRight) btnRight.onclick = () => container.scrollBy({ left: 256, behavior: 'smooth' });
 }
 
-// --- 5. ELECCIÓN SEMANAL ---
+// --- 5. ELECCIÓN SEMANAL (FILTRADO POR ACTIVE) ---
 async function loadWeeklyChoices() {
     try {
-        const snap = await getDocs(collection(db, "products"));
+        const q = query(
+            collection(db, "products"), 
+            where("status", "==", "active") // <--- FILTRO AGREGADO
+        );
+        const snap = await getDocs(q);
+        
         let allProducts = [];
         snap.forEach(d => {
             const p = {id: d.id, ...d.data()};
@@ -359,10 +382,15 @@ function renderWeeklyHTML() {
     });
 }
 
-// --- 6. PRECIOS ESPECIALES ---
+// --- 6. PRECIOS ESPECIALES (FILTRADO POR ACTIVE) ---
 async function loadPromotionsGrid() {
     try {
-        const q = query(collection(db, "products"), where("originalPrice", ">", 0), limit(50));
+        const q = query(
+            collection(db, "products"), 
+            where("status", "==", "active"), // <--- FILTRO AGREGADO
+            where("originalPrice", ">", 0), 
+            limit(50)
+        );
         const snap = await getDocs(q);
         let tempPromos = [];
         
@@ -387,7 +415,7 @@ function renderPromosHTML() {
     track.innerHTML = "";
     
     if(promoData.length === 0) {
-        track.parentElement.innerHTML = `<p class="text-center text-gray-300 text-xs font-bold uppercase py-10 w-full">No hay ofertas flash.</p>`;
+        track.parentElement.innerHTML = `<p class="text-center text-gray-300 text-xs font-bold uppercase py-10 w-full">No hay ofertas especiales.</p>`;
         return;
     }
 
@@ -395,7 +423,6 @@ function renderPromosHTML() {
         const disc = Math.round(((p.originalPrice - p.price) / p.originalPrice) * 100);
         const actionButtons = getActionButtonsHTML(p);
 
-        // CAMBIO: w-[280px] y h-[400px] FIJOS. No más variaciones.
         return `
         <div class="w-[280px] h-[400px] bg-white rounded-[2rem] p-5 border border-gray-100 shadow-sm hover:shadow-2xl transition-all group relative flex flex-col shrink-0 cursor-pointer" onclick="window.location.href='/shop/product.html?id=${p.id}'">
             <span class="absolute top-4 left-4 z-20 bg-brand-red text-white text-[8px] font-black px-3 py-1 rounded-full uppercase shadow-lg">-${disc}%</span>
@@ -423,10 +450,16 @@ function renderPromosHTML() {
 }
 
 
-// --- 7. CATÁLOGO GENERAL ---
+// --- 7. CATÁLOGO GENERAL (FILTRADO POR ACTIVE) ---
 async function loadProducts() {
     try {
-        const snap = await getDocs(query(collection(db, "products"), orderBy("name", "asc"), limit(12)));
+        const q = query(
+            collection(db, "products"), 
+            where("status", "==", "active"), // <--- FILTRO AGREGADO
+            orderBy("name", "asc"), 
+            limit(12)
+        );
+        const snap = await getDocs(q);
         catalogData = [];
         snap.forEach(docSnap => {
             const p = { id: docSnap.id, ...docSnap.data() };

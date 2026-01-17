@@ -10,27 +10,36 @@ export function getCart() {
 // --- 2. GUARDAR CARRITO ---
 function saveCart(cart) {
     localStorage.setItem(CART_KEY, JSON.stringify(cart));
-    updateCartCount(); // Actualizar el numerito rojo
+    updateCartCount();
 }
 
-// --- 3. AGREGAR ITEM ---
+// --- 3. AGREGAR ITEM (Soporte Real de Variantes) ---
 export function addToCart(product) {
     const cart = getCart();
     
-    // Identificador único (si usas variantes color/capacidad, úsalos aquí)
-    // Por ahora usaremos el ID del producto
-    const existingItem = cart.find(item => item.id === product.id);
+    // Normalizamos valores para evitar errores (null si no existen)
+    const pColor = product.color || null;
+    const pCapacity = product.capacity || null;
+
+    // Generamos un ID único para ESTA línea del carrito
+    // Ejemplo: "prod123-Negro-128GB" vs "prod123-Blanco-128GB"
+    const uniqueCartId = `${product.id}-${pColor || 'def'}-${pCapacity || 'def'}`;
+
+    // Buscamos por este ID único
+    const existingItem = cart.find(item => item.cartId === uniqueCartId);
 
     if (existingItem) {
         existingItem.quantity += (product.quantity || 1);
     } else {
         cart.push({
-            id: product.id,
+            cartId: uniqueCartId, // IMPORTANTE: Usaremos esto para borrar/editar
+            id: product.id,       // ID real del producto (para base de datos)
             name: product.name,
             price: product.price,
+            originalPrice: product.originalPrice || 0,
             image: product.mainImage || product.image || 'https://placehold.co/100',
-            color: product.color || null,       // Opcional
-            capacity: product.capacity || null, // Opcional
+            color: pColor,       
+            capacity: pCapacity, 
             quantity: product.quantity || 1
         });
     }
@@ -40,24 +49,25 @@ export function addToCart(product) {
 }
 
 // --- 4. ACTUALIZAR CANTIDAD ---
-export function updateQuantity(productId, newQty) {
+export function updateQuantity(cartId, newQty) {
     let cart = getCart();
-    const item = cart.find(i => i.id === productId);
+    // Buscamos por cartId (único por variante)
+    const item = cart.find(i => i.cartId === cartId);
 
     if (item) {
         item.quantity = parseInt(newQty);
         if (item.quantity <= 0) {
-            // Si es 0 o menos, eliminar
-            cart = cart.filter(i => i.id !== productId);
+            cart = cart.filter(i => i.cartId !== cartId);
         }
         saveCart(cart);
     }
 }
 
 // --- 5. ELIMINAR ITEM ---
-export function removeFromCart(productId) {
+export function removeFromCart(cartId) {
     let cart = getCart();
-    cart = cart.filter(item => item.id !== productId);
+    // Eliminamos solo la variante específica
+    cart = cart.filter(item => item.cartId !== cartId);
     saveCart(cart);
 }
 
@@ -80,26 +90,26 @@ export function updateCartCount() {
     });
 }
 
-// NUEVA FUNCIÓN: Obtener cantidad de un producto específico en el carrito
+// Obtener cantidad total de un producto (sumando variantes)
 export function getProductQtyInCart(productId) {
     const cart = getCart();
-    // Sumamos todas las variantes del mismo ID de producto
     return cart
         .filter(item => item.id === productId)
         .reduce((sum, item) => sum + (item.quantity || 0), 0);
 }
 
+// Eliminar una unidad (usado en botones inteligentes de la tienda)
 export function removeOneUnit(productId) {
-    let cart = JSON.parse(localStorage.getItem('pixeltech_cart')) || [];
-    // Buscamos el índice del último item que coincida con ese ID
+    let cart = getCart();
+    // Nota: Esto es complejo con variantes. Por defecto quitamos del último agregado de ese ID
     const index = cart.findLastIndex(item => item.id === productId);
     
     if (index !== -1) {
         if (cart[index].quantity > 1) {
             cart[index].quantity -= 1;
         } else {
-            cart.splice(index, 1); // Si es 1, lo elimina del array
+            cart.splice(index, 1);
         }
+        saveCart(cart);
     }
-    localStorage.setItem('pixeltech_cart', JSON.stringify(cart));
 }

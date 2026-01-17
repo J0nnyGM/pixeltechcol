@@ -74,7 +74,7 @@ export async function initProductDetail() {
         updateGallery();
 
         // WhatsApp
-        els.whatsappBtn.href = `https://wa.me/573000000000?text=Hola, me interesa: ${p.name}`;
+        els.whatsappBtn.href = `https://wa.me/573159834171?text=Hola, me interesa: ${p.name}`;
 
         els.loader.classList.add('hidden');
         els.content.classList.remove('hidden');

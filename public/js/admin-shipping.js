@@ -23,6 +23,8 @@ async function init() {
             const data = configSnap.data();
             document.getElementById('free-threshold').value = data.freeThreshold || 0;
             document.getElementById('default-price').value = data.defaultPrice || 0;
+            // NUEVO: Cargar hora
+            document.getElementById('cutoff-time').value = data.cutoffTime || "14:00"; 
             shippingGroups = data.groups || [];
         }
         renderGroups();
@@ -158,6 +160,7 @@ document.getElementById('btn-save-config').onclick = async () => {
     const config = {
         freeThreshold: Number(document.getElementById('free-threshold').value),
         defaultPrice: Number(document.getElementById('default-price').value),
+        cutoffTime: document.getElementById('cutoff-time').value, // NUEVO: Guardar hora
         groups: shippingGroups,
         updatedAt: new Date()
     };

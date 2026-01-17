@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Control de Gastos | PixelTech Admin</title>
+    <link rel="stylesheet" href="../css/styles.css">
+    <script src="https://kit.fontawesome.com/0d623ded97.js" crossorigin="anonymous"></script>
+    <style> 
+        .hidden { display: none !important; } 
+        html { scroll-behavior: auto; }
+        .custom-scroll::-webkit-scrollbar { width: 6px; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+    </style>
+</head>
+
+<body class="bg-gray-100 font-sans text-brand-black flex h-screen overflow-hidden">
+
+    <div id="admin-sidebar"></div>
+
+    <main class="flex-grow overflow-y-auto p-8 bg-slate-50 w-full custom-scroll">
+        
+        <div class="flex flex-col md:flex-row justify-between items-start md:items-end mb-8 gap-6">
+            <div>
+                <h1 class="text-3xl font-black mb-1">Control de Gastos</h1>
+                <p class="text-gray-500 text-sm">Gestiona los egresos operativos y pagos a proveedores.</p>
+            </div>
+            <button onclick="window.openModal()" class="bg-brand-black text-white px-6 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-brand-cyan hover:text-brand-black transition shadow-lg flex items-center gap-2">
+                <i class="fa-solid fa-plus"></i> Registrar Gasto
+            </button>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            <div class="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-4">
+                <div class="w-12 h-12 rounded-xl bg-red-50 text-red-500 flex items-center justify-center text-xl"><i class="fa-solid fa-calendar-day"></i></div>
+                <div><p class="text-[9px] font-black text-gray-400 uppercase tracking-widest">Este Mes</p><h3 class="text-2xl font-black text-brand-black" id="stats-month">$0</h3></div>
+            </div>
+            <div class="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-4">
+                <div class="w-12 h-12 rounded-xl bg-blue-50 text-blue-500 flex items-center justify-center text-xl"><i class="fa-solid fa-handshake"></i></div>
+                <div><p class="text-[9px] font-black text-gray-400 uppercase tracking-widest">Proveedor Top</p><h3 class="text-lg font-black text-brand-black truncate w-32" id="stats-cat">---</h3></div>
+            </div>
+            <div class="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm flex items-center gap-4">
+                <div class="w-12 h-12 rounded-xl bg-gray-50 text-brand-black flex items-center justify-center text-xl"><i class="fa-solid fa-piggy-bank"></i></div>
+                <div><p class="text-[9px] font-black text-gray-400 uppercase tracking-widest">Total Histórico</p><h3 class="text-2xl font-black text-brand-black" id="stats-total">$0</h3></div>
+            </div>
+        </div>
+
+        <div class="bg-white rounded-[2.5rem] border border-gray-200 shadow-sm overflow-hidden">
+            <div class="p-6 border-b border-gray-100 bg-gray-50/50 flex flex-col md:flex-row justify-between items-center gap-4">
+                <h3 class="font-black text-xs uppercase tracking-widest text-brand-black">Historial de Movimientos</h3>
+                <div class="relative w-full md:w-64">
+                    <input type="text" id="search-input" placeholder="Buscar..." class="w-full bg-white border border-gray-200 pl-10 pr-4 py-2 rounded-xl text-xs font-bold focus:border-brand-cyan outline-none">
+                    <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs"></i>
+                </div>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                    <thead class="bg-gray-50 text-[9px] uppercase font-black text-gray-400 tracking-widest">
+                        <tr>
+                            <th class="px-6 py-4">Fecha</th>
+                            <th class="px-6 py-4">Proveedor / Beneficiario</th>
+                            <th class="px-6 py-4">Concepto</th>
+                            <th class="px-6 py-4">Categoría</th>
+                            <th class="px-6 py-4">Cuenta Origen</th>
+                            <th class="px-6 py-4 text-right">Valor</th>
+                            <th class="px-6 py-4 text-center">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody id="expenses-list" class="divide-y divide-gray-100 text-sm font-medium text-gray-600">
+                        <tr><td colspan="7" class="p-8 text-center"><i class="fa-solid fa-circle-notch fa-spin text-brand-cyan"></i> Cargando...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+
+    <div id="expense-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-brand-black/80 backdrop-blur-sm p-4">
+        <div class="bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden relative animate-in fade-in zoom-in-95 duration-200" onclick="event.stopPropagation()">
+            <div class="p-8 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+                <h3 class="text-xl font-black uppercase tracking-tighter" id="modal-title">Nuevo Gasto</h3>
+                <button onclick="window.closeModal()" class="w-8 h-8 rounded-full bg-white text-gray-400 hover:text-brand-red hover:bg-red-50 flex items-center justify-center transition">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+            
+            <form id="expense-form" class="p-8 space-y-5">
+                
+                <div class="relative">
+                    <label class="block text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Proveedor / Beneficiario *</label>
+                    <input type="text" id="supplier-search" placeholder="Escribe para buscar..." autocomplete="off" class="w-full bg-gray-50 border border-gray-200 p-3 rounded-xl font-bold text-sm focus:border-brand-cyan outline-none transition-all placeholder-gray-400">
+                    <input type="hidden" id="selected-supplier-id">
+                    <i class="fa-solid fa-chevron-down absolute right-4 top-9 text-gray-400 text-xs pointer-events-none"></i>
+                    <div id="supplier-dropdown" class="hidden absolute z-50 w-full bg-white border border-gray-200 rounded-xl shadow-xl mt-1 max-h-48 overflow-y-auto custom-scroll"></div>
+                </div>
+
+                <div>
+                    <label class="block text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Descripción *</label>
+                    <input type="text" id="desc" required placeholder="Ej: Pago de Internet" class="w-full bg-gray-50 border border-gray-200 p-3 rounded-xl font-bold text-sm focus:border-brand-cyan outline-none">
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Valor (COP) *</label>
+                        <input type="text" id="amount-display" required placeholder="$0" class="w-full bg-gray-50 border border-gray-200 p-3 rounded-xl font-bold text-sm focus:border-brand-cyan outline-none tracking-wide">
+                    </div>
+                    <div>
+                        <label class="block text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Fecha *</label>
+                        <input type="date" id="date" required class="w-full bg-gray-50 border border-gray-200 p-3 rounded-xl font-bold text-sm focus:border-brand-cyan outline-none">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="col-span-1">
+                        <label class="block text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Categoría</label>
+                        <select id="category" class="w-full bg-gray-50 border border-gray-200 p-3 rounded-xl font-bold text-sm focus:border-brand-cyan outline-none cursor-pointer">
+                            <option value="Operativo">Operativo</option>
+                            <option value="Nómina">Nómina</option>
+                            <option value="Servicios">Servicios</option>
+                            <option value="Arriendo">Arriendo</option>
+                            <option value="Marketing">Marketing</option>
+                            <option value="Logística">Logística</option>
+                            <option value="Impuestos">Impuestos</option>
+                            <option value="Inventario">Inventario</option>
+                            <option value="Otros">Otros</option>
+                        </select>
+                    </div>
+                    
+                    <div class="col-span-1">
+                        <label class="block text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Cuenta Origen *</label>
+                        <select id="account-select" required class="w-full bg-slate-100 border border-slate-200 p-3 rounded-xl font-bold text-sm focus:border-brand-cyan outline-none cursor-pointer">
+                            <option value="">Cargando cuentas...</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div id="tax-alert" class="hidden bg-yellow-50 border border-yellow-100 p-3 rounded-xl flex items-center gap-3 animate-pulse">
+                    <i class="fa-solid fa-triangle-exclamation text-yellow-600"></i>
+                    <div>
+                        <p class="text-[9px] font-black uppercase text-yellow-700">Aplica 4x1000</p>
+                        <p class="text-xs font-bold text-brand-black">Se registrará un gasto adicional de <span id="tax-val">$0</span></p>
+                    </div>
+                </div>
+
+                <button type="submit" id="btn-save" class="w-full bg-brand-black text-white py-4 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-brand-cyan hover:text-brand-black transition shadow-lg mt-4">
+                    Registrar Gasto y Descontar
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <script type="module">
+        import '../js/admin-guard.js'; 
+        import { loadAdminSidebar } from '../js/admin-ui.js';
+        import { db, collection, addDoc, updateDoc, deleteDoc, doc, getDocs, query, orderBy, Timestamp, runTransaction } from '../js/firebase-init.js';
+
+        loadAdminSidebar();
+
+        let allExpenses = [];
+        let accountsList = [];
+        let suppliersList = [];
+        
+        const listContainer = document.getElementById('expenses-list');
+        const modal = document.getElementById('expense-modal');
+        const form = document.getElementById('expense-form');
+        const accountSelect = document.getElementById('account-select');
+        const taxAlert = document.getElementById('tax-alert');
+        const amountDisplay = document.getElementById('amount-display');
+        const supplierSearch = document.getElementById('supplier-search');
+        const supplierDropdown = document.getElementById('supplier-dropdown');
+        const selectedSupplierId = document.getElementById('selected-supplier-id');
+
+        async function init() {
+            await Promise.all([loadSuppliers(), loadAccounts(), loadExpenses()]);
+        }
+
+        amountDisplay.addEventListener('input', (e) => {
+            let value = e.target.value.replace(/\D/g, "");
+            if (value === "") { e.target.value = ""; checkTax(); return; }
+            const numberValue = parseInt(value, 10);
+            e.target.value = "$" + numberValue.toLocaleString('es-CO');
+            checkTax();
+        });
+
+        function getCleanAmount() {
+            const raw = amountDisplay.value.replace(/\D/g, "");
+            return raw ? parseInt(raw, 10) : 0;
+        }
+
+        async function loadSuppliers() {
+            const q = query(collection(db, "suppliers"), orderBy("name", "asc"));
+            const snap = await getDocs(q);
+            suppliersList = [{ id: 'general', name: '-- Gasto General / Varios --' }];
+            snap.forEach(d => suppliersList.push({ id: d.id, name: d.data().name }));
+        }
+
+        function renderSupplierOptions(filterText = "") {
+            supplierDropdown.innerHTML = "";
+            const term = filterText.toLowerCase();
+            const filtered = suppliersList.filter(s => s.name.toLowerCase().includes(term));
+
+            if (filtered.length === 0) {
+                supplierDropdown.innerHTML = `<div class="p-3 text-xs text-gray-400 font-bold">No se encontraron resultados</div>`;
+            } else {
+                filtered.forEach(s => {
+                    const item = document.createElement('div');
+                    item.className = "p-3 hover:bg-slate-50 cursor-pointer text-xs font-bold text-brand-black border-b border-gray-50 last:border-0 transition-colors";
+                    item.textContent = s.name;
+                    item.onclick = () => selectSupplier(s.id, s.name);
+                    supplierDropdown.appendChild(item);
+                });
+            }
+            supplierDropdown.classList.remove('hidden');
+        }
+
+        function selectSupplier(id, name) {
+            supplierSearch.value = name;
+            selectedSupplierId.value = id;
+            supplierDropdown.classList.add('hidden');
+        }
+
+        supplierSearch.addEventListener('focus', () => renderSupplierOptions(""));
+        supplierSearch.addEventListener('input', (e) => renderSupplierOptions(e.target.value));
+        
+        document.addEventListener('click', (e) => {
+            if (!supplierSearch.contains(e.target) && !supplierDropdown.contains(e.target)) {
+                supplierDropdown.classList.add('hidden');
+            }
+        });
+
+        async function loadAccounts() {
+            const q = query(collection(db, "accounts"), orderBy("name", "asc"));
+            const snap = await getDocs(q);
+            accountSelect.innerHTML = '<option value="">Seleccione Cuenta...</option>';
+            accountsList = [];
+            snap.forEach(d => {
+                const acc = { id: d.id, ...d.data() };
+                accountsList.push(acc);
+                accountSelect.innerHTML += `<option value="${d.id}">${acc.name} ($${(acc.balance || 0).toLocaleString()})</option>`;
+            });
+        }
+
+        function checkTax() {
+            const accId = accountSelect.value;
+            const amount = getCleanAmount();
+            const acc = accountsList.find(a => a.id === accId);
+
+            if (acc && acc.type === 'banco' && !acc.isExempt && amount > 0) {
+                const tax = Math.ceil(amount * 0.004);
+                document.getElementById('tax-val').textContent = `$${tax.toLocaleString('es-CO')}`;
+                taxAlert.classList.remove('hidden');
+            } else {
+                taxAlert.classList.add('hidden');
+            }
+        }
+        accountSelect.addEventListener('change', checkTax);
+
+        async function loadExpenses() {
+            try {
+                const q = query(collection(db, "expenses"), orderBy("date", "desc"));
+                const snap = await getDocs(q);
+                allExpenses = [];
+                snap.forEach(d => {
+                    const data = d.data();
+                    
+                    // FILTRO: Solo mostrar gastos, no ingresos
+                    const isIncome = data.category === 'Ingreso Ventas' || 
+                                     data.category === 'Transferencia Entrante' || 
+                                     data.amount < 0;
+
+                    if (!isIncome) {
+                        const dateObj = data.date && data.date.toDate ? data.date.toDate() : new Date(data.date);
+                        allExpenses.push({ id: d.id, ...data, dateObj: dateObj });
+                    }
+                });
+                renderTable(allExpenses);
+                calculateStats();
+            } catch (error) { console.error(error); }
+        }
+
+        function renderTable(data) {
+            if (data.length === 0) {
+                listContainer.innerHTML = `<tr><td colspan="7" class="p-8 text-center text-gray-400">No hay gastos registrados</td></tr>`;
+                return;
+            }
+            listContainer.innerHTML = data.map(item => `
+                <tr class="hover:bg-slate-50 transition border-b border-gray-50 last:border-0 group">
+                    <td class="px-6 py-4 text-gray-500 font-mono text-xs">${item.dateObj.toLocaleDateString('es-CO')}</td>
+                    <td class="px-6 py-4 font-bold text-xs uppercase">${item.supplierName || 'General'}</td>
+                    <td class="px-6 py-4 text-xs text-brand-black">${item.description}</td>
+                    <td class="px-6 py-4"><span class="bg-gray-100 px-2 py-1 rounded text-[9px] font-black uppercase text-gray-500">${item.category}</span></td>
+                    <td class="px-6 py-4 text-xs font-bold text-brand-cyan">${item.paymentMethod || '---'}</td>
+                    <td class="px-6 py-4 text-right font-black text-brand-black">$${Number(item.amount).toLocaleString('es-CO')}</td>
+                    <td class="px-6 py-4 text-center">
+                        <button onclick="window.deleteExpense('${item.id}')" class="w-8 h-8 rounded-lg bg-red-50 text-red-500 hover:bg-red-500 hover:text-white transition shadow-sm opacity-0 group-hover:opacity-100">
+                            <i class="fa-solid fa-trash text-xs"></i>
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const btn = document.getElementById('btn-save');
+            btn.disabled = true; btn.innerText = "Procesando...";
+
+            const supplierId = selectedSupplierId.value;
+            const supplierName = supplierSearch.value;
+            const desc = document.getElementById('desc').value;
+            const amount = getCleanAmount();
+            const dateVal = document.getElementById('date').value;
+            const category = document.getElementById('category').value;
+            const accountId = accountSelect.value;
+            const accountName = accountSelect.options[accountSelect.selectedIndex].text.split(' (')[0];
+
+            if(!supplierName) { alert("Seleccione un proveedor"); btn.disabled=false; btn.innerText="Registrar Gasto"; return; }
+            if(amount <= 0) { alert("Ingrese un valor válido"); btn.disabled=false; btn.innerText="Registrar Gasto"; return; }
+
+            const dateParts = dateVal.split('-');
+            const localDate = new Date(dateParts[0], dateParts[1] - 1, dateParts[2]);
+
+            try {
+                await runTransaction(db, async (t) => {
+                    const accRef = doc(db, "accounts", accountId);
+                    const accDoc = await t.get(accRef);
+                    if(!accDoc.exists()) throw "La cuenta no existe.";
+                    
+                    const accData = accDoc.data();
+                    let tax = 0;
+                    
+                    if (accData.type === 'banco' && !accData.isExempt) {
+                        tax = Math.ceil(amount * 0.004);
+                    }
+
+                    const totalDeduction = amount + tax;
+                    if (accData.balance < totalDeduction) throw `Saldo insuficiente.`;
+
+                    t.update(accRef, { balance: accData.balance - totalDeduction });
+
+                    if (tax > 0) {
+                        const taxRef = doc(collection(db, "expenses"));
+                        t.set(taxRef, {
+                            description: `4x1000 ${desc}`,
+                            amount: tax,
+                            category: "Impuestos",
+                            paymentMethod: accountName,
+                            date: Timestamp.fromDate(localDate),
+                            createdAt: Timestamp.now(),
+                            supplierName: "DIAN / Banco"
+                        });
+                    }
+
+                    const expenseRef = doc(collection(db, "expenses"));
+                    t.set(expenseRef, {
+                        supplierId: (!supplierId || supplierId === 'general') ? null : supplierId,
+                        supplierName: supplierName,
+                        description: desc,
+                        category: category,
+                        amount: amount,
+                        paymentMethod: accountName,
+                        date: Timestamp.fromDate(localDate),
+                        createdAt: Timestamp.now()
+                    });
+                });
+
+                alert("✅ Gasto registrado");
+                window.closeModal();
+                loadExpenses();
+                loadAccounts();
+
+            } catch (error) { alert("Error: " + error.message); } 
+            finally { btn.disabled = false; btn.innerText = "Registrar Gasto y Descontar"; }
+        });
+
+        function calculateStats() {
+            const now = new Date();
+            const currentMonth = now.getMonth();
+            const currentYear = now.getFullYear();
+            let totalHist = 0;
+            let totalMonth = 0;
+            const supplierCounts = {};
+
+            allExpenses.forEach(exp => {
+                const val = Number(exp.amount) || 0;
+                totalHist += val;
+                if (exp.dateObj.getMonth() === currentMonth && exp.dateObj.getFullYear() === currentYear) {
+                    totalMonth += val;
+                }
+                const supp = exp.supplierName || "Otros";
+                supplierCounts[supp] = (supplierCounts[supp] || 0) + val;
+            });
+
+            let topSupp = "---";
+            let maxVal = 0;
+            for (const [supp, val] of Object.entries(supplierCounts)) {
+                if (val > maxVal) { maxVal = val; topSupp = supp; }
+            }
+
+            document.getElementById('stats-total').textContent = `$${totalHist.toLocaleString('es-CO')}`;
+            document.getElementById('stats-month').textContent = `$${totalMonth.toLocaleString('es-CO')}`;
+            document.getElementById('stats-cat').textContent = topSupp;
+        }
+
+        window.deleteExpense = async (id) => {
+            if (confirm("¿Borrar? NOTA: Esto solo borra el registro, no devuelve el dinero.")) {
+                try {
+                    await deleteDoc(doc(db, "expenses", id));
+                    loadExpenses();
+                } catch (e) { alert(e.message); }
+            }
+        };
+
+        window.openModal = () => {
+            form.reset();
+            supplierSearch.value = "";
+            selectedSupplierId.value = "";
+            amountDisplay.value = "";
+            document.getElementById('date').valueAsDate = new Date();
+            taxAlert.classList.add('hidden');
+            modal.classList.remove('hidden');
+        };
+        window.closeModal = () => modal.classList.add('hidden');
+
+        document.getElementById('search-input').addEventListener('input', (e) => {
+            const term = e.target.value.toLowerCase();
+            const filtered = allExpenses.filter(i => 
+                i.description.toLowerCase().includes(term) || 
+                (i.supplierName && i.supplierName.toLowerCase().includes(term))
+            );
+            renderTable(filtered);
+        });
+
+        init();
+    </script>
+</body>
+</html>

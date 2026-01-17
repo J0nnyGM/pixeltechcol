@@ -8,9 +8,19 @@
     <script src="https://kit.fontawesome.com/0d623ded97.js" crossorigin="anonymous"></script>
     <style>
         .no-scrollbar::-webkit-scrollbar { display: none; }
-        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-        .cart-item-card { transition: all 0.3s ease; border: 1px solid #f3f4f6; }
-        .cart-item-card:hover { border-color: #00AEC7; box-shadow: 0 10px 30px -15px rgba(0, 174, 199, 0.1); }
+        .cart-item-card { transition: all 0.3s ease; border: 1px solid #e5e7eb; }
+        .cart-item-card:hover { border-color: #00AEC7; box-shadow: 0 10px 30px -15px rgba(0, 174, 199, 0.15); }
+
+        /* --- ANIMACIÓN BARRA DE PROGRESO --- */
+        .progress-striped {
+            background-image: linear-gradient(45deg,rgba(255,255,255,.15) 25%,transparent 25%,transparent 50%,rgba(255,255,255,.15) 50%,rgba(255,255,255,.15) 75%,transparent 75%,transparent);
+            background-size: 1rem 1rem;
+            animation: progress-move 1s linear infinite;
+        }
+        @keyframes progress-move {
+            0% { background-position: 0 0; }
+            100% { background-position: 1rem 0; }
+        }
     </style>
 </head>
 
@@ -21,72 +31,97 @@
     <main class="container mx-auto px-6 py-12 min-h-[70vh]">
         
         <div class="flex items-center justify-between mb-16">
-            <a href="/index.html" class="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-gray-400 hover:text-brand-cyan transition">
+            <a href="/index.html" class="flex items-center gap-3 text-[10px] font-black uppercase tracking-widest text-gray-500 hover:text-brand-cyan transition">
                 <i class="fa-solid fa-arrow-left-long"></i> Seguir Explorando
             </a>
             <div class="hidden md:flex items-center gap-6">
                 <span class="text-[10px] font-black text-brand-black uppercase tracking-widest underline decoration-brand-cyan decoration-2 underline-offset-8">01 Carrito</span>
-                <div class="w-8 h-px bg-gray-200"></div>
-                <span class="text-[10px] font-black text-gray-300 uppercase tracking-widest">02 Envío</span>
-                <div class="w-8 h-px bg-gray-200"></div>
-                <span class="text-[10px] font-black text-gray-300 uppercase tracking-widest">03 Pago</span>
+                <div class="w-8 h-px bg-gray-300"></div>
+                <span class="text-[10px] font-black text-gray-400 uppercase tracking-widest">02 Envío</span>
+                <div class="w-8 h-px bg-gray-300"></div>
+                <span class="text-[10px] font-black text-gray-400 uppercase tracking-widest">03 Pago</span>
             </div>
         </div>
 
-        <h1 class="text-5xl font-black mb-12 tracking-tighter uppercase">Tu <span class="text-gray-300">Carrito</span></h1>
+        <h1 class="text-5xl font-black mb-12 tracking-tighter uppercase text-brand-black">Tu <span class="text-gray-400">Carrito</span></h1>
 
         <div id="cart-container" class="flex flex-col lg:flex-row gap-16 hidden">
             
             <div class="lg:w-2/3 space-y-6">
-                <div class="hidden md:grid grid-cols-12 gap-4 px-8 mb-4 text-[9px] font-black text-gray-400 uppercase tracking-[0.2em]">
+                <div class="hidden md:grid grid-cols-12 gap-4 px-8 mb-4 text-[10px] font-black text-gray-500 uppercase tracking-[0.2em]">
                     <div class="col-span-6">Detalle del Producto</div>
                     <div class="col-span-2 text-center">Cantidad</div>
                     <div class="col-span-2 text-right">Unitario</div>
                     <div class="col-span-2 text-right">Subtotal</div>
                 </div>
-
-                <div id="cart-items-list" class="space-y-4">
-                    </div>
+                <div id="cart-items-list" class="space-y-4"></div>
             </div>
 
             <div class="lg:w-1/3">
-                <div class="bg-white rounded-[2.5rem] p-10 shadow-xl border border-gray-100 sticky top-28">
-                    <h2 class="font-black text-xs uppercase tracking-[0.2em] text-gray-400 mb-10 border-b border-gray-50 pb-6">Resumen de Compra</h2>
+                <div class="bg-white rounded-[2.5rem] p-10 shadow-2xl border border-gray-200 sticky top-28">
+                    
+                    <h2 class="font-black text-xs uppercase tracking-[0.2em] text-gray-600 mb-8 border-b border-gray-100 pb-6 flex justify-between items-center">
+                        Resumen <i class="fa-solid fa-receipt text-gray-300"></i>
+                    </h2>
 
-                    <div class="space-y-5 mb-10">
-                        <div class="flex justify-between text-gray-400 font-black text-[10px] uppercase tracking-widest">
+                    <div class="space-y-4 mb-8">
+                        <div class="flex justify-between text-gray-600 font-bold text-[11px] uppercase tracking-wide">
                             <span>Subtotal</span>
                             <span id="summary-subtotal" class="text-brand-black">$0</span>
                         </div>
-                        <div class="flex justify-between text-gray-400 font-black text-[10px] uppercase tracking-widest">
-                            <span>Envío Nacional</span>
-                            <span class="text-emerald-500">GRATIS</span>
+                        
+                        <div id="shipping-row" class="flex flex-col gap-1">
+                            <div class="flex justify-between text-gray-600 font-bold text-[11px] uppercase tracking-wide">
+                                <span>Envío Estimado</span>
+                                <span id="shipping-cost-display" class="text-brand-cyan bg-cyan-50 px-2 py-0.5 rounded text-[10px]">Por Confirmar</span>
+                            </div>
+                            <div id="shipping-address-feedback" class="text-right"></div>
                         </div>
                     </div>
 
-                    <div class="flex justify-between items-end mb-12 border-t border-gray-50 pt-8">
-                        <span class="font-black text-xs uppercase tracking-[0.2em] text-gray-400">Total Neto</span>
-                        <span id="cart-total-display" class="text-4xl font-black tracking-tighter text-brand-black leading-none">$0</span>
+                    <div id="free-shipping-container" class="mb-8 hidden">
+                        <div class="flex justify-between items-end mb-2">
+                            <p id="free-shipping-msg" class="text-[10px] font-bold text-gray-500 uppercase tracking-wide">
+                                Faltan <span class="text-brand-black font-black">$50.000</span> para envío gratis
+                            </p>
+                            <i class="fa-solid fa-truck-fast text-brand-cyan text-sm animate-bounce"></i>
+                        </div>
+                        <div class="w-full bg-gray-100 rounded-full h-3 overflow-hidden border border-gray-200">
+                            <div id="free-shipping-bar" class="h-full bg-brand-cyan progress-striped transition-all duration-700 ease-out w-0"></div>
+                        </div>
+                    </div>
+                    <div class="flex flex-col items-end mb-10 border-t-2 border-dashed border-gray-200 pt-8">
+                        <span class="font-black text-[10px] uppercase tracking-[0.3em] text-gray-500 mb-2">Total a Pagar</span>
+                        <span id="cart-total-display" class="text-5xl font-black tracking-tighter text-brand-black leading-none">$0</span>
+                        <p class="text-[9px] font-bold text-gray-400 mt-2 uppercase tracking-wide">Impuestos incluidos</p>
                     </div>
 
-                    <button id="btn-checkout" class="w-full bg-brand-cyan text-brand-black font-black py-6 rounded-2xl shadow-xl shadow-cyan-500/10 hover:bg-brand-black hover:text-white transition-all duration-500 uppercase text-xs tracking-[0.25em] flex items-center justify-center gap-3 group">
-                        Finalizar Pedido <i class="fa-solid fa-chevron-right group-hover:translate-x-1 transition"></i>
+                    <button id="btn-checkout" class="w-full bg-brand-black text-white font-black py-5 rounded-2xl shadow-xl hover:bg-brand-cyan hover:text-brand-black transition-all duration-300 transform hover:-translate-y-1 uppercase text-xs tracking-[0.25em] flex items-center justify-center gap-4 group">
+                        Proceder al Pago 
+                        <div class="w-6 h-6 bg-white/20 rounded-full flex items-center justify-center group-hover:bg-brand-black group-hover:text-white transition">
+                            <i class="fa-solid fa-chevron-right text-[10px]"></i>
+                        </div>
                     </button>
 
-                    <div class="mt-8 flex flex-col items-center gap-6">
-                        <p class="text-[8px] font-black text-gray-300 uppercase tracking-[0.3em] flex items-center gap-2">
-                            <i class="fa-solid fa-shield-check text-brand-cyan text-[10px]"></i> Pagos Seguros SSL
+                    <div class="mt-8 flex flex-col items-center gap-4 border-t border-gray-100 pt-6">
+                        <p class="text-[9px] font-black text-gray-400 uppercase tracking-[0.2em] flex items-center gap-2">
+                            <i class="fa-solid fa-lock text-emerald-500"></i> Compra 100% Segura
                         </p>
+                        <div class="flex gap-4 opacity-50 grayscale hover:grayscale-0 transition duration-500">
+                            <i class="fa-brands fa-cc-visa text-2xl text-blue-900"></i>
+                            <i class="fa-brands fa-cc-mastercard text-2xl text-red-600"></i>
+                            <i class="fa-solid fa-money-bill-wave text-2xl text-green-600"></i>
+                        </div>
                     </div>
                 </div>
             </div>
         </div>
 
-        <div id="empty-cart-msg" class="hidden p-20 text-center bg-white rounded-[2.5rem] border border-gray-100 max-w-2xl mx-auto shadow-sm">
-            <div class="w-24 h-24 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-8 text-gray-200">
+        <div id="empty-cart-msg" class="hidden p-20 text-center bg-white rounded-[2.5rem] border border-gray-200 max-w-2xl mx-auto shadow-sm">
+            <div class="w-24 h-24 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-8 text-gray-300">
                 <i class="fa-solid fa-cart-shopping text-4xl"></i>
             </div>
-            <h3 class="font-black text-sm uppercase tracking-widest text-gray-400 mb-8">Tu carrito está vacío</h3>
+            <h3 class="font-black text-sm uppercase tracking-widest text-gray-500 mb-8">Tu carrito está vacío</h3>
             <a href="/index.html" class="inline-block bg-brand-black text-white px-12 py-4 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] hover:bg-brand-cyan hover:text-brand-black transition-all shadow-xl">
                 Ir al Catálogo
             </a>
@@ -98,26 +133,136 @@
 
     <script type="module">
         import { getCart, updateQuantity, removeFromCart, getCartTotal, updateCartCount } from '../js/cart.js';
-        import { auth } from '../js/firebase-init.js'; // Solo importamos auth para el checkout
+        import { auth, db, doc, getDoc, onAuthStateChanged } from '../js/firebase-init.js'; 
         import { loadGlobalHeader, loadGlobalFooter } from '../js/global-components.js';
 
-        // Cargar componentes globales
         loadGlobalHeader();
         loadGlobalFooter();
 
+        // Elementos DOM
         const container = document.getElementById('cart-items-list');
         const mainContainer = document.getElementById('cart-container');
         const emptyMsg = document.getElementById('empty-cart-msg');
         const totalDisplay = document.getElementById('cart-total-display');
         const subtotalDisplay = document.getElementById('summary-subtotal');
+        const shippingDisplay = document.getElementById('shipping-cost-display');
+        const addressFeedback = document.getElementById('shipping-address-feedback');
         const checkoutBtn = document.getElementById('btn-checkout');
+        
+        // Elementos Barra Progreso
+        const shippingBarContainer = document.getElementById('free-shipping-container');
+        const shippingBar = document.getElementById('free-shipping-bar');
+        const shippingMsg = document.getElementById('free-shipping-msg');
 
-        // Función Principal de Renderizado
+        let calculatedShipping = 0;
+        let freeShippingThreshold = 0; // Guardaremos el tope aquí
+
+        // 1. OBTENER CONFIGURACIÓN GLOBAL (Independiente del usuario)
+        async function fetchShippingConfig() {
+            try {
+                const configSnap = await getDoc(doc(db, "config", "shipping"));
+                if (configSnap.exists()) {
+                    const config = configSnap.data();
+                    freeShippingThreshold = config.freeThreshold || 0;
+                    updateProgressBar(); // Actualizar barra apenas tengamos el dato
+                }
+            } catch (e) {
+                console.error("Error fetching config:", e);
+            }
+        }
+
+        // 2. ACTUALIZAR BARRA VISUALMENTE
+        function updateProgressBar() {
+            if (freeShippingThreshold <= 0) {
+                shippingBarContainer.classList.add('hidden'); // Si no hay promo, ocultar
+                return;
+            }
+
+            const currentTotal = getCartTotal();
+            const percentage = Math.min((currentTotal / freeShippingThreshold) * 100, 100);
+            const remaining = freeShippingThreshold - currentTotal;
+
+            // Mostrar el contenedor
+            shippingBarContainer.classList.remove('hidden');
+            
+            // Animar el ancho
+            // Pequeño delay para que la transición CSS funcione al cargar
+            setTimeout(() => {
+                shippingBar.style.width = `${percentage}%`;
+            }, 100);
+
+            // Lógica de Mensaje y Colores
+            if (remaining > 0) {
+                // FALTAN $$$
+                shippingMsg.innerHTML = `Faltan <span class="text-brand-black font-black">$${remaining.toLocaleString('es-CO')}</span> para envío gratis`;
+                shippingBar.classList.remove('bg-emerald-500');
+                shippingBar.classList.add('bg-brand-cyan', 'progress-striped');
+            } else {
+                // META CUMPLIDA
+                shippingMsg.innerHTML = `<span class="text-emerald-600 font-black flex items-center gap-2"><i class="fa-solid fa-check-circle"></i> ¡Tienes Envío Gratis!</span>`;
+                shippingBar.classList.remove('bg-brand-cyan', 'progress-striped');
+                shippingBar.classList.add('bg-emerald-500'); // Verde éxito
+            }
+        }
+
+        // 3. ESTIMA COSTO PARA USUARIOS LOGUEADOS
+        async function estimateShipping(user) {
+            try {
+                const userSnap = await getDoc(doc(db, "users", user.uid));
+                if (!userSnap.exists()) return;
+                
+                const userData = userSnap.data();
+                if (!userData.addresses || userData.addresses.length === 0) return;
+
+                const defaultAddr = userData.addresses.find(a => a.isDefault) || userData.addresses[0];
+                const targetCity = defaultAddr.city;
+
+                const configSnap = await getDoc(doc(db, "config", "shipping"));
+                if (!configSnap.exists()) return;
+                const config = configSnap.data();
+
+                const subtotal = getCartTotal();
+                let cost = config.defaultPrice || 0;
+
+                // Verificamos si superó el tope gratis
+                if (config.freeThreshold > 0 && subtotal >= config.freeThreshold) {
+                    cost = 0;
+                } else {
+                    if (config.groups) {
+                        for (const group of config.groups) {
+                            if (group.cities.some(c => c.toLowerCase().includes(targetCity.toLowerCase()))) {
+                                cost = group.price;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                calculatedShipping = cost;
+
+                if (cost === 0) {
+                    shippingDisplay.innerHTML = `<span class="text-emerald-600 font-black">¡GRATIS!</span>`;
+                } else {
+                    shippingDisplay.textContent = `$${cost.toLocaleString('es-CO')}`;
+                }
+
+                addressFeedback.innerHTML = `
+                    <p class="text-[9px] font-bold text-gray-500 mt-1">
+                        <i class="fa-solid fa-location-dot text-brand-cyan mr-1"></i>
+                        ${defaultAddr.address}, ${defaultAddr.city}
+                    </p>
+                `;
+
+                updateTotalUI();
+
+            } catch (e) {
+                console.error("Error estimando envío:", e);
+            }
+        }
+
+        // 4. RENDERIZADO PRINCIPAL
         function render() {
             const cart = getCart();
-            const total = getCartTotal();
-
-            // Actualizar badge del header (por si acaso)
             updateCartCount();
 
             if (cart.length === 0) {
@@ -129,69 +274,92 @@
             mainContainer.classList.remove('hidden');
             emptyMsg.classList.add('hidden');
             
-            const formattedTotal = `$${total.toLocaleString('es-CO')}`;
-            totalDisplay.textContent = formattedTotal;
-            subtotalDisplay.textContent = formattedTotal;
+            container.innerHTML = cart.map(item => {
+                // Cálculo de Descuento
+                const hasDiscount = item.originalPrice && item.price < item.originalPrice;
+                const discountPercent = hasDiscount ? Math.round(((item.originalPrice - item.price) / item.originalPrice) * 100) : 0;
 
-            // Generar HTML de los items
-            container.innerHTML = cart.map(item => `
+                return `
                 <div class="cart-item-card bg-white p-6 md:p-8 rounded-[2rem] flex flex-col md:grid md:grid-cols-12 gap-6 items-center relative group">
-                    
                     <div class="col-span-6 flex items-center gap-6 w-full">
-                        <div class="w-20 h-20 md:w-24 md:h-24 bg-white border border-gray-50 rounded-2xl p-2 shrink-0 flex items-center justify-center">
+                        <div class="w-24 h-24 bg-white border border-gray-200 rounded-2xl p-2 shrink-0 flex items-center justify-center relative shadow-sm">
                             <img src="${item.image || 'https://placehold.co/100'}" class="max-h-full max-w-full object-contain">
+                            ${hasDiscount ? `<span class="absolute -top-2 -left-2 bg-brand-red text-white text-[9px] font-black px-2 py-1 rounded-lg shadow-md border border-white">-${discountPercent}%</span>` : ''}
                         </div>
                         <div class="min-w-0 flex-grow">
-                            <h3 class="font-black text-xs md:text-sm text-brand-black uppercase tracking-tight mb-2 leading-tight cursor-pointer hover:text-brand-cyan transition truncate" onclick="window.location.href='/shop/product.html?id=${item.id}'">
+                            <h3 class="font-black text-sm text-brand-black uppercase tracking-tight mb-2 leading-tight cursor-pointer hover:text-brand-cyan transition truncate" onclick="window.location.href='/shop/product.html?id=${item.id}'">
                                 ${item.name}
                             </h3>
-                            <button onclick="window.removeItem('${item.id}')" class="text-red-400 text-[8px] font-black uppercase tracking-widest hover:text-red-600 transition flex items-center gap-2">
-                                <i class="fa-solid fa-trash-can"></i> Eliminar
+                            <div class="flex flex-wrap gap-2 mb-3">
+                                ${item.color ? `<span class="text-[9px] font-bold text-gray-600 bg-gray-100 px-2 py-1 rounded-lg uppercase border border-gray-200">${item.color}</span>` : ''}
+                                ${item.capacity ? `<span class="text-[9px] font-bold text-brand-cyan bg-cyan-50 px-2 py-1 rounded-lg uppercase border border-cyan-100">${item.capacity}</span>` : ''}
+                            </div>
+                            <button onclick="window.removeItem('${item.cartId}')" class="group flex items-center gap-2 text-[9px] font-bold text-red-400 hover:text-red-600 transition uppercase tracking-wider">
+                                <div class="w-6 h-6 rounded-full bg-red-50 group-hover:bg-red-100 flex items-center justify-center transition"><i class="fa-solid fa-trash-can"></i></div>
+                                Eliminar
                             </button>
                         </div>
                     </div>
-
                     <div class="col-span-2 flex justify-center w-full md:w-auto">
-                        <div class="flex items-center bg-slate-50 border border-gray-100 rounded-xl p-1 h-10 shadow-inner">
-                            <button onclick="window.changeQty('${item.id}', ${item.quantity - 1})" class="w-8 h-full flex items-center justify-center text-gray-400 hover:text-brand-cyan transition font-bold text-sm">-</button>
+                        <div class="flex items-center bg-white border border-gray-200 rounded-xl p-1 h-10 shadow-sm">
+                            <button onclick="window.changeQty('${item.cartId}', ${item.quantity - 1})" class="w-8 h-full flex items-center justify-center text-gray-400 hover:text-brand-black transition font-bold text-sm hover:bg-gray-50 rounded-lg">-</button>
                             <span class="w-8 text-center text-xs font-black text-brand-black">${item.quantity}</span>
-                            <button onclick="window.changeQty('${item.id}', ${item.quantity + 1})" class="w-8 h-full flex items-center justify-center text-gray-400 hover:text-brand-cyan transition font-bold text-sm">+</button>
+                            <button onclick="window.changeQty('${item.cartId}', ${item.quantity + 1})" class="w-8 h-full flex items-center justify-center text-gray-400 hover:text-brand-black transition font-bold text-sm hover:bg-gray-50 rounded-lg">+</button>
                         </div>
                     </div>
-
                     <div class="col-span-2 text-right hidden md:block">
-                        <span class="text-[10px] font-black text-gray-300 uppercase block mb-1">Precio</span>
-                        <span class="text-xs font-bold text-gray-500">$${item.price.toLocaleString('es-CO')}</span>
+                        <span class="text-[9px] font-black text-gray-400 uppercase block mb-1">Precio</span>
+                        ${hasDiscount ? `
+                            <div class="flex flex-col items-end">
+                                <span class="text-[10px] font-bold text-gray-400 line-through decoration-brand-red decoration-2">$${item.originalPrice.toLocaleString('es-CO')}</span>
+                                <span class="text-sm font-black text-brand-red">$${item.price.toLocaleString('es-CO')}</span>
+                            </div>
+                        ` : `<span class="text-sm font-black text-gray-700">$${item.price.toLocaleString('es-CO')}</span>`}
                     </div>
-
                     <div class="col-span-2 text-right w-full md:w-auto flex justify-between md:block items-center">
-                        <span class="text-[10px] font-black text-brand-cyan uppercase md:hidden">Subtotal</span>
+                        <span class="text-[10px] font-black text-gray-500 uppercase md:hidden">Subtotal</span>
                         <span class="text-lg font-black text-brand-black tracking-tighter">$${(item.price * item.quantity).toLocaleString('es-CO')}</span>
                     </div>
                 </div>
-            `).join('');
+            `}).join('');
+
+            updateTotalUI();
         }
 
-        // Exponer funciones globales para los onclick del HTML
-        window.changeQty = (id, qty) => {
-            updateQuantity(id, qty);
+        function updateTotalUI() {
+            const subtotal = getCartTotal();
+            const total = subtotal + calculatedShipping;
+
+            subtotalDisplay.textContent = `$${subtotal.toLocaleString('es-CO')}`;
+            totalDisplay.textContent = `$${total.toLocaleString('es-CO')}`;
+            
+            // Actualizar la barra cada vez que cambien los totales
+            updateProgressBar();
+        }
+
+        // --- EVENTOS ---
+        window.changeQty = (cartId, qty) => {
+            updateQuantity(cartId, qty);
             render();
+            // Recalcular envío si está logueado, pues el monto cambió
+            const user = auth.currentUser;
+            if(user) estimateShipping(user); 
         };
 
-        window.removeItem = (id) => {
+        window.removeItem = (cartId) => {
             if (confirm("¿Eliminar producto del carrito?")) {
-                removeFromCart(id);
+                removeFromCart(cartId);
                 render();
+                const user = auth.currentUser;
+                if(user) estimateShipping(user);
             }
         };
 
-        // Lógica de Checkout (Login Obligatorio AQUÍ)
         checkoutBtn.onclick = () => {
             const user = auth.currentUser;
             if (!user) {
-                // Guardar intención de ir al checkout
                 sessionStorage.setItem('redirect_after_login', '/shop/checkout.html');
-                if(confirm("🔒 Para finalizar tu compra de forma segura, necesitas iniciar sesión o registrarte.\n\n¿Deseas ir al login?")) {
+                if(confirm("🔒 Para finalizar tu compra de forma segura, necesitas iniciar sesión.\n\n¿Ir al login?")) {
                     window.location.href = "/auth/login.html";
                 }
             } else {
@@ -199,8 +367,15 @@
             }
         };
 
-        // Inicializar
-        render();
+        // --- INICIALIZACIÓN ---
+        // 1. Obtener config general (Umbral Envío Gratis)
+        fetchShippingConfig();
+
+        // 2. Auth Listener
+        onAuthStateChanged(auth, (user) => {
+            render();
+            if (user) estimateShipping(user);
+        });
 
     </script>
 </body>
