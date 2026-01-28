@@ -9,6 +9,7 @@ const els = {
     shippingCost: document.getElementById('check-shipping'),
     total: document.getElementById('check-total'),
     freeShippingMsg: document.getElementById('free-shipping-msg'),
+    dispatchMsg: document.getElementById('dispatch-time-msg'), // NUEVO DOM
     btnSubmit: document.getElementById('btn-complete-order'),
     
     // Inputs Envío
@@ -22,6 +23,12 @@ const els = {
     citySelect: document.getElementById('shipping-city'),
     notes: document.getElementById('cust-notes'),
     saveAddrCheck: document.getElementById('save-address-check'),
+
+    // DOM Pagos
+    codInput: document.getElementById('payment-cod'),
+    codContainer: document.getElementById('cod-container'),
+    codWarning: document.getElementById('cod-warning'),
+    onlineInput: document.getElementById('payment-online'),
 
     // Facturación
     checkInvoice: document.getElementById('check-need-invoice'),
@@ -38,13 +45,12 @@ const els = {
 
 let currentUser = null;
 let userProfileData = null;
-// Nota: Usamos getCart() dinámicamente en el submit, esta variable es para inicialización
 const cart = getCart(); 
 let shippingConfig = null;
 let currentShippingCost = 0;
 
-// Estado del método de pago
-let selectedPaymentMethod = 'COD'; // Default: Cash On Delivery
+// Estado del método de pago (Default ONLINE)
+let selectedPaymentMethod = 'ONLINE'; 
 
 // --- 1. INICIALIZACIÓN ---
 onAuthStateChanged(auth, async (user) => {
@@ -53,7 +59,8 @@ onAuthStateChanged(auth, async (user) => {
         await Promise.all([ loadShippingConfig(), loadDepartments() ]);
         await loadUserData(user.uid);
         renderOrderSummary();
-        setupPaymentListeners(); // Inicializar escuchas de radio buttons
+        setupPaymentListeners(); 
+        validatePaymentMethods(); 
     } else {
         sessionStorage.setItem('redirect_after_login', '/shop/checkout.html');
         window.location.href = '/auth/login.html';
@@ -61,27 +68,43 @@ onAuthStateChanged(auth, async (user) => {
 });
 
 // --- 2. LÓGICA DE MÉTODOS DE PAGO ---
-// --- 2. LÓGICA DE MÉTODOS DE PAGO ---
 function setupPaymentListeners() {
-    // Buscamos los inputs
     const radios = document.querySelectorAll('input[name="payment_method"]');
     
-    if(radios.length === 0) console.error("❌ Error: No se encontraron los radio buttons en el HTML");
-
     radios.forEach(r => {
-        // Escuchar click y change para asegurar compatibilidad
         r.addEventListener('change', (e) => {
             selectedPaymentMethod = e.target.value;
-            console.log("✅ Método seleccionado:", selectedPaymentMethod); // <--- MIRA ESTO EN CONSOLA
+            console.log("✅ Método seleccionado:", selectedPaymentMethod);
             updateSubmitButtonText();
         });
     });
 }
 
+// VALIDAR CONTRA ENTREGA (Solo BOG)
+function validatePaymentMethods() {
+    const city = els.citySelect.value || "";
+    const isBogota = city.toLowerCase().includes('bogot'); 
+
+    if (isBogota) {
+        els.codInput.disabled = false;
+        els.codContainer.classList.remove('payment-disabled', 'opacity-50', 'grayscale', 'pointer-events-none');
+        els.codWarning.classList.add('hidden');
+    } else {
+        els.codInput.disabled = true;
+        els.codContainer.classList.add('payment-disabled', 'opacity-50', 'grayscale', 'pointer-events-none');
+        els.codWarning.classList.remove('hidden');
+
+        if (els.codInput.checked) {
+            els.onlineInput.checked = true;
+            selectedPaymentMethod = 'ONLINE';
+            updateSubmitButtonText();
+        }
+    }
+}
+
 function updateSubmitButtonText() {
     const btn = els.btnSubmit;
     
-    // Resetear clases
     btn.className = "w-full mt-10 font-black py-5 rounded-2xl transition-all duration-300 uppercase text-xs tracking-[0.25em] flex items-center justify-center gap-3 cursor-pointer hover:shadow-lg";
 
     if (selectedPaymentMethod === 'COD') {
@@ -99,12 +122,53 @@ function updateSubmitButtonText() {
 }
 
 
-// --- 3. CARGAR DATOS (Config, Deptos, Usuario) ---
+// --- 3. CARGAR DATOS ---
 async function loadShippingConfig() {
     try {
         const snap = await getDoc(doc(db, "config", "shipping"));
         shippingConfig = snap.exists() ? snap.data() : { freeThreshold: 0, defaultPrice: 0, groups: [] };
+        
+        // NUEVO: Calcular mensaje de despacho
+        checkDispatchTime(shippingConfig.cutoffTime || "14:00");
+
     } catch (e) { console.error("Config Error:", e); }
+}
+
+// --- NUEVA LÓGICA: MENSAJE DESPACHO ---
+function checkDispatchTime(cutoffTimeStr) {
+    if(!els.dispatchMsg) return;
+
+    const now = new Date();
+    const [hours, minutes] = cutoffTimeStr.split(':').map(Number);
+    const cutoffDate = new Date();
+    cutoffDate.setHours(hours, minutes, 0, 0);
+
+    const isBeforeCutoff = now < cutoffDate;
+    const diffMs = cutoffDate - now;
+    const diffHrs = Math.floor(diffMs / 3600000);
+    const diffMins = Math.floor((diffMs % 3600000) / 60000);
+
+    els.dispatchMsg.classList.remove('hidden');
+
+    if (isBeforeCutoff) {
+        let timeText = "";
+        if(diffHrs > 0) timeText += `${diffHrs}h `;
+        timeText += `${diffMins}m`;
+
+        els.dispatchMsg.innerHTML = `
+            <p class="text-[10px] font-black uppercase text-green-600 pulse-text">
+                <i class="fa-solid fa-bolt text-yellow-500 mr-1"></i> 
+                Pide en <span class="underline">${timeText}</span> y despachamos HOY
+            </p>
+        `;
+    } else {
+        els.dispatchMsg.innerHTML = `
+            <p class="text-[10px] font-black uppercase text-blue-500">
+                <i class="fa-solid fa-calendar-check mr-1"></i> 
+                Tu pedido será despachado MAÑANA
+            </p>
+        `;
+    }
 }
 
 async function loadDepartments() {
@@ -160,6 +224,7 @@ els.savedAddrSelect.addEventListener('change', (e) => {
         els.name.value = userProfileData.name || "";
         els.phone.value = userProfileData.phone || "";
         els.idNumber.value = userProfileData.document || "";
+        validatePaymentMethods(); 
         return;
     }
     const addresses = userProfileData.addresses || [];
@@ -190,6 +255,7 @@ async function fillFormWithData(data) {
             }
         }
     }
+    validatePaymentMethods(); 
 }
 
 els.deptSelect.addEventListener('change', (e) => loadCitiesForDept(e.target.value));
@@ -220,7 +286,10 @@ async function loadCitiesForDept(deptId) {
     } catch (e) { console.error(e); }
 }
 
-els.citySelect.addEventListener('change', calculateShipping);
+els.citySelect.addEventListener('change', () => {
+    calculateShipping();
+    validatePaymentMethods();
+});
 
 // --- 4. CÁLCULOS Y UI ---
 function calculateShipping() {
@@ -267,7 +336,6 @@ function toggleSubmitBtn(enable) {
     if (enable) {
         els.btnSubmit.disabled = false;
         els.btnSubmit.classList.remove('bg-gray-200', 'text-gray-400', 'cursor-not-allowed');
-        // Re-aplicar estilo según el método de pago seleccionado
         updateSubmitButtonText(); 
     } else {
         els.btnSubmit.disabled = true;
@@ -280,7 +348,6 @@ function toggleSubmitBtn(enable) {
 els.btnSubmit.addEventListener('click', async (e) => {
     e.preventDefault();
     
-    // Validación General
     if (!els.name.value || !els.phone.value || !els.idNumber.value || !els.citySelect.value || !els.address.value) {
         alert("⚠️ Completa todos los campos obligatorios (Nombre, ID, Teléfono, Dirección)."); 
         return;
@@ -299,13 +366,11 @@ els.btnSubmit.addEventListener('click', async (e) => {
         };
     }
 
-    // --- DERIVACIÓN DE FLUJO ---
     if (selectedPaymentMethod === 'COD') {
         await processCODOrder(billData);
     } 
-else if (selectedPaymentMethod === 'ONLINE') {
+    else if (selectedPaymentMethod === 'ONLINE') {
         
-        // 1. Verificar Sesión
         if (!auth.currentUser) {
             alert("Tu sesión ha expirado. Por favor inicia sesión nuevamente.");
             window.location.href = '/auth/login.html';
@@ -325,8 +390,6 @@ else if (selectedPaymentMethod === 'ONLINE') {
 
             const createPreference = httpsCallable(functions, 'createMercadoPagoPreference');
             
-            // --- RECOPILAMOS LOS DATOS COMPLETOS (IGUAL QUE CONTRA ENTREGA) ---
-            // Obtenemos el nombre del departamento
             const deptName = els.deptSelect.options[els.deptSelect.selectedIndex]?.dataset.name || "";
             
             const fullShippingData = {
@@ -339,7 +402,6 @@ else if (selectedPaymentMethod === 'ONLINE') {
                 notes: els.notes.value || ""
             };
 
-            // Preparamos el payload con TODOS los datos que faltaban
             const payloadCompleto = {
                 userToken: String(token),
                 shippingCost: Number(currentShippingCost),
@@ -349,16 +411,14 @@ else if (selectedPaymentMethod === 'ONLINE') {
                     color: i.color || "",
                     capacity: i.capacity || ""
                 })),
-                // Aquí enviamos los datos extra que faltaban en la BD
                 extraData: {
                     userName: els.name.value,
-                    clientDoc: els.idNumber.value, // <--- EL DOCUMENTO QUE FALTABA
-                    needsInvoice: els.checkInvoice.checked, // <--- SI NECESITA FACTURA
-                    billingData: billData, // <--- DATOS DE FACTURACIÓN (puede ser null)
-                    shippingData: fullShippingData, // <--- ESTRUCTURA COMPLETA DE ENVÍO
-                    source: 'TIENDA' // <--- PARA QUE COINCIDA CON TU FOTO
+                    clientDoc: els.idNumber.value, 
+                    needsInvoice: els.checkInvoice.checked, 
+                    billingData: billData, 
+                    shippingData: fullShippingData, 
+                    source: 'TIENDA' 
                 },
-                // Mantenemos buyerInfo simple para MercadoPago (requisito técnico de ellos)
                 buyerInfo: {
                     name: els.name.value,
                     email: auth.currentUser.email,
@@ -374,11 +434,9 @@ else if (selectedPaymentMethod === 'ONLINE') {
 
             const { initPoint } = response.data;
             if (initPoint) {
-                // Guardamos datos temporales para el success.html
                 localStorage.setItem('pending_order_data', JSON.stringify({
                     items: cart,
                     shipping: els.address.value,
-                    // Guardamos esto también para pintarlo bonito en success si es necesario
                     buyerInfo: { name: els.name.value, email: auth.currentUser.email }
                 }));
                 window.location.href = initPoint; 
@@ -394,7 +452,95 @@ else if (selectedPaymentMethod === 'ONLINE') {
         }
     }
     else if (selectedPaymentMethod === 'ADDI') {
-        alert("🚀 PRÓXIMAMENTE: Integración ADDI.\n\nAquí se redirigirá al estudio de crédito de ADDI.");
+        
+        // 1. Verificar Sesión
+        if (!auth.currentUser) {
+            alert("Tu sesión ha expirado. Inicia sesión nuevamente.");
+            window.location.href = '/auth/login.html';
+            return;
+        }
+
+        // 2. Validación ADDI (Importante: Requiere Cédula y Celular válidos)
+        if (!els.idNumber.value || els.idNumber.value.length < 5) {
+            return alert("⚠️ Para pagar con ADDI, necesitamos un número de documento válido.");
+        }
+        if (!els.phone.value || els.phone.value.length < 10) {
+            return alert("⚠️ Para pagar con ADDI, necesitamos un número de celular válido.");
+        }
+
+        const btnHtml = els.btnSubmit.innerHTML;
+        els.btnSubmit.disabled = true;
+        els.btnSubmit.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Conectando con ADDI...`;
+
+        try {
+            console.log("1. Token ADDI...");
+            const token = await auth.currentUser.getIdToken(true);
+            
+            const currentCart = getCart(); 
+            if (!currentCart || currentCart.length === 0) throw new Error("Carrito vacío.");
+
+            // Función Cloud de ADDI
+            const createAddi = httpsCallable(functions, 'createAddiCheckout');
+            
+            const deptName = els.deptSelect.options[els.deptSelect.selectedIndex]?.dataset.name || "";
+            const fullShippingData = {
+                name: els.name.value,
+                phone: els.phone.value,
+                department: deptName,
+                city: els.citySelect.value,
+                address: els.address.value,
+                postalCode: els.postal.value,
+                notes: els.notes.value || ""
+            };
+
+            const payloadCompleto = {
+                userToken: String(token),
+                shippingCost: Number(currentShippingCost),
+                items: currentCart.map(i => ({
+                    id: i.id,
+                    quantity: i.quantity,
+                    color: i.color || "",
+                    capacity: i.capacity || ""
+                })),
+                extraData: {
+                    userName: els.name.value,
+                    clientDoc: els.idNumber.value, // Vital para ADDI
+                    phone: els.phone.value,        // Vital para ADDI
+                    needsInvoice: els.checkInvoice.checked, 
+                    billingData: billData, 
+                    shippingData: fullShippingData, 
+                    source: 'TIENDA' 
+                },
+                buyerInfo: {
+                    name: els.name.value,
+                    email: auth.currentUser.email,
+                    phone: els.phone.value,
+                    address: els.address.value
+                }
+            };
+
+            console.log("📤 Payload ADDI:", payloadCompleto);
+
+            const response = await createAddi(payloadCompleto);
+            const { initPoint } = response.data;
+
+            if (initPoint) {
+                localStorage.setItem('pending_order_data', JSON.stringify({
+                    items: cart,
+                    method: 'ADDI'
+                }));
+                // Redirigir a la pasarela de ADDI
+                window.location.href = initPoint; 
+            } else {
+                throw new Error("No se recibió link de ADDI.");
+            }
+
+        } catch (error) {
+            console.error("❌ Error ADDI:", error);
+            alert("Error ADDI: " + (error.message || "Desconocido. Verifica tus datos."));
+            els.btnSubmit.disabled = false;
+            els.btnSubmit.innerHTML = btnHtml;
+        }
     }
 });
 
@@ -404,134 +550,68 @@ async function processCODOrder(billData) {
     els.btnSubmit.disabled = true;
     els.btnSubmit.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Confirmando...`;
 
-    let createdOrderId = null;
-
     try {
-        const orderTotal = getCartTotal();
-        const deptName = els.deptSelect.options[els.deptSelect.selectedIndex].dataset.name;
+        if (!auth.currentUser) throw new Error("Debes iniciar sesión.");
+        const userToken = await auth.currentUser.getIdToken(true); 
+
+        const deptName = els.deptSelect.options[els.deptSelect.selectedIndex]?.dataset.name || "";
         
-        await runTransaction(db, async (transaction) => {
-            const productsToUpdate = [];
-            
-            // Usar getCart() dentro de la transacción no es posible porque lee localStorage
-            // Usamos la variable global 'cart' que ya se cargó, pero idealmente se debería revalidar precios.
-            // Para COD mantenemos la lógica actual funcional.
+        const shippingData = {
+            name: els.name.value,
+            phone: els.phone.value,
+            department: deptName,
+            city: els.citySelect.value,
+            address: els.address.value,
+            postalCode: els.postal.value,
+            notes: els.notes.value || ""
+        };
 
-            for (const item of cart) {
-                const pRef = doc(db, "products", item.id);
-                const pSnap = await transaction.get(pRef);
-
-                if (!pSnap.exists()) throw `Producto "${item.name}" ya no existe.`;
-
-                const pData = pSnap.data();
-                const qtyToDeduct = item.quantity || 1;
-                
-                let newStock = (pData.stock || 0) - qtyToDeduct;
-                let newCombinations = pData.combinations || [];
-
-                if (newStock < 0) throw `Stock insuficiente para: ${item.name} (Quedan: ${pData.stock})`;
-
-                if (item.color || item.capacity) {
-                    if (pData.combinations && pData.combinations.length > 0) {
-                        const comboIndex = pData.combinations.findIndex(c => 
-                            (c.color === item.color || (!c.color && !item.color)) &&
-                            (c.capacity === item.capacity || (!c.capacity && !item.capacity))
-                        );
-
-                        if (comboIndex >= 0) {
-                            if (pData.combinations[comboIndex].stock < qtyToDeduct) {
-                                throw `Stock insuficiente para ${item.name} (${item.color || ''} ${item.capacity || ''})`;
-                            }
-                            newCombinations[comboIndex].stock -= qtyToDeduct;
-                        }
-                    }
-                }
-
-                productsToUpdate.push({ ref: pRef, newStock, newCombinations });
-            }
-
-            productsToUpdate.forEach(p => {
-                transaction.update(p.ref, { 
-                    stock: p.newStock,
-                    combinations: p.newCombinations 
-                });
-            });
-
-            const newOrderRef = doc(collection(db, "orders"));
-            createdOrderId = newOrderRef.id;
-            
-            const orderData = {
-                source: 'TIENDA',
-                userId: currentUser.uid,
+        const payload = {
+            userToken: String(userToken),
+            items: cart.map(i => ({
+                id: i.id,
+                quantity: i.quantity,
+                color: i.color || "",
+                capacity: i.capacity || ""
+            })),
+            shippingCost: currentShippingCost,
+            extraData: {
                 userName: els.name.value,
-                userEmail: currentUser.email,
-                clientDoc: els.idNumber.value, 
-                
-                shippingData: {
-                    name: els.name.value,
-                    phone: els.phone.value,
-                    department: deptName,
-                    city: els.citySelect.value,
-                    address: els.address.value,
-                    postalCode: els.postal.value,
-                    notes: els.notes.value || ""
-                },
-                billingData: billData,
+                clientDoc: els.idNumber.value,
+                phone: els.phone.value,
                 needsInvoice: els.checkInvoice.checked,
-                items: cart,
-                subtotal: orderTotal,
-                shippingCost: currentShippingCost,
-                total: orderTotal + currentShippingCost,
-                status: 'PENDIENTE',
-                paymentMethod: 'CONTRAENTREGA',
-                createdAt: serverTimestamp()
-            };
-            transaction.set(newOrderRef, orderData);
+                billingData: billData,
+                shippingData: shippingData,
+                source: 'TIENDA_WEB'
+            }
+        };
 
-            const remissionRef = doc(collection(db, "remissions"));
-            transaction.set(remissionRef, {
-                orderId: createdOrderId,
-                source: 'TIENDA',
-                clientName: els.name.value,
-                clientPhone: els.phone.value,
-                clientAddress: `${els.address.value}, ${els.citySelect.value}`,
-                items: cart,
-                total: orderData.total,
-                status: 'PENDIENTE_ALISTAMIENTO',
-                createdAt: serverTimestamp(),
-                type: 'VENTA_WEB'
-            });
-        });
-
-        // Actualizar Perfil
-        const updates = {};
-        if (!userProfileData.document && els.idNumber.value) updates.document = els.idNumber.value;
-        if (!userProfileData.phone && els.phone.value) updates.phone = els.phone.value;
-
-        if (Object.keys(updates).length > 0) {
-            try { await updateDoc(doc(db, "users", currentUser.uid), updates); } catch (err) { console.warn(err); }
-        }
+        console.log("📞 Enviando COD con token manual...");
+        const createCOD = httpsCallable(functions, 'createCODOrder');
+        const response = await createCOD(payload);
+        
+        const { orderId } = response.data;
 
         if (els.saveAddrCheck.checked) {
             const newAddr = {
                 alias: `Envío ${new Date().toLocaleDateString()}`,
                 address: els.address.value,
-                dept: els.deptSelect.options[els.deptSelect.selectedIndex].dataset.name,
+                dept: deptName,
                 city: els.citySelect.value,
                 zip: els.postal.value,
                 notes: els.notes.value,
                 isDefault: false
             };
-            try { await updateDoc(doc(db, "users", currentUser.uid), { addresses: arrayUnion(newAddr) }); } catch (err) { console.warn(err); }
+            updateDoc(doc(db, "users", currentUser.uid), { addresses: arrayUnion(newAddr) }).catch(console.warn);
         }
 
         localStorage.removeItem('pixeltech_cart');
         updateCartCount();
-        window.location.href = `/shop/success.html?order=${createdOrderId}`;
+        window.location.href = `/shop/success.html?order=${orderId}`;
 
     } catch (error) {
-        console.error(error);
-        alert("Error en el pedido: " + error);
+        console.error("❌ Error COD:", error);
+        alert("No se pudo procesar el pedido: " + (error.message || error));
         els.btnSubmit.disabled = false;
         els.btnSubmit.innerHTML = btnHtml;
     }

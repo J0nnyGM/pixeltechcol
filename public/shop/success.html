@@ -52,14 +52,7 @@
                     <h3 class="font-black text-[10px] uppercase tracking-[0.3em] text-gray-400 mb-6 border-b border-gray-50 pb-4">Resumen de la Orden</h3>
                     
                     <div id="success-items-container" class="space-y-4 mb-4 overflow-y-auto max-h-[280px] custom-scroll pr-2 flex-grow">
-                        <div class="animate-pulse flex gap-4">
-                            <div class="w-12 h-12 bg-gray-100 rounded-lg"></div>
-                            <div class="flex-grow space-y-2">
-                                <div class="h-3 bg-gray-100 rounded w-3/4"></div>
-                                <div class="h-2 bg-gray-100 rounded w-1/2"></div>
-                            </div>
                         </div>
-                    </div>
 
                     <div class="border-t border-gray-100 pt-4 space-y-3 bg-gray-50/50 -mx-8 px-8 pb-4 mt-auto">
                         <div class="flex justify-between items-center text-xs">
@@ -103,6 +96,7 @@
                                         ---
                                     </span>
                                 </div>
+                                <p id="payment-method-text" class="text-[10px] text-white/60 mt-2 font-bold uppercase"></p>
                             </div>
                             <div id="billing-info-container" class="hidden pt-6 mt-6 border-t border-white/10">
                                 <h4 class="font-black text-[10px] uppercase tracking-[0.3em] text-white/50 mb-3">Facturación</h4>
@@ -150,37 +144,30 @@
                 const unsubscribe = onSnapshot(doc(db, "orders", orderId), (docSnap) => {
                     if (docSnap.exists()) {
                         const data = docSnap.data();
-                        const status = data.status; // PAGADO, RECHAZADO, PENDIENTE_PAGO
+                        const status = data.status;
                         
                         loadingText.textContent = `Estado: ${status}...`;
 
-                        // 1. CASO ÉXITO (PAGADO)
                         if (status === 'PAGADO' || status === 'PENDIENTE' || (status === 'PENDIENTE_PAGO' && mpStatus === 'approved')) {
                             localStorage.removeItem('pixeltech_cart'); 
                             localStorage.removeItem('pending_order_data');
                             updateCartCount();
-                            
                             renderUI(data, orderId, 'SUCCESS');
                             unsubscribe();
                         }
-                        // 2. CASO EN PROCESO / PENDIENTE DE PAGO (NUEVO)
                         else if (status === 'PENDIENTE_PAGO') {
-                            // Aquí no borramos el carrito por si falla luego y quiere reintentar
                             renderUI(data, orderId, 'PENDING');
-                            // No hacemos unsubscribe() aquí, seguimos escuchando por si cambia a PAGADO o RECHAZADO en vivo
                         }
-                        // 3. CASO RECHAZADO / CANCELADO
                         else if (status === 'RECHAZADO' || status === 'CANCELADO' || mpStatus === 'rejected') {
                             renderUI(data, orderId, 'FAILURE');
                             unsubscribe();
                         }
                         
                     } else {
-                        loadingText.textContent = "Buscando orden...";
+                        loadingText.textContent = "Sincronizando orden...";
                     }
                 }, (error) => {
                     console.error("Error lectura:", error);
-                    // Fallback visual si falla lectura
                     if (mpStatus === 'approved') renderFallback(orderId, 'SUCCESS');
                     else if (mpStatus === 'rejected') renderFallback(orderId, 'FAILURE');
                     else renderFallback(orderId, 'PENDING');
@@ -188,12 +175,11 @@
 
             } catch (error) {
                 console.error(error);
-                alert("Error crítico: " + error.message);
-                window.location.href = '/';
+                alert("No pudimos encontrar tu orden. Regresando al inicio.");
+                window.location.href = '/index.html';
             }
         }
 
-        // --- RENDERIZADO DINÁMICO ---
         function renderUI(order, id, type) {
             loadingScreen.classList.add('hidden');
             mainContent.classList.remove('hidden');
@@ -204,8 +190,9 @@
             const bgIcon = document.getElementById('bg-icon');
             const badge = document.getElementById('order-status-badge');
             const actions = document.getElementById('action-buttons');
+            const paymentText = document.getElementById('payment-method-text');
 
-            // --- TEMA: ÉXITO (VERDE) ---
+            // --- ESTILOS POR ESTADO ---
             if (type === 'SUCCESS') {
                 title.innerHTML = `¡Pedido <span class="text-brand-cyan">Confirmado</span>!`;
                 subtitle.textContent = "Gracias por confiar en PixelTech";
@@ -224,14 +211,11 @@
                 `;
                 triggerConfetti();
             } 
-            
-            // --- TEMA: PENDIENTE / PROCESANDO (AMARILLO/NARANJA) ---
             else if (type === 'PENDING') {
                 title.innerHTML = `¡Pago en <span class="text-yellow-500">Proceso</span>!`;
-                subtitle.textContent = "Tu entidad bancaria está validando la transacción. Te avisaremos pronto.";
+                subtitle.textContent = "Tu entidad financiera está validando la transacción.";
                 subtitle.classList.replace('text-gray-400', 'text-yellow-600');
                 
-                // Estilo Tarjeta Amarilla
                 infoCard.className = "bg-yellow-500 rounded-[2.5rem] p-10 text-white shadow-2xl shadow-yellow-200 relative overflow-hidden";
                 bgIcon.className = "fa-solid fa-hourglass-half absolute -right-8 -bottom-8 text-[12rem] opacity-10 rotate-0 text-white";
                 
@@ -247,22 +231,23 @@
                     </a>
                 `;
             }
-
-            // --- TEMA: ERROR (ROJO) ---
             else {
                 title.innerHTML = `¡Pago <span class="text-red-500">Rechazado</span>!`;
-                subtitle.textContent = "La transacción no pudo ser completada";
+                if (order.paymentMethod === 'ADDI') {
+                    subtitle.textContent = "Tu solicitud de crédito ADDI no fue aprobada.";
+                } else {
+                    subtitle.textContent = "La transacción fue declinada por el banco o pasarela.";
+                }
                 subtitle.classList.replace('text-gray-400', 'text-red-400');
                 
                 infoCard.className = "bg-red-600 rounded-[2.5rem] p-10 text-white shadow-2xl shadow-red-200 relative overflow-hidden";
                 bgIcon.className = "fa-solid fa-circle-xmark absolute -right-8 -bottom-8 text-[12rem] opacity-10 rotate-0 text-white";
-                
                 badge.className = "px-3 py-1 rounded text-[10px] font-black uppercase tracking-widest bg-white text-red-600 shadow-lg";
                 badge.textContent = "TRANSACCIÓN FALLIDA";
 
                 actions.innerHTML = `
                     <a href="/shop/checkout.html" class="w-full bg-brand-black text-white font-black py-6 rounded-2xl hover:bg-gray-800 transition-all uppercase text-xs tracking-[0.2em] flex items-center justify-center gap-3 shadow-xl">
-                        Intentar Pagar Nuevamente <i class="fa-solid fa-rotate-right"></i>
+                        Intentar con otro medio <i class="fa-solid fa-rotate-right"></i>
                     </a>
                     <a href="/index.html" class="w-full bg-white border border-gray-200 text-gray-400 font-black py-5 rounded-2xl hover:text-red-500 hover:border-red-200 transition-all uppercase text-[10px] tracking-[0.2em] flex items-center justify-center gap-3">
                         Cancelar Orden
@@ -270,13 +255,15 @@
                 `;
             }
 
-            // --- DATOS COMUNES ---
             document.getElementById('order-id').textContent = id.slice(0, 8).toUpperCase();
             document.getElementById('order-customer').textContent = order.userName || order.buyerInfo?.name || "Cliente";
-            if(order.clientDoc) document.getElementById('order-doc').textContent = `ID: ${order.clientDoc}`;
+            const docNum = order.clientDoc || order.buyerInfo?.document;
+            if(docNum) document.getElementById('order-doc').textContent = `ID: ${docNum}`;
+            paymentText.textContent = `Medio: ${order.paymentMethod || 'Pasarela'}`;
 
-            let addr = order.shippingData?.address || order.address || "";
-            if (order.shippingData?.city) addr += `, ${order.shippingData.city}`;
+            let addr = order.shippingData?.address || order.buyerInfo?.address || "Dirección no disponible";
+            const city = order.shippingData?.city || order.buyerInfo?.city || "";
+            if (city) addr += `, ${city}`;
             document.getElementById('order-address').textContent = addr;
 
             if (order.needsInvoice && order.billingData) {
@@ -294,34 +281,50 @@
             shippingEl.textContent = shipping === 0 ? "GRATIS" : `$${shipping.toLocaleString('es-CO')}`;
             document.getElementById('order-total').textContent = `$${total.toLocaleString('es-CO')}`;
 
+            // --- RENDERIZADO DE ITEMS CON PROMOCIÓN ---
             const itemsContainer = document.getElementById('success-items-container');
-            if (order.items) {
-                itemsContainer.innerHTML = order.items.map(item => `
-                    <div class="flex items-center gap-4 group p-2 hover:bg-gray-50 rounded-xl transition-colors">
-                        <div class="w-12 h-12 bg-white rounded-lg p-1 border border-gray-100 shrink-0 shadow-sm">
-                            <img src="${item.picture_url || item.mainImage || item.image || 'https://placehold.co/50'}" class="w-full h-full object-contain">
-                        </div>
-                        <div class="flex-grow min-w-0">
-                            <h4 class="font-bold text-[10px] uppercase text-brand-black truncate">${item.title || item.name}</h4>
-                            <div class="flex flex-wrap gap-1 mt-1">
-                                ${item.color ? `<span class="text-[7px] font-bold uppercase bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded border border-gray-200">${item.color}</span>` : ''}
-                                ${item.capacity ? `<span class="text-[7px] font-bold uppercase bg-brand-cyan/10 text-brand-cyan px-1.5 py-0.5 rounded border border-brand-cyan/20">${item.capacity}</span>` : ''}
+            if (order.items && order.items.length > 0) {
+                itemsContainer.innerHTML = order.items.map(item => {
+                    const price = item.unit_price || item.price || 0;
+                    const qty = item.quantity || 1;
+                    const originalPrice = item.originalPrice || 0;
+                    
+                    // Lógica de Descuento
+                    const hasDiscount = originalPrice > price;
+                    const finalPriceTotal = price * qty;
+                    const originalPriceTotal = originalPrice * qty;
+
+                    return `
+                        <div class="flex items-center gap-4 group p-2 hover:bg-gray-50 rounded-xl transition-colors">
+                            <div class="w-12 h-12 bg-white rounded-lg p-1 border border-gray-100 shrink-0 shadow-sm">
+                                <img src="${item.picture_url || item.mainImage || item.image || 'https://placehold.co/50'}" class="w-full h-full object-contain">
+                            </div>
+                            <div class="flex-grow min-w-0">
+                                <h4 class="font-bold text-[10px] uppercase text-brand-black truncate">${item.title || item.name}</h4>
+                                <div class="flex flex-wrap gap-1 mt-1">
+                                    ${item.color ? `<span class="text-[7px] font-bold uppercase bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded border border-gray-200">${item.color}</span>` : ''}
+                                    ${item.capacity ? `<span class="text-[7px] font-bold uppercase bg-brand-cyan/10 text-brand-cyan px-1.5 py-0.5 rounded border border-brand-cyan/20">${item.capacity}</span>` : ''}
+                                    ${hasDiscount ? `<span class="text-[7px] font-bold uppercase bg-red-100 text-red-600 px-1.5 py-0.5 rounded border border-red-200"><i class="fa-solid fa-tag mr-1"></i>OFERTA</span>` : ''}
+                                </div>
+                            </div>
+                            <div class="text-right shrink-0">
+                                <p class="text-[9px] font-bold text-gray-400 uppercase">x${qty}</p>
+                                ${hasDiscount 
+                                    ? `<p class="text-[8px] line-through text-gray-400">$${originalPriceTotal.toLocaleString('es-CO')}</p>` 
+                                    : ''}
+                                <p class="text-[10px] font-black ${hasDiscount ? 'text-red-500' : 'text-brand-black'}">$${finalPriceTotal.toLocaleString('es-CO')}</p>
                             </div>
                         </div>
-                        <div class="text-right shrink-0">
-                            <p class="text-[9px] font-bold text-gray-400 uppercase">x${item.quantity}</p>
-                            <p class="text-[10px] font-black text-brand-black">$${((item.unit_price || item.price) * item.quantity).toLocaleString('es-CO')}</p>
-                        </div>
-                    </div>
-                `).join('');
+                    `;
+                }).join('');
+            } else {
+                itemsContainer.innerHTML = `<p class="text-xs text-gray-400 text-center italic py-4">Detalles no disponibles</p>`;
             }
         }
 
-        // Renderizado de emergencia (si falla DB pero tenemos datos básicos)
         function renderFallback(id, type) {
             const dummyOrder = { userName: "Cliente", total: 0, status: 'UNKNOWN', items: [] };
             renderUI(dummyOrder, id, type);
-            document.getElementById('success-items-container').innerHTML = `<p class="text-xs text-gray-400 text-center italic py-10">Cargando detalles...</p>`;
         }
 
         function triggerConfetti() {

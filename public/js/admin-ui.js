@@ -37,13 +37,13 @@ export function loadAdminSidebar() {
             title: 'Administración',
             items: [
                 { name: 'Proveedores', icon: 'fa-handshake', path: '/admin/suppliers.html' },
-                // --- NUEVO MÓDULO AGREGADO AQUÍ ---
                 { name: 'Gestión de Cartera', icon: 'fa-wallet', path: '/admin/cartera.html' },
-                // ----------------------------------
                 { name: 'Cuentas', icon: 'fa-vault', path: '/admin/treasury.html' },
                 { name: 'Control de Gastos', icon: 'fa-money-bill-trend-up', path: '/admin/expenses.html' }, 
                 { name: 'Logística', icon: 'fa-truck-fast', path: '/admin/shipping-config.html' },
-                { name: 'Banners y Promos', icon: 'fa-bullhorn', path: '/admin/promotions.html' }
+                { name: 'Banners y Promos', icon: 'fa-bullhorn', path: '/admin/promotions.html' },
+                // --- NUEVO: CONFIGURACIÓN GENERAL ---
+                { name: 'Configuración', icon: 'fa-gear', path: '/admin/settings.html' }
             ]
         }
     ];

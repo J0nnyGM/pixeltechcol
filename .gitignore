@@ -32,3 +32,5 @@ functions/node_modules/
 serviceAccountKey.json
 functions/serviceAccountKey.json
 *.json.local
+
+.firebase/hosting.cHVibGlj.cache

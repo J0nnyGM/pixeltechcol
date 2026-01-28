@@ -44,6 +44,10 @@ export function addToCart(product) {
         });
     }
 
+    localStorage.setItem('pixeltech_cart', JSON.stringify(cart));
+
+    window.dispatchEvent(new Event('cartItemAdded'));
+
     saveCart(cart);
     return cart.length;
 }

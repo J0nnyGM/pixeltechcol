@@ -27,32 +27,62 @@
             <div class="p-6 md:p-12 max-w-6xl mx-auto w-full pb-24 md:pb-12">
                 
                 <h1 class="text-3xl md:text-4xl font-black mb-2 text-brand-black tracking-tight">Configuración</h1>
-                <p class="text-gray-500 mb-10 text-sm font-medium">Gestiona las credenciales de tu tienda.</p>
+                <p class="text-gray-500 mb-10 text-sm font-medium">Estado de integraciones y pasarelas.</p>
 
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
 
-                <div class="bg-white p-8 rounded-[2rem] border border-gray-100 shadow-xl relative overflow-hidden">
-                    <div class="flex justify-between items-start mb-6">
-                        <div class="flex items-center gap-4">
-                            <div class="w-14 h-14 bg-blue-50 rounded-2xl flex items-center justify-center">
-                                <img src="https://logotipoz.com/wp-content/uploads/2021/10/version-horizontal-large-logo-mercado-pago.webp" class="w-10 object-contain">
+                    <div class="bg-white p-8 rounded-[2rem] border border-gray-100 shadow-xl relative overflow-hidden">
+                        <div class="flex justify-between items-start mb-6">
+                            <div class="flex items-center gap-4">
+                                <div class="w-14 h-14 bg-blue-50 rounded-2xl flex items-center justify-center">
+                                    <img src="https://logotipoz.com/wp-content/uploads/2021/10/version-horizontal-large-logo-mercado-pago.webp" class="w-10 object-contain">
+                                </div>
+                                <div>
+                                    <h3 class="font-bold text-xl text-gray-900">Mercado Pago</h3>
+                                    <p class="text-[10px] text-gray-400 font-black uppercase tracking-widest mt-1">Pasarela de Pagos</p>
+                                </div>
                             </div>
-                            <div>
-                                <h3 class="font-bold text-xl text-gray-900">Mercado Pago</h3>
-                                <p class="text-[10px] text-gray-400 font-black uppercase tracking-widest mt-1">Modo Servidor</p>
-                            </div>
+                            <span class="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest bg-green-100 text-green-600 border border-green-200">
+                                ACTIVO
+                            </span>
                         </div>
-                        <span class="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest bg-green-100 text-green-600 border border-green-200">
-                            ACTIVO
-                        </span>
+                        <p class="text-sm text-gray-500 mb-4">
+                            Procesa pagos con tarjeta de crédito, débito y PSE. Configurado mediante variables de entorno seguras.
+                        </p>
+                        <div class="p-4 bg-gray-50 rounded-xl border border-gray-200 flex items-center gap-3">
+                            <i class="fa-solid fa-server text-gray-400"></i>
+                            <p class="text-xs text-gray-500 font-medium">Gestión vía Servidor (Cloud Functions)</p>
+                        </div>
                     </div>
-                    <p class="text-sm text-gray-500">
-                        La pasarela está configurada mediante <strong>Variables de Entorno (.env)</strong> seguras en el servidor.
-                    </p>
-                    <div class="mt-4 p-4 bg-gray-50 rounded-xl border border-gray-200">
-                        <p class="text-xs text-gray-400 text-center">Gestión administrada por el desarrollador.</p>
+
+                    <div class="bg-white p-8 rounded-[2rem] border border-gray-100 shadow-xl relative overflow-hidden">
+                        <div class="flex justify-between items-start mb-6">
+                            <div class="flex items-center gap-4">
+                                <div class="w-14 h-14 bg-[#00D6D6]/10 rounded-2xl flex items-center justify-center">
+                                    <span class="text-[#00D6D6] font-black text-xl">ADDI</span>
+                                </div>
+                                <div>
+                                    <h3 class="font-bold text-xl text-gray-900">Crédito ADDI</h3>
+                                    <p class="text-[10px] text-gray-400 font-black uppercase tracking-widest mt-1">Buy Now, Pay Later</p>
+                                </div>
+                            </div>
+                            <span class="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest bg-green-100 text-green-600 border border-green-200">
+                                ACTIVO
+                            </span>
+                        </div>
+                        <p class="text-sm text-gray-500 mb-4">
+                            Permite a tus clientes pagar a cuotas sin tarjeta de crédito. Integración directa B2B.
+                        </p>
+                        <div class="p-4 bg-gray-50 rounded-xl border border-gray-200 flex items-center gap-3">
+                            <i class="fa-solid fa-code text-gray-400"></i>
+                            <p class="text-xs text-gray-500 font-medium">Configurado en Variables de Entorno (.env)</p>
+                        </div>
+                        <div class="mt-4 flex gap-2">
+                            <a href="https://aliados.addi.com/" target="_blank" class="text-[10px] font-bold text-[#00D6D6] hover:underline flex items-center gap-1">
+                                Ir al Dashboard de Aliados <i class="fa-solid fa-external-link-alt"></i>
+                            </a>
+                        </div>
                     </div>
-                </div>
 
                 </div>
             </div>
@@ -60,7 +90,7 @@
     </div>
 
     <script type="module">
-        import { functions, httpsCallable, db, doc, onSnapshot, auth, onAuthStateChanged } from '../js/firebase-init.js';
+        import { auth, onAuthStateChanged } from '../js/firebase-init.js';
         import { loadAdminSidebar } from '../js/admin-ui.js';
 
         document.addEventListener('DOMContentLoaded', () => loadAdminSidebar());
@@ -68,84 +98,6 @@
         onAuthStateChanged(auth, (user) => {
             if (!user) window.location.href = '/auth/login.html';
         });
-
-        const inputPublic = document.getElementById('input-public-key');
-        const inputToken = document.getElementById('input-access-token');
-        const btnSave = document.getElementById('btn-save-credentials');
-        const badge = document.getElementById('mp-status-badge');
-        const msg = document.getElementById('save-msg');
-        const toggleBtn = document.getElementById('toggle-token');
-
-        // 1. Mostrar/Ocultar Token
-        toggleBtn.addEventListener('click', () => {
-            if (inputToken.type === "password") {
-                inputToken.type = "text";
-                toggleBtn.innerHTML = '<i class="fa-solid fa-eye-slash"></i>';
-            } else {
-                inputToken.type = "password";
-                toggleBtn.innerHTML = '<i class="fa-solid fa-eye"></i>';
-            }
-        });
-
-        // 2. Leer configuración actual
-        const configRef = doc(db, "config", "mercadopago_credentials");
-        
-        onSnapshot(configRef, (docSnap) => {
-            const data = docSnap.exists() ? docSnap.data() : null;
-
-            if (data && data.accessToken) {
-                // CONECTADO
-                badge.className = "px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest bg-green-100 text-green-600 border border-green-200";
-                badge.textContent = "ACTIVO";
-                
-                // Rellenamos (pero el token lo censuramos visualmente si quieres, o lo mostramos)
-                inputPublic.value = data.publicKey || "";
-                inputToken.value = data.accessToken; // Se mostrará como puntos por type="password"
-                
-                btnSave.textContent = "Actualizar Credenciales";
-                btnSave.classList.remove('bg-brand-black');
-                btnSave.classList.add('bg-blue-600');
-            } else {
-                // DESCONECTADO
-                badge.className = "px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest bg-gray-100 text-gray-400 border border-gray-200";
-                badge.textContent = "SIN CONFIGURAR";
-            }
-        });
-
-        // 3. Guardar Credenciales
-        btnSave.addEventListener('click', async () => {
-            const token = inputToken.value.trim();
-            const key = inputPublic.value.trim();
-
-            if (!token.startsWith("APP_USR-") && !token.startsWith("TEST-")) {
-                alert("El Access Token debe empezar con 'APP_USR-' (Producción) o 'TEST-' (Pruebas).");
-                return;
-            }
-
-            const originalText = btnSave.innerHTML;
-            btnSave.disabled = true;
-            btnSave.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Guardando...`;
-
-            try {
-                const saveFunc = httpsCallable(functions, 'saveMercadoPagoTokenManual');
-                await saveFunc({ accessToken: token, publicKey: key });
-
-                msg.textContent = "✅ Credenciales guardadas exitosamente.";
-                msg.className = "text-xs text-center mt-4 font-medium text-green-600 block";
-                
-                setTimeout(() => msg.classList.add('hidden'), 3000);
-
-            } catch (error) {
-                console.error(error);
-                alert("Error al guardar: " + error.message);
-                msg.textContent = "❌ Error al guardar.";
-                msg.className = "text-xs text-center mt-4 font-medium text-red-500 block";
-            } finally {
-                btnSave.disabled = false;
-                btnSave.innerHTML = originalText;
-            }
-        });
-
     </script>
 </body>
 </html>

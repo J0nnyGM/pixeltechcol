@@ -1,4 +1,5 @@
 import { db, doc, getDoc, updateDoc, Timestamp } from './firebase-init.js';
+import { collection, getDocs, runTransaction, serverTimestamp } from './firebase-init.js'; // Asegúrate de importar esto
 
 // Estado interno del módulo
 let currentOrderId = null;
@@ -29,20 +30,62 @@ export async function viewOrderDetail(orderId) {
         safeSetText('modal-order-id', `#${snap.id.slice(0, 8).toUpperCase()}`);
         safeSetText('modal-order-date', o.createdAt?.toDate ? o.createdAt.toDate().toLocaleString('es-CO') : '---');
 
-        // 3. Estado (Badge)
+        // 3. Estado Logístico (Badge)
         const badge = getEl('modal-order-status-badge');
         if (badge) {
             badge.textContent = o.status || 'PENDIENTE';
             let bClass = 'bg-yellow-100 text-yellow-700 border-yellow-200';
             if (o.status === 'ALISTADO') bClass = 'bg-blue-100 text-blue-700 border-blue-200';
             if (o.status === 'DESPACHADO') bClass = 'bg-slate-800 text-white border-slate-900';
-            if (o.status === 'PAGADO') bClass = 'bg-green-100 text-green-700 border-green-200';
+            if (o.status === 'PAGADO') bClass = 'bg-green-100 text-green-700 border-green-200'; // Legacy fallback
             badge.className = `px-3 py-1 rounded-full text-[10px] font-black uppercase border ${bClass}`;
+        }
+
+        // --- NUEVO: INFORMACIÓN DE PAGO ---
+        const paymentSection = getEl('modal-payment-info');
+        if (paymentSection) {
+            // Diccionario de Métodos
+            const methods = {
+                'MERCADOPAGO': { label: 'MercadoPago', icon: 'fa-regular fa-credit-card', color: 'text-blue-500' },
+                'CONTRAENTREGA': { label: 'Contra Entrega', icon: 'fa-solid fa-truck-fast', color: 'text-brand-black' },
+                'ADDI': { label: 'Crédito ADDI', icon: 'fa-solid fa-hand-holding-dollar', color: 'text-[#00D6D6]' },
+                'MANUAL': { label: 'Venta Manual', icon: 'fa-solid fa-cash-register', color: 'text-gray-500' }
+            };
+            
+            const methodKey = o.paymentMethod || 'MANUAL';
+            const mInfo = methods[methodKey] || methods['MANUAL'];
+
+            // Estado del Pago
+            const isPaid = o.paymentStatus === 'PAID' || o.status === 'PAGADO'; // Compatibilidad
+            const statusHtml = isPaid 
+                ? `<span class="px-2 py-1 rounded bg-green-50 text-green-600 border border-green-100 text-[9px] font-black uppercase"><i class="fa-solid fa-check"></i> Pagado</span>`
+                : `<span class="px-2 py-1 rounded bg-orange-50 text-orange-600 border border-orange-100 text-[9px] font-black uppercase"><i class="fa-regular fa-clock"></i> Pendiente</span>`;
+
+            const refHtml = o.paymentId 
+                ? `<div class="mt-2 pt-2 border-t border-gray-100 text-[9px] text-gray-400 font-mono">Ref: ${o.paymentId}</div>` 
+                : '';
+
+            paymentSection.innerHTML = `
+                <div class="flex justify-between items-start">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center ${mInfo.color} text-lg">
+                            <i class="${mInfo.icon}"></i>
+                        </div>
+                        <div>
+                            <p class="text-[10px] font-black uppercase text-gray-400 leading-none mb-1">Método de Pago</p>
+                            <p class="text-xs font-black text-brand-black uppercase">${mInfo.label}</p>
+                        </div>
+                    </div>
+                    ${statusHtml}
+                </div>
+                ${refHtml}
+            `;
+            paymentSection.classList.remove('hidden');
         }
 
         // 4. Datos Cliente
         safeSetText('modal-client-name', o.userName || 'Cliente');
-        safeSetText('modal-client-doc', o.clientDoc || '');
+        safeSetText('modal-client-doc', o.clientDoc || '---');
         safeSetText('modal-client-contact', o.phone || o.userEmail || '');
 
         // 5. Dirección y Notas
@@ -54,8 +97,12 @@ export async function viewOrderDetail(orderId) {
 
         const notesEl = getEl('modal-order-notes');
         if(notesEl) {
-            if (o.notes) { getEl('note-text').textContent = o.notes; notesEl.classList.remove('hidden'); }
-            else { notesEl.classList.add('hidden'); }
+            if (o.notes || o.shippingData?.notes) { 
+                getEl('note-text').textContent = o.notes || o.shippingData.notes; 
+                notesEl.classList.remove('hidden'); 
+            } else { 
+                notesEl.classList.add('hidden'); 
+            }
         }
 
         // 6. Facturación
@@ -72,7 +119,7 @@ export async function viewOrderDetail(orderId) {
             }
         }
 
-        // 7. Items
+        // 7. Items (Sin cambios en tu lógica)
         const isLocked = ['DESPACHADO', 'ENTREGADO', 'CANCELADO', 'RECHAZADO'].includes(o.status);
         const itemsList = getEl('modal-items-list-responsive');
         
@@ -97,7 +144,7 @@ export async function viewOrderDetail(orderId) {
         safeSetText('modal-order-shipping', o.shippingCost === 0 ? "GRATIS" : `$${(o.shippingCost || 0).toLocaleString('es-CO')}`);
         safeSetText('modal-order-total', `$${o.total.toLocaleString('es-CO')}`);
 
-        // 9. Lógica de Botones
+        // 9. Lógica de Botones (Igual que antes)
         const footerActions = getEl('modal-footer-actions');
         const footerMsg = getEl('modal-footer-msg');
         const btnAlistar = getEl('btn-save-alistado');
@@ -108,14 +155,15 @@ export async function viewOrderDetail(orderId) {
         if (btnAlistar) btnAlistar.classList.add('hidden');
         if (btnDespachar) btnDespachar.classList.add('hidden');
 
+        // Lógica visual del Footer según estado
         if (o.status === 'PENDIENTE_PAGO') {
             if (footerMsg) {
-                footerMsg.innerHTML = '<span class="text-orange-500 font-black flex items-center gap-2"><i class="fa-solid fa-clock"></i> Esperando pago...</span>';
+                footerMsg.innerHTML = '<span class="text-orange-500 font-black flex items-center gap-2"><i class="fa-solid fa-clock"></i> Esperando pago online...</span>';
                 footerMsg.classList.remove('hidden');
             }
         } else if (['RECHAZADO', 'CANCELADO'].includes(o.status)) {
             if (footerMsg) {
-                footerMsg.innerHTML = '<span class="text-red-500 font-black flex items-center gap-2"><i class="fa-solid fa-ban"></i> Cancelado</span>';
+                footerMsg.innerHTML = '<span class="text-red-500 font-black flex items-center gap-2"><i class="fa-solid fa-ban"></i> Pedido Cancelado</span>';
                 footerMsg.classList.remove('hidden');
             }
         } else if (o.status === 'ALISTADO') {
@@ -123,10 +171,11 @@ export async function viewOrderDetail(orderId) {
             if (btnDespachar) btnDespachar.classList.remove('hidden');
         } else if (['DESPACHADO', 'ENTREGADO'].includes(o.status)) {
              if (footerMsg) {
-                 footerMsg.innerHTML = '<span class="text-green-600 font-black flex items-center gap-2"><i class="fa-solid fa-check-circle"></i> Finalizado</span>';
+                 footerMsg.innerHTML = '<span class="text-green-600 font-black flex items-center gap-2"><i class="fa-solid fa-check-circle"></i> Pedido Finalizado</span>';
                  footerMsg.classList.remove('hidden');
              }
         } else {
+            // PENDIENTE o PAGADO (Listo para alistar)
             if (footerActions) footerActions.classList.remove('hidden');
             if (btnAlistar) btnAlistar.classList.remove('hidden');
         }
@@ -257,3 +306,127 @@ window.requestInvoice = requestInvoice;
 window.saveAlistamiento = saveAlistamiento; 
 window.openDispatchModal = openDispatchModal;
 window.confirmDispatch = confirmDispatch;
+
+// --- 5. REGISTRAR PAGO MANUAL (NUEVO) ---
+export async function openPaymentModal(orderId, totalAmount) {
+    const modal = document.getElementById('payment-modal');
+    const idDisplay = document.getElementById('pay-modal-order-id');
+    const inputId = document.getElementById('pay-target-id');
+    const inputAmount = document.getElementById('pay-amount');
+    const selectAcc = document.getElementById('pay-account-select');
+
+    if(!modal) return console.error("No se encontró el modal de pago");
+
+    // Reset UI
+    idDisplay.textContent = `Orden #${orderId.slice(0,8).toUpperCase()}`;
+    inputId.value = orderId;
+    
+    // Formatear monto inicial
+    inputAmount.value = `$${Number(totalAmount).toLocaleString('es-CO')}`;
+    
+    // Cargar Cuentas
+    try {
+        selectAcc.innerHTML = '<option value="">Cargando...</option>';
+        const snap = await getDocs(collection(db, "accounts"));
+        selectAcc.innerHTML = '<option value="">Seleccione Cuenta...</option>';
+        
+        snap.forEach(doc => {
+            const acc = doc.data();
+            selectAcc.innerHTML += `<option value="${doc.id}">${acc.name} (${acc.type})</option>`;
+        });
+    } catch (e) {
+        console.error("Error cargando cuentas:", e);
+        selectAcc.innerHTML = '<option value="">Error al cargar</option>';
+    }
+
+    modal.classList.remove('hidden');
+    
+    // Auto-focus y formateo moneda
+    inputAmount.oninput = (e) => {
+        let val = e.target.value.replace(/\D/g, "");
+        e.target.value = val ? "$" + parseInt(val, 10).toLocaleString('es-CO') : "";
+    };
+}
+
+// Lógica del Submit del Formulario
+const payForm = document.getElementById('payment-form');
+if (payForm) {
+    payForm.onsubmit = async (e) => {
+        e.preventDefault();
+        const btn = payForm.querySelector('button');
+        const originalText = btn.innerHTML;
+        btn.disabled = true; 
+        btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Procesando...';
+
+        const orderId = document.getElementById('pay-target-id').value;
+        const accId = document.getElementById('pay-account-select').value;
+        const amountStr = document.getElementById('pay-amount').value.replace(/\D/g, "");
+        const amount = parseInt(amountStr, 10);
+
+        if (!accId || amount <= 0) {
+            alert("Verifica la cuenta y el monto.");
+            btn.disabled = false; btn.innerHTML = originalText;
+            return;
+        }
+
+        try {
+            await runTransaction(db, async (t) => {
+                // 1. Leer Cuenta
+                const accRef = doc(db, "accounts", accId);
+                const accDoc = await t.get(accRef);
+                if (!accDoc.exists()) throw "La cuenta seleccionada no existe.";
+                
+                // 2. Leer Orden
+                const orderRef = doc(db, "orders", orderId);
+                const orderDoc = await t.get(orderRef);
+                if (!orderDoc.exists()) throw "La orden no existe.";
+
+                // 3. Actualizar Saldo Cuenta
+                const newBalance = (accDoc.data().balance || 0) + amount;
+                t.update(accRef, { balance: newBalance });
+
+                // 4. Crear Registro Historial (Ingreso)
+                const expenseRef = doc(collection(db, "expenses"));
+                t.set(expenseRef, {
+                    amount: amount,
+                    category: "Ingreso Ventas Manual",
+                    description: `Cobro Orden #${orderId.slice(0,8)}`,
+                    paymentMethod: accDoc.data().name,
+                    supplierName: orderDoc.data().userName || "Cliente",
+                    date: serverTimestamp(),
+                    createdAt: serverTimestamp(),
+                    type: 'INCOME',
+                    orderId: orderId
+                });
+
+                // 5. Actualizar Orden
+                t.update(orderRef, {
+                    status: 'PAGADO', // Opcional: Si quieres que pase a pagado de una
+                    paymentStatus: 'PAID',
+                    amountPaid: amount, // Guardamos cuánto pagó
+                    paymentMethod: 'MANUAL', // O mantener el que tenía
+                    paymentAccountId: accId,
+                    paymentDate: serverTimestamp()
+                });
+            });
+
+            alert("✅ Pago registrado exitosamente.");
+            document.getElementById('payment-modal').classList.add('hidden');
+            
+            // Recargar tabla si existe la función
+            if(window.fetchOrders) window.fetchOrders(); 
+            // O recargar página
+            else location.reload();
+
+        } catch (error) {
+            console.error(error);
+            alert("Error: " + error.message || error);
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+        }
+    };
+}
+
+// Exportar al window para usar en HTML
+window.openPaymentModal = openPaymentModal;

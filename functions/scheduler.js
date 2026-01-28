@@ -1,0 +1,211 @@
+const admin = require("firebase-admin");
+const db = admin.firestore();
+
+const functions = require("firebase-functions");
+const { onSchedule } = require("firebase-functions/v2/scheduler");
+
+/**
+ * TAREA PROGRAMADA: EJECUTAR TRANSFERENCIAS AUTOMÁTICAS
+ * Se ejecuta todos los días a las 00:05 AM (Hora Colombia)
+ */
+exports.processScheduledTransfers = onSchedule({
+    schedule: "5 0 * * *", 
+    timeZone: "America/Bogota"
+}, async (event) => {
+    
+    const db = admin.firestore();
+    const now = admin.firestore.Timestamp.now();
+
+    console.log("⚙️ Iniciando procesador de transferencias automáticas...");
+
+    try {
+        // 1. Buscar transferencias pendientes cuya fecha ya llegó
+        const snapshot = await db.collection('scheduled_transfers')
+            .where('status', '==', 'PENDING')
+            .where('scheduledDate', '<=', now)
+            .get();
+
+        if (snapshot.empty) {
+            console.log("✅ No hay transferencias pendientes para hoy.");
+            return;
+        }
+
+        console.log(`🔄 Procesando ${snapshot.size} transferencias...`);
+
+        const batch = db.batch();
+        let operationsCount = 0;
+
+        // Como vamos a leer y escribir saldos de cuentas, necesitamos transacciones
+        // Pero Firestore tiene límite de escrituras en batch. 
+        // Para simplificar y evitar bloqueos masivos, procesamos una por una con runTransaction.
+        // (Nota: Si tienes miles de ventas diarias, esto se debe optimizar).
+
+        const promises = snapshot.docs.map(async (docSnap) => {
+            const transfer = docSnap.data();
+            const transferId = docSnap.id;
+
+            try {
+                await db.runTransaction(async (t) => {
+                    // Leer cuentas
+                    const sourceRef = db.collection('accounts').doc(transfer.sourceAccountId);
+                    const targetRef = db.collection('accounts').doc(transfer.targetAccountId);
+                    
+                    const sourceDoc = await t.get(sourceRef);
+                    const targetDoc = await t.get(targetRef);
+
+                    if (!sourceDoc.exists || !targetDoc.exists) {
+                        throw new Error("Alguna de las cuentas no existe");
+                    }
+
+                    // Mover dinero
+                    const amount = Number(transfer.amount);
+                    const newSourceBalance = (Number(sourceDoc.data().balance) || 0) - amount;
+                    const newTargetBalance = (Number(targetDoc.data().balance) || 0) + amount;
+
+                    // Actualizar Cuentas
+                    t.update(sourceRef, { balance: newSourceBalance });
+                    t.update(targetRef, { balance: newTargetBalance });
+
+                    // Marcar transferencia como COMPLETADA
+                    t.update(db.collection('scheduled_transfers').doc(transferId), {
+                        status: 'COMPLETED',
+                        executedAt: admin.firestore.FieldValue.serverTimestamp()
+                    });
+
+                    // Crear registros en Historial (Expenses) para que se vea en Treasury
+                    const outRef = db.collection('expenses').doc();
+                    t.set(outRef, {
+                        description: transfer.description || "Transferencia Automática",
+                        amount: amount,
+                        category: "Transferencia Saliente (Auto)",
+                        paymentMethod: sourceDoc.data().name, // Sale de ADDI
+                        date: admin.firestore.FieldValue.serverTimestamp(),
+                        createdAt: admin.firestore.FieldValue.serverTimestamp()
+                    });
+
+                    const inRef = db.collection('expenses').doc();
+                    t.set(inRef, {
+                        description: transfer.description || "Transferencia Automática",
+                        amount: amount,
+                        category: "Transferencia Entrante (Auto)",
+                        paymentMethod: targetDoc.data().name, // Entra a Bancolombia
+                        date: admin.firestore.FieldValue.serverTimestamp(),
+                        createdAt: admin.firestore.FieldValue.serverTimestamp()
+                    });
+                });
+                return { success: true, id: transferId };
+
+            } catch (err) {
+                console.error(`❌ Error procesando transferencia ${transferId}:`, err);
+                // Marcar como fallida para no reintentar infinitamente sin corrección
+                await db.collection('scheduled_transfers').doc(transferId).update({
+                    status: 'FAILED',
+                    error: err.message
+                });
+                return { success: false, id: transferId };
+            }
+        });
+
+        await Promise.all(promises);
+        console.log("🏁 Procesamiento de transferencias finalizado.");
+
+    } catch (error) {
+        console.error("❌ Error General Scheduler:", error);
+    }
+});
+
+exports.cleanupOldOrders = async (event) => {
+    const today = new Date();
+    const sevenDaysAgo = new Date(today);
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+    console.log("🧹 Iniciando limpieza de órdenes antiguas anteriores a:", sevenDaysAgo);
+
+    try {
+        const snapshot = await db.collection('orders')
+            .where('createdAt', '<', sevenDaysAgo)
+            .where('status', 'in', ['PENDIENTE_PAGO', 'RECHAZADO', 'CANCELADO'])
+            .get();
+
+        if (snapshot.empty) {
+            console.log('✅ No hay órdenes antiguas para borrar.');
+            return;
+        }
+
+        const batch = db.batch();
+        let count = 0;
+
+        snapshot.docs.forEach((doc) => {
+            batch.delete(doc.ref);
+            count++;
+        });
+
+        await batch.commit();
+        console.log(`🗑️ Se eliminaron ${count} órdenes basura de forma segura.`);
+        return;
+
+    } catch (error) {
+        console.error("❌ Error en limpieza automática:", error);
+        return;
+    }
+};
+
+/**
+ * NUEVO: CANCELAR ÓRDENES ABANDONADAS (CADA 15 MINUTOS)
+ * Busca órdenes 'PENDIENTE_PAGO' creadas hace más de 30 minutos y las cancela.
+ */
+exports.cancelAbandonedPayments = onSchedule({
+    schedule: "every 15 minutes", 
+    timeZone: "America/Bogota"
+}, async (event) => {
+    const db = admin.firestore();
+    
+    // Calculamos el tiempo límite: Ahora menos 35 minutos (damos 5 min de gracia sobre los 30 de MP)
+    const timeout = new Date();
+    timeout.setMinutes(timeout.getMinutes() - 35);
+    const timeoutTimestamp = admin.firestore.Timestamp.fromDate(timeout);
+
+    console.log("⏰ Buscando órdenes abandonadas anteriores a:", timeout.toISOString());
+
+    try {
+        // Buscamos órdenes PENDIENTE_PAGO de MercadoPago o ADDI viejas
+        const snapshot = await db.collection('orders')
+            .where('status', '==', 'PENDIENTE_PAGO')
+            .where('createdAt', '<=', timeoutTimestamp)
+            .get();
+
+        if (snapshot.empty) {
+            console.log("✅ No hay órdenes abandonadas para cancelar.");
+            return;
+        }
+
+        console.log(`⚠️ Encontradas ${snapshot.size} órdenes abandonadas.`);
+
+        const batch = db.batch();
+        let count = 0;
+
+        snapshot.docs.forEach((doc) => {
+            const orderData = doc.data();
+            
+            // Solo cancelamos si NO es contraentrega (Contraentrega nace PENDIENTE, no PENDIENTE_PAGO)
+            // Y aseguramos que no se haya pagado en el último segundo
+            if (orderData.paymentStatus !== 'PAID') {
+                batch.update(doc.ref, {
+                    status: 'CANCELADO',
+                    statusDetail: 'expired_by_system',
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                    notes: (orderData.notes || "") + " [Sistema: Cancelado por inactividad de pago]"
+                });
+                count++;
+            }
+        });
+
+        if (count > 0) {
+            await batch.commit();
+            console.log(`🗑️ Se cancelaron automáticamente ${count} órdenes.`);
+        }
+
+    } catch (error) {
+        console.error("❌ Error en cancelAbandonedPayments:", error);
+    }
+});

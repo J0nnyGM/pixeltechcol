@@ -29,14 +29,18 @@ async function initEdit() {
 
         const p = docSnap.data();
         
+        // Datos Básicos
         document.getElementById('p-name').value = p.name || '';
         document.getElementById('p-sku').value = p.sku || '';
         document.getElementById('p-brand').value = p.brand || '';
         document.getElementById('p-price').value = p.price || 0;
-        document.getElementById('p-stock').value = p.stock || 0; // Se muestra pero es readonly
+        
+        // STOCK: Se asigna, pero el HTML tiene 'readonly'
+        document.getElementById('p-stock').value = p.stock || 0; 
+        
         document.getElementById('p-status').value = p.status || 'active';
         
-        // Categoría y Subcategoría
+        // Categoría
         document.getElementById('p-category').value = p.category || '';
         let subInput = document.getElementById('p-subcategory');
         if(!subInput) {
@@ -57,32 +61,47 @@ async function initEdit() {
         document.getElementById('product-id-display').textContent = `ID: ${productId}`;
         descriptionEditor.innerHTML = p.description || '';
 
-        // Imágenes
+        // Imágenes Globales
         if (p.images) {
             globalFiles = p.images.map(url => ({ id: Math.random().toString(36).substr(2,9), type: 'url', content: url }));
         }
 
-        // Matriz
-        definedColors = p.definedColors || [];
-        definedCaps = p.definedCapacities || [];
+        // --- CARGAR VARIANTES (Lógica corregida) ---
+        definedColors = [];
+        colorImagesMap = {};
+        definedCaps = [];
 
-        // Imágenes Color
-        if(p.colorImages) {
-            Object.keys(p.colorImages).forEach(color => {
-                colorImagesMap[color] = p.colorImages[color].map(url => ({
-                    id: Math.random().toString(36).substr(2,9), type: 'url', content: url
-                }));
+        // 1. Colores e Imágenes
+        if (p.variants && Array.isArray(p.variants)) {
+            p.variants.forEach(v => {
+                if (v.color && !definedColors.includes(v.color)) {
+                    definedColors.push(v.color);
+                    if (v.images && Array.isArray(v.images)) {
+                        colorImagesMap[v.color] = v.images.map(url => ({
+                            id: Math.random().toString(36).substr(2,9), type: 'url', content: url
+                        }));
+                    } else {
+                        colorImagesMap[v.color] = [];
+                    }
+                }
+            });
+        } 
+        
+        // 2. Capacidades
+        if (p.capacities && Array.isArray(p.capacities)) {
+            p.capacities.forEach(c => {
+                if (c.label && !definedCaps.includes(c.label)) definedCaps.push(c.label);
             });
         }
-        definedColors.forEach(c => { if(!colorImagesMap[c]) colorImagesMap[c] = []; });
 
-        // Datos Matriz
+        // 3. Matriz Precios/Stock
         if(p.combinations) {
             p.combinations.forEach(comb => {
                 let key = '';
                 if(comb.color && comb.capacity) key = `${comb.color}-${comb.capacity}`;
                 else if(comb.color) key = comb.color;
                 else if(comb.capacity) key = comb.capacity;
+                
                 if(key) matrixData[key] = { price: comb.price, stock: comb.stock };
             });
         }
@@ -99,7 +118,8 @@ async function initEdit() {
     } catch (e) { console.error("Error cargando producto:", e); }
 }
 
-// --- 2. GESTIÓN MULTIMEDIA GLOBAL ---
+// ... (Bloque 2, 3 y 4 de Imágenes y Atributos se mantienen igual) ...
+// (Omitido por brevedad, copiar del código anterior si es necesario, no cambia lógica de stock)
 const pImagesInput = document.getElementById('p-images');
 if (pImagesInput) {
     pImagesInput.onchange = (e) => {
@@ -110,32 +130,25 @@ if (pImagesInput) {
         e.target.value = "";
     };
 }
-
 function renderGlobalGallery() {
     const container = document.getElementById('gallery-container');
     if(!container) return;
     container.innerHTML = "";
-    
     globalFiles.forEach((item, index) => {
         const src = item.type === 'url' ? item.content : URL.createObjectURL(item.content);
         const div = document.createElement('div');
         div.className = "relative aspect-square rounded-2xl overflow-hidden border shadow-sm group bg-white";
-        div.innerHTML = `
-            <img src="${src}" class="w-full h-full object-cover">
+        div.innerHTML = `<img src="${src}" class="w-full h-full object-cover">
             <div class="absolute inset-0 bg-brand-black/60 opacity-0 group-hover:opacity-100 transition flex flex-col items-center justify-center gap-2">
                 <div class="flex gap-2">
                     <button type="button" onclick="moveGlobalImage(${index}, -1)" class="w-8 h-8 rounded-lg bg-white text-brand-black hover:bg-brand-cyan transition"><i class="fa-solid fa-arrow-left text-xs"></i></button>
                     <button type="button" onclick="moveGlobalImage(${index}, 1)" class="w-8 h-8 rounded-lg bg-white text-brand-black hover:bg-brand-cyan transition"><i class="fa-solid fa-arrow-right text-xs"></i></button>
                 </div>
                 <button type="button" onclick="removeGlobalImage('${item.id}')" class="text-[8px] font-black uppercase text-red-400 hover:text-red-200 transition">Eliminar</button>
-            </div>
-            <div class="absolute top-2 left-2 bg-brand-black/50 backdrop-blur-md text-white text-[7px] px-2 py-1 rounded-md font-bold uppercase">
-                ${index === 0 ? 'Portada' : 'Pos. ' + (index + 1)}
             </div>`;
         container.appendChild(div);
     });
 }
-
 window.moveGlobalImage = (index, direction) => {
     const newIdx = index + direction;
     if (newIdx < 0 || newIdx >= globalFiles.length) return;
@@ -144,10 +157,7 @@ window.moveGlobalImage = (index, direction) => {
     globalFiles[newIdx] = temp;
     renderGlobalGallery();
 };
-
 window.removeGlobalImage = (id) => { globalFiles = globalFiles.filter(i => i.id !== id); renderGlobalGallery(); };
-
-// --- 3. ATRIBUTOS ---
 document.getElementById('btn-add-color').onclick = () => {
     const input = document.getElementById('new-color-input');
     const val = input.value.trim();
@@ -166,8 +176,6 @@ window.removeAttr = (type, val) => {
     if(type === 'color') { definedColors = definedColors.filter(c => c !== val); delete colorImagesMap[val]; renderColorUploaders(); } else { definedCaps = definedCaps.filter(c => c !== val); }
     renderTags(); renderMatrix(); 
 };
-
-// --- 4. SUBIDA POR COLOR ---
 function renderColorUploaders() {
     const container = document.getElementById('color-uploaders-container');
     const section = document.getElementById('color-images-section');
@@ -198,12 +206,13 @@ window.addColorImages = (color, files) => {
     renderColorUploaders(); 
 };
 
-// --- 5. MATRIZ ---
+// --- 5. MATRIZ (MODIFICADO: STOCK READONLY) ---
 function renderMatrix() {
     const tbody = document.getElementById('matrix-tbody');
     tbody.innerHTML = "";
     if(definedColors.length === 0 && definedCaps.length === 0) {
         tbody.innerHTML = `<tr><td colspan="3" class="p-8 text-center text-gray-300 text-xs">Producto Simple (Sin variantes)</td></tr>`;
+        recalcTotalStock(); // Asegura que se muestre el stock simple
         return;
     }
 
@@ -219,27 +228,49 @@ function renderMatrix() {
         tr.className = "border-b border-gray-50 hover:bg-slate-50 transition";
         tr.innerHTML = `
             <td class="p-4"><span class="font-black text-brand-black text-xs">${row.label}</span></td>
-            <td class="p-4"><input type="number" value="${prev.price}" onchange="updateMatrixData('${row.key}', 'price', this.value)" class="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs font-bold text-brand-cyan outline-none focus:border-brand-cyan"></td>
-            <td class="p-4"><input type="number" value="${prev.stock}" onchange="updateMatrixData('${row.key}', 'stock', this.value)" class="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs font-bold text-brand-black outline-none focus:border-brand-cyan"></td>`;
+            
+            <td class="p-4">
+                <input type="number" value="${prev.price}" 
+                    onchange="updateMatrixData('${row.key}', 'price', this.value)" 
+                    class="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs font-bold text-brand-cyan outline-none focus:border-brand-cyan">
+            </td>
+            
+            <td class="p-4">
+                <input type="number" value="${prev.stock}" readonly 
+                    class="w-full bg-gray-100 border border-gray-200 rounded-lg p-2 text-xs font-bold text-gray-500 cursor-not-allowed outline-none" 
+                    title="El stock se gestiona por entradas/salidas">
+            </td>`;
         tbody.appendChild(tr);
     });
     recalcTotalStock();
 }
-window.updateMatrixData = (key, field, val) => { if(!matrixData[key]) matrixData[key]={}; matrixData[key][field] = Number(val); if(field==='stock') recalcTotalStock(); };
+
+// Actualizar datos: Solo permitimos precio, el stock viene de la carga inicial
+window.updateMatrixData = (key, field, val) => { 
+    if(!matrixData[key]) matrixData[key]={}; 
+    // Solo actualizamos si es precio, el stock es inmutable aquí
+    if (field === 'price') {
+        matrixData[key][field] = Number(val); 
+    }
+};
+
 function recalcTotalStock() {
     let total = 0;
-    const activeKeys = [];
-    if(definedColors.length > 0 && definedCaps.length > 0) definedColors.forEach(c => definedCaps.forEach(k => activeKeys.push(`${c}-${k}`)));
-    else if(definedColors.length > 0) definedColors.forEach(c => activeKeys.push(c));
-    else if(definedCaps.length > 0) definedCaps.forEach(k => activeKeys.push(k));
-    activeKeys.forEach(k => total += (matrixData[k]?.stock || 0));
     
-    // Solo actualizamos visualmente porque el input es readonly
-    stockInput.value = total;
-    stockLabel.innerHTML = "Stock Total <span class='text-xs text-brand-cyan'>(Calculado)</span>";
+    // Si es matriz, sumamos lo que hay en memoria
+    if (definedColors.length > 0 || definedCaps.length > 0) {
+        const activeKeys = [];
+        if(definedColors.length > 0 && definedCaps.length > 0) definedColors.forEach(c => definedCaps.forEach(k => activeKeys.push(`${c}-${k}`)));
+        else if(definedColors.length > 0) definedColors.forEach(c => activeKeys.push(c));
+        else if(definedCaps.length > 0) definedCaps.forEach(k => activeKeys.push(k));
+        
+        activeKeys.forEach(k => total += (matrixData[k]?.stock || 0));
+        stockInput.value = total;
+    } 
+    // Si es simple, el stockInput ya tiene el valor cargado de la DB y no lo tocamos
 }
 
-// --- 6. BUSCADOR CATEGORÍAS ---
+// ... (Buscador Categoría se mantiene igual) ...
 const catSearchInput = document.getElementById('cat-search');
 const catResults = document.getElementById('cat-results');
 const pCategoryHidden = document.getElementById('p-category');
@@ -305,6 +336,16 @@ form.onsubmit = async (e) => {
             }
         }
 
+        const variants = definedColors.map(color => ({
+            color: color,
+            images: colorUrlsMap[color] || []
+        }));
+
+        const capacities = definedCaps.map(cap => ({
+            label: cap,
+            price: 0 
+        }));
+
         const combinations = [];
         let minPrice = Infinity;
         const activeKeys = [];
@@ -317,6 +358,12 @@ form.onsubmit = async (e) => {
             const parts = key.split('-');
             const color = definedColors.length > 0 ? (parts.length > 1 ? parts[0] : (definedColors.includes(key) ? key : null)) : null;
             const cap = definedCaps.length > 0 ? (parts.length > 1 ? parts[1] : (definedCaps.includes(key) ? key : null)) : null;
+            
+            if(cap) {
+                const cIdx = capacities.findIndex(c => c.label === cap);
+                if(cIdx >= 0) capacities[cIdx].price = data?.price || 0;
+            }
+
             combinations.push({
                 color: color, capacity: cap, price: data?.price || 0, stock: data?.stock || 0,
                 sku: `${document.getElementById('p-sku').value}-${color?color.substring(0,3):''}-${cap?cap:''}`.toUpperCase()
@@ -326,8 +373,12 @@ form.onsubmit = async (e) => {
 
         const isSimple = combinations.length === 0;
         const finalPrice = isSimple ? Number(priceInput.value) : minPrice;
-        // Si es simple, usamos el stock que ya estaba (no se edita). Si es matriz, sumamos la tabla.
+        
+        // STOCK: Mantener la lógica de cálculo
+        // Si es simple, confiamos en lo que hay en el input readonly (que vino de la DB)
+        // Si es matriz, sumamos la matriz (que también vino de la DB y no se pudo editar)
         const finalStock = isSimple ? Number(stockInput.value) : combinations.reduce((a, b) => a + b.stock, 0);
+        
         const subInput = document.getElementById('p-subcategory');
 
         const updateData = {
@@ -340,7 +391,7 @@ form.onsubmit = async (e) => {
             description: descriptionEditor.innerHTML,
             updatedAt: new Date(),
             price: finalPrice,
-            stock: finalStock,
+            stock: finalStock, // Se guarda el stock calculado/existente, sin cambios manuales
             
             warranty: {
                 time: Number(document.getElementById('p-warranty-time').value) || 0,
@@ -349,17 +400,18 @@ form.onsubmit = async (e) => {
 
             isSimple: isSimple,
             combinations: combinations,
-            definedColors: definedColors,
-            definedCapacities: definedCaps,
+            hasVariants: definedColors.length > 0,
+            hasCapacities: definedCaps.length > 0,
+            variants: variants, 
+            capacities: capacities,
             images: imageUrls,
-            colorImages: colorUrlsMap,
-            mainImage: imageUrls[0] || Object.values(colorUrlsMap)[0]?.[0] || ''
+            mainImage: imageUrls[0] || (variants.length > 0 && variants[0].images.length > 0 ? variants[0].images[0] : '')
         };
 
         await updateDoc(doc(db, "products", productId), updateData);
         await addDoc(collection(db, "products", productId, "history"), {
             adminEmail: auth.currentUser.email,
-            action: `Edición Matriz (Stock: ${updateData.stock})`,
+            action: `Edición General (Sin cambios de Stock manuales)`,
             timestamp: new Date()
         });
 

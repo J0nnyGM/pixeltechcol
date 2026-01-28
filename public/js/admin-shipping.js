@@ -4,7 +4,7 @@ import { loadAdminSidebar } from './admin-ui.js';
 loadAdminSidebar();
 
 // ESTADO GLOBAL
-let shippingGroups = []; // Array de { id, price: 0, cities: [] }
+let shippingGroups = []; 
 let activeGroupId = null;
 
 // ELEMENTOS DOM
@@ -12,6 +12,26 @@ const groupsContainer = document.getElementById('groups-container');
 const cityModal = document.getElementById('city-modal');
 const deptSelect = document.getElementById('modal-dept-select');
 const citySelect = document.getElementById('modal-city-select');
+
+// --- UTILIDADES MONEDA ---
+const formatCurrency = (value) => {
+    if (value === "" || value === null || value === undefined) return "";
+    return "$ " + Number(value).toLocaleString("es-CO");
+};
+
+const parseCurrency = (value) => {
+    return Number(value.replace(/[^0-9]/g, '')) || 0;
+};
+
+// Aplicar listeners a inputs estáticos
+document.querySelectorAll('.currency-input').forEach(input => {
+    input.addEventListener('input', (e) => {
+        const val = parseCurrency(e.target.value);
+        e.target.value = formatCurrency(val);
+    });
+    input.addEventListener('focus', (e) => e.target.select()); // Seleccionar todo al hacer clic
+});
+
 
 /**
  * --- 1. CARGA INICIAL ---
@@ -21,10 +41,12 @@ async function init() {
         const configSnap = await getDoc(doc(db, "config", "shipping"));
         if (configSnap.exists()) {
             const data = configSnap.data();
-            document.getElementById('free-threshold').value = data.freeThreshold || 0;
-            document.getElementById('default-price').value = data.defaultPrice || 0;
-            // NUEVO: Cargar hora
+            
+            // Cargar valores y formatear
+            document.getElementById('free-threshold').value = formatCurrency(data.freeThreshold || 0);
+            document.getElementById('default-price').value = formatCurrency(data.defaultPrice || 0);
             document.getElementById('cutoff-time').value = data.cutoffTime || "14:00"; 
+            
             shippingGroups = data.groups || [];
         }
         renderGroups();
@@ -44,29 +66,38 @@ function renderGroups() {
     groupsContainer.innerHTML = shippingGroups.length === 0 ? 
         `<p class="text-center text-gray-300 py-10 uppercase text-[10px] font-black">No hay grupos de tarifa especial.</p>` : "";
 
-    shippingGroups.forEach((group, index) => {
+    shippingGroups.forEach((group) => {
         const div = document.createElement('div');
         div.className = "p-8 border-2 border-gray-100 rounded-[2rem] bg-slate-50 space-y-6 relative group";
+        
+        // Input dinámico de precio con formato
+        const priceInputHtml = `
+            <div class="admin-input-group">
+                <label>Precio del Envío (COP)</label>
+                <input type="text" 
+                       class="currency-input-group" 
+                       value="${formatCurrency(group.price)}" 
+                       data-id="${group.id}" 
+                       placeholder="$ 0">
+            </div>`;
+
         div.innerHTML = `
-            <button onclick="removeGroup('${group.id}')" class="absolute top-6 right-6 text-gray-300 hover:text-red-500 transition">
+            <button onclick="window.removeGroup('${group.id}')" class="absolute top-6 right-6 text-gray-300 hover:text-red-500 transition">
                 <i class="fa-solid fa-trash-can"></i>
             </button>
 
             <div class="grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
-                <div class="admin-input-group">
-                    <label>Precio del Envío (COP)</label>
-                    <input type="number" value="${group.price}" onchange="updateGroupPrice('${group.id}', this.value)" placeholder="Ej: 20000">
-                </div>
+                ${priceInputHtml}
                 <div class="md:col-span-2">
                     <label class="block text-[9px] font-black text-gray-400 uppercase tracking-widest mb-3">Ciudades vinculadas a esta tarifa</label>
                     <div class="flex flex-wrap gap-2">
                         ${group.cities.map(city => `
                             <span class="city-badge bg-white border border-gray-200">
                                 ${city}
-                                <i class="fa-solid fa-xmark cursor-pointer hover:text-red-500" onclick="removeCityFromGroup('${group.id}', '${city}')"></i>
+                                <i class="fa-solid fa-xmark cursor-pointer hover:text-red-500" onclick="window.removeCityFromGroup('${group.id}', '${city}')"></i>
                             </span>
                         `).join('')}
-                        <button onclick="openAddCity('${group.id}')" class="h-8 px-4 rounded-lg border-2 border-dashed border-gray-300 text-gray-400 text-[9px] font-black hover:border-brand-cyan hover:text-brand-cyan transition">
+                        <button onclick="window.openAddCity('${group.id}')" class="h-8 px-4 rounded-lg border-2 border-dashed border-gray-300 text-gray-400 text-[9px] font-black hover:border-brand-cyan hover:text-brand-cyan transition">
                             + AÑADIR CIUDAD
                         </button>
                     </div>
@@ -74,12 +105,21 @@ function renderGroups() {
             </div>
         `;
         groupsContainer.appendChild(div);
+
+        // Agregar listener al input recién creado
+        const input = div.querySelector('.currency-input-group');
+        input.addEventListener('input', (e) => {
+            const val = parseCurrency(e.target.value);
+            e.target.value = formatCurrency(val);
+            window.updateGroupPrice(group.id, val); // Guardar el número limpio
+        });
+        input.addEventListener('focus', (e) => e.target.select());
     });
 }
 
-window.updateGroupPrice = (id, price) => {
+window.updateGroupPrice = (id, priceRaw) => {
     const group = shippingGroups.find(g => g.id === id);
-    if(group) group.price = Number(price);
+    if(group) group.price = Number(priceRaw);
 };
 
 window.removeGroup = (id) => {
@@ -157,17 +197,22 @@ document.getElementById('btn-save-config').onclick = async () => {
     btn.disabled = true;
     btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Guardando...';
 
+    // LIMPIAR VALORES ANTES DE GUARDAR
+    const freeThresholdRaw = parseCurrency(document.getElementById('free-threshold').value);
+    const defaultPriceRaw = parseCurrency(document.getElementById('default-price').value);
+
     const config = {
-        freeThreshold: Number(document.getElementById('free-threshold').value),
-        defaultPrice: Number(document.getElementById('default-price').value),
-        cutoffTime: document.getElementById('cutoff-time').value, // NUEVO: Guardar hora
-        groups: shippingGroups,
+        freeThreshold: freeThresholdRaw,
+        defaultPrice: defaultPriceRaw,
+        cutoffTime: document.getElementById('cutoff-time').value, 
+        groups: shippingGroups, // Ya tienen el precio limpio por updateGroupPrice
         updatedAt: new Date()
     };
 
     try {
         await setDoc(doc(db, "config", "shipping"), config);
         alert("✅ Configuración de logística actualizada.");
+        init(); // Recargar para asegurar formateo
     } catch (e) {
         alert("Error al guardar: " + e.message);
     } finally {

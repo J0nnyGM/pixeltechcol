@@ -21,6 +21,13 @@
             0% { background-position: 0 0; }
             100% { background-position: 1rem 0; }
         }
+        
+        .pulse-text { animation: pulse-green 2s infinite; }
+        @keyframes pulse-green {
+            0% { text-shadow: 0 0 0 rgba(16, 185, 129, 0.4); }
+            70% { text-shadow: 0 0 10px rgba(16, 185, 129, 0); }
+            100% { text-shadow: 0 0 0 rgba(16, 185, 129, 0); }
+        }
     </style>
 </head>
 
@@ -76,6 +83,8 @@
                                 <span id="shipping-cost-display" class="text-brand-cyan bg-cyan-50 px-2 py-0.5 rounded text-[10px]">Por Confirmar</span>
                             </div>
                             <div id="shipping-address-feedback" class="text-right"></div>
+                            
+                            <div id="dispatch-time-msg" class="text-right mt-2 hidden animate-in fade-in slide-in-from-top-1"></div>
                         </div>
                     </div>
 
@@ -147,6 +156,7 @@
         const subtotalDisplay = document.getElementById('summary-subtotal');
         const shippingDisplay = document.getElementById('shipping-cost-display');
         const addressFeedback = document.getElementById('shipping-address-feedback');
+        const dispatchMsg = document.getElementById('dispatch-time-msg'); // NUEVO ELEMENTO
         const checkoutBtn = document.getElementById('btn-checkout');
         
         // Elementos Barra Progreso
@@ -155,7 +165,8 @@
         const shippingMsg = document.getElementById('free-shipping-msg');
 
         let calculatedShipping = 0;
-        let freeShippingThreshold = 0; // Guardaremos el tope aquí
+        let freeShippingThreshold = 0; 
+        let globalCutoffTime = "14:00"; // Valor por defecto
 
         // 1. OBTENER CONFIGURACIÓN GLOBAL (Independiente del usuario)
         async function fetchShippingConfig() {
@@ -164,17 +175,60 @@
                 if (configSnap.exists()) {
                     const config = configSnap.data();
                     freeShippingThreshold = config.freeThreshold || 0;
-                    updateProgressBar(); // Actualizar barra apenas tengamos el dato
+                    globalCutoffTime = config.cutoffTime || "14:00"; // Leer hora de corte
+                    
+                    updateProgressBar(); // Actualizar barra
+                    checkDispatchTime(); // NUEVO: Verificar si despacha hoy
                 }
             } catch (e) {
                 console.error("Error fetching config:", e);
             }
         }
 
+        // --- NUEVA LÓGICA: CALCULAR TIEMPO DE DESPACHO ---
+        function checkDispatchTime() {
+            if(!dispatchMsg) return;
+
+            const now = new Date();
+            // Convertir hora config (HH:MM) a Date hoy
+            const [hours, minutes] = globalCutoffTime.split(':').map(Number);
+            const cutoffDate = new Date();
+            cutoffDate.setHours(hours, minutes, 0, 0);
+
+            const isBeforeCutoff = now < cutoffDate;
+            const diffMs = cutoffDate - now;
+            const diffHrs = Math.floor(diffMs / 3600000);
+            const diffMins = Math.floor((diffMs % 3600000) / 60000);
+
+            dispatchMsg.classList.remove('hidden');
+
+            if (isBeforeCutoff) {
+                // Mensaje Urgencia: Compra antes de X tiempo
+                let timeText = "";
+                if(diffHrs > 0) timeText += `${diffHrs}h `;
+                timeText += `${diffMins}m`;
+
+                dispatchMsg.innerHTML = `
+                    <p class="text-[10px] font-black uppercase text-green-600 pulse-text">
+                        <i class="fa-solid fa-bolt text-yellow-500 mr-1"></i> 
+                        Pide en <span class="underline">${timeText}</span> y enviamos HOY
+                    </p>
+                `;
+            } else {
+                // Mensaje Mañana
+                dispatchMsg.innerHTML = `
+                    <p class="text-[10px] font-black uppercase text-blue-500">
+                        <i class="fa-solid fa-calendar-check mr-1"></i> 
+                        Tu pedido será despachado MAÑANA
+                    </p>
+                `;
+            }
+        }
+
         // 2. ACTUALIZAR BARRA VISUALMENTE
         function updateProgressBar() {
             if (freeShippingThreshold <= 0) {
-                shippingBarContainer.classList.add('hidden'); // Si no hay promo, ocultar
+                shippingBarContainer.classList.add('hidden'); 
                 return;
             }
 
@@ -186,22 +240,19 @@
             shippingBarContainer.classList.remove('hidden');
             
             // Animar el ancho
-            // Pequeño delay para que la transición CSS funcione al cargar
             setTimeout(() => {
                 shippingBar.style.width = `${percentage}%`;
             }, 100);
 
             // Lógica de Mensaje y Colores
             if (remaining > 0) {
-                // FALTAN $$$
                 shippingMsg.innerHTML = `Faltan <span class="text-brand-black font-black">$${remaining.toLocaleString('es-CO')}</span> para envío gratis`;
                 shippingBar.classList.remove('bg-emerald-500');
                 shippingBar.classList.add('bg-brand-cyan', 'progress-striped');
             } else {
-                // META CUMPLIDA
                 shippingMsg.innerHTML = `<span class="text-emerald-600 font-black flex items-center gap-2"><i class="fa-solid fa-check-circle"></i> ¡Tienes Envío Gratis!</span>`;
                 shippingBar.classList.remove('bg-brand-cyan', 'progress-striped');
-                shippingBar.classList.add('bg-emerald-500'); // Verde éxito
+                shippingBar.classList.add('bg-emerald-500'); 
             }
         }
 
@@ -275,7 +326,6 @@
             emptyMsg.classList.add('hidden');
             
             container.innerHTML = cart.map(item => {
-                // Cálculo de Descuento
                 const hasDiscount = item.originalPrice && item.price < item.originalPrice;
                 const discountPercent = hasDiscount ? Math.round(((item.originalPrice - item.price) / item.originalPrice) * 100) : 0;
 
@@ -333,15 +383,14 @@
             subtotalDisplay.textContent = `$${subtotal.toLocaleString('es-CO')}`;
             totalDisplay.textContent = `$${total.toLocaleString('es-CO')}`;
             
-            // Actualizar la barra cada vez que cambien los totales
             updateProgressBar();
+            checkDispatchTime(); // Actualizar tiempo de despacho también
         }
 
         // --- EVENTOS ---
         window.changeQty = (cartId, qty) => {
             updateQuantity(cartId, qty);
             render();
-            // Recalcular envío si está logueado, pues el monto cambió
             const user = auth.currentUser;
             if(user) estimateShipping(user); 
         };
@@ -368,14 +417,15 @@
         };
 
         // --- INICIALIZACIÓN ---
-        // 1. Obtener config general (Umbral Envío Gratis)
         fetchShippingConfig();
 
-        // 2. Auth Listener
         onAuthStateChanged(auth, (user) => {
             render();
             if (user) estimateShipping(user);
         });
+
+        // Actualizar contador cada minuto (para que baje el tiempo sin recargar)
+        setInterval(checkDispatchTime, 60000);
 
     </script>
 </body>

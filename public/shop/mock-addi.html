@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pasarela de Pruebas ADDI</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body class="bg-gray-100 h-screen flex items-center justify-center">
+
+    <div class="bg-white p-8 rounded-3xl shadow-xl max-w-md w-full text-center border-t-8 border-[#00D6D6]">
+        <div class="mb-6">
+            <h1 class="text-3xl font-black text-[#00D6D6] tracking-tighter">ADDI <span class="text-gray-300 text-sm">MOCK</span></h1>
+            <p class="text-xs text-gray-400 font-bold uppercase tracking-widest">Entorno de Simulación</p>
+        </div>
+
+        <div class="bg-slate-50 p-6 rounded-xl border border-gray-200 mb-8">
+            <p class="text-xs text-gray-500 font-bold uppercase mb-1">Total a Pagar</p>
+            <h2 id="amount-display" class="text-4xl font-black text-slate-800">$0</h2>
+            <p class="text-[10px] text-gray-400 font-mono mt-2" id="order-id-display">ID: ...</p>
+        </div>
+
+        <div class="space-y-3">
+            <button onclick="simulateStatus('APPROVED')" class="w-full bg-[#00D6D6] text-white py-4 rounded-xl font-black uppercase text-xs tracking-widest hover:bg-[#00b5b5] transition shadow-lg shadow-cyan-200">
+                <i class="fa-solid fa-check-circle mr-2"></i> Simular Aprobado
+            </button>
+            
+            <button onclick="simulateStatus('REJECTED')" class="w-full bg-white text-red-500 border-2 border-red-100 py-4 rounded-xl font-black uppercase text-xs tracking-widest hover:bg-red-50 transition">
+                <i class="fa-solid fa-times-circle mr-2"></i> Simular Rechazado
+            </button>
+        </div>
+
+        <p class="mt-8 text-[10px] text-gray-400">Esta pantalla es solo para desarrolladores.</p>
+    </div>
+
+    <script>
+        // Obtener parámetros de la URL
+        const params = new URLSearchParams(window.location.search);
+        const orderId = params.get('orderId');
+        const amount = params.get('amount');
+
+        // Mostrar datos
+        document.getElementById('amount-display').innerText = `$${Number(amount).toLocaleString('es-CO')}`;
+        document.getElementById('order-id-display').innerText = `Order ID: ${orderId}`;
+
+        async function simulateStatus(status) {
+            const btn = event.target.closest('button');
+            const originalText = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Procesando...`;
+
+            // URL DE TU WEBHOOK (Asegúrate de que sea la correcta después del deploy)
+            // Localmente suele ser: http://127.0.0.1:5001/pixeltechcol/us-central1/addiWebhook
+            // En producción: https://us-central1-pixeltechcol.cloudfunctions.net/addiWebhook
+            
+            // ADVERTENCIA: Cambia esto a tu URL real
+            const WEBHOOK_URL = "https://us-central1-pixeltechcol.cloudfunctions.net/addiWebhook"; 
+
+            try {
+                // Simular el payload que ADDI enviaría
+                const payload = {
+                    orderId: orderId,
+                    status: status,
+                    applicationId: `MOCK-APP-${Date.now()}`, // ID ficticio de ADDI
+                    approvedAmount: Number(amount)
+                };
+
+                // Llamar a tu propio Webhook
+                await fetch(WEBHOOK_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                // Redirigir al éxito o fallo de TU tienda
+                if (status === 'APPROVED') {
+                    window.location.href = `/shop/success.html?order=${orderId}`;
+                } else {
+                    alert("Pago rechazado simulado.");
+                    window.location.href = `/shop/cart.html`; // O página de error
+                }
+
+            } catch (error) {
+                console.error(error);
+                alert("Error llamando al webhook: " + error.message);
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+            }
+        }
+    </script>
+</body>
+</html>

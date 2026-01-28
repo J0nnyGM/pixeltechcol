@@ -7,20 +7,30 @@
     <title>Cargando Producto... | PixelTech</title>
     <link rel="stylesheet" href="../css/styles.css">
     <script src="https://kit.fontawesome.com/0d623ded97.js" crossorigin="anonymous"></script>
+    <script src="https://s3.amazonaws.com/widgets.addi.com/bundle.min.js" async></script>
     <style>
-        .thumb-active {
-            border-color: #00AEC7 !important; /* Cyan de tu marca */
-            border-width: 2px;
-            transform: scale(1.05);
+        /* Ocultar flechas del input number */
+        input[type=number]::-webkit-inner-spin-button, 
+        input[type=number]::-webkit-outer-spin-button { 
+            -webkit-appearance: none; 
+            margin: 0; 
         }
-        
-        /* Estilos para opciones seleccionadas */
-        .option-selected {
-            background-color: #00AEC7 !important;
-            color: #ffffff !important;
-            border-color: #00AEC7 !important;
+        input[type=number] {
+            -moz-appearance: textfield; /* Firefox */
         }
 
+        .thumb-active {
+            border-color: #00AEC7 !important;
+            border-width: 2px !important;
+            opacity: 1 !important;
+        }
+        .thumb-inactive {
+            border-color: #f3f4f6;
+            border-width: 1px;
+            opacity: 0.7;
+        }
+        .thumb-inactive:hover { opacity: 1; border-color: #00AEC7; }
+        
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .fade-in { animation: fadeIn 0.4s ease-out forwards; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
@@ -61,24 +71,25 @@
                     <div>
                         <h1 id="p-name" class="text-4xl font-black text-brand-black uppercase tracking-tighter leading-[1.1] mb-6"></h1>
 
-                        <div class="flex items-baseline gap-5">
-                            <span id="p-old-price" class="text-2xl text-gray-300 line-through font-bold"></span>
+                        <div class="flex items-baseline gap-5 mb-4">
+                            <span id="p-old-price" class="text-2xl text-gray-300 line-through font-bold hidden"></span>
                             <span id="p-price" class="text-5xl font-black text-brand-black tracking-tighter"></span>
                         </div>
-                        <p class="text-green-600 text-[10px] font-black uppercase tracking-widest mt-4 flex items-center gap-2">
-                            <i class="fa-solid fa-circle-check"></i> Hay existencias en bodega
-                        </p>
+
+                        <div id="addi-widget-container" class="mt-4 min-h-[60px]"></div>
+
+                        <p id="p-stock-text" class="text-green-600 text-[10px] font-black uppercase tracking-widest mt-4 flex items-center gap-2">
+                            </p>
                     </div>
 
-                    <div id="p-options" class="space-y-6 pt-4 border-t border-gray-50">
-                        </div>
+                    <div id="p-options" class="space-y-6 pt-4 border-t border-gray-50"></div>
 
                     <div id="purchase-section" class="pt-8 border-t border-gray-100 space-y-4">
                         <div class="flex items-center gap-4">
-                            <div class="flex items-center border-2 border-gray-100 rounded-2xl p-1 bg-gray-50">
-                                <button onclick="changeQty(-1)" class="w-12 h-12 flex items-center justify-center font-bold text-gray-400 hover:text-brand-black transition text-xl">-</button>
-                                <input type="number" id="p-qty" value="1" min="1" class="w-12 text-center font-black text-sm outline-none bg-transparent">
-                                <button onclick="changeQty(1)" class="w-12 h-12 flex items-center justify-center font-bold text-gray-400 hover:text-brand-black transition text-xl">+</button>
+                            <div class="flex items-center border-2 border-gray-100 rounded-2xl p-1 bg-gray-50 h-14">
+                                <button onclick="changeQty(-1)" class="w-12 h-full flex items-center justify-center font-bold text-gray-400 hover:text-brand-black hover:bg-gray-200 rounded-xl transition text-xl">-</button>
+                                <input type="number" id="p-qty" value="1" min="1" readonly class="w-12 text-center font-black text-lg outline-none bg-transparent cursor-default">
+                                <button onclick="changeQty(1)" class="w-12 h-full flex items-center justify-center font-bold text-gray-400 hover:text-brand-black hover:bg-gray-200 rounded-xl transition text-xl">+</button>
                             </div>
                             <button id="btn-add-main" class="flex-grow bg-brand-cyan text-brand-black h-14 rounded-2xl font-black uppercase text-xs tracking-[0.2em] hover:bg-brand-black hover:text-white transition-all shadow-xl shadow-cyan-500/10">
                                 Agregar al carrito
@@ -92,17 +103,18 @@
                                 <i class="fa-solid fa-truck-fast text-brand-cyan text-xl"></i>
                             </div>
                             <div>
-                                <h4 class="text-[11px] font-black uppercase tracking-widest mb-1">Entrega Nacional Pro</h4>
-                                <p class="text-[10px] text-gray-400 leading-tight">Envío prioritario de 1 a 3 días hábiles en ciudades principales.</p>
+                                <h4 class="text-[11px] font-black uppercase tracking-widest mb-1 text-brand-black">Entrega Nacional Pro</h4>
+                                <p id="p-shipping-text" class="text-[10px] text-brand-black font-bold leading-tight">Calculando tiempo de despacho...</p>
                             </div>
                         </div>
+                        
                         <div class="flex items-start gap-5">
                             <div class="w-12 h-12 rounded-2xl bg-white shadow-sm flex items-center justify-center shrink-0">
-                                <i class="fa-solid fa-shield-check text-brand-cyan text-xl"></i>
+                                <i class="fa-solid fa-medal text-brand-cyan text-xl"></i>
                             </div>
                             <div>
-                                <h4 class="text-[11px] font-black uppercase tracking-widest mb-1">Garantía PixelTech</h4>
-                                <p class="text-[10px] text-gray-400 leading-tight">Cobertura total por defectos de fábrica y soporte especializado.</p>
+                                <h4 class="text-[11px] font-black uppercase tracking-widest mb-1 text-brand-black">Garantía PixelTech</h4>
+                                <p id="p-warranty-text" class="text-[10px] text-brand-black font-bold leading-tight">Cobertura total por defectos de fábrica.</p>
                             </div>
                         </div>
 

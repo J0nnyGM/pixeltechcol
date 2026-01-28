@@ -104,9 +104,36 @@
                         <label class="text-[9px] font-black text-gray-400 uppercase tracking-widest block mb-1">Valor Fijo ($)</label>
                         <input type="number" id="fee-fixed" placeholder="Ej: 900" class="w-full bg-white border border-gray-200 p-3 rounded-xl font-bold text-sm outline-none focus:border-brand-cyan text-center">
                     </div>
+
+                    <div class="col-span-2 pt-2 border-t border-purple-200/50">
+                        <div class="flex items-center gap-3 cursor-pointer" onclick="document.getElementById('fee-apply-iva').click()">
+                            <input type="checkbox" id="fee-apply-iva" class="w-4 h-4 accent-purple-500 cursor-pointer">
+                            <div>
+                                <p class="text-[10px] font-black text-purple-800 uppercase">Aplicar IVA (19%) sobre Comisión</p>
+                                <p class="text-[8px] text-purple-400">Se sumará el 19% al valor calculado de la tarifa.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="col-span-2 mt-2 pt-4 border-t border-purple-200/50">
+                        <span class="text-[9px] font-black text-purple-400 uppercase tracking-widest block mb-3">Liquidación Automática</span>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="text-[9px] font-black text-gray-400 uppercase tracking-widest block mb-1">Días para el giro</label>
+                                <input type="number" id="settle-days" placeholder="Ej: 30" class="w-full bg-white border border-gray-200 p-3 rounded-xl font-bold text-sm outline-none focus:border-brand-cyan text-center">
+                            </div>
+                            <div>
+                                <label class="text-[9px] font-black text-gray-400 uppercase tracking-widest block mb-1">Banco Destino</label>
+                                <select id="settle-bank-dest" class="w-full bg-white border border-gray-200 p-3 rounded-xl font-bold text-xs outline-none focus:border-brand-cyan">
+                                    <option value="">-- Manual --</option>
+                                    </select>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
-                <div class="space-y-2 pt-2">
+                <div class="space-y-4 pt-4 border-t border-gray-100">
+                    
                     <div class="flex items-center gap-3 p-3 bg-slate-50 rounded-xl border border-gray-200 cursor-pointer hover:bg-slate-100 transition" onclick="document.getElementById('acc-exempt').click()">
                         <input type="checkbox" id="acc-exempt" class="w-5 h-5 accent-brand-cyan cursor-pointer">
                         <div>
@@ -115,12 +142,18 @@
                         </div>
                     </div>
 
-                    <div class="flex items-center gap-3 p-3 bg-cyan-50 rounded-xl border border-cyan-100 cursor-pointer hover:bg-cyan-100 transition" onclick="document.getElementById('acc-online-default').click()">
-                        <input type="checkbox" id="acc-online-default" class="w-5 h-5 accent-brand-cyan cursor-pointer">
-                        <div>
-                            <p class="text-xs font-bold text-brand-black uppercase">Vincular a Tienda Online</p>
-                            <p class="text-[8px] text-gray-500 uppercase">Los pagos automáticos entrarán a esta cuenta.</p>
-                        </div>
+                    <div class="bg-cyan-50/50 p-4 rounded-xl border border-cyan-100">
+                        <label class="text-[9px] font-black text-brand-cyan uppercase tracking-widest block mb-2">Vincular a Pasarela de Pagos</label>
+                        <select id="acc-gateway-link" class="w-full bg-white border border-cyan-200 text-brand-black font-bold text-xs p-3 rounded-lg outline-none focus:border-brand-cyan">
+                            <option value="">-- Ninguna (Cuenta Normal) --</option>
+                            <option value="MERCADOPAGO">MercadoPago (Pagos Web)</option>
+                            <option value="ADDI">ADDI (Créditos Web)</option>
+                            <option value="BOLD">Bold (Datáfono)</option>
+                        </select>
+                        <p class="text-[8px] text-gray-400 mt-2 font-bold uppercase">
+                            <i class="fa-solid fa-circle-info text-brand-cyan"></i> 
+                            Los pagos de la pasarela seleccionada entrarán automáticamente aquí.
+                        </p>
                     </div>
                 </div>
 
@@ -139,12 +172,19 @@
             
             <form id="commission-form" class="p-8 space-y-5">
                 <input type="hidden" id="comm-acc-id">
-                <input type="hidden" id="comm-type"> <input type="hidden" id="comm-rate-percent">
+                <input type="hidden" id="comm-type"> 
+                <input type="hidden" id="comm-rate-percent">
                 <input type="hidden" id="comm-rate-fixed">
+                <input type="hidden" id="comm-apply-iva">
 
                 <div id="comm-gross-container">
                     <label class="text-[9px] font-black text-gray-400 uppercase tracking-widest block mb-2">Valor de la Venta (Bruto)</label>
-                    <input type="text" id="comm-gross" placeholder="$0" class="w-full bg-slate-50 border border-gray-200 p-3 rounded-xl font-bold text-lg text-center outline-none focus:border-purple-500 transition-all text-brand-black currency-input">
+                    <div class="flex gap-2">
+                        <input type="text" id="comm-gross" placeholder="$0" class="w-full bg-slate-50 border border-gray-200 p-3 rounded-xl font-bold text-lg text-center outline-none focus:border-purple-500 transition-all text-brand-black currency-input">
+                        <button type="button" id="btn-auto-calc" class="bg-purple-100 text-purple-600 px-3 rounded-xl hover:bg-purple-500 hover:text-white transition" title="Calcular Neto y Gasto Automáticamente">
+                            <i class="fa-solid fa-calculator"></i>
+                        </button>
+                    </div>
                 </div>
 
                 <div id="comm-net-container">
@@ -153,8 +193,9 @@
                 </div>
 
                 <div class="bg-gray-50 p-4 rounded-xl border border-dashed border-gray-200 text-center">
-                    <p class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Gasto a Registrar</p>
+                    <p class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Gasto Calculado</p>
                     <p id="comm-calc-display" class="text-2xl font-black text-red-500 tracking-tight">$0</p>
+                    <p id="iva-msg" class="text-[8px] font-bold text-purple-400 mt-1 hidden">(Incluye IVA 19%)</p>
                 </div>
 
                 <div class="flex flex-col gap-2">
@@ -184,21 +225,17 @@
                         <select id="tr-dest" required class="w-full bg-green-50 border border-green-100 p-3 rounded-xl font-bold text-sm outline-none focus:border-green-500 cursor-pointer"></select>
                     </div>
                 </div>
-                
                 <div>
                     <label class="text-[9px] font-black text-gray-400 uppercase tracking-widest block mb-1">Monto a Transferir</label>
                     <input type="text" id="tr-amount" required placeholder="$0" class="w-full bg-slate-50 border border-gray-200 p-4 rounded-xl text-xl font-black text-center outline-none focus:border-brand-black currency-input">
                 </div>
-
                 <div id="tr-max-info" class="text-center hidden">
                     <p class="text-[9px] text-gray-400 font-bold">Máximo transferible (Neto): <span id="tr-max-val" class="text-brand-black font-black">$0</span></p>
                 </div>
-                
                 <div id="tax-warning" class="hidden bg-yellow-50 p-3 rounded-xl border border-yellow-200 flex items-center gap-3">
                     <i class="fa-solid fa-triangle-exclamation text-yellow-600"></i>
                     <p class="text-[9px] font-bold text-yellow-700 uppercase">Se aplicará 4x1000: <span id="tax-preview" class="font-black">$0</span></p>
                 </div>
-
                 <button type="submit" class="w-full bg-brand-black text-white py-4 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-brand-cyan transition mt-2 shadow-lg">Confirmar Transferencia</button>
             </form>
         </div>
@@ -207,7 +244,6 @@
     <div id="history-modal" class="fixed inset-0 z-[60] hidden flex items-center justify-center p-4">
         <div class="absolute inset-0 bg-slate-900/80 backdrop-blur-md" onclick="closeModal('history-modal')"></div>
         <div class="relative bg-white w-full max-w-3xl rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col max-h-[85vh] animate-in fade-in zoom-in-95 duration-200">
-            
             <div class="p-8 border-b border-gray-100 flex justify-between items-center bg-slate-50">
                 <div>
                     <h3 class="text-xl font-black uppercase tracking-tighter text-brand-black">Extracto <span class="text-brand-cyan">Mensual</span></h3>
@@ -215,12 +251,9 @@
                 </div>
                 <div class="flex items-center gap-4">
                     <input type="month" id="hist-month" class="bg-white border border-gray-200 rounded-xl px-4 py-2 text-sm font-bold outline-none focus:border-brand-cyan shadow-sm cursor-pointer">
-                    <button onclick="closeModal('history-modal')" class="w-10 h-10 rounded-full bg-white text-gray-400 border border-gray-200 hover:text-brand-red flex items-center justify-center transition">
-                        <i class="fa-solid fa-xmark"></i>
-                    </button>
+                    <button onclick="closeModal('history-modal')" class="w-10 h-10 rounded-full bg-white text-gray-400 border border-gray-200 hover:text-brand-red flex items-center justify-center transition"><i class="fa-solid fa-xmark"></i></button>
                 </div>
             </div>
-
             <div class="px-8 py-6 bg-white border-b border-gray-100 shrink-0">
                 <div class="grid grid-cols-3 gap-4">
                     <div class="bg-green-50 p-4 rounded-2xl border border-green-100 flex flex-col justify-center items-center text-center">
@@ -237,7 +270,6 @@
                     </div>
                 </div>
             </div>
-
             <div class="flex-grow overflow-y-auto custom-scroll p-0 pb-12">
                 <table class="w-full text-left">
                     <thead class="bg-slate-50 text-[9px] uppercase font-black text-gray-400 tracking-widest sticky top-0 z-10 border-b border-gray-100 shadow-sm">
@@ -266,21 +298,19 @@
 
         // DOM Elements
         const grid = document.getElementById('accounts-grid');
-        const accModal = document.getElementById('account-modal');
         const accForm = document.getElementById('account-form');
         const bankFields = document.getElementById('bank-fields');
         const platFields = document.getElementById('platform-fields');
         const accTypeInput = document.getElementById('acc-type');
         const feeTypeInput = document.getElementById('fee-type');
         
-        // --- UTILIDAD: MONEDA ---
         document.querySelectorAll('.currency-input').forEach(input => {
             input.addEventListener('input', (e) => {
                 let val = e.target.value.replace(/\D/g, "");
                 if (val === "") { e.target.value = ""; return; }
                 e.target.value = "$" + parseInt(val, 10).toLocaleString('es-CO');
                 if(input.id === 'tr-amount') calculateTransferTax();
-                if(input.id === 'comm-gross' || input.id === 'comm-net') calculateCommission();
+                if(input.id === 'comm-gross' || input.id === 'comm-net') updateExpenseDisplay(); 
             });
         });
         const getCleanVal = (id) => { const v = document.getElementById(id).value.replace(/\D/g, ""); return v ? parseInt(v, 10) : 0; };
@@ -290,7 +320,6 @@
             const type = accTypeInput.value;
             bankFields.classList.add('hidden');
             platFields.classList.add('hidden');
-            
             if(type === 'banco') bankFields.classList.remove('hidden');
             if(type === 'plataforma') {
                 platFields.classList.remove('hidden');
@@ -302,7 +331,6 @@
             const ft = feeTypeInput.value;
             const pDiv = document.getElementById('fee-var-group');
             const fDiv = document.getElementById('fee-fixed-container');
-            
             if(ft === 'fixed') {
                 pDiv.classList.add('hidden');
                 fDiv.classList.remove('hidden');
@@ -321,9 +349,13 @@
         onSnapshot(collection(db, "accounts"), (snap) => {
             const sourceSelect = document.getElementById('tr-source');
             const destSelect = document.getElementById('tr-dest');
+            const settleBankSelect = document.getElementById('settle-bank-dest');
+
             grid.innerHTML = "";
             if(sourceSelect) sourceSelect.innerHTML = "<option value=''>Seleccione...</option>";
             if(destSelect) destSelect.innerHTML = "<option value=''>Seleccione...</option>";
+            if(settleBankSelect) settleBankSelect.innerHTML = "<option value=''>-- Manual --</option>";
+
             accounts = [];
 
             if (snap.empty) {
@@ -334,15 +366,44 @@
                 const acc = { id: d.id, ...d.data() };
                 accounts.push(acc);
 
+                if (acc.type === 'banco') {
+                    const option = `<option value="${acc.id}">${acc.name}</option>`;
+                    if(settleBankSelect) settleBankSelect.innerHTML += option;
+                }
+
+                // --- LÓGICA DE SALDO DISPONIBLE CORREGIDA ---
+                let available = acc.balance;
+                
+                // 1. Deducir comisiones si es plataforma (LÓGICA IGUAL A TRANSFERENCIA)
+                if (acc.type === 'plataforma') {
+                    let fee = 0;
+                    const percent = acc.feePercent || 0;
+                    const fixed = acc.feeFixed || 0;
+
+                    if (acc.feeType === 'fixed') {
+                        fee = fixed; 
+                    } else {
+                        fee = (acc.balance * (percent / 100)) + fixed;
+                    }
+
+                    if (acc.applyIvaOnFee) fee = fee * 1.19; 
+
+                    fee = Math.ceil(fee); 
+                    available = available - fee;
+                }
+
+                // 2. Deducir 4x1000
+                if (!acc.isExempt && acc.type !== 'efectivo') {
+                    available = Math.floor(available / 1.004);
+                }
+
+                available = Math.floor(available);
+                if (available < 0) available = 0;
+
                 let icon = 'fa-money-bill';
                 let colorClass = 'bg-green-50 text-green-500';
                 let actionBtn = '';
-
-                // Cálculo de Saldo Transferible
-                let transferable = acc.balance;
-                if (!acc.isExempt && acc.type !== 'efectivo') {
-                    transferable = Math.floor(acc.balance / 1.004);
-                }
+                let totalBalanceInt = Math.floor(acc.balance || 0);
 
                 if(acc.type === 'banco') { 
                     icon = 'fa-building-columns'; 
@@ -358,14 +419,14 @@
                 if (acc.type === 'banco' && acc.accountNumber) subInfo = `<p class="text-[10px] text-gray-400 font-mono mt-1">${acc.accountCategory || ''} ••• ${acc.accountNumber.slice(-4)}</p>`;
                 if (acc.type === 'plataforma') subInfo = `<p class="text-[10px] text-gray-400 font-bold mt-1">${acc.feeType === 'fixed' ? 'Tarifa Fija' : 'Tarifa Variable'}</p>`;
 
-                // Badge Online Default
-                const onlineBadge = acc.isDefaultOnline 
-                    ? `<span class="absolute top-4 right-4 bg-brand-cyan text-white text-[8px] font-black px-2 py-1 rounded shadow-md uppercase tracking-widest z-20"><i class="fa-solid fa-link"></i> Conectada a Tienda</span>` 
-                    : '';
+                let linkBadge = "";
+                if (acc.gatewayLink === 'MERCADOPAGO') linkBadge = `<span class="absolute top-4 right-4 bg-blue-500 text-white text-[8px] font-black px-2 py-1 rounded shadow-md uppercase tracking-widest z-20">MP</span>`;
+                else if (acc.gatewayLink === 'ADDI') linkBadge = `<span class="absolute top-4 right-4 bg-[#00D6D6] text-white text-[8px] font-black px-2 py-1 rounded shadow-md uppercase tracking-widest z-20">ADDI</span>`;
+                else if (acc.gatewayLink === 'BOLD') linkBadge = `<span class="absolute top-4 right-4 bg-red-500 text-white text-[8px] font-black px-2 py-1 rounded shadow-md uppercase tracking-widest z-20">BOLD</span>`;
 
                 grid.innerHTML += `
-                    <div class="bg-white p-6 rounded-[2rem] border border-gray-100 shadow-sm hover:shadow-xl transition-all group relative overflow-hidden flex flex-col justify-between ${acc.isDefaultOnline ? 'ring-2 ring-brand-cyan/20' : ''}">
-                        ${onlineBadge}
+                    <div class="bg-white p-6 rounded-[2rem] border border-gray-100 shadow-sm hover:shadow-xl transition-all group relative overflow-hidden flex flex-col justify-between ${acc.gatewayLink ? 'ring-2 ring-brand-cyan/20' : ''}">
+                        ${linkBadge}
                         <div class="absolute -right-4 -top-4 w-24 h-24 rounded-full ${colorClass.split(' ')[0]} blur-2xl opacity-50"></div>
                         <div>
                             <div class="flex justify-between items-start mb-6 relative z-10">
@@ -378,21 +439,23 @@
                             <div class="relative z-10">
                                 <div class="flex items-center gap-2"><h3 class="font-bold text-gray-600 text-xs uppercase tracking-widest">${acc.name}</h3>${acc.isExempt ? '<i class="fa-solid fa-shield-halved text-green-500 text-xs" title="Exenta 4x1000"></i>' : ''}</div>
                                 ${subInfo}
-                                <p class="text-3xl font-black text-brand-black tracking-tighter mt-2">$${(acc.balance || 0).toLocaleString('es-CO')}</p>
-                                <p class="text-[9px] font-bold text-gray-400 mt-1">Disponible: <span class="text-gray-600">$${transferable.toLocaleString('es-CO')}</span></p>
+                                <p class="text-3xl font-black text-brand-black tracking-tighter mt-2">$${totalBalanceInt.toLocaleString('es-CO')}</p>
+                                <p class="text-[9px] font-bold text-gray-400 mt-1">Disponible: <span class="text-gray-600">$${available.toLocaleString('es-CO')}</span></p>
                             </div>
                         </div>
                         ${actionBtn}
                     </div>
                 `;
 
-                const opt = `<option value="${acc.id}">${acc.name} ($${acc.balance.toLocaleString()})</option>`;
+                const opt = `<option value="${acc.id}">${acc.name} ($${totalBalanceInt.toLocaleString()})</option>`;
                 if(sourceSelect) sourceSelect.innerHTML += opt;
                 if(destSelect) destSelect.innerHTML += opt;
             });
         });
 
-        // --- FUNCIONES ---
+        // ... (Funciones openTransferModal, openAccountModal, editAccount, accForm.onsubmit, etc. son iguales que en la respuesta anterior) ...
+        // ... (Asegúrate de copiar esas funciones del bloque de código de la respuesta anterior si es necesario, pero aquí solo cambiamos calculateTransferTax) ...
+
         window.openTransferModal = () => {
             document.getElementById('transfer-form').reset();
             document.getElementById('tax-warning').classList.add('hidden');
@@ -413,6 +476,10 @@
             balInput.classList.remove('bg-gray-200', 'text-gray-500');
             balInput.classList.add('bg-slate-50');
             balLabel.textContent = "Saldo Inicial *"; 
+            document.getElementById('acc-gateway-link').value = "";
+            document.getElementById('settle-days').value = "";
+            document.getElementById('settle-bank-dest').value = "";
+            document.getElementById('fee-apply-iva').checked = false;
 
             toggleFields();
             document.getElementById('account-modal').classList.remove('hidden');
@@ -428,15 +495,14 @@
             
             const balInput = document.getElementById('acc-balance');
             const balLabel = document.getElementById('lbl-balance');
-            balInput.value = acc.balance;
+            balInput.value = Math.floor(acc.balance);
             balInput.disabled = true;
             balInput.classList.remove('bg-slate-50'); 
             balInput.classList.add('bg-gray-200', 'text-gray-500');
             balLabel.textContent = "Saldo Actual (No editable)";
             
             document.getElementById('acc-exempt').checked = acc.isExempt || false;
-            // NUEVO: Cargar Checkbox Online
-            document.getElementById('acc-online-default').checked = acc.isDefaultOnline || false;
+            document.getElementById('acc-gateway-link').value = acc.gatewayLink || "";
 
             if(acc.type === 'banco') {
                 document.getElementById('acc-number').value = acc.accountNumber || '';
@@ -447,6 +513,9 @@
                 document.getElementById('fee-type').value = acc.feeType || 'variable';
                 document.getElementById('fee-percent').value = acc.feePercent || '';
                 document.getElementById('fee-fixed').value = acc.feeFixed || '';
+                document.getElementById('settle-days').value = acc.settlementDays || "";
+                document.getElementById('settle-bank-dest').value = acc.settlementTargetId || "";
+                document.getElementById('fee-apply-iva').checked = acc.applyIvaOnFee || false;
             }
 
             toggleFields();
@@ -466,11 +535,11 @@
                 type: type,
                 updatedAt: Timestamp.now(),
                 isExempt: document.getElementById('acc-exempt').checked,
-                isDefaultOnline: document.getElementById('acc-online-default').checked // NUEVO: Guardar
+                gatewayLink: document.getElementById('acc-gateway-link').value
             };
 
             if (!id) {
-                data.balance = Number(document.getElementById('acc-balance').value);
+                data.balance = Math.floor(Number(document.getElementById('acc-balance').value));
                 data.createdAt = Timestamp.now();
             }
 
@@ -482,6 +551,9 @@
                 data.feeType = document.getElementById('fee-type').value;
                 data.feeFixed = Number(document.getElementById('fee-fixed').value);
                 if(data.feeType === 'variable') data.feePercent = Number(document.getElementById('fee-percent').value);
+                data.settlementDays = Number(document.getElementById('settle-days').value) || 0;
+                data.settlementTargetId = document.getElementById('settle-bank-dest').value || null;
+                data.applyIvaOnFee = document.getElementById('fee-apply-iva').checked; 
             }
 
             try {
@@ -494,8 +566,11 @@
 
         window.closeModal = (id) => document.getElementById(id).classList.add('hidden');
 
-        // --- COMISIONES ---
+        // --- FUNCIONES EXTRA (COMISIONES, HISTORIAL, ETC.) ---
+        // (Las demás funciones se mantienen, asegurándonos de incluir la nueva lógica de transferencia abajo)
+
         window.openCommissionModal = (id) => {
+            // ... (Igual que antes) ...
             const acc = accounts.find(a => a.id === id);
             if (!acc) return;
             document.getElementById('comm-acc-id').value = acc.id;
@@ -504,10 +579,19 @@
             document.getElementById('comm-rate-percent').value = acc.feePercent || 0;
             document.getElementById('comm-rate-fixed').value = acc.feeFixed || 0;
             
+            const appliesIva = acc.applyIvaOnFee || false;
+            document.getElementById('comm-apply-iva').value = appliesIva;
+            const ivaMsg = document.getElementById('iva-msg');
+            appliesIva ? ivaMsg.classList.remove('hidden') : ivaMsg.classList.add('hidden');
+
             if(acc.feeType === 'fixed') {
                 document.getElementById('comm-gross-container').classList.add('hidden');
                 document.getElementById('comm-net-container').classList.add('hidden');
-                document.getElementById('comm-calc-display').textContent = `$${(acc.feeFixed || 0).toLocaleString()}`;
+                
+                let fixedCost = acc.feeFixed || 0;
+                if(appliesIva) fixedCost *= 1.19;
+                
+                document.getElementById('comm-calc-display').textContent = `$${Math.round(fixedCost).toLocaleString()}`;
             } else {
                 document.getElementById('comm-gross-container').classList.remove('hidden');
                 document.getElementById('comm-net-container').classList.remove('hidden');
@@ -519,7 +603,8 @@
             document.getElementById('commission-modal').classList.remove('hidden');
         };
 
-        const calculateCommission = () => {
+        const updateExpenseDisplay = () => {
+            // ... (Igual) ...
             const cType = document.getElementById('comm-type').value;
             if(cType === 'fixed') return;
 
@@ -533,10 +618,29 @@
             }
         };
 
-        document.getElementById('comm-gross').addEventListener('input', calculateCommission);
-        document.getElementById('comm-net').addEventListener('input', calculateCommission);
+        document.getElementById('btn-auto-calc').onclick = () => {
+            // ... (Igual) ...
+            const gross = getCleanVal('comm-gross');
+            if (gross <= 0) return;
+
+            const type = document.getElementById('comm-type').value;
+            const percent = Number(document.getElementById('comm-rate-percent').value) || 0;
+            const fixed = Number(document.getElementById('comm-rate-fixed').value) || 0;
+            const applyIva = document.getElementById('comm-apply-iva').value === 'true';
+
+            let fee = 0;
+            if (type === 'fixed') fee = fixed;
+            else fee = (gross * (percent / 100)) + fixed;
+
+            if (applyIva) fee = fee * 1.19;
+
+            const net = Math.floor(gross - fee);
+            document.getElementById('comm-net').value = "$" + net.toLocaleString('es-CO');
+            updateExpenseDisplay();
+        };
 
         document.getElementById('commission-form').onsubmit = async (e) => {
+            // ... (Igual) ...
             e.preventDefault();
             const btn = document.getElementById('commission-form').querySelector('button');
             btn.disabled = true;
@@ -545,12 +649,14 @@
             const cType = document.getElementById('comm-type').value;
             const desc = document.getElementById('comm-desc').value;
             const acc = accounts.find(a => a.id === accId);
+            const applyIva = document.getElementById('comm-apply-iva').value === 'true';
             
             let cost = 0;
             let gross = 0;
 
             if (cType === 'fixed') {
                 cost = Number(document.getElementById('comm-rate-fixed').value);
+                if(applyIva) cost *= 1.19;
             } else {
                 gross = getCleanVal('comm-gross');
                 const net = getCleanVal('comm-net');
@@ -563,7 +669,9 @@
                 await runTransaction(db, async (t) => {
                     const accRef = doc(db, "accounts", accId);
                     const accDoc = await t.get(accRef);
-                    t.update(accRef, { balance: accDoc.data().balance - cost });
+                    const newBalance = Math.floor(accDoc.data().balance - cost);
+                    
+                    t.update(accRef, { balance: newBalance });
                     const expRef = doc(collection(db, "expenses"));
                     t.set(expRef, {
                         description: desc || (cType === 'fixed' ? 'Comisión Fija' : `Comisión Venta $${gross.toLocaleString()}`),
@@ -579,10 +687,10 @@
             } catch (e) { alert(e.message); } finally { btn.disabled = false; }
         };
 
-        // --- TRANSFERENCIA ---
         const amountInput = document.getElementById('tr-amount');
         const sourceInput = document.getElementById('tr-source');
         
+        // --- 1. LÓGICA DE TRANSFERENCIA CORREGIDA ---
         function calculateTransferTax() {
             const accId = sourceInput.value;
             const amount = getCleanVal('tr-amount');
@@ -597,16 +705,43 @@
                 return;
             }
 
-            let maxTransferable = account.balance;
-            let taxRate = 0;
+            // A. Base: Saldo Total
+            let availableForTransfer = account.balance;
 
-            if (account.type !== 'efectivo' && !account.isExempt) {
-                taxRate = 0.004;
-                maxTransferable = Math.floor(account.balance / (1 + taxRate));
+            // B. Restar Comisiones Latentes (Si es Plataforma)
+            if (account.type === 'plataforma') {
+                let fee = 0;
+                const percent = account.feePercent || 0;
+                const fixed = account.feeFixed || 0;
+
+                if (account.feeType === 'fixed') {
+                    fee = fixed;
+                } else {
+                    fee = (account.balance * (percent / 100)) + fixed;
+                }
+
+                if (account.applyIvaOnFee) fee *= 1.19;
+                
+                availableForTransfer -= Math.ceil(fee); 
             }
 
-            maxVal.textContent = `$${maxTransferable.toLocaleString('es-CO')}`;
+            // C. Calcular Maximo real para transferir (Si aplica 4x1000)
+            // Si quiero sacar X y me cobran 4x1000, X + (X*0.004) <= SaldoDisponible
+            // X * 1.004 <= SaldoDisponible  ->  X <= SaldoDisponible / 1.004
+            if (!account.isExempt && account.type !== 'efectivo') {
+                availableForTransfer = Math.floor(availableForTransfer / 1.004);
+            }
+
+            // Seguro visual
+            availableForTransfer = Math.floor(availableForTransfer);
+            if (availableForTransfer < 0) availableForTransfer = 0;
+
+            maxVal.textContent = `$${availableForTransfer.toLocaleString('es-CO')}`;
             maxInfo.classList.remove('hidden');
+
+            // Calculo del impuesto sobre el monto ingresado
+            let taxRate = 0;
+            if (!account.isExempt && account.type !== 'efectivo') taxRate = 0.004;
 
             if (taxRate > 0 && amount > 0) {
                 const tax = Math.ceil(amount * taxRate);
@@ -620,6 +755,7 @@
         sourceInput.onchange = calculateTransferTax;
         amountInput.addEventListener('change', calculateTransferTax);
 
+        // --- 2. VALIDACIÓN EN SUBMIT ---
         document.getElementById('transfer-form').onsubmit = async (e) => {
             e.preventDefault();
             const btn = e.target.querySelector('button');
@@ -641,13 +777,31 @@
                     const sData = sDoc.data();
                     const dData = dDoc.data();
 
+                    // VALIDACIÓN DE SALDO REAL DENTRO DE LA TRANSACCIÓN
+                    let available = sData.balance;
+                    
+                    // Restar comisión latente
+                    if (sData.type === 'plataforma') {
+                        let fee = 0;
+                        const percent = sData.feePercent || 0;
+                        const fixed = sData.feeFixed || 0;
+                        if (sData.feeType === 'fixed') fee = fixed;
+                        else fee = (sData.balance * (percent / 100)) + fixed;
+                        if (sData.applyIvaOnFee) fee *= 1.19;
+                        available -= Math.ceil(fee);
+                    }
+
                     let tax = 0;
                     if(sData.type !== 'efectivo' && !sData.isExempt) tax = Math.ceil(amount * 0.004);
                     
-                    if(sData.balance < (amount + tax)) throw `Fondos insuficientes.`;
+                    // Si (Monto + Impuesto) > (Saldo Total - Comisiones)
+                    if((amount + tax) > available) throw `Fondos insuficientes (Comisiones reservadas).`;
 
-                    t.update(sRef, { balance: sData.balance - (amount + tax) });
-                    t.update(dRef, { balance: dData.balance + amount });
+                    const finalSource = Math.floor(sData.balance - (amount + tax));
+                    const finalDest = Math.floor(dData.balance + amount);
+
+                    t.update(sRef, { balance: finalSource });
+                    t.update(dRef, { balance: finalDest });
 
                     const outRef = doc(collection(db, "expenses"));
                     t.set(outRef, {
@@ -687,7 +841,7 @@
             finally { btn.disabled = false; }
         };
 
-        // --- HISTORIAL ---
+        // --- HISTORIAL (Igual que antes) ---
         window.openHistory = async (accountName) => {
             const modal = document.getElementById('history-modal');
             document.getElementById('hist-acc-name').textContent = accountName;
@@ -733,9 +887,9 @@
                 snap.forEach(d => {
                     const t = d.data();
                     const dateObj = t.date?.toDate ? t.date.toDate() : new Date(t.date);
-                    const absAmount = Math.abs(Number(t.amount));
+                    const absAmount = Math.floor(Math.abs(Number(t.amount)));
                     
-                    const isIncome = t.category === 'Ingreso Ventas' || t.category === 'Transferencia Entrante' || Number(t.amount) < 0;
+                    const isIncome = t.category === 'Ingreso Ventas' || t.category === 'Ingreso Ventas Online' || t.category === 'Transferencia Entrante' || t.category === 'Transferencia Entrante (Auto)' || Number(t.amount) < 0;
 
                     if (isIncome) totalIncome += absAmount;
                     else totalExpense += absAmount;
@@ -753,10 +907,10 @@
                         </tr>`;
                 });
 
-                document.getElementById('hist-in').textContent = `$${totalIncome.toLocaleString('es-CO')}`;
-                document.getElementById('hist-out').textContent = `$${totalExpense.toLocaleString('es-CO')}`;
+                document.getElementById('hist-in').textContent = `$${Math.floor(totalIncome).toLocaleString('es-CO')}`;
+                document.getElementById('hist-out').textContent = `$${Math.floor(totalExpense).toLocaleString('es-CO')}`;
                 const net = totalIncome - totalExpense;
-                document.getElementById('hist-balance').textContent = `${net >= 0 ? '+' : ''}$${net.toLocaleString('es-CO')}`;
+                document.getElementById('hist-balance').textContent = `${net >= 0 ? '+' : ''}$${Math.floor(net).toLocaleString('es-CO')}`;
                 document.getElementById('hist-balance').className = `text-xl font-black tracking-tight ${net >= 0 ? 'text-green-600' : 'text-red-500'}`;
 
             } catch (e) { console.error(e); }

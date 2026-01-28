@@ -14,6 +14,7 @@ const els = {
     city: document.getElementById('shipping-city'),
     guideContainer: document.getElementById('tracking-container'),
     guideText: document.getElementById('shipping-guide'),
+    trackingLink: document.getElementById('tracking-link'),
     itemsCount: document.getElementById('items-count'),
     subtotal: document.getElementById('order-subtotal'), 
     shipping: document.getElementById('order-shipping'), 
@@ -73,6 +74,7 @@ async function loadOrderDetails() {
         if (!snap.exists()) { window.location.href = '/profile.html'; return; }
         currentOrder = snap.data();
 
+        // Cargar Garantías asociadas a esta orden
         const qW = query(
             collection(db, "warranties"),
             where("orderId", "==", orderId),
@@ -91,22 +93,64 @@ async function loadOrderDetails() {
 
 function renderHeaderInfo(displayId, order) {
     els.id.textContent = `ORDEN #${displayId.slice(0, 8).toUpperCase()}`;
-    els.date.textContent = order.createdAt?.toDate().toLocaleDateString('es-CO');
+    const dateObj = order.createdAt?.toDate ? order.createdAt.toDate() : new Date(order.createdAt);
+    els.date.textContent = dateObj.toLocaleDateString('es-CO', { year: 'numeric', month: 'long', day: 'numeric' });
     
-    let statusClass = "bg-yellow-50 text-yellow-700 border-yellow-200";
-    if (order.status === 'DESPACHADO' || order.status === 'ENTREGADO') statusClass = "bg-green-50 text-green-700 border-green-200";
-    if (order.status === 'CANCELADO') statusClass = "bg-red-50 text-red-700 border-red-200";
-    els.statusBadge.innerHTML = `<span class="px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest border ${statusClass}">${order.status}</span>`;
+    // BADGES ESTADO
+    let statusClass = "bg-gray-100 text-gray-600 border-gray-200";
+    let statusLabel = order.status;
 
-    const ship = order.shippingData || {};
-    els.address.textContent = ship.address || order.address || "Dirección no disponible";
-    els.city.textContent = ship.city ? `${ship.city} (${ship.department || ''})` : (order.city || "");
-    
-    if (order.shippingTracking) {
-        els.guideContainer.classList.remove('hidden');
-        els.guideText.textContent = `${order.shippingCarrier || 'Transportadora'} - ${order.shippingTracking}`;
+    switch(order.status) {
+        case 'PENDIENTE_PAGO':
+            statusClass = "bg-yellow-50 text-yellow-700 border-yellow-200";
+            statusLabel = "Pendiente de Pago";
+            break;
+        case 'PAGADO':
+        case 'PENDIENTE': // Pagado pero no alistado
+            statusClass = "bg-blue-50 text-blue-700 border-blue-200";
+            statusLabel = "Pago Confirmado";
+            break;
+        case 'ALISTAMIENTO':
+            statusClass = "bg-purple-50 text-purple-700 border-purple-200";
+            statusLabel = "En Preparación";
+            break;
+        case 'EN_RUTA':
+        case 'DESPACHADO':
+            statusClass = "bg-cyan-50 text-cyan-700 border-cyan-200";
+            statusLabel = "En Camino";
+            break;
+        case 'ENTREGADO':
+            statusClass = "bg-green-50 text-green-700 border-green-200";
+            statusLabel = "Entregado";
+            break;
+        case 'CANCELADO':
+        case 'RECHAZADO':
+            statusClass = "bg-red-50 text-red-700 border-red-200";
+            statusLabel = "Cancelado";
+            break;
     }
 
+    els.statusBadge.innerHTML = `<span class="px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest border ${statusClass}">${statusLabel}</span>`;
+
+    // DIRECCIÓN
+    const ship = order.shippingData || {};
+    const buyer = order.buyerInfo || {};
+    const address = ship.address || buyer.address || "Dirección no disponible";
+    const city = ship.city || buyer.city || "";
+    
+    els.address.textContent = address;
+    els.city.textContent = city;
+    
+    // TRACKING
+    const guide = order.shippingTracking || order.guideNumber;
+    if (guide) {
+        els.guideContainer.classList.remove('hidden');
+        els.guideText.textContent = `${order.shippingCarrier || 'Transportadora'} - ${guide}`;
+        // Lógica simple de link (se puede mejorar si tienes las URLs de las transportadoras)
+        els.trackingLink.href = "#"; 
+    }
+
+    // FACTURACIÓN
     if (order.requiresInvoice && order.billingData) {
         els.billingCard.classList.remove('hidden');
         els.billName.textContent = order.billingData.name || "";
@@ -116,7 +160,8 @@ function renderHeaderInfo(displayId, order) {
         els.billingCard.classList.add('hidden');
     }
 
-    const totalItems = (order.items || []).reduce((acc, item) => acc + (item.quantity || 1), 0);
+    // TOTALES
+    const totalItems = (order.items || []).reduce((acc, item) => acc + (parseInt(item.quantity) || 1), 0);
     els.itemsCount.textContent = totalItems;
     els.subtotal.textContent = `$${(order.subtotal || 0).toLocaleString('es-CO')}`;
     const shipCost = order.shippingCost || 0;
@@ -126,11 +171,14 @@ function renderHeaderInfo(displayId, order) {
 
 function renderItems(order) {
     els.itemsList.innerHTML = "";
-    const shippedDate = order.shippedAt ? order.shippedAt.toDate() : null;
+    
+    // Lógica de fecha de entrega para garantías
+    // Si no hay shippedAt pero está ENTREGADO, usamos createdAt como fallback (no ideal, pero evita errores)
+    const shippedDate = order.shippedAt ? order.shippedAt.toDate() : (order.status === 'ENTREGADO' ? new Date() : null);
     const now = new Date();
 
     order.items.forEach((item, index) => {
-        const warrantyDays = item.warrantyDays || 365;
+        const warrantyDays = item.warrantyDays || 365; // Default 1 año
         let isExpired = false;
         let daysLeft = 0;
 
@@ -149,18 +197,18 @@ function renderItems(order) {
             w.variantCapacity === (item.capacity || null)
         );
 
-        // 3. Determinar Acción
-        const canCreateNew = !isExpired && shippedDate && (itemWarranties.length < item.quantity);
+        // 3. Determinar si puede crear garantía
+        // Solo si está ENTREGADO, no ha expirado y no tiene casos abiertos para toda la cantidad
+        const canCreateNew = (order.status === 'ENTREGADO') && !isExpired && (itemWarranties.length < (item.quantity || 1));
 
-        // 4. GENERAR INDICADOR DE TIEMPO (NUEVO)
+        // 4. Badge de Tiempo
         let timeBadgeHTML = "";
-        if (!shippedDate) {
+        if (order.status !== 'ENTREGADO') {
             timeBadgeHTML = `<span class="text-[9px] font-bold text-gray-400 bg-gray-50 border border-gray-100 px-2 py-0.5 rounded flex items-center gap-1 w-fit"><i class="fa-regular fa-clock"></i> Inicia al recibir</span>`;
         } else if (isExpired) {
-            timeBadgeHTML = `<span class="text-[9px] font-bold text-red-400 bg-red-50 border border-red-100 px-2 py-0.5 rounded flex items-center gap-1 w-fit"><i class="fa-solid fa-calendar-xmark"></i> Cobertura Finalizada</span>`;
+            timeBadgeHTML = `<span class="text-[9px] font-bold text-red-400 bg-red-50 border border-red-100 px-2 py-0.5 rounded flex items-center gap-1 w-fit"><i class="fa-solid fa-calendar-xmark"></i> Garantía Finalizada</span>`;
         } else {
-            // Activa
-            timeBadgeHTML = `<span class="text-[9px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded flex items-center gap-1 w-fit"><i class="fa-solid fa-hourglass-half"></i> Quedan ${daysLeft} días</span>`;
+            timeBadgeHTML = `<span class="text-[9px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded flex items-center gap-1 w-fit"><i class="fa-solid fa-shield-halved"></i> Activa (${daysLeft} días)</span>`;
         }
 
         // 5. Botones
@@ -202,9 +250,11 @@ function renderItems(order) {
         const div = document.createElement('div');
         div.className = "flex flex-col sm:flex-row gap-6 p-6 border border-gray-100 rounded-3xl hover:shadow-lg transition-all duration-300 group bg-white";
 
+        const imgUrl = item.mainImage || item.image || item.pictureUrl || 'https://via.placeholder.com/100?text=No+Img';
+
         div.innerHTML = `
             <div class="w-20 h-20 bg-slate-50 rounded-2xl border border-gray-100 p-2 flex items-center justify-center shrink-0">
-                <img src="${item.mainImage || item.image || 'https://placehold.co/100'}" class="max-w-full max-h-full object-contain group-hover:scale-110 transition duration-500">
+                <img src="${imgUrl}" class="max-w-full max-h-full object-contain group-hover:scale-110 transition duration-500">
             </div>
             
             <div class="flex-grow min-w-0">
@@ -221,8 +271,8 @@ function renderItems(order) {
                     </div>
 
                     <div class="text-right shrink-0">
-                        <p class="font-black text-brand-black text-base">$${(item.price * item.quantity).toLocaleString('es-CO')}</p>
-                        <p class="text-[9px] font-bold text-gray-400 uppercase">Cant: ${item.quantity}</p>
+                        <p class="font-black text-brand-black text-base">$${(item.price * (item.quantity || 1)).toLocaleString('es-CO')}</p>
+                        <p class="text-[9px] font-bold text-gray-400 uppercase">Cant: ${item.quantity || 1}</p>
                     </div>
                 </div>
                 
@@ -236,7 +286,7 @@ function renderItems(order) {
     });
 }
 
-// --- MODALES (IGUAL QUE ANTES) ---
+// --- FUNCIONES MODALES ---
 window.openWarrantyModal = (index) => {
     selectedItemIndex = index;
     const item = currentOrder.items[index];
@@ -304,11 +354,10 @@ els.warrantyForm.onsubmit = async (e) => {
     const imageFiles = els.inpImages.files;
 
     try {
-        if (!currentOrder.shippedAt) throw new Error("Pedido no despachado aún.");
-
+        // Validación laxa: Si el admin registró SNs, deben coincidir. Si no, confiamos en el input.
         if (item.sns && item.sns.length > 0) {
             const snFound = item.sns.some(sn => sn.trim().toUpperCase() === snInput.toUpperCase());
-            if (!snFound) throw new Error("⛔ El Serial no coincide con este pedido.");
+            if (!snFound) throw new Error("⛔ El Serial no coincide con los registros de despacho de este pedido.");
         }
 
         const qDup = query(
@@ -347,10 +396,10 @@ els.warrantyForm.onsubmit = async (e) => {
             evidenceImages: evidenceUrls,
             status: 'PENDIENTE_REVISION',
             createdAt: new Date(),
-            shippedAtDate: currentOrder.shippedAt
+            shippedAtDate: currentOrder.shippedAt || new Date() // Fallback
         });
 
-        alert("✅ Solicitud enviada exitosamente.");
+        alert("✅ Solicitud enviada exitosamente. Nuestro equipo la revisará pronto.");
         window.closeWarrantyModal();
         location.reload();
 

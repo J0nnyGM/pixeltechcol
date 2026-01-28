@@ -1,7 +1,7 @@
 import { auth, db, onAuthStateChanged, doc, getDoc, collection, getDocs, query, orderBy } from "./firebase-init.js";
 
 /**
- * Inyecta Header, Footer, Menús y Herramientas Flotantes
+ * Inyecta Header, Footer, Menús y Herramientas Flotantes (Y EL MINI CARRITO)
  */
 export function loadGlobalHeader() {
     const headerContainer = document.getElementById('global-header');
@@ -9,26 +9,32 @@ export function loadGlobalHeader() {
 
     document.body.classList.add('pb-20', 'lg:pb-0');
 
-    // --- CORRECCIÓN AQUÍ: ANIMACIÓN INFINITA SUAVE ---
-    // 1. Inicia en 0 (visible) en lugar de 100% (fuera de pantalla).
-    // 2. Termina en -50% (exactamente la mitad, donde empieza la copia duplicada).
+    // 1. Estilos Dinámicos (Marquee + Scrollbar + Drawer Premium Animation)
     const styles = document.createElement('style');
     styles.innerHTML = `
-        @keyframes marquee {
-            0% { transform: translateX(0); } 
-            100% { transform: translateX(-50%); } 
-        }
-        .animate-marquee {
-            display: flex;
-            width: max-content; /* Importante para que tome el ancho real del texto */
-            animation: marquee 40s linear infinite; /* Más lento para mejor lectura */
-        }
-        .marquee-container:hover .animate-marquee {
-            animation-play-state: paused;
+        @keyframes marquee { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
+        .animate-marquee { display: flex; width: max-content; animation: marquee 40s linear infinite; }
+        .marquee-container:hover .animate-marquee { animation-play-state: paused; }
+        .drawer-shadow { box-shadow: -10px 0 30px rgba(0,0,0,0.2); }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .menu-tab-btn.active { border-color: #00AEC7; color: #00AEC7; }
+        .menu-tab-content.hidden { display: none; }
+        .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
+        .animate-bounce-slow { animation: bounce 3s infinite; }
+        .animate-in-up { animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+        @keyframes slideUp { from { transform: translateY(20px) scale(0.95); opacity: 0; } to { transform: translateY(0) scale(1); opacity: 1; } }
+        
+        /* --- NUEVA ANIMACIÓN PREMIUM --- */
+        .smooth-drawer {
+            transition-property: transform, opacity, visibility;
+            transition-duration: 500ms;
+            transition-timing-function: cubic-bezier(0.19, 1, 0.22, 1); /* Efecto "Slide & Brake" suave */
+            will-change: transform;
         }
     `;
     document.head.appendChild(styles);
 
+    // 2. HTML ESTRUCTURAL (Header + Drawers)
     headerContainer.innerHTML = `
     <div class="fixed top-1/2 right-0 -translate-y-1/2 z-40 hidden md:flex flex-col gap-2 items-end">
         <a href="https://www.facebook.com/pixeltech.col" target="_blank" class="w-10 h-10 bg-[#1877F2] text-white flex items-center justify-center rounded-l-xl hover:w-14 transition-all duration-300 shadow-lg relative overflow-hidden group">
@@ -43,7 +49,6 @@ export function loadGlobalHeader() {
     </div>
 
     <div id="wa-overlay" class="fixed inset-0 z-[59] hidden" onclick="window.toggleWhatsAppModal()"></div>
-
     <div id="wa-modal" class="fixed z-[60] hidden animate-in-up origin-bottom-right w-[90%] max-w-[380px] bottom-24 right-4 lg:w-[400px] lg:bottom-10 lg:right-24">
         <div class="bg-white rounded-[2rem] shadow-2xl overflow-hidden border border-gray-100 relative">
             <div class="bg-gradient-to-r from-[#25D366] to-[#075E54] p-6 relative overflow-hidden">
@@ -122,13 +127,14 @@ export function loadGlobalHeader() {
                         <span class="text-[8px] font-black uppercase tracking-widest text-gray-400 group-hover:text-green-500 text-center">Chat</span>
                     </a>
                     <div id="user-info-desktop" class="w-14"></div>
-                    <a href="/shop/cart.html" class="flex flex-col items-center gap-1 group w-14">
+                    
+                    <button onclick="window.toggleCartDrawer()" class="flex flex-col items-center gap-1 group w-14">
                         <div class="w-12 h-12 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center relative group-hover:bg-brand-red group-hover:text-white transition duration-300">
                             <i class="fa-solid fa-cart-shopping text-xl text-white"></i>
                             <span id="cart-count-desktop" class="absolute -top-1.5 -right-1.5 bg-brand-red text-white text-[9px] font-black w-5 h-5 rounded-full flex items-center justify-center border-2 border-brand-black shadow-md z-10 hidden">0</span>
                         </div>
                         <span class="text-[8px] font-black uppercase tracking-widest text-gray-400 group-hover:text-brand-red text-center">Carrito</span>
-                    </a>
+                    </button>
                 </div>
             </div>
         </div>
@@ -162,13 +168,13 @@ export function loadGlobalHeader() {
             <i class="fa-solid fa-layer-group text-xl mb-1"></i>
             <span class="text-[9px] font-bold">Categorías</span>
         </button>
-        <a href="/shop/cart.html" class="nav-item relative flex flex-col items-center py-3 px-2 w-full text-gray-400 hover:text-brand-black active:text-brand-cyan transition">
+        <button onclick="window.toggleCartDrawer()" class="nav-item relative flex flex-col items-center py-3 px-2 w-full text-gray-400 hover:text-brand-black active:text-brand-cyan transition">
             <div class="relative">
                 <i class="fa-solid fa-cart-shopping text-xl mb-1"></i>
                 <span id="cart-count-mobile" class="absolute -top-2 -right-2 bg-brand-red text-white text-[8px] font-black w-4 h-4 flex items-center justify-center rounded-full hidden">0</span>
             </div>
             <span class="text-[9px] font-bold">Carrito</span>
-        </a>
+        </button>
         <a href="/profile.html" id="mobile-profile-link" class="nav-item flex flex-col items-center py-3 px-2 w-full text-gray-400 hover:text-brand-black active:text-brand-cyan transition">
             <i class="fa-regular fa-user text-xl mb-1"></i>
             <span class="text-[9px] font-bold">Perfil</span>
@@ -212,28 +218,66 @@ export function loadGlobalHeader() {
         </div>
     </div>
 
-    <style>
-        .menu-tab-btn.active { border-color: #00AEC7; color: #00AEC7; }
-        .menu-tab-content.hidden { display: none; }
-        .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
-        .animate-bounce-slow { animation: bounce 3s infinite; }
-        .animate-in-up { animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
-        @keyframes slideUp { from { transform: translateY(20px) scale(0.95); opacity: 0; } to { transform: translateY(0) scale(1); opacity: 1; } }
-    </style>
+   <div id="cart-drawer-container" class="fixed inset-0 z-[100] pointer-events-none">
+        
+        <div id="cart-overlay" 
+             class="absolute inset-0 bg-black/60 backdrop-blur-sm opacity-0 transition-opacity duration-500 pointer-events-auto" 
+             style="display: none;"
+             onclick="window.toggleCartDrawer()">
+        </div>
+        
+        <div id="cart-drawer" 
+             class="absolute right-0 top-0 w-full max-w-[400px] h-full bg-white shadow-2xl flex flex-col drawer-shadow translate-x-full smooth-drawer pointer-events-auto">
+            
+            <div class="p-6 bg-white border-b border-gray-100 flex justify-between items-center z-10 relative">
+                <h3 class="font-black text-lg uppercase tracking-tight flex items-center gap-3">
+                    <i class="fa-solid fa-bag-shopping text-brand-cyan"></i> Mi Carrito
+                </h3>
+                <button onclick="window.toggleCartDrawer()" class="w-8 h-8 rounded-full bg-gray-50 text-gray-400 flex items-center justify-center hover:bg-brand-red hover:text-white transition">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <div id="cart-shipping-bar" class="px-6 py-3 bg-slate-50 border-b border-gray-100">
+                <p id="shipping-msg" class="text-[9px] font-bold text-gray-500 uppercase tracking-wide text-center mb-2">Calculando envío...</p>
+                <div class="w-full h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                    <div id="shipping-progress" class="h-full bg-brand-cyan transition-all duration-500 w-0"></div>
+                </div>
+            </div>
+
+            <div id="cart-drawer-items" class="flex-grow overflow-y-auto p-6 space-y-4 no-scrollbar relative">
+                </div>
+
+            <div class="p-6 border-t border-gray-100 bg-white z-10 relative">
+                <div class="flex justify-between items-end mb-4">
+                    <span class="text-[10px] font-black uppercase text-gray-400 tracking-widest">Subtotal</span>
+                    <span id="cart-drawer-total" class="text-2xl font-black text-brand-black tracking-tight">$0</span>
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <a href="/shop/cart.html" class="py-4 rounded-xl border border-gray-200 text-brand-black font-black uppercase text-[10px] tracking-widest flex items-center justify-center hover:border-brand-black transition">
+                        Ver Carrito
+                    </a>
+                    <button id="btn-checkout-drawer" onclick="window.location.href='/shop/checkout.html'" class="py-4 rounded-xl bg-brand-black text-white font-black uppercase text-[10px] tracking-widest flex items-center justify-center hover:bg-brand-cyan hover:text-brand-black transition shadow-lg shadow-cyan-500/10">
+                        Pagar Ahora
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
     `;
 
     initHeaderLogic();
 }
 
-
-// LÓGICA DE INTERACCIÓN GLOBAL
+// --- LÓGICA DE INTERACCIÓN GLOBAL ---
 function initHeaderLogic() {
+
     // --- TOP BANNER DINÁMICO ---
     const topBanner = document.getElementById('top-banner-dynamic');
     if (topBanner) {
         getDoc(doc(db, "config", "shipping")).then(snap => {
             let freeShippingHTML = '';
-            
+
             if (snap.exists()) {
                 const config = snap.data();
                 if (config.freeThreshold && config.freeThreshold > 0) {
@@ -253,17 +297,15 @@ function initHeaderLogic() {
                 ${freeShippingHTML}
             `;
 
-            // DUPLICAMOS EL CONTENIDO PARA EL EFECTO LOOP INFINITO PERFECTO
             const messagesHTML = `
                 <div class="flex items-center animate-marquee font-black uppercase tracking-[0.3em]">
                     ${baseContent} ${baseContent} ${baseContent}
                 </div>
             `;
-            
+
             topBanner.innerHTML = messagesHTML;
         }).catch(err => {
             console.log("Error banner:", err);
-            // Fallback si falla firebase
             topBanner.innerHTML = `<p class="text-center">ENVÍOS A TODO EL PAÍS 🚚</p>`;
         });
     }
@@ -271,33 +313,177 @@ function initHeaderLogic() {
     // --- WHATSAPP MODAL ---
     window.toggleWhatsAppModal = () => {
         const modal = document.getElementById('wa-modal');
-        if (modal) {
+        const overlay = document.getElementById('wa-overlay');
+        if (modal && overlay) {
             if (modal.classList.contains('hidden')) {
                 modal.classList.remove('hidden');
                 modal.classList.add('flex');
+                overlay.classList.remove('hidden');
             } else {
                 modal.classList.add('hidden');
                 modal.classList.remove('flex');
+                overlay.classList.add('hidden');
             }
         }
     };
 
-    // --- DRAWER ---
+    // --- DRAWER CARRITO (LÓGICA MEJORADA) ---
+    const cartDrawer = document.getElementById('cart-drawer');
+    const cartOverlay = document.getElementById('cart-overlay');
+    let isDrawerAnimating = false; // Bandera para evitar spam de clics
+
+    window.toggleCartDrawer = () => {
+        if (!cartDrawer || !cartOverlay || isDrawerAnimating) return;
+        
+        const isClosed = cartDrawer.classList.contains('translate-x-full');
+        isDrawerAnimating = true;
+
+        if (isClosed) {
+            // ABRIR
+            cartOverlay.style.display = 'block';
+            void cartOverlay.offsetWidth; // Force reflow
+            cartOverlay.classList.remove('opacity-0');
+            cartOverlay.classList.add('opacity-100');
+            cartDrawer.classList.remove('translate-x-full');
+            
+            // Cargar datos inmediatamente
+            window.renderCartDrawerItems();
+            
+            setTimeout(() => { isDrawerAnimating = false; }, 500); // Sincronizado con CSS duration-500
+        } else {
+            // CERRAR
+            cartDrawer.classList.add('translate-x-full');
+            cartOverlay.classList.remove('opacity-100');
+            cartOverlay.classList.add('opacity-0');
+            
+            setTimeout(() => {
+                cartOverlay.style.display = 'none';
+                isDrawerAnimating = false;
+            }, 500);
+        }
+    };
+
+    // EVENT LISTENER MEJORADO
+    // Solo abre si está cerrado. Si está abierto, solo actualiza datos.
+    window.addEventListener('cartItemAdded', () => {
+        window.updateCartCountGlobal();
+        window.renderCartDrawerItems();
+        
+        const drawer = document.getElementById('cart-drawer');
+        // Solo llamar toggle si está cerrado (tiene la clase translate-x-full)
+        if (drawer && drawer.classList.contains('translate-x-full')) {
+            window.toggleCartDrawer();
+        }
+    });
+
+    // RENDERIZAR ITEMS DEL CARRITO EN EL DRAWER
+    window.renderCartDrawerItems = async () => {
+        const container = document.getElementById('cart-drawer-items');
+        const totalEl = document.getElementById('cart-drawer-total');
+        const shippingMsg = document.getElementById('shipping-msg');
+        const shippingBar = document.getElementById('shipping-progress');
+        const btnCheckout = document.getElementById('btn-checkout-drawer');
+
+        const cart = JSON.parse(localStorage.getItem('pixeltech_cart')) || [];
+
+        if (cart.length === 0) {
+            container.innerHTML = `
+                <div class="flex flex-col items-center justify-center h-full text-center opacity-50 py-10">
+                    <i class="fa-solid fa-basket-shopping text-6xl text-gray-200 mb-4"></i>
+                    <p class="text-xs font-bold text-gray-400">Tu carrito está vacío</p>
+                </div>`;
+            totalEl.textContent = "$0";
+            shippingMsg.innerHTML = "Agrega productos para ver beneficios";
+            shippingBar.style.width = "0%";
+            if (btnCheckout) btnCheckout.disabled = true;
+            if (btnCheckout) btnCheckout.classList.add('opacity-50', 'cursor-not-allowed');
+            return;
+        }
+
+        if (btnCheckout) btnCheckout.disabled = false;
+        if (btnCheckout) btnCheckout.classList.remove('opacity-50', 'cursor-not-allowed');
+
+        let subtotal = 0;
+        container.innerHTML = cart.map((item, index) => {
+            const itemTotal = item.price * item.quantity;
+            subtotal += itemTotal;
+            return `
+                <div class="flex gap-4 items-center bg-white p-2 rounded-xl border border-gray-50 hover:border-gray-100 transition">
+                    <div class="w-16 h-16 bg-gray-50 rounded-lg shrink-0 p-1 flex items-center justify-center">
+                        <img src="${item.image || 'https://placehold.co/50'}" class="w-full h-full object-contain">
+                    </div>
+                    <div class="flex-grow min-w-0">
+                        <h4 class="text-[10px] font-black uppercase text-brand-black truncate leading-tight">${item.name}</h4>
+                        <p class="text-[9px] text-gray-400 mt-0.5">${item.color || ''} ${item.capacity || ''}</p>
+                        <div class="flex justify-between items-center mt-2">
+                            <span class="text-[10px] font-bold text-gray-500">${item.quantity} x $${item.price.toLocaleString('es-CO')}</span>
+                            <span class="text-[11px] font-black text-brand-black">$${itemTotal.toLocaleString('es-CO')}</span>
+                        </div>
+                    </div>
+                    <button onclick="window.removeCartItemDrawer(${index})" class="w-6 h-6 rounded-full bg-gray-50 text-gray-400 hover:bg-red-50 hover:text-red-500 flex items-center justify-center transition">
+                        <i class="fa-solid fa-xmark text-[10px]"></i>
+                    </button>
+                </div>
+            `;
+        }).join('');
+
+        totalEl.textContent = `$${subtotal.toLocaleString('es-CO')}`;
+
+        // LÓGICA DE ENVÍO GRATIS EN TIEMPO REAL
+        try {
+            const snap = await getDoc(doc(db, "config", "shipping"));
+            if (snap.exists()) {
+                const config = snap.data();
+                const threshold = parseInt(config.freeThreshold) || 0;
+
+                if (threshold > 0) {
+                    const diff = threshold - subtotal;
+                    let percent = 0;
+                    if (subtotal >= threshold) percent = 100;
+                    else percent = (subtotal / threshold) * 100;
+
+                    shippingBar.style.width = `${percent}%`;
+
+                    if (diff > 0) {
+                        shippingMsg.innerHTML = `Te faltan <span class="text-brand-cyan font-black">$${diff.toLocaleString('es-CO')}</span> para envío gratis`;
+                        shippingBar.classList.remove('bg-green-500');
+                        shippingBar.classList.add('bg-brand-cyan');
+                    } else {
+                        shippingMsg.innerHTML = `<span class="text-green-600 font-black"><i class="fa-solid fa-check-circle"></i> ¡Tienes envío gratis!</span>`;
+                        shippingBar.classList.remove('bg-brand-cyan');
+                        shippingBar.classList.add('bg-green-500');
+                    }
+                }
+            }
+        } catch (e) { console.error(e); }
+    };
+
+    window.removeCartItemDrawer = (index) => {
+        let cart = JSON.parse(localStorage.getItem('pixeltech_cart')) || [];
+        cart.splice(index, 1);
+        localStorage.setItem('pixeltech_cart', JSON.stringify(cart));
+        window.renderCartDrawerItems();
+        window.updateCartCountGlobal();
+        // Disparar evento para que si estamos en /cart.html también se actualice
+        window.dispatchEvent(new Event('cartUpdated'));
+    };
+
+    // --- DRAWER MÓVIL MENU (LADO IZQUIERDO) ---
     const drawer = document.getElementById('mobile-menu-drawer');
     const overlay = document.getElementById('mobile-menu-overlay');
     const btnClose = document.getElementById('mobile-drawer-close');
     const btnCategories = document.getElementById('mobile-categories-btn');
     const btnMenu = document.getElementById('mobile-menu-btn');
     const tabs = document.querySelectorAll('.menu-tab-btn');
-    
+
     const openDrawer = (tabName) => {
-        if(!drawer) return;
+        if (!drawer) return;
         drawer.classList.remove('translate-x-[-100%]');
         drawer.classList.add('translate-x-0');
         overlay.classList.remove('opacity-0');
-        
+
         tabs.forEach(t => {
-            if(t.dataset.tab === tabName) {
+            if (t.dataset.tab === tabName) {
                 t.classList.add('active');
                 document.getElementById(tabName).classList.remove('hidden');
             } else {
@@ -308,16 +494,16 @@ function initHeaderLogic() {
     };
 
     const closeDrawer = () => {
-        if(!drawer) return;
+        if (!drawer) return;
         drawer.classList.add('translate-x-[-100%]');
         drawer.classList.remove('translate-x-0');
         overlay.classList.add('opacity-0');
     };
 
-    if(btnCategories) btnCategories.onclick = () => openDrawer('tab-categories');
-    if(btnMenu) btnMenu.onclick = () => openDrawer('tab-menu');
-    if(btnClose) btnClose.onclick = closeDrawer;
-    if(overlay) overlay.onclick = closeDrawer;
+    if (btnCategories) btnCategories.onclick = () => openDrawer('tab-categories');
+    if (btnMenu) btnMenu.onclick = () => openDrawer('tab-menu');
+    if (btnClose) btnClose.onclick = closeDrawer;
+    if (overlay) overlay.onclick = closeDrawer;
 
     tabs.forEach(tab => {
         tab.onclick = () => {
@@ -325,48 +511,38 @@ function initHeaderLogic() {
             tab.classList.add('active');
             document.querySelectorAll('.menu-tab-content').forEach(c => c.classList.add('hidden'));
             const target = document.getElementById(tab.dataset.tab);
-            if(target) target.classList.remove('hidden');
+            if (target) target.classList.remove('hidden');
         };
     });
 
-    // --- CATEGORÍAS ---
+    // Inicializaciones
     syncAllCategories();
-
-    // --- CARRITO GLOBAL (ACTUALIZACIÓN EN TIEMPO REAL) ---
     window.updateCartCountGlobal = () => {
         const cart = JSON.parse(localStorage.getItem('pixeltech_cart')) || [];
         const count = cart.reduce((acc, i) => acc + (i.quantity || 1), 0);
-        
-        // Desktop Badge
         const deskBadge = document.getElementById('cart-count-desktop');
         if (deskBadge) {
             deskBadge.textContent = count;
             count > 0 ? deskBadge.classList.remove('hidden') : deskBadge.classList.add('hidden');
         }
-
-        // Mobile Badge
         const mobileBadge = document.getElementById('cart-count-mobile');
         if (mobileBadge) {
             mobileBadge.textContent = count;
             count > 0 ? mobileBadge.classList.remove('hidden') : mobileBadge.classList.add('hidden');
         }
     };
-    
-    // Ejecutar al cargar
     window.updateCartCountGlobal();
 
-    // --- AUTH ---
+    // AUTH Listener
     onAuthStateChanged(auth, async (user) => {
         const container = document.getElementById('user-info-desktop');
         const mobileProfile = document.getElementById('mobile-profile-link');
-        
         if (user) {
             if (container) {
                 const userSnap = await getDoc(doc(db, "users", user.uid));
                 const isAdmin = userSnap.exists() && userSnap.data().role === 'admin';
                 const label = isAdmin ? 'Admin' : 'Cuenta';
                 const link = isAdmin ? '/admin/index.html' : '/profile.html';
-
                 container.innerHTML = `
                     <a href="${link}" class="flex flex-col items-center gap-1 group w-14">
                         <div class="w-12 h-12 rounded-2xl bg-brand-cyan text-brand-black flex items-center justify-center shadow-lg transition duration-300 hover:bg-white">
@@ -374,8 +550,7 @@ function initHeaderLogic() {
                         </div>
                         <span class="text-[8px] font-black uppercase tracking-widest text-brand-cyan text-center">${label}</span>
                     </a>`;
-                
-                if(mobileProfile) mobileProfile.href = link;
+                if (mobileProfile) mobileProfile.href = link;
             }
         } else {
             if (container) {
@@ -387,11 +562,10 @@ function initHeaderLogic() {
                         <span class="text-[8px] font-black uppercase tracking-widest text-gray-500 group-hover:text-brand-cyan text-center">Ingresar</span>
                     </a>`;
             }
-            if(mobileProfile) mobileProfile.href = "/auth/login.html";
+            if (mobileProfile) mobileProfile.href = "/auth/login.html";
         }
     });
 
-    // --- SEARCH ---
     const handleSearch = (e) => {
         if (e.key === 'Enter') {
             const queryVal = e.target.value.trim();
@@ -402,8 +576,6 @@ function initHeaderLogic() {
     document.getElementById('search-mobile')?.addEventListener('keypress', handleSearch);
 }
 
-
-
 // --- SINCRONIZACIÓN DE CATEGORÍAS (ACORDEÓN MÓVIL + LISTA ESTÁTICA DESKTOP) ---
 async function syncAllCategories() {
     const mobileList = document.getElementById('categories-mobile-list');
@@ -411,10 +583,10 @@ async function syncAllCategories() {
     try {
         const q = query(collection(db, "categories"), orderBy("name", "asc"));
         const snap = await getDocs(q);
-        
+
         // NOTA: Se eliminó la inyección en desktopNav porque ahora es estático en el HTML.
 
-        if(mobileList) {
+        if (mobileList) {
             mobileList.innerHTML = `
                 <a href="/shop/catalog.html" class="group flex items-center gap-3 p-3 mb-2 rounded-xl hover:bg-gray-50 transition-all border border-transparent hover:border-gray-100">
                     <div class="w-8 h-8 rounded-lg bg-brand-black text-white flex items-center justify-center shrink-0 shadow-md group-hover:scale-90 transition-transform">
@@ -436,7 +608,7 @@ async function syncAllCategories() {
             const hasSub = subcats.length > 0;
             const catUrl = `/shop/search.html?category=${encodeURIComponent(cat.name)}`;
 
-            if(mobileList) {
+            if (mobileList) {
                 const accordionId = `acc-${docSnap.id}`;
                 if (!hasSub) {
                     mobileList.innerHTML += `
@@ -590,7 +762,7 @@ export async function renderBrandCarousel(containerId, activeBrandNames = null) 
         // 1. Traer todas las marcas (para obtener los logos)
         const q = query(collection(db, "brands"), orderBy("name", "asc"));
         const snap = await getDocs(q);
-        
+
         let brands = [];
         snap.forEach(doc => brands.push(doc.data()));
 
@@ -641,8 +813,8 @@ export async function renderBrandCarousel(containerId, activeBrandNames = null) 
         const prevBtn = container.querySelector('#btn-brand-prev');
         const nextBtn = container.querySelector('#btn-brand-next');
 
-        if(prevBtn) prevBtn.onclick = () => trackContainer.scrollBy({ left: -300, behavior: 'smooth' });
-        if(nextBtn) nextBtn.onclick = () => trackContainer.scrollBy({ left: 300, behavior: 'smooth' });
+        if (prevBtn) prevBtn.onclick = () => trackContainer.scrollBy({ left: -300, behavior: 'smooth' });
+        if (nextBtn) nextBtn.onclick = () => trackContainer.scrollBy({ left: 300, behavior: 'smooth' });
 
     } catch (e) {
         console.error("Error marcas:", e);

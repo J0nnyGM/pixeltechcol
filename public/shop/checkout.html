@@ -48,6 +48,20 @@
             background-color: #00AEC7;
             border-color: #00AEC7;
         }
+
+        .payment-disabled {
+            opacity: 0.5;
+            pointer-events: none;
+            filter: grayscale(100%);
+        }
+
+        /* Animación pulso para mensaje de despacho */
+        .pulse-text { animation: pulse-green 2s infinite; }
+        @keyframes pulse-green {
+            0% { text-shadow: 0 0 0 rgba(16, 185, 129, 0.4); }
+            70% { text-shadow: 0 0 10px rgba(16, 185, 129, 0); }
+            100% { text-shadow: 0 0 0 rgba(16, 185, 129, 0); }
+        }
     </style>
 </head>
 
@@ -192,8 +206,8 @@
                     <div class="space-y-4 mt-8">
                         <label class="text-[10px] font-black text-gray-400 uppercase tracking-widest block ml-2 mb-2">Selecciona Método de Pago</label>
                         
-                        <label class="cursor-pointer relative">
-                            <input type="radio" name="payment_method" value="COD" class="peer sr-only" checked>
+                        <label id="cod-container" class="cursor-pointer relative transition-all duration-300">
+                            <input type="radio" name="payment_method" value="COD" id="payment-cod" class="peer sr-only">
                             <div class="bg-white p-6 rounded-[1.5rem] border-2 border-gray-100 shadow-sm flex items-center gap-5 transition-all duration-300 peer-checked:border-brand-black peer-checked:bg-slate-50 peer-checked:shadow-lg group">
                                 <div class="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center text-gray-400 group-peer-checked:bg-brand-black group-peer-checked:text-white transition-colors">
                                     <i class="fa-solid fa-truck-fast text-lg"></i>
@@ -201,6 +215,7 @@
                                 <div class="flex-grow">
                                     <h4 class="font-black text-xs uppercase tracking-wider text-brand-black">Pago Contra Entrega</h4>
                                     <p class="text-[9px] text-gray-400 font-bold mt-0.5">Paga en efectivo al recibir tu pedido.</p>
+                                    <p id="cod-warning" class="text-[9px] text-red-500 font-black mt-1 hidden"><i class="fa-solid fa-triangle-exclamation"></i> Solo disponible en Bogotá</p>
                                 </div>
                                 <div class="w-6 h-6 rounded-full border-2 border-gray-200 flex items-center justify-center peer-checked:border-brand-black peer-checked:bg-brand-black">
                                     <i class="fa-solid fa-check text-white text-[10px] opacity-0 peer-checked:opacity-100"></i>
@@ -209,7 +224,7 @@
                         </label>
 
                         <label class="cursor-pointer relative">
-                            <input type="radio" name="payment_method" value="ONLINE" class="peer sr-only">
+                            <input type="radio" name="payment_method" value="ONLINE" id="payment-online" class="peer sr-only" checked>
                             <div class="bg-white p-6 rounded-[1.5rem] border-2 border-gray-100 shadow-sm flex items-center gap-5 transition-all duration-300 peer-checked:border-blue-500 peer-checked:bg-blue-50/30 peer-checked:shadow-lg group">
                                 <div class="w-12 h-12 rounded-xl bg-blue-50 flex items-center justify-center text-blue-500 transition-colors">
                                     <i class="fa-regular fa-credit-card text-lg"></i>
@@ -273,6 +288,8 @@
                             <span id="check-shipping" class="text-lg font-black text-brand-cyan uppercase tracking-tight">--</span>
                         </div>
                         
+                        <div id="dispatch-time-msg" class="text-right mt-1 hidden animate-in fade-in slide-in-from-top-1"></div>
+
                         <div id="free-shipping-msg" class="hidden text-center bg-emerald-50 text-emerald-600 text-[10px] font-black uppercase py-2.5 rounded-xl border border-emerald-100 flex items-center justify-center gap-2">
                             <i class="fa-solid fa-gift"></i> ¡Envío Gratis Aplicado!
                         </div>
