@@ -209,3 +209,56 @@ exports.cancelAbandonedPayments = onSchedule({
         console.error("❌ Error en cancelAbandonedPayments:", error);
     }
 });
+
+/**
+ * NUEVO: VERIFICAR Y DESACTIVAR PROMOCIONES VENCIDAS
+ * Se ejecuta cada hora para asegurar que los precios vuelvan a la normalidad.
+ */
+exports.checkExpiredPromotions = onSchedule({
+    schedule: "every 60 minutes", // Revisar cada hora
+    timeZone: "America/Bogota"
+}, async (event) => {
+    
+    const db = admin.firestore();
+    const now = admin.firestore.Timestamp.now();
+
+    console.log("⏳ Verificando promociones vencidas...");
+
+    try {
+        // 1. Buscar productos que tengan fecha de fin MENOR o IGUAL a ahora
+        // y que realmente tengan un precio original guardado (indicador de oferta activa)
+        const snapshot = await db.collection('products')
+            .where('promoEndsAt', '<=', now)
+            .get();
+
+        if (snapshot.empty) {
+            console.log("✅ No hay promociones vencidas por desactivar.");
+            return;
+        }
+
+        const batch = db.batch();
+        let count = 0;
+
+        snapshot.docs.forEach((doc) => {
+            const p = doc.data();
+
+            // Validación de seguridad: Solo restaurar si existe un precio original válido
+            if (p.originalPrice && p.originalPrice > 0) {
+                batch.update(doc.ref, {
+                    price: p.originalPrice, // Restaurar el precio anterior
+                    originalPrice: 0,       // Limpiar el campo de precio original
+                    promoEndsAt: null       // Eliminar la fecha de vencimiento
+                });
+                count++;
+            }
+        });
+
+        if (count > 0) {
+            await batch.commit();
+            console.log(`🏷️ Se desactivaron ${count} ofertas vencidas y se restauraron sus precios.`);
+        }
+
+    } catch (error) {
+        console.error("❌ Error verificando promociones:", error);
+    }
+});

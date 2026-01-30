@@ -5,16 +5,29 @@ const orderId = params.get('id');
 
 if (!orderId) window.location.href = '/profile.html';
 
+// 1. ELEMENTOS DOM
 const els = {
     // Info General
     id: document.getElementById('order-id-display'),
     date: document.getElementById('order-date-display'),
     statusBadge: document.getElementById('order-status-badge'),
+    
+    // Timeline y Pagos
+    timelineContainer: document.getElementById('timeline-container'),
+    paymentContainer: document.getElementById('payment-info-container'),
+
+    // Envío y Comprador
     address: document.getElementById('shipping-address'),
     city: document.getElementById('shipping-city'),
     guideContainer: document.getElementById('tracking-container'),
     guideText: document.getElementById('shipping-guide'),
     trackingLink: document.getElementById('tracking-link'),
+    copyGuideBtn: document.getElementById('copy-guide-btn'), // Nuevo Botón
+    
+    buyerName: document.getElementById('buyer-name'),
+    buyerContact: document.getElementById('buyer-contact'),
+
+    // Totales
     itemsCount: document.getElementById('items-count'),
     subtotal: document.getElementById('order-subtotal'), 
     shipping: document.getElementById('order-shipping'), 
@@ -22,12 +35,12 @@ const els = {
     itemsList: document.getElementById('order-items-list'),
 
     // Facturación
-    billingCard: document.getElementById('billing-info-card'),
+    billingContainer: document.getElementById('billing-info-container'), 
     billName: document.getElementById('bill-name'),
     billTax: document.getElementById('bill-taxid'),
     billEmail: document.getElementById('bill-email'),
 
-    // Modal Solicitud
+    // Modal Solicitud Garantía
     warrantyModal: document.getElementById('warranty-modal'),
     warrantyForm: document.getElementById('warranty-form'),
     modalProdName: document.getElementById('modal-product-name'),
@@ -36,7 +49,7 @@ const els = {
     inpImages: document.getElementById('w-images'),
     filePreview: document.getElementById('file-preview'),
 
-    // Modal Estado
+    // Modal Estado Garantía
     statusModal: document.getElementById('warranty-status-modal'),
     stDate: document.getElementById('st-date'),
     stBadge: document.getElementById('st-badge'),
@@ -52,6 +65,7 @@ let currentOrder = null;
 let activeWarranties = [];
 let selectedItemIndex = null;
 
+// Listener para archivos
 if (els.inpImages) {
     els.inpImages.onchange = () => {
         els.filePreview.textContent = els.inpImages.files.length > 0
@@ -74,7 +88,7 @@ async function loadOrderDetails() {
         if (!snap.exists()) { window.location.href = '/profile.html'; return; }
         currentOrder = snap.data();
 
-        // Cargar Garantías asociadas a esta orden
+        // Cargar Garantías
         const qW = query(
             collection(db, "warranties"),
             where("orderId", "==", orderId),
@@ -85,79 +99,133 @@ async function loadOrderDetails() {
         activeWarranties = snapW.docs.map(d => ({ id: d.id, ...d.data() }));
 
         renderHeaderInfo(snap.id, currentOrder);
+        renderTimeline(currentOrder.status);
+        renderPaymentInfo(currentOrder);
         renderItems(currentOrder);
     } catch (e) {
-        console.error("Error cargando orden:", e);
+        console.error("Error al cargar orden:", e);
+        if(els.itemsList) els.itemsList.innerHTML = `<p class="text-red-500 text-center">Error cargando la orden.</p>`;
     }
 }
 
+// --- 2. RENDER HEADER (CON LÓGICA DE RASTREO) ---
 function renderHeaderInfo(displayId, order) {
+    if(!els.id) return;
+
     els.id.textContent = `ORDEN #${displayId.slice(0, 8).toUpperCase()}`;
     const dateObj = order.createdAt?.toDate ? order.createdAt.toDate() : new Date(order.createdAt);
-    els.date.textContent = dateObj.toLocaleDateString('es-CO', { year: 'numeric', month: 'long', day: 'numeric' });
+    els.date.textContent = "Realizado el: " + dateObj.toLocaleDateString('es-CO', { year: 'numeric', month: 'long', day: 'numeric' });
     
     // BADGES ESTADO
     let statusClass = "bg-gray-100 text-gray-600 border-gray-200";
     let statusLabel = order.status;
+    let icon = "";
 
     switch(order.status) {
-        case 'PENDIENTE_PAGO':
-            statusClass = "bg-yellow-50 text-yellow-700 border-yellow-200";
-            statusLabel = "Pendiente de Pago";
+        case 'PENDIENTE_PAGO': 
+            statusClass = "bg-yellow-50 text-yellow-700 border-yellow-200"; 
+            statusLabel = "Pendiente Pago"; 
+            icon = '<i class="fa-solid fa-clock mr-1"></i>';
             break;
-        case 'PAGADO':
-        case 'PENDIENTE': // Pagado pero no alistado
-            statusClass = "bg-blue-50 text-blue-700 border-blue-200";
-            statusLabel = "Pago Confirmado";
+        case 'PAGADO': 
+        case 'PENDIENTE': 
+            statusClass = "bg-blue-50 text-blue-700 border-blue-200"; 
+            statusLabel = "Pago Confirmado"; 
+            icon = '<i class="fa-solid fa-check-double mr-1"></i>';
             break;
-        case 'ALISTAMIENTO':
-            statusClass = "bg-purple-50 text-purple-700 border-purple-200";
-            statusLabel = "En Preparación";
+        case 'ALISTAMIENTO': 
+            statusClass = "bg-purple-100 text-purple-700 border-purple-300 shadow-sm shadow-purple-200"; 
+            statusLabel = "En Alistamiento"; 
+            icon = '<i class="fa-solid fa-box-open mr-1"></i>';
             break;
-        case 'EN_RUTA':
-        case 'DESPACHADO':
-            statusClass = "bg-cyan-50 text-cyan-700 border-cyan-200";
-            statusLabel = "En Camino";
+        case 'EN_RUTA': 
+        case 'DESPACHADO': 
+            statusClass = "bg-cyan-50 text-cyan-700 border-cyan-200"; 
+            statusLabel = "Despachado"; 
+            icon = '<i class="fa-solid fa-truck-fast mr-1"></i>';
             break;
-        case 'ENTREGADO':
-            statusClass = "bg-green-50 text-green-700 border-green-200";
-            statusLabel = "Entregado";
+        case 'ENTREGADO': 
+            statusClass = "bg-emerald-50 text-emerald-700 border-emerald-200"; 
+            statusLabel = "Entregado"; 
+            icon = '<i class="fa-solid fa-house-circle-check mr-1"></i>';
             break;
-        case 'CANCELADO':
-        case 'RECHAZADO':
-            statusClass = "bg-red-50 text-red-700 border-red-200";
-            statusLabel = "Cancelado";
+        case 'CANCELADO': 
+        case 'RECHAZADO': 
+            statusClass = "bg-red-50 text-red-700 border-red-200"; 
+            statusLabel = "Cancelado"; 
+            icon = '<i class="fa-solid fa-ban mr-1"></i>';
             break;
     }
 
-    els.statusBadge.innerHTML = `<span class="px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest border ${statusClass}">${statusLabel}</span>`;
+    els.statusBadge.innerHTML = `<span class="px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest border flex items-center gap-1 ${statusClass}">${icon} ${statusLabel}</span>`;
 
     // DIRECCIÓN
     const ship = order.shippingData || {};
     const buyer = order.buyerInfo || {};
-    const address = ship.address || buyer.address || "Dirección no disponible";
+    
+    els.address.textContent = ship.address || buyer.address || "Dirección no disponible";
     const city = ship.city || buyer.city || "";
+    const dept = ship.department || buyer.department || "";
+    els.city.innerHTML = `<i class="fa-solid fa-map-pin mr-1"></i> ${city} ${dept ? ', ' + dept : ''}`;
     
-    els.address.textContent = address;
-    els.city.textContent = city;
-    
-    // TRACKING
+    // COMPRADOR
+    els.buyerName.textContent = (ship.name || buyer.name || "Cliente").toUpperCase();
+    els.buyerContact.textContent = `${buyer.email || ''} ${buyer.phone ? ' • ' + buyer.phone : ''}`;
+
+    // RASTREO / TRACKING (LÓGICA ACTUALIZADA)
     const guide = order.shippingTracking || order.guideNumber;
+    const carrier = order.shippingCarrier || "Desconocida";
+
     if (guide) {
         els.guideContainer.classList.remove('hidden');
-        els.guideText.textContent = `${order.shippingCarrier || 'Transportadora'} - ${guide}`;
-        // Lógica simple de link (se puede mejorar si tienes las URLs de las transportadoras)
-        els.trackingLink.href = "#"; 
+        els.guideContainer.classList.add('flex');
+        els.guideText.textContent = `${carrier} - ${guide}`;
+        
+        // Definir URL según transportadora
+        let trackingUrl = "#";
+        const carrierLower = carrier.toLowerCase();
+
+        if (carrierLower.includes('servientrega')) {
+            trackingUrl = "https://www.servientrega.com/wps/portal/rastreo-envio";
+        } else if (carrierLower.includes('interrapidisimo') || carrierLower.includes('interrapidísimo')) {
+            trackingUrl = "https://interrapidisimo.com/sigue-tu-envio/";
+        } else if (carrierLower.includes('envia') || carrierLower.includes('envía')) {
+            trackingUrl = "https://envia.co/";
+        } else if (carrierLower.includes('coordinadora')) {
+            trackingUrl = "https://coordinadora.com/rastreo/rastreo-de-guia/";
+        } else {
+            // Fallback búsqueda Google
+            trackingUrl = `https://www.google.com/search?q=${carrier}+rastreo`;
+        }
+
+        els.trackingLink.href = trackingUrl; 
+
+        // Lógica Botón Copiar
+        if (els.copyGuideBtn) {
+            els.copyGuideBtn.onclick = () => {
+                navigator.clipboard.writeText(guide).then(() => {
+                    const originalHTML = els.copyGuideBtn.innerHTML;
+                    els.copyGuideBtn.innerHTML = '<i class="fa-solid fa-check"></i>';
+                    els.copyGuideBtn.classList.add('text-green-500', 'bg-green-50', 'border-green-200');
+                    setTimeout(() => {
+                        els.copyGuideBtn.innerHTML = originalHTML;
+                        els.copyGuideBtn.classList.remove('text-green-500', 'bg-green-50', 'border-green-200');
+                    }, 2000);
+                });
+            };
+        }
     }
 
     // FACTURACIÓN
-    if (order.requiresInvoice && order.billingData) {
-        els.billingCard.classList.remove('hidden');
-        els.billName.textContent = order.billingData.name || "";
-        els.billTax.textContent = order.billingData.taxId || "";
-        els.billEmail.textContent = order.billingData.email || "";
-    } else {
-        els.billingCard.classList.add('hidden');
+    if (els.billingContainer) {
+        if (order.requiresInvoice && order.billingData) {
+            els.billingContainer.classList.remove('hidden');
+            els.billName.textContent = order.billingData.name || "N/A";
+            els.billTax.textContent = order.billingData.taxId || "N/A";
+            els.billEmail.textContent = order.billingData.email || "N/A";
+        } else {
+            els.billingContainer.classList.add('hidden');
+        }
     }
 
     // TOTALES
@@ -169,20 +237,178 @@ function renderHeaderInfo(displayId, order) {
     els.total.textContent = `$${(order.total || 0).toLocaleString('es-CO')}`;
 }
 
+// --- 3. RENDER TIMELINE (ESTILO Y LÓGICA CORREGIDOS) ---
+function renderTimeline(currentStatus) {
+    if(!els.timelineContainer) return;
+
+    // 1. Configuración de Pasos Visuales
+    const steps = [
+        { label: 'Pendiente Pago', icon: 'fa-file-invoice-dollar' }, // 0
+        { label: 'Recibido',       icon: 'fa-clipboard-check' },     // 1
+        { label: 'Alistado',       icon: 'fa-box-open' },            // 2
+        { label: 'Despachado',     icon: 'fa-truck-fast' }           // 3
+    ];
+
+    // 2. Lógica de Estado (Mapeo DB -> Visual)
+    let activeIndex = 0;
+    const status = (currentStatus || '').toUpperCase().trim();
+
+    if (status === 'PENDIENTE_PAGO') { 
+        activeIndex = 0; 
+    } 
+    else if (['PAGADO', 'PENDIENTE', 'CONFIRMADO', 'APROBADO'].includes(status)) {
+        // En tu admin, 'PENDIENTE' significa que ya entró la orden (Recibido)
+        activeIndex = 1;
+    } 
+    else if (['ALISTAMIENTO', 'ALISTADO', 'PREPARACION'].includes(status)) {
+        activeIndex = 2;
+    } 
+    else if (['DESPACHADO', 'EN_RUTA', 'EN_CAMINO', 'ENTREGADO', 'FINALIZADO'].includes(status)) {
+        // 'Despachado' es el último paso visual de la logística interna
+        activeIndex = 3;
+    } 
+    else if (['CANCELADO', 'RECHAZADO', 'FAILED', 'ANULADO'].includes(status)) {
+        els.timelineContainer.innerHTML = `
+            <div class="w-full flex flex-col items-center justify-center p-8 bg-red-50 rounded-[2rem] border border-red-100 text-red-500">
+                <div class="w-14 h-14 rounded-full bg-red-100 flex items-center justify-center mb-3 shadow-sm animate-pulse">
+                    <i class="fa-solid fa-ban text-2xl"></i>
+                </div>
+                <p class="font-black uppercase tracking-widest text-sm">Pedido Cancelado</p>
+                <p class="text-xs font-bold mt-1 opacity-70">El proceso se ha detenido.</p>
+            </div>`;
+        return;
+    }
+
+    // 3. Cálculo de Progreso (0%, 33%, 66%, 100%)
+    const progressPercent = (activeIndex / (steps.length - 1)) * 100;
+
+    // 4. Construcción del HTML
+    let html = '';
+
+    // A. BARRA DE FONDO (Detrás de los círculos)
+    // top-5 (20px) alinea con w-10 (40px). md:top-6 (24px) alinea con w-12 (48px).
+    // px-12 asegura que la línea empiece y termine en el centro de los círculos extremos.
+    html += `
+        <div class="absolute top-5 md:top-6 left-0 w-full px-12 md:px-14 z-0 flex items-center pointer-events-none">
+            <div class="w-full h-1 bg-gray-100 rounded-full overflow-hidden relative">
+                <div class="h-full bg-brand-black transition-all duration-1000 ease-out shadow-sm" 
+                     style="width: ${progressPercent}%">
+                </div>
+            </div>
+        </div>
+    `;
+
+    // B. CÍRCULOS Y TEXTO (Encima de la barra)
+    html += '<div class="relative w-full flex justify-between items-start z-10 px-2">';
+
+    steps.forEach((step, index) => {
+        const isCompleted = index <= activeIndex;
+        const isCurrent = index === activeIndex;
+        
+        // Clases Base
+        let circleClass = "bg-white text-gray-300 border-4 border-gray-100"; // Futuro
+        let iconClass = "";
+        let textClass = "text-gray-300 font-bold";
+
+        if (isCurrent) {
+            // ACTUAL: Cyan, Grande, Animado
+            circleClass = "bg-brand-black text-brand-cyan border-4 border-brand-cyan shadow-xl shadow-cyan-500/30 scale-110 z-20";
+            iconClass = "fa-beat-fade"; 
+            textClass = "text-brand-cyan font-black transform scale-105";
+        } 
+        else if (isCompleted) {
+            // COMPLETADO: Negro
+            circleClass = "bg-brand-black text-white border-4 border-brand-black shadow-lg";
+            textClass = "text-brand-black font-black";
+        }
+
+        html += `
+            <div class="flex flex-col items-center group w-24">
+                <div class="w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center transition-all duration-500 ${circleClass} relative z-10">
+                    <i class="fa-solid ${step.icon} text-xs md:text-sm ${iconClass}"></i>
+                </div>
+                <p class="text-[8px] md:text-[9px] uppercase tracking-widest mt-3 text-center transition-all duration-300 ${textClass} leading-tight">
+                    ${step.label}
+                </p>
+            </div>
+        `;
+    });
+
+    html += '</div>';
+
+    // 5. Inyección
+    els.timelineContainer.innerHTML = html;
+    // Aseguramos clases del contenedor padre para que el 'absolute' funcione
+    els.timelineContainer.className = "relative w-full min-w-[320px] max-w-4xl mx-auto py-4"; 
+}
+
+// --- 4. RENDER PAGO ---
+function renderPaymentInfo(order) {
+    if(!els.paymentContainer) return;
+
+    const payment = order.paymentData || {};
+    const rawMethod = (order.paymentMethod || payment.payment_method_id || payment.type || "UNKNOWN").toUpperCase();
+    
+    let icon = "fa-credit-card";
+    let label = "Tarjeta / Electrónico";
+    let iconColor = "text-brand-cyan";
+    let bgIcon = "bg-brand-cyan/10";
+
+    if (rawMethod.includes('COD') || rawMethod.includes('CONTRA') || rawMethod.includes('EFECTIVO')) {
+        icon = "fa-truck-fast"; label = "Pago Contra Entrega"; iconColor = "text-brand-black"; bgIcon = "bg-gray-100";
+    } 
+    else if (rawMethod.includes('ADDI')) {
+        icon = "fa-hand-holding-dollar"; label = "Crédito ADDI"; iconColor = "text-[#00D6D6]"; bgIcon = "bg-[#00D6D6]/10";
+    }
+    else if (rawMethod.includes('NEQUI')) {
+        icon = "fa-mobile-screen-button"; label = "Nequi"; iconColor = "text-purple-600"; bgIcon = "bg-purple-50";
+    }
+    else if (rawMethod.includes('PSE')) {
+        icon = "fa-building-columns"; label = "PSE (Transferencia)"; iconColor = "text-blue-600"; bgIcon = "bg-blue-50";
+    }
+    else if (rawMethod.includes('BANCOLOMBIA')) {
+        icon = "fa-building-columns"; label = "Bancolombia"; iconColor = "text-yellow-600"; bgIcon = "bg-yellow-50";
+    }
+    else if (rawMethod.includes('MANUAL') || rawMethod.includes('TIENDA')) {
+        icon = "fa-cash-register"; label = "Pago en Tienda / Manual"; iconColor = "text-gray-600"; bgIcon = "bg-gray-100";
+    }
+
+    let statusBadgeHTML = "";
+    if (order.status === 'CANCELADO' || order.status === 'RECHAZADO') {
+        statusBadgeHTML = `<p class="text-xs font-bold text-red-500 uppercase flex items-center gap-1 bg-red-50 px-3 py-1.5 rounded-lg w-fit mt-1"><i class="fa-solid fa-ban"></i> Anulado / Reembolso</p>`;
+    } else if (order.status === 'PENDIENTE_PAGO') {
+        statusBadgeHTML = `<p class="text-xs font-bold text-yellow-600 uppercase flex items-center gap-1 bg-yellow-50 px-3 py-1.5 rounded-lg w-fit mt-1"><i class="fa-solid fa-clock"></i> Pendiente</p>`;
+    } else {
+        statusBadgeHTML = `<p class="text-xs font-bold text-emerald-600 uppercase flex items-center gap-1 bg-emerald-50 px-3 py-1.5 rounded-lg w-fit mt-1"><i class="fa-solid fa-check-circle"></i> Aprobado</p>`;
+    }
+
+    els.paymentContainer.innerHTML = `
+        <div class="w-full flex flex-col md:flex-row gap-6 md:gap-10">
+            <div class="flex items-center gap-4 flex-1">
+                <div class="w-14 h-14 rounded-2xl ${bgIcon} ${iconColor} flex items-center justify-center text-xl shrink-0 shadow-sm border border-transparent"><i class="fa-solid ${icon}"></i></div>
+                <div><p class="text-[9px] font-black text-gray-400 uppercase tracking-widest">Método de Pago</p><p class="text-sm font-bold text-brand-black uppercase mt-0.5">${label}</p></div>
+            </div>
+            <div class="w-px bg-gray-100 hidden md:block"></div>
+            <div class="flex-1 flex items-center gap-4 md:pl-4">
+                <div class="w-12 h-12 rounded-full bg-slate-50 flex items-center justify-center text-gray-300 shrink-0 border border-slate-100"><i class="fa-solid fa-money-bill-wave"></i></div>
+                <div><p class="text-[9px] font-black text-gray-400 uppercase tracking-widest">Estado Transacción</p>${statusBadgeHTML}</div>
+            </div>
+        </div>`;
+}
+
+// --- 5. RENDER ITEMS ---
 function renderItems(order) {
+    if(!els.itemsList) return;
     els.itemsList.innerHTML = "";
     
-    // Lógica de fecha de entrega para garantías
-    // Si no hay shippedAt pero está ENTREGADO, usamos createdAt como fallback (no ideal, pero evita errores)
     const shippedDate = order.shippedAt ? order.shippedAt.toDate() : (order.status === 'ENTREGADO' ? new Date() : null);
     const now = new Date();
 
     order.items.forEach((item, index) => {
-        const warrantyDays = item.warrantyDays || 365; // Default 1 año
+        const warrantyDays = item.warrantyDays || 365;
         let isExpired = false;
         let daysLeft = 0;
 
-        // 1. Calcular Vencimiento
         if (shippedDate) {
             const expirationDate = new Date(shippedDate);
             expirationDate.setDate(expirationDate.getDate() + warrantyDays);
@@ -190,156 +416,99 @@ function renderItems(order) {
             isExpired = daysLeft <= 0;
         }
 
-        // 2. Filtrar Garantías Específicas
         const itemWarranties = activeWarranties.filter(w => 
-            w.productId === item.id &&
-            w.variantColor === (item.color || null) &&
-            w.variantCapacity === (item.capacity || null)
+            w.productId === item.id && w.variantColor === (item.color || null) && w.variantCapacity === (item.capacity || null)
         );
 
-        // 3. Determinar si puede crear garantía
-        // Solo si está ENTREGADO, no ha expirado y no tiene casos abiertos para toda la cantidad
         const canCreateNew = (order.status === 'ENTREGADO') && !isExpired && (itemWarranties.length < (item.quantity || 1));
 
-        // 4. Badge de Tiempo
         let timeBadgeHTML = "";
         if (order.status !== 'ENTREGADO') {
-            timeBadgeHTML = `<span class="text-[9px] font-bold text-gray-400 bg-gray-50 border border-gray-100 px-2 py-0.5 rounded flex items-center gap-1 w-fit"><i class="fa-regular fa-clock"></i> Inicia al recibir</span>`;
+            timeBadgeHTML = `<span class="text-[9px] font-bold text-gray-400 bg-gray-50 border border-gray-100 px-2 py-0.5 rounded flex items-center gap-1 w-fit"><i class="fa-regular fa-clock"></i> Garantía inicia al recibir</span>`;
         } else if (isExpired) {
             timeBadgeHTML = `<span class="text-[9px] font-bold text-red-400 bg-red-50 border border-red-100 px-2 py-0.5 rounded flex items-center gap-1 w-fit"><i class="fa-solid fa-calendar-xmark"></i> Garantía Finalizada</span>`;
         } else {
-            timeBadgeHTML = `<span class="text-[9px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded flex items-center gap-1 w-fit"><i class="fa-solid fa-shield-halved"></i> Activa (${daysLeft} días)</span>`;
+            timeBadgeHTML = `<span class="text-[9px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded flex items-center gap-1 w-fit"><i class="fa-solid fa-shield-halved"></i> Garantía Activa (${daysLeft} días)</span>`;
         }
 
-        // 5. Botones
         let createBtnHTML = "";
         if (canCreateNew) {
-            createBtnHTML = `
-                <button onclick="window.openWarrantyModal(${index})" 
-                    class="group flex items-center gap-2 bg-white border border-gray-200 hover:border-red-400 hover:bg-red-50 text-gray-600 hover:text-red-500 px-4 py-2 rounded-xl font-bold text-[10px] uppercase transition-all shadow-sm">
-                    <i class="fa-solid fa-triangle-exclamation"></i>
-                    Reportar Fallo
-                </button>
-            `;
+            createBtnHTML = `<button onclick="window.openWarrantyModal(${index})" class="group flex items-center gap-2 bg-white border border-gray-200 hover:border-brand-black hover:text-brand-black text-gray-500 px-4 py-2 rounded-xl font-bold text-[9px] uppercase transition-all shadow-sm"><i class="fa-solid fa-triangle-exclamation"></i> Reportar Problema</button>`;
         }
 
         let existingCasesHTML = "";
         if (itemWarranties.length > 0) {
-            existingCasesHTML = `<div class="flex flex-wrap gap-2 mt-3 w-full justify-end">`;
+            existingCasesHTML = `<div class="flex flex-wrap gap-2 mt-2 w-full sm:justify-end">`;
             itemWarranties.forEach((w, i) => {
-                let colorClass = "bg-blue-50 text-blue-600 border-blue-100 hover:bg-blue-100";
+                let colorClass = "bg-blue-50 text-blue-600 border-blue-100";
                 let icon = "fa-spinner fa-spin-pulse";
                 let label = "Revisión";
-
-                if (w.status === 'APROBADO') { colorClass = "bg-green-50 text-green-600 border-green-100 hover:bg-green-100"; icon = "fa-check"; label = "Aprobado"; }
-                if (w.status === 'RECHAZADO') { colorClass = "bg-red-50 text-red-600 border-red-100 hover:bg-red-100"; icon = "fa-xmark"; label = "Rechazado"; }
-                if (w.status === 'FINALIZADO') { colorClass = "bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200"; icon = "fa-archive"; label = "Cerrado"; }
-
-                existingCasesHTML += `
-                    <button onclick="window.openStatusModal('${w.id}')" 
-                        class="flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[9px] font-black uppercase transition ${colorClass}">
-                        <i class="fa-solid ${icon}"></i>
-                        <span>Caso #${i + 1}: ${label}</span>
-                    </button>
-                `;
+                if (w.status === 'APROBADO') { colorClass = "bg-green-50 text-green-600 border-green-100"; icon = "fa-check"; label = "Aprobado"; }
+                if (w.status === 'RECHAZADO') { colorClass = "bg-red-50 text-red-600 border-red-100"; icon = "fa-xmark"; label = "Rechazado"; }
+                if (w.status === 'FINALIZADO') { colorClass = "bg-gray-100 text-gray-600 border-gray-200"; icon = "fa-archive"; label = "Cerrado"; }
+                existingCasesHTML += `<button onclick="window.openStatusModal('${w.id}')" class="flex items-center gap-2 px-3 py-1.5 rounded-lg border text-[8px] font-black uppercase transition hover:opacity-80 ${colorClass}"><i class="fa-solid ${icon}"></i><span>Caso #${i + 1}: ${label}</span></button>`;
             });
             existingCasesHTML += `</div>`;
         }
 
-        // Renderizado
         const div = document.createElement('div');
-        div.className = "flex flex-col sm:flex-row gap-6 p-6 border border-gray-100 rounded-3xl hover:shadow-lg transition-all duration-300 group bg-white";
-
+        div.className = "flex flex-col sm:flex-row gap-5 p-4 border border-gray-100 rounded-2xl hover:bg-slate-50 transition-colors duration-300 group";
         const imgUrl = item.mainImage || item.image || item.pictureUrl || 'https://via.placeholder.com/100?text=No+Img';
 
         div.innerHTML = `
-            <div class="w-20 h-20 bg-slate-50 rounded-2xl border border-gray-100 p-2 flex items-center justify-center shrink-0">
-                <img src="${imgUrl}" class="max-w-full max-h-full object-contain group-hover:scale-110 transition duration-500">
-            </div>
-            
+            <div class="w-20 h-20 bg-white rounded-xl border border-gray-100 p-2 flex items-center justify-center shrink-0 self-start"><img src="${imgUrl}" class="max-w-full max-h-full object-contain group-hover:scale-105 transition duration-500"></div>
             <div class="flex-grow min-w-0">
-                <div class="flex justify-between items-start mb-2">
+                <div class="flex flex-col sm:flex-row justify-between items-start mb-2">
                     <div>
-                        <h4 class="font-black text-sm uppercase text-brand-black leading-tight mb-1">${item.name}</h4>
-                        
+                        <h4 class="font-black text-xs md:text-sm uppercase text-brand-black leading-tight mb-2">${item.name}</h4>
                         <div class="flex flex-wrap gap-2 mb-2">
                             ${item.color ? `<span class="text-[8px] font-bold uppercase bg-white border border-gray-200 px-2 py-0.5 rounded text-gray-500">${item.color}</span>` : ''}
                             ${item.capacity ? `<span class="text-[8px] font-bold uppercase bg-cyan-50 border border-cyan-100 px-2 py-0.5 rounded text-brand-cyan">${item.capacity}</span>` : ''}
+                            <span class="text-[8px] font-bold uppercase bg-gray-100 px-2 py-0.5 rounded text-gray-600">Cant: ${item.quantity || 1}</span>
                         </div>
-
                         ${timeBadgeHTML}
                     </div>
-
-                    <div class="text-right shrink-0">
+                    <div class="text-right shrink-0 mt-2 sm:mt-0">
                         <p class="font-black text-brand-black text-base">$${(item.price * (item.quantity || 1)).toLocaleString('es-CO')}</p>
-                        <p class="text-[9px] font-bold text-gray-400 uppercase">Cant: ${item.quantity || 1}</p>
+                        <p class="text-[9px] text-gray-400">Unit: $${item.price.toLocaleString('es-CO')}</p>
                     </div>
                 </div>
-                
-                <div class="mt-4 pt-3 border-t border-dashed border-gray-100 flex flex-col items-end gap-2">
-                    ${createBtnHTML}
-                    ${existingCasesHTML}
-                </div>
-            </div>
-        `;
+                <div class="mt-3 flex flex-wrap justify-end gap-2">${createBtnHTML}${existingCasesHTML}</div>
+            </div>`;
         els.itemsList.appendChild(div);
     });
 }
 
-// --- FUNCIONES MODALES ---
+// --- MODALES (IGUAL QUE ANTES) ---
 window.openWarrantyModal = (index) => {
     selectedItemIndex = index;
     const item = currentOrder.items[index];
     els.modalProdName.textContent = `${item.name} (${item.color || ''} ${item.capacity || ''})`;
-    els.inpSn.value = "";
-    els.inpReason.value = "";
-    els.inpImages.value = "";
-    els.filePreview.textContent = "";
-    els.warrantyModal.classList.remove('hidden');
-    els.warrantyModal.classList.add('flex');
+    els.inpSn.value = ""; els.inpReason.value = ""; els.inpImages.value = ""; els.filePreview.textContent = "";
+    els.warrantyModal.classList.remove('hidden'); els.warrantyModal.classList.add('flex');
 };
-
-window.closeWarrantyModal = () => {
-    els.warrantyModal.classList.add('hidden');
-    els.warrantyModal.classList.remove('flex');
-};
+window.closeWarrantyModal = () => { els.warrantyModal.classList.add('hidden'); els.warrantyModal.classList.remove('flex'); };
 
 window.openStatusModal = (warrantyId) => {
     const claim = activeWarranties.find(w => w.id === warrantyId);
     if (!claim) return;
-
     els.stId.textContent = claim.id.slice(0,8).toUpperCase();
     els.stDate.textContent = "Radicado: " + claim.createdAt?.toDate().toLocaleDateString('es-CO');
     els.stReason.textContent = `"${claim.reason}"`;
-
-    let badgeClass = "bg-blue-100 text-blue-700";
-    let badgeText = "En Revisión";
+    let badgeClass = "bg-blue-100 text-blue-700"; let badgeText = "En Revisión";
     if (claim.status === 'APROBADO') { badgeClass = "bg-green-100 text-green-700"; badgeText = "Aprobada"; }
     else if (claim.status === 'RECHAZADO') { badgeClass = "bg-red-100 text-red-700"; badgeText = "Rechazada"; }
     else if (claim.status === 'FINALIZADO') { badgeClass = "bg-gray-100 text-gray-700"; badgeText = "Cerrado"; }
-    
     els.stBadge.className = `inline-block px-4 py-2 rounded-full text-xs font-black uppercase tracking-widest mb-2 ${badgeClass}`;
     els.stBadge.textContent = badgeText;
-
     if (claim.adminResponse) {
         els.stAdminBox.classList.remove('hidden');
         els.stAdminResp.textContent = claim.adminResponse;
-        
-        if (claim.technicalReportUrl && els.stPdfBtn) {
-            els.stPdfBtn.href = claim.technicalReportUrl;
-            els.stPdfBtn.classList.remove('hidden');
-            els.stPdfBtn.classList.add('flex');
-        } else if (els.stPdfBtn) {
-            els.stPdfBtn.classList.add('hidden');
-            els.stPdfBtn.classList.remove('flex');
-        }
+        if (claim.technicalReportUrl && els.stPdfBtn) { els.stPdfBtn.href = claim.technicalReportUrl; els.stPdfBtn.classList.remove('hidden'); els.stPdfBtn.classList.add('flex'); }
+        else if (els.stPdfBtn) { els.stPdfBtn.classList.add('hidden'); els.stPdfBtn.classList.remove('flex'); }
         els.stResolvedDate.textContent = claim.resolvedAt ? "Fecha: " + claim.resolvedAt.toDate().toLocaleString() : "";
-    } else {
-        els.stAdminBox.classList.add('hidden');
-    }
-
-    els.statusModal.classList.remove('hidden');
-    els.statusModal.classList.add('flex');
+    } else { els.stAdminBox.classList.add('hidden'); }
+    els.statusModal.classList.remove('hidden'); els.statusModal.classList.add('flex');
 };
 
 els.warrantyForm.onsubmit = async (e) => {
@@ -347,28 +516,19 @@ els.warrantyForm.onsubmit = async (e) => {
     const btn = els.warrantyForm.querySelector('button');
     const originalText = btn.textContent;
     btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Procesando...';
-
     const snInput = els.inpSn.value.trim();
     const reason = els.inpReason.value.trim();
     const item = currentOrder.items[selectedItemIndex];
     const imageFiles = els.inpImages.files;
-
     try {
-        // Validación laxa: Si el admin registró SNs, deben coincidir. Si no, confiamos en el input.
         if (item.sns && item.sns.length > 0) {
             const snFound = item.sns.some(sn => sn.trim().toUpperCase() === snInput.toUpperCase());
             if (!snFound) throw new Error("⛔ El Serial no coincide con los registros de despacho de este pedido.");
         }
-
-        const qDup = query(
-            collection(db, "warranties"),
-            where("userId", "==", auth.currentUser.uid),
-            where("snProvided", "==", snInput)
-        );
+        const qDup = query(collection(db, "warranties"), where("userId", "==", auth.currentUser.uid), where("snProvided", "==", snInput));
         const dupSnap = await getDocs(qDup);
         const activeDup = dupSnap.docs.find(d => d.data().status !== 'RECHAZADO');
         if (activeDup) throw new Error("⛔ Ya existe una solicitud activa para este serial.");
-
         const evidenceUrls = [];
         if (imageFiles.length > 0) {
             for (const file of imageFiles) {
@@ -378,35 +538,14 @@ els.warrantyForm.onsubmit = async (e) => {
                 evidenceUrls.push(url);
             }
         }
-
         await addDoc(collection(db, "warranties"), {
-            orderId: orderId,
-            userId: auth.currentUser.uid,
-            userEmail: auth.currentUser.email,
-            userName: auth.currentUser.displayName || "Cliente",
-            productId: item.id || 'unknown',
-            productName: item.name,
-            productImage: item.mainImage || item.image || '',
-            
-            variantColor: item.color || null,
-            variantCapacity: item.capacity || null,
-
-            snProvided: snInput,
-            reason: reason,
-            evidenceImages: evidenceUrls,
-            status: 'PENDIENTE_REVISION',
-            createdAt: new Date(),
-            shippedAtDate: currentOrder.shippedAt || new Date() // Fallback
+            orderId: orderId, userId: auth.currentUser.uid, userEmail: auth.currentUser.email, userName: auth.currentUser.displayName || "Cliente",
+            productId: item.id || 'unknown', productName: item.name, productImage: item.mainImage || item.image || '',
+            variantColor: item.color || null, variantCapacity: item.capacity || null,
+            snProvided: snInput, reason: reason, evidenceImages: evidenceUrls,
+            status: 'PENDIENTE_REVISION', createdAt: new Date(), shippedAtDate: currentOrder.shippedAt || new Date()
         });
-
         alert("✅ Solicitud enviada exitosamente. Nuestro equipo la revisará pronto.");
-        window.closeWarrantyModal();
-        location.reload();
-
-    } catch (err) {
-        console.error("Error:", err);
-        alert(err.message);
-    } finally {
-        btn.disabled = false; btn.textContent = originalText;
-    }
+        window.closeWarrantyModal(); location.reload();
+    } catch (err) { console.error("Error:", err); alert(err.message); } finally { btn.disabled = false; btn.textContent = originalText; }
 };

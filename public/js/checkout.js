@@ -9,7 +9,7 @@ const els = {
     shippingCost: document.getElementById('check-shipping'),
     total: document.getElementById('check-total'),
     freeShippingMsg: document.getElementById('free-shipping-msg'),
-    dispatchMsg: document.getElementById('dispatch-time-msg'), // NUEVO DOM
+    dispatchMsg: document.getElementById('dispatch-time-msg'), 
     btnSubmit: document.getElementById('btn-complete-order'),
     
     // Inputs Envío
@@ -45,16 +45,23 @@ const els = {
 
 let currentUser = null;
 let userProfileData = null;
-const cart = getCart(); 
+// CORRECCIÓN 1: Filtrar carrito inicial para quitar items marcados como agotados
+let cart = getCart().filter(item => item.maxStock === undefined || item.maxStock > 0);
+
 let shippingConfig = null;
 let currentShippingCost = 0;
-
-// Estado del método de pago (Default ONLINE)
 let selectedPaymentMethod = 'ONLINE'; 
 
 // --- 1. INICIALIZACIÓN ---
 onAuthStateChanged(auth, async (user) => {
     if (user) {
+        // CORRECCIÓN 2: Si al filtrar el carrito queda vacío, devolver al usuario
+        if (cart.length === 0) {
+            alert("Tu carrito no tiene productos disponibles para comprar.");
+            window.location.href = '/shop/cart.html';
+            return;
+        }
+
         currentUser = user;
         await Promise.all([ loadShippingConfig(), loadDepartments() ]);
         await loadUserData(user.uid);
@@ -70,17 +77,14 @@ onAuthStateChanged(auth, async (user) => {
 // --- 2. LÓGICA DE MÉTODOS DE PAGO ---
 function setupPaymentListeners() {
     const radios = document.querySelectorAll('input[name="payment_method"]');
-    
     radios.forEach(r => {
         r.addEventListener('change', (e) => {
             selectedPaymentMethod = e.target.value;
-            console.log("✅ Método seleccionado:", selectedPaymentMethod);
             updateSubmitButtonText();
         });
     });
 }
 
-// VALIDAR CONTRA ENTREGA (Solo BOG)
 function validatePaymentMethods() {
     const city = els.citySelect.value || "";
     const isBogota = city.toLowerCase().includes('bogot'); 
@@ -104,7 +108,6 @@ function validatePaymentMethods() {
 
 function updateSubmitButtonText() {
     const btn = els.btnSubmit;
-    
     btn.className = "w-full mt-10 font-black py-5 rounded-2xl transition-all duration-300 uppercase text-xs tracking-[0.25em] flex items-center justify-center gap-3 cursor-pointer hover:shadow-lg";
 
     if (selectedPaymentMethod === 'COD') {
@@ -121,23 +124,17 @@ function updateSubmitButtonText() {
     }
 }
 
-
 // --- 3. CARGAR DATOS ---
 async function loadShippingConfig() {
     try {
         const snap = await getDoc(doc(db, "config", "shipping"));
         shippingConfig = snap.exists() ? snap.data() : { freeThreshold: 0, defaultPrice: 0, groups: [] };
-        
-        // NUEVO: Calcular mensaje de despacho
         checkDispatchTime(shippingConfig.cutoffTime || "14:00");
-
     } catch (e) { console.error("Config Error:", e); }
 }
 
-// --- NUEVA LÓGICA: MENSAJE DESPACHO ---
 function checkDispatchTime(cutoffTimeStr) {
     if(!els.dispatchMsg) return;
-
     const now = new Date();
     const [hours, minutes] = cutoffTimeStr.split(':').map(Number);
     const cutoffDate = new Date();
@@ -154,20 +151,9 @@ function checkDispatchTime(cutoffTimeStr) {
         let timeText = "";
         if(diffHrs > 0) timeText += `${diffHrs}h `;
         timeText += `${diffMins}m`;
-
-        els.dispatchMsg.innerHTML = `
-            <p class="text-[10px] font-black uppercase text-green-600 pulse-text">
-                <i class="fa-solid fa-bolt text-yellow-500 mr-1"></i> 
-                Pide en <span class="underline">${timeText}</span> y despachamos HOY
-            </p>
-        `;
+        els.dispatchMsg.innerHTML = `<p class="text-[10px] font-black uppercase text-green-600 pulse-text"><i class="fa-solid fa-bolt text-yellow-500 mr-1"></i> Pide en <span class="underline">${timeText}</span> y despachamos HOY</p>`;
     } else {
-        els.dispatchMsg.innerHTML = `
-            <p class="text-[10px] font-black uppercase text-blue-500">
-                <i class="fa-solid fa-calendar-check mr-1"></i> 
-                Tu pedido será despachado MAÑANA
-            </p>
-        `;
+        els.dispatchMsg.innerHTML = `<p class="text-[10px] font-black uppercase text-blue-500"><i class="fa-solid fa-calendar-check mr-1"></i> Tu pedido será despachado MAÑANA</p>`;
     }
 }
 
@@ -176,7 +162,6 @@ async function loadDepartments() {
         const res = await fetch('https://api-colombia.com/api/v1/Department');
         const depts = await res.json();
         depts.sort((a, b) => a.name.localeCompare(b.name));
-
         els.deptSelect.innerHTML = '<option value="">Seleccione...</option>';
         depts.forEach(d => {
             const opt = document.createElement('option');
@@ -263,18 +248,15 @@ els.deptSelect.addEventListener('change', (e) => loadCitiesForDept(e.target.valu
 async function loadCitiesForDept(deptId) {
     els.citySelect.innerHTML = '<option value="">Cargando...</option>';
     els.citySelect.disabled = true;
-    
     if (!deptId) {
         els.citySelect.innerHTML = '<option value="">Seleccione Depto primero</option>';
         calculateShipping(); 
         return;
     }
-
     try {
         const res = await fetch(`https://api-colombia.com/api/v1/Department/${deptId}/cities`);
         const cities = await res.json();
         cities.sort((a, b) => a.name.localeCompare(b.name));
-
         els.citySelect.innerHTML = '<option value="">Seleccione Ciudad...</option>';
         cities.forEach(c => {
             const opt = document.createElement('option');
@@ -286,14 +268,13 @@ async function loadCitiesForDept(deptId) {
     } catch (e) { console.error(e); }
 }
 
-els.citySelect.addEventListener('change', () => {
-    calculateShipping();
-    validatePaymentMethods();
-});
+els.citySelect.addEventListener('change', () => { calculateShipping(); validatePaymentMethods(); });
 
 // --- 4. CÁLCULOS Y UI ---
 function calculateShipping() {
-    const cartTotal = getCartTotal();
+    // CORRECCIÓN 3: Calcular total solo con items válidos
+    const cartTotal = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
+    
     const city = els.citySelect.value;
     const deptOpt = els.deptSelect.options[els.deptSelect.selectedIndex];
     const dept = deptOpt ? deptOpt.dataset.name : "";
@@ -327,8 +308,11 @@ function calculateShipping() {
 }
 
 function updateTotalDisplay() {
-    const t = getCartTotal() + currentShippingCost;
-    els.subtotal.textContent = `$${getCartTotal().toLocaleString('es-CO')}`;
+    // CORRECCIÓN 4: Calcular total solo con items válidos
+    const cartTotal = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
+    const t = cartTotal + currentShippingCost;
+    
+    els.subtotal.textContent = `$${cartTotal.toLocaleString('es-CO')}`;
     els.total.textContent = `$${t.toLocaleString('es-CO')}`;
 }
 
@@ -347,7 +331,6 @@ function toggleSubmitBtn(enable) {
 // --- 5. LOGICA PRINCIPAL DE SUBMIT ---
 els.btnSubmit.addEventListener('click', async (e) => {
     e.preventDefault();
-    
     if (!els.name.value || !els.phone.value || !els.idNumber.value || !els.citySelect.value || !els.address.value) {
         alert("⚠️ Completa todos los campos obligatorios (Nombre, ID, Teléfono, Dirección)."); 
         return;
@@ -370,28 +353,15 @@ els.btnSubmit.addEventListener('click', async (e) => {
         await processCODOrder(billData);
     } 
     else if (selectedPaymentMethod === 'ONLINE') {
-        
-        if (!auth.currentUser) {
-            alert("Tu sesión ha expirado. Por favor inicia sesión nuevamente.");
-            window.location.href = '/auth/login.html';
-            return;
-        }
-
+        if (!auth.currentUser) return window.location.href = '/auth/login.html';
         const btnHtml = els.btnSubmit.innerHTML;
         els.btnSubmit.disabled = true;
-        els.btnSubmit.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Conectando con MercadoPago...`;
+        els.btnSubmit.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Conectando...`;
 
         try {
-            console.log("1. Iniciando proceso de token...");
             const token = await auth.currentUser.getIdToken(true);
-            
-            const currentCart = getCart(); 
-            if (!currentCart || currentCart.length === 0) throw new Error("El carrito parece estar vacío.");
-
             const createPreference = httpsCallable(functions, 'createMercadoPagoPreference');
-            
             const deptName = els.deptSelect.options[els.deptSelect.selectedIndex]?.dataset.name || "";
-            
             const fullShippingData = {
                 name: els.name.value,
                 phone: els.phone.value,
@@ -405,12 +375,8 @@ els.btnSubmit.addEventListener('click', async (e) => {
             const payloadCompleto = {
                 userToken: String(token),
                 shippingCost: Number(currentShippingCost),
-                items: currentCart.map(i => ({
-                    id: i.id,
-                    quantity: i.quantity,
-                    color: i.color || "",
-                    capacity: i.capacity || ""
-                })),
+                // CORRECCIÓN 5: Enviar solo items válidos al backend
+                items: cart.map(i => ({ id: i.id, quantity: i.quantity, color: i.color || "", capacity: i.capacity || "" })),
                 extraData: {
                     userName: els.name.value,
                     clientDoc: els.idNumber.value, 
@@ -428,60 +394,33 @@ els.btnSubmit.addEventListener('click', async (e) => {
                 }
             };
 
-            console.log("📤 Enviando payload completo:", payloadCompleto);
-
             const response = await createPreference(payloadCompleto);
-
             const { initPoint } = response.data;
             if (initPoint) {
-                localStorage.setItem('pending_order_data', JSON.stringify({
-                    items: cart,
-                    shipping: els.address.value,
-                    buyerInfo: { name: els.name.value, email: auth.currentUser.email }
-                }));
+                // CORRECCIÓN 6: Guardar pending order limpio
+                localStorage.setItem('pending_order_data', JSON.stringify({ items: cart, shipping: els.address.value, buyerInfo: { name: els.name.value, email: auth.currentUser.email } }));
                 window.location.href = initPoint; 
-            } else {
-                throw new Error("No se recibió link de pago.");
-            }
+            } else throw new Error("No se recibió link de pago.");
 
         } catch (error) {
-            console.error("❌ Error en el proceso:", error);
+            console.error("❌ Error:", error);
             alert("Error: " + (error.message || "Desconocido"));
             els.btnSubmit.disabled = false;
             els.btnSubmit.innerHTML = btnHtml;
         }
     }
     else if (selectedPaymentMethod === 'ADDI') {
-        
-        // 1. Verificar Sesión
-        if (!auth.currentUser) {
-            alert("Tu sesión ha expirado. Inicia sesión nuevamente.");
-            window.location.href = '/auth/login.html';
-            return;
-        }
-
-        // 2. Validación ADDI (Importante: Requiere Cédula y Celular válidos)
-        if (!els.idNumber.value || els.idNumber.value.length < 5) {
-            return alert("⚠️ Para pagar con ADDI, necesitamos un número de documento válido.");
-        }
-        if (!els.phone.value || els.phone.value.length < 10) {
-            return alert("⚠️ Para pagar con ADDI, necesitamos un número de celular válido.");
-        }
+        if (!auth.currentUser) return window.location.href = '/auth/login.html';
+        if (!els.idNumber.value || els.idNumber.value.length < 5) return alert("⚠️ Se requiere Documento válido para ADDI.");
+        if (!els.phone.value || els.phone.value.length < 10) return alert("⚠️ Se requiere Celular válido para ADDI.");
 
         const btnHtml = els.btnSubmit.innerHTML;
         els.btnSubmit.disabled = true;
-        els.btnSubmit.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Conectando con ADDI...`;
+        els.btnSubmit.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Conectando...`;
 
         try {
-            console.log("1. Token ADDI...");
             const token = await auth.currentUser.getIdToken(true);
-            
-            const currentCart = getCart(); 
-            if (!currentCart || currentCart.length === 0) throw new Error("Carrito vacío.");
-
-            // Función Cloud de ADDI
             const createAddi = httpsCallable(functions, 'createAddiCheckout');
-            
             const deptName = els.deptSelect.options[els.deptSelect.selectedIndex]?.dataset.name || "";
             const fullShippingData = {
                 name: els.name.value,
@@ -496,16 +435,12 @@ els.btnSubmit.addEventListener('click', async (e) => {
             const payloadCompleto = {
                 userToken: String(token),
                 shippingCost: Number(currentShippingCost),
-                items: currentCart.map(i => ({
-                    id: i.id,
-                    quantity: i.quantity,
-                    color: i.color || "",
-                    capacity: i.capacity || ""
-                })),
+                // CORRECCIÓN 7: Enviar solo items válidos
+                items: cart.map(i => ({ id: i.id, quantity: i.quantity, color: i.color || "", capacity: i.capacity || "" })),
                 extraData: {
                     userName: els.name.value,
-                    clientDoc: els.idNumber.value, // Vital para ADDI
-                    phone: els.phone.value,        // Vital para ADDI
+                    clientDoc: els.idNumber.value, 
+                    phone: els.phone.value,        
                     needsInvoice: els.checkInvoice.checked, 
                     billingData: billData, 
                     shippingData: fullShippingData, 
@@ -519,25 +454,16 @@ els.btnSubmit.addEventListener('click', async (e) => {
                 }
             };
 
-            console.log("📤 Payload ADDI:", payloadCompleto);
-
             const response = await createAddi(payloadCompleto);
             const { initPoint } = response.data;
-
             if (initPoint) {
-                localStorage.setItem('pending_order_data', JSON.stringify({
-                    items: cart,
-                    method: 'ADDI'
-                }));
-                // Redirigir a la pasarela de ADDI
+                localStorage.setItem('pending_order_data', JSON.stringify({ items: cart, method: 'ADDI' }));
                 window.location.href = initPoint; 
-            } else {
-                throw new Error("No se recibió link de ADDI.");
-            }
+            } else throw new Error("No se recibió link de ADDI.");
 
         } catch (error) {
             console.error("❌ Error ADDI:", error);
-            alert("Error ADDI: " + (error.message || "Desconocido. Verifica tus datos."));
+            alert("Error ADDI: " + (error.message || "Desconocido"));
             els.btnSubmit.disabled = false;
             els.btnSubmit.innerHTML = btnHtml;
         }
@@ -553,9 +479,7 @@ async function processCODOrder(billData) {
     try {
         if (!auth.currentUser) throw new Error("Debes iniciar sesión.");
         const userToken = await auth.currentUser.getIdToken(true); 
-
         const deptName = els.deptSelect.options[els.deptSelect.selectedIndex]?.dataset.name || "";
-        
         const shippingData = {
             name: els.name.value,
             phone: els.phone.value,
@@ -568,12 +492,8 @@ async function processCODOrder(billData) {
 
         const payload = {
             userToken: String(userToken),
-            items: cart.map(i => ({
-                id: i.id,
-                quantity: i.quantity,
-                color: i.color || "",
-                capacity: i.capacity || ""
-            })),
+            // CORRECCIÓN 8: Enviar solo items válidos
+            items: cart.map(i => ({ id: i.id, quantity: i.quantity, color: i.color || "", capacity: i.capacity || "" })),
             shippingCost: currentShippingCost,
             extraData: {
                 userName: els.name.value,
@@ -586,10 +506,8 @@ async function processCODOrder(billData) {
             }
         };
 
-        console.log("📞 Enviando COD con token manual...");
         const createCOD = httpsCallable(functions, 'createCODOrder');
         const response = await createCOD(payload);
-        
         const { orderId } = response.data;
 
         if (els.saveAddrCheck.checked) {
@@ -611,7 +529,7 @@ async function processCODOrder(billData) {
 
     } catch (error) {
         console.error("❌ Error COD:", error);
-        alert("No se pudo procesar el pedido: " + (error.message || error));
+        alert("Error: " + (error.message || error));
         els.btnSubmit.disabled = false;
         els.btnSubmit.innerHTML = btnHtml;
     }
@@ -625,6 +543,7 @@ els.checkInvoice.addEventListener('change', (e) => {
 function renderOrderSummary() {
     if (cart.length === 0) return window.location.href = '/index.html';
     
+    // CORRECCIÓN 9: Recalcular totales con items válidos solamente
     const totalItems = cart.reduce((acc, item) => acc + (item.quantity || 1), 0);
     const qtyDisplay = document.getElementById('order-qty-display');
     if(qtyDisplay) qtyDisplay.textContent = `${totalItems} Ítems`;

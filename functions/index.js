@@ -33,3 +33,4 @@ exports.addiWebhook = functions.https.onRequest(addiModule.webhook); // <--- Imp
 exports.cleanupOldOrders = onSchedule("every 24 hours", schedulerModule.cleanupOldOrders);
 exports.processScheduledTransfers = schedulerModule.processScheduledTransfers;
 exports.cancelAbandonedPayments = schedulerModule.cancelAbandonedPayments;
+exports.checkExpiredPromotions = schedulerModule.checkExpiredPromotions;

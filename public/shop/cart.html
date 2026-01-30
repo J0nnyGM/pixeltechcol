@@ -28,6 +28,12 @@
             70% { text-shadow: 0 0 10px rgba(16, 185, 129, 0); }
             100% { text-shadow: 0 0 0 rgba(16, 185, 129, 0); }
         }
+
+        .item-agotado {
+            opacity: 0.6;
+            background-color: #f9fafb; /* gris muy claro */
+            border-color: #fee2e2; /* borde rojizo suave */
+        }
     </style>
 </head>
 
@@ -140,15 +146,16 @@
 
     <div id="global-footer"></div>
 
-    <script type="module">
+<script type="module">
         import { getCart, updateQuantity, removeFromCart, getCartTotal, updateCartCount } from '../js/cart.js';
         import { auth, db, doc, getDoc, onAuthStateChanged } from '../js/firebase-init.js'; 
         import { loadGlobalHeader, loadGlobalFooter } from '../js/global-components.js';
 
+        // Cargar componentes globales
         loadGlobalHeader();
         loadGlobalFooter();
 
-        // Elementos DOM
+        // --- ELEMENTOS DOM ---
         const container = document.getElementById('cart-items-list');
         const mainContainer = document.getElementById('cart-container');
         const emptyMsg = document.getElementById('empty-cart-msg');
@@ -156,7 +163,7 @@
         const subtotalDisplay = document.getElementById('summary-subtotal');
         const shippingDisplay = document.getElementById('shipping-cost-display');
         const addressFeedback = document.getElementById('shipping-address-feedback');
-        const dispatchMsg = document.getElementById('dispatch-time-msg'); // NUEVO ELEMENTO
+        const dispatchMsg = document.getElementById('dispatch-time-msg');
         const checkoutBtn = document.getElementById('btn-checkout');
         
         // Elementos Barra Progreso
@@ -164,33 +171,34 @@
         const shippingBar = document.getElementById('free-shipping-bar');
         const shippingMsg = document.getElementById('free-shipping-msg');
 
+        // Variables de estado
         let calculatedShipping = 0;
         let freeShippingThreshold = 0; 
-        let globalCutoffTime = "14:00"; // Valor por defecto
+        let globalCutoffTime = "14:00";
 
-        // 1. OBTENER CONFIGURACIÓN GLOBAL (Independiente del usuario)
+        // --- 1. OBTENER CONFIGURACIÓN DE ENVÍO (LA FUNCIÓN QUE FALTABA) ---
         async function fetchShippingConfig() {
             try {
                 const configSnap = await getDoc(doc(db, "config", "shipping"));
                 if (configSnap.exists()) {
                     const config = configSnap.data();
                     freeShippingThreshold = config.freeThreshold || 0;
-                    globalCutoffTime = config.cutoffTime || "14:00"; // Leer hora de corte
+                    globalCutoffTime = config.cutoffTime || "14:00";
                     
-                    updateProgressBar(); // Actualizar barra
-                    checkDispatchTime(); // NUEVO: Verificar si despacha hoy
+                    // Actualizar UI inicial
+                    updateProgressBar();
+                    checkDispatchTime();
                 }
-            } catch (e) {
-                console.error("Error fetching config:", e);
+            } catch (e) { 
+                console.error("Error cargando configuración de envío:", e); 
             }
         }
 
-        // --- NUEVA LÓGICA: CALCULAR TIEMPO DE DESPACHO ---
+        // --- 2. LÓGICA DE TIEMPO DE DESPACHO ---
         function checkDispatchTime() {
             if(!dispatchMsg) return;
-
+            
             const now = new Date();
-            // Convertir hora config (HH:MM) a Date hoy
             const [hours, minutes] = globalCutoffTime.split(':').map(Number);
             const cutoffDate = new Date();
             cutoffDate.setHours(hours, minutes, 0, 0);
@@ -203,48 +211,37 @@
             dispatchMsg.classList.remove('hidden');
 
             if (isBeforeCutoff) {
-                // Mensaje Urgencia: Compra antes de X tiempo
                 let timeText = "";
                 if(diffHrs > 0) timeText += `${diffHrs}h `;
                 timeText += `${diffMins}m`;
-
+                
                 dispatchMsg.innerHTML = `
                     <p class="text-[10px] font-black uppercase text-green-600 pulse-text">
                         <i class="fa-solid fa-bolt text-yellow-500 mr-1"></i> 
                         Pide en <span class="underline">${timeText}</span> y enviamos HOY
-                    </p>
-                `;
+                    </p>`;
             } else {
-                // Mensaje Mañana
                 dispatchMsg.innerHTML = `
                     <p class="text-[10px] font-black uppercase text-blue-500">
                         <i class="fa-solid fa-calendar-check mr-1"></i> 
                         Tu pedido será despachado MAÑANA
-                    </p>
-                `;
+                    </p>`;
             }
         }
 
-        // 2. ACTUALIZAR BARRA VISUALMENTE
+        // --- 3. BARRA DE ENVÍO GRATIS ---
         function updateProgressBar() {
             if (freeShippingThreshold <= 0) {
                 shippingBarContainer.classList.add('hidden'); 
                 return;
             }
-
-            const currentTotal = getCartTotal();
+            const currentTotal = getCartTotal(); // Nota: getCartTotal en cart.js ya debe ignorar agotados
             const percentage = Math.min((currentTotal / freeShippingThreshold) * 100, 100);
             const remaining = freeShippingThreshold - currentTotal;
 
-            // Mostrar el contenedor
             shippingBarContainer.classList.remove('hidden');
-            
-            // Animar el ancho
-            setTimeout(() => {
-                shippingBar.style.width = `${percentage}%`;
-            }, 100);
+            setTimeout(() => { shippingBar.style.width = `${percentage}%`; }, 100);
 
-            // Lógica de Mensaje y Colores
             if (remaining > 0) {
                 shippingMsg.innerHTML = `Faltan <span class="text-brand-black font-black">$${remaining.toLocaleString('es-CO')}</span> para envío gratis`;
                 shippingBar.classList.remove('bg-emerald-500');
@@ -256,7 +253,7 @@
             }
         }
 
-        // 3. ESTIMA COSTO PARA USUARIOS LOGUEADOS
+        // --- 4. ESTIMAR COSTO DE ENVÍO ---
         async function estimateShipping(user) {
             try {
                 const userSnap = await getDoc(doc(db, "users", user.uid));
@@ -275,7 +272,6 @@
                 const subtotal = getCartTotal();
                 let cost = config.defaultPrice || 0;
 
-                // Verificamos si superó el tope gratis
                 if (config.freeThreshold > 0 && subtotal >= config.freeThreshold) {
                     cost = 0;
                 } else {
@@ -297,21 +293,13 @@
                     shippingDisplay.textContent = `$${cost.toLocaleString('es-CO')}`;
                 }
 
-                addressFeedback.innerHTML = `
-                    <p class="text-[9px] font-bold text-gray-500 mt-1">
-                        <i class="fa-solid fa-location-dot text-brand-cyan mr-1"></i>
-                        ${defaultAddr.address}, ${defaultAddr.city}
-                    </p>
-                `;
-
+                addressFeedback.innerHTML = `<p class="text-[9px] font-bold text-gray-500 mt-1"><i class="fa-solid fa-location-dot text-brand-cyan mr-1"></i> ${defaultAddr.address}, ${defaultAddr.city}</p>`;
                 updateTotalUI();
 
-            } catch (e) {
-                console.error("Error estimando envío:", e);
-            }
+            } catch (e) { console.error("Error estimando envío:", e); }
         }
 
-        // 4. RENDERIZADO PRINCIPAL
+        // --- 5. RENDERIZADO VISUAL ---
         function render() {
             const cart = getCart();
             updateCartCount();
@@ -328,47 +316,72 @@
             container.innerHTML = cart.map(item => {
                 const hasDiscount = item.originalPrice && item.price < item.originalPrice;
                 const discountPercent = hasDiscount ? Math.round(((item.originalPrice - item.price) / item.originalPrice) * 100) : 0;
+                
+                // DETECCIÓN DE AGOTADO
+                const isOutOfStock = (item.maxStock !== undefined && item.maxStock <= 0);
+                const isMaxedOut = !isOutOfStock && (item.quantity >= (item.maxStock || 999));
 
                 return `
-                <div class="cart-item-card bg-white p-6 md:p-8 rounded-[2rem] flex flex-col md:grid md:grid-cols-12 gap-6 items-center relative group">
+                <div class="cart-item-card bg-white p-6 md:p-8 rounded-[2rem] flex flex-col md:grid md:grid-cols-12 gap-6 items-center relative group ${isOutOfStock ? 'item-agotado grayscale' : ''}">
+                    
+                    ${isOutOfStock ? `<div class="absolute inset-0 z-10 bg-white/10 cursor-not-allowed"></div>` : ''}
+
                     <div class="col-span-6 flex items-center gap-6 w-full">
                         <div class="w-24 h-24 bg-white border border-gray-200 rounded-2xl p-2 shrink-0 flex items-center justify-center relative shadow-sm">
                             <img src="${item.image || 'https://placehold.co/100'}" class="max-h-full max-w-full object-contain">
-                            ${hasDiscount ? `<span class="absolute -top-2 -left-2 bg-brand-red text-white text-[9px] font-black px-2 py-1 rounded-lg shadow-md border border-white">-${discountPercent}%</span>` : ''}
+                            ${isOutOfStock 
+                                ? `<span class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-red-600 text-white text-[10px] font-black px-3 py-1 rounded-full shadow-lg border border-white z-20">AGOTADO</span>`
+                                : (hasDiscount ? `<span class="absolute -top-2 -left-2 bg-brand-red text-white text-[9px] font-black px-2 py-1 rounded-lg shadow-md border border-white">-${discountPercent}%</span>` : '')
+                            }
                         </div>
                         <div class="min-w-0 flex-grow">
-                            <h3 class="font-black text-sm text-brand-black uppercase tracking-tight mb-2 leading-tight cursor-pointer hover:text-brand-cyan transition truncate" onclick="window.location.href='/shop/product.html?id=${item.id}'">
+                            <h3 class="font-black text-sm text-brand-black uppercase tracking-tight mb-2 leading-tight cursor-pointer hover:text-brand-cyan transition truncate" onclick="${isOutOfStock ? '' : `window.location.href='/shop/product.html?id=${item.id}'`}">
                                 ${item.name}
                             </h3>
                             <div class="flex flex-wrap gap-2 mb-3">
                                 ${item.color ? `<span class="text-[9px] font-bold text-gray-600 bg-gray-100 px-2 py-1 rounded-lg uppercase border border-gray-200">${item.color}</span>` : ''}
                                 ${item.capacity ? `<span class="text-[9px] font-bold text-brand-cyan bg-cyan-50 px-2 py-1 rounded-lg uppercase border border-cyan-100">${item.capacity}</span>` : ''}
                             </div>
-                            <button onclick="window.removeItem('${item.cartId}')" class="group flex items-center gap-2 text-[9px] font-bold text-red-400 hover:text-red-600 transition uppercase tracking-wider">
+                            <button onclick="window.removeItem('${item.cartId}')" class="relative z-30 group flex items-center gap-2 text-[9px] font-bold text-red-400 hover:text-red-600 transition uppercase tracking-wider cursor-pointer">
                                 <div class="w-6 h-6 rounded-full bg-red-50 group-hover:bg-red-100 flex items-center justify-center transition"><i class="fa-solid fa-trash-can"></i></div>
                                 Eliminar
                             </button>
                         </div>
                     </div>
+                    
                     <div class="col-span-2 flex justify-center w-full md:w-auto">
-                        <div class="flex items-center bg-white border border-gray-200 rounded-xl p-1 h-10 shadow-sm">
-                            <button onclick="window.changeQty('${item.cartId}', ${item.quantity - 1})" class="w-8 h-full flex items-center justify-center text-gray-400 hover:text-brand-black transition font-bold text-sm hover:bg-gray-50 rounded-lg">-</button>
-                            <span class="w-8 text-center text-xs font-black text-brand-black">${item.quantity}</span>
-                            <button onclick="window.changeQty('${item.cartId}', ${item.quantity + 1})" class="w-8 h-full flex items-center justify-center text-gray-400 hover:text-brand-black transition font-bold text-sm hover:bg-gray-50 rounded-lg">+</button>
-                        </div>
+                        ${isOutOfStock ? 
+                            `<span class="text-xs font-black text-gray-400">---</span>` 
+                            : 
+                            `<div class="flex items-center bg-white border border-gray-200 rounded-xl p-1 h-10 shadow-sm relative z-20">
+                                <button onclick="window.changeQty('${item.cartId}', ${item.quantity - 1})" class="w-8 h-full flex items-center justify-center text-gray-400 hover:text-brand-black transition font-bold text-sm hover:bg-gray-50 rounded-lg">-</button>
+                                <span class="w-8 text-center text-xs font-black text-brand-black">${item.quantity}</span>
+                                <button onclick="window.changeQty('${item.cartId}', ${item.quantity + 1})" 
+                                    class="w-8 h-full flex items-center justify-center transition font-bold text-sm rounded-lg ${isMaxedOut ? 'text-gray-200 cursor-not-allowed' : 'text-gray-400 hover:text-brand-black hover:bg-gray-50'}" 
+                                    ${isMaxedOut ? 'disabled' : ''}>+</button>
+                            </div>`
+                        }
                     </div>
+
                     <div class="col-span-2 text-right hidden md:block">
                         <span class="text-[9px] font-black text-gray-400 uppercase block mb-1">Precio</span>
-                        ${hasDiscount ? `
-                            <div class="flex flex-col items-end">
-                                <span class="text-[10px] font-bold text-gray-400 line-through decoration-brand-red decoration-2">$${item.originalPrice.toLocaleString('es-CO')}</span>
-                                <span class="text-sm font-black text-brand-red">$${item.price.toLocaleString('es-CO')}</span>
-                            </div>
-                        ` : `<span class="text-sm font-black text-gray-700">$${item.price.toLocaleString('es-CO')}</span>`}
+                        ${isOutOfStock ? 
+                            `<span class="text-sm font-black text-gray-300 line-through">$${item.price.toLocaleString('es-CO')}</span>` 
+                            :
+                            (hasDiscount ? `
+                                <div class="flex flex-col items-end">
+                                    <span class="text-[10px] font-bold text-gray-400 line-through decoration-brand-red decoration-2">$${item.originalPrice.toLocaleString('es-CO')}</span>
+                                    <span class="text-sm font-black text-brand-red">$${item.price.toLocaleString('es-CO')}</span>
+                                </div>` 
+                            : `<span class="text-sm font-black text-gray-700">$${item.price.toLocaleString('es-CO')}</span>`)
+                        }
                     </div>
+                    
                     <div class="col-span-2 text-right w-full md:w-auto flex justify-between md:block items-center">
                         <span class="text-[10px] font-black text-gray-500 uppercase md:hidden">Subtotal</span>
-                        <span class="text-lg font-black text-brand-black tracking-tighter">$${(item.price * item.quantity).toLocaleString('es-CO')}</span>
+                        <span class="text-lg font-black tracking-tighter ${isOutOfStock ? 'text-gray-300 line-through decoration-2' : 'text-brand-black'}">
+                            ${isOutOfStock ? '$0' : `$${(item.price * item.quantity).toLocaleString('es-CO')}`}
+                        </span>
                     </div>
                 </div>
             `}).join('');
@@ -376,20 +389,24 @@
             updateTotalUI();
         }
 
+        // --- 6. ACTUALIZAR TOTALES ---
         function updateTotalUI() {
-            const subtotal = getCartTotal();
+            const subtotal = getCartTotal(); // (cart.js debe ignorar maxStock <= 0)
             const total = subtotal + calculatedShipping;
 
             subtotalDisplay.textContent = `$${subtotal.toLocaleString('es-CO')}`;
             totalDisplay.textContent = `$${total.toLocaleString('es-CO')}`;
             
             updateProgressBar();
-            checkDispatchTime(); // Actualizar tiempo de despacho también
+            checkDispatchTime(); 
         }
 
-        // --- EVENTOS ---
+        // --- 7. EVENTOS DE INTERACCIÓN ---
         window.changeQty = (cartId, qty) => {
-            updateQuantity(cartId, qty);
+            const result = updateQuantity(cartId, qty);
+            if (!result.success && result.message && window.showToast) {
+                window.showToast(result.message, 'error');
+            }
             render();
             const user = auth.currentUser;
             if(user) estimateShipping(user); 
@@ -404,27 +421,120 @@
             }
         };
 
-        checkoutBtn.onclick = () => {
-            const user = auth.currentUser;
-            if (!user) {
-                sessionStorage.setItem('redirect_after_login', '/shop/checkout.html');
-                if(confirm("🔒 Para finalizar tu compra de forma segura, necesitas iniciar sesión.\n\n¿Ir al login?")) {
-                    window.location.href = "/auth/login.html";
+        // --- 8. LÓGICA DE CHECKOUT (VALIDACIÓN SOFT) ---
+        checkoutBtn.onclick = async () => {
+            const originalText = checkoutBtn.innerHTML;
+            checkoutBtn.disabled = true;
+            checkoutBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> VALIDANDO...';
+
+            try {
+                const currentCart = getCart(); 
+                let oosItems = []; // Items Out Of Stock (Agotados)
+                let cartHasChanges = false;
+
+                // Verificar stock en base de datos
+                const checks = currentCart.map(async (item) => {
+                    const docRef = doc(db, "products", item.id);
+                    const snap = await getDoc(docRef);
+                    
+                    // Si el producto fue eliminado de la DB
+                    if (!snap.exists()) return null;
+
+                    const p = snap.data();
+                    let realStock = p.stock || 0;
+
+                    if (item.color || item.capacity) {
+                        if (p.combinations) {
+                            const variant = p.combinations.find(c => 
+                                (c.color === item.color || (!c.color && !item.color)) &&
+                                (c.capacity === item.capacity || (!c.capacity && !item.capacity))
+                            );
+                            if (variant) realStock = variant.stock;
+                        }
+                    }
+
+                    // MARCAR AGOTADO (NO BORRAR)
+                    if (realStock <= 0) {
+                        if (item.maxStock !== 0) {
+                            item.maxStock = 0;
+                            oosItems.push(item.name);
+                            cartHasChanges = true;
+                        }
+                    } 
+                    // AJUSTAR CANTIDAD
+                    else {
+                        item.maxStock = realStock; 
+                        if (item.quantity > realStock) {
+                            item.quantity = realStock;
+                            cartHasChanges = true;
+                            if(window.showToast) window.showToast(`Stock ajustado para ${item.name}`, 'error');
+                        }
+                    }
+
+                    return item;
+                });
+
+                const results = await Promise.all(checks);
+                const finalCart = results.filter(i => i !== null); 
+
+                // Si hubo cambios, guardar y avisar
+                if (cartHasChanges || finalCart.length !== currentCart.length) {
+                    localStorage.setItem('pixeltech_cart', JSON.stringify(finalCart));
+                    render();
+                    window.updateCartCountGlobal();
+                    window.dispatchEvent(new Event('cartUpdated'));
+
+                    if (oosItems.length > 0) {
+                        const names = oosItems.join(", ");
+                        alert(`⚠️ ALGUNOS PRODUCTOS SE AGOTARON:\n\n${names}\n\nSe han marcado como agotados y no se cobrarán.\n\nPuedes eliminarlos o continuar con los disponibles.`);
+                    }
+                    
+                    checkoutBtn.disabled = false;
+                    checkoutBtn.innerHTML = originalText;
+                    return; 
                 }
-            } else {
-                window.location.href = "/shop/checkout.html";
+
+                // Filtrar solo disponibles para el siguiente paso
+                const validItemsForCheckout = finalCart.filter(i => i.maxStock > 0);
+
+                if (validItemsForCheckout.length === 0) {
+                    alert("No hay productos disponibles para pagar.");
+                    checkoutBtn.disabled = false;
+                    checkoutBtn.innerHTML = originalText;
+                    return;
+                }
+
+                // Proceder
+                const user = auth.currentUser;
+                if (!user) {
+                    sessionStorage.setItem('redirect_after_login', '/shop/checkout.html');
+                    if(confirm("🔒 Para finalizar tu compra de forma segura, necesitas iniciar sesión.\n\n¿Ir al login?")) {
+                        window.location.href = "/auth/login.html";
+                    } else {
+                        checkoutBtn.disabled = false;
+                        checkoutBtn.innerHTML = originalText;
+                    }
+                } else {
+                    window.location.href = "/shop/checkout.html";
+                }
+
+            } catch (e) {
+                console.error("Error checkout:", e);
+                checkoutBtn.disabled = false;
+                checkoutBtn.innerHTML = originalText;
+                alert("Error al validar inventario. Revisa tu conexión.");
             }
         };
 
         // --- INICIALIZACIÓN ---
-        fetchShippingConfig();
+        fetchShippingConfig(); // <-- AQUÍ SE LLAMA A LA FUNCIÓN QUE FALTABA
+        render();
 
         onAuthStateChanged(auth, (user) => {
-            render();
             if (user) estimateShipping(user);
         });
 
-        // Actualizar contador cada minuto (para que baje el tiempo sin recargar)
+        // Actualizar contador de despacho cada minuto
         setInterval(checkDispatchTime, 60000);
 
     </script>

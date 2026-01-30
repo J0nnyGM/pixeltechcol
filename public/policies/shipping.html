@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Envíos y Devoluciones | PixelTech</title>
+    <link rel="stylesheet" href="../css/styles.css">
+    <script src="https://kit.fontawesome.com/0d623ded97.js" crossorigin="anonymous"></script>
+    <style>.no-scrollbar::-webkit-scrollbar { display: none; }</style>
+</head>
+<body class="bg-white font-sans text-brand-black antialiased flex flex-col min-h-screen">
+
+    <div id="global-header"></div>
+
+    <main class="flex-grow w-full max-w-4xl mx-auto px-6 py-12 md:py-20">
+        
+        <div class="text-center mb-12">
+            <h1 class="text-3xl md:text-4xl font-black uppercase tracking-tighter text-brand-black mb-4">
+                Envíos y <span class="text-brand-cyan">Devoluciones</span>
+            </h1>
+            <div class="h-1 w-20 bg-brand-cyan mx-auto rounded-full"></div>
+        </div>
+
+        <div class="space-y-10 text-sm md:text-base text-gray-600 leading-relaxed text-justify">
+            
+            <div class="flex items-start gap-4">
+                <div class="w-10 h-10 rounded-full bg-slate-50 flex items-center justify-center shrink-0 text-brand-cyan">
+                    <i class="fa-solid fa-coins"></i>
+                </div>
+                <div>
+                    <h3 class="font-black text-brand-black uppercase tracking-widest mb-1 text-xs md:text-sm">Costos de Envío</h3>
+                    <p>El costo de envío para cualquier ciudad de Colombia es asumido por el cliente.</p>
+                </div>
+            </div>
+
+            <div class="flex items-start gap-4">
+                <div class="w-10 h-10 rounded-full bg-slate-50 flex items-center justify-center shrink-0 text-brand-cyan">
+                    <i class="fa-solid fa-truck-fast"></i>
+                </div>
+                <div>
+                    <h3 class="font-black text-brand-black uppercase tracking-widest mb-1 text-xs md:text-sm">Transportadoras</h3>
+                    <p>Las transportadoras con las cuales trabajamos son <strong>Interrapidísimo, Coordinadora y Envía</strong> (Es aleatoria la transportadora). Si desea que el envío se realice por una transportadora diferente, debe avisarnos con anticipación.</p>
+                </div>
+            </div>
+
+            <div class="bg-slate-50 p-6 rounded-3xl border border-gray-100 flex flex-col md:flex-row gap-6">
+                <div class="flex-1">
+                    <h3 class="font-black text-brand-black uppercase tracking-widest mb-3 text-xs md:text-sm flex items-center gap-2">
+                        <i class="fa-solid fa-location-dot text-brand-red"></i> Envíos Bogotá (Contraentrega)
+                    </h3>
+                    <p class="text-sm">
+                        Si el pedido es confirmado de lunes a viernes antes de las <strong>3:00pm</strong> o el sábado antes de las <strong>1:30pm</strong>; el producto llegará el mismo día, de lo contrario llegará el día siguiente (Esta condición NO aplica para el día domingo).
+                    </p>
+                </div>
+                <div class="flex-1 border-t md:border-t-0 md:border-l border-gray-200 pt-6 md:pt-0 md:pl-6">
+                    <h3 class="font-black text-brand-black uppercase tracking-widest mb-3 text-xs md:text-sm flex items-center gap-2">
+                        <i class="fa-solid fa-earth-americas text-brand-cyan"></i> Envíos Nacionales
+                    </h3>
+                    <p class="text-sm">
+                        El envío se realizará el mismo día si la compra es confirmada antes de las <strong>3:00pm</strong>. El tiempo de llegada es de 2 a 5 días hábiles dependiendo de la ciudad (Ciudades principales usualmente es 2 días). Se realiza envío de la guía para seguimiento.
+                    </p>
+                </div>
+            </div>
+
+            <div class="bg-yellow-50 border-l-4 border-yellow-400 p-5 rounded-r-xl">
+                <h3 class="font-black text-brand-black uppercase tracking-widest mb-2 text-xs md:text-sm">Importante: Devoluciones por Entrega Fallida</h3>
+                <p class="text-sm text-gray-700">
+                    Se hará confirmación de la dirección antes de realizar el envío. En caso de que se realice el envío y la transportadora realice varios intentos de entrega que no sean exitosos causando que el producto sea devuelto a nuestras oficinas, se dará cancelación a la orden y se devolverá el dinero (descontando los costos logísticos incurridos).
+                </p>
+            </div>
+
+        </div>
+    </main>
+
+    <div id="global-footer"></div>
+
+    <script type="module">
+        import { loadGlobalHeader, loadGlobalFooter } from '../js/global-components.js';
+        loadGlobalHeader();
+        loadGlobalFooter();
+    </script>
+</body>
+</html>

@@ -238,7 +238,7 @@ function applySortAndFilter() {
     renderPagination();
 }
 
-// --- 6. RENDER GRID (Manteniendo tu diseño unificado) ---
+// --- 6. RENDER GRID (DISEÑO ELITE / PREMIUM) ---
 function renderGrid() {
     if (filteredProducts.length === 0) {
         grid.classList.add('hidden');
@@ -256,47 +256,85 @@ function renderGrid() {
     const productsToShow = filteredProducts.slice(start, end);
 
     grid.innerHTML = productsToShow.map(p => {
-        const hasDiscount = p.originalPrice && p.price < p.originalPrice;
-        const discountPercent = hasDiscount ? Math.round(((p.originalPrice - p.price) / p.originalPrice) * 100) : 0;
-        
+        // 1. Detectar Estados
+        const isOutOfStock = (p.maxStock !== undefined && p.maxStock <= 0) || (p.stock || 0) <= 0;
+        const hasDiscount = !isOutOfStock && (p.originalPrice && p.originalPrice > p.price);
         const qtyInCart = getProductQtyInCart(p.id);
-        let actionBtnHTML;
 
-        if (qtyInCart > 0) {
+        // 2. Definir Botones de Acción (Inteligentes)
+        let actionBtnHTML;
+        
+        if (isOutOfStock) {
             actionBtnHTML = `
-                <div onclick="event.stopPropagation()" class="absolute bottom-3 right-3 flex items-center bg-brand-black text-white rounded-xl shadow-xl shadow-black/20 z-20">
-                    <button onclick="window.handleCartAction('${p.id}', -1)" class="w-8 h-8 flex items-center justify-center hover:text-brand-cyan transition active:scale-90"><i class="fa-solid fa-minus text-[10px]"></i></button>
-                    <span class="text-xs font-bold w-4 text-center select-none cursor-default">${qtyInCart}</span>
-                    <button onclick="window.handleCartAction('${p.id}', 1)" class="w-8 h-8 flex items-center justify-center hover:text-brand-cyan transition active:scale-90"><i class="fa-solid fa-plus text-[10px]"></i></button>
+                <div class="w-full h-10 bg-gray-100 rounded-xl flex items-center justify-center text-gray-400 text-[10px] font-black uppercase tracking-widest cursor-not-allowed mt-auto">
+                    Agotado
+                </div>`;
+        } else if (qtyInCart > 0) {
+            actionBtnHTML = `
+                <div onclick="event.stopPropagation()" class="mt-auto w-full h-10 bg-brand-black text-white rounded-xl shadow-lg flex items-center justify-between px-1">
+                    <button onclick="window.handleCartAction('${p.id}', -1)" class="w-8 h-full flex items-center justify-center hover:text-brand-cyan transition active:scale-90"><i class="fa-solid fa-minus text-xs"></i></button>
+                    <span class="text-xs font-bold w-6 text-center select-none">${qtyInCart}</span>
+                    <button onclick="window.handleCartAction('${p.id}', 1)" class="w-8 h-full flex items-center justify-center hover:text-brand-cyan transition active:scale-90"><i class="fa-solid fa-plus text-xs"></i></button>
                 </div>`;
         } else {
             actionBtnHTML = `
                 <button onclick="event.stopPropagation(); window.handleCartAction('${p.id}', 1)" 
-                    class="absolute bottom-3 right-3 z-20 flex items-center justify-center w-8 h-8 md:w-9 md:h-9 rounded-xl bg-brand-black text-white md:translate-y-12 md:opacity-0 md:group-hover:translate-y-0 md:group-hover:opacity-100 transition duration-300 shadow-lg hover:bg-brand-cyan hover:text-brand-black active:scale-90">
-                    <i class="fa-solid fa-plus text-xs"></i>
+                    class="mt-auto w-full h-10 bg-brand-black text-white rounded-xl shadow-md hover:bg-brand-cyan hover:text-brand-black transition-all flex items-center justify-center gap-2 font-black text-[10px] uppercase tracking-widest group-btn active:scale-95">
+                    <span>Agregar</span> <i class="fa-solid fa-cart-plus text-sm"></i>
                 </button>`;
         }
 
+        // 3. Estilos del Contenedor
+        let containerClasses = "group bg-white rounded-[2rem] p-4 border border-gray-100 shadow-sm hover:shadow-2xl transition-all duration-300 flex flex-col cursor-pointer h-full relative overflow-hidden ";
+        if (isOutOfStock) containerClasses += "opacity-70 grayscale";
+        else if (hasDiscount) containerClasses += "hover:border-red-100 hover:shadow-red-500/10 hover:-translate-y-1";
+        else containerClasses += "hover:border-brand-cyan/20 hover:-translate-y-1";
+
         const imageSrc = p.mainImage || p.image || 'https://placehold.co/300x300?text=Sin+Imagen';
+        const clickAction = isOutOfStock ? "" : `window.location.href='/shop/product.html?id=${p.id}'`;
+
+        // 4. Badge
+        let badge = "";
+        if (isOutOfStock) {
+            badge = `<span class="absolute top-0 right-0 bg-gray-200 text-gray-500 text-[9px] font-black px-3 py-1.5 rounded-bl-2xl z-20">SIN STOCK</span>`;
+        } else if (hasDiscount) {
+            const disc = Math.round(((p.originalPrice - p.price) / p.originalPrice) * 100);
+            badge = `
+                <div class="absolute top-0 left-0 bg-gradient-to-r from-red-600 to-pink-600 text-white text-[9px] font-black px-3 py-1.5 rounded-br-2xl z-20 shadow-md flex items-center gap-1">
+                    <i class="fa-solid fa-tags text-[8px]"></i> -${disc}%
+                </div>`;
+        }
+
+        // 5. Precio
+        let priceDisplay;
+        if (hasDiscount) {
+            priceDisplay = `
+                <div class="flex flex-col mb-3">
+                    <span class="text-[10px] text-gray-400 line-through decoration-red-300 font-bold">Antes: $${p.originalPrice.toLocaleString('es-CO')}</span>
+                    <span class="text-xl font-black text-brand-red tracking-tight">$${p.price.toLocaleString('es-CO')}</span>
+                </div>`;
+        } else {
+            priceDisplay = `
+                <div class="mb-3">
+                    <span class="text-lg font-black text-brand-black tracking-tight">$${p.price.toLocaleString('es-CO')}</span>
+                </div>`;
+        }
 
         return `
-        <div class="group bg-white rounded-[2rem] p-5 border border-gray-100 shadow-sm hover:shadow-2xl hover:border-brand-cyan/30 hover:-translate-y-1 transition-all duration-300 flex flex-col cursor-pointer" onclick="window.location.href='/shop/product.html?id=${p.id}'">
+        <div class="${containerClasses}" onclick="${clickAction}">
+            ${badge}
             
-            <div class="relative mb-5 overflow-hidden rounded-2xl bg-slate-50 h-56 flex items-center justify-center p-4">
-                <img src="${imageSrc}" class="max-w-full max-h-full object-contain group-hover:scale-110 transition-transform duration-500">
-                ${hasDiscount ? `<span class="absolute top-3 left-3 bg-brand-red text-white text-[8px] font-black px-2 py-1 rounded-full uppercase tracking-widest shadow-lg">Oferta</span>` : ''}
-                ${actionBtnHTML}
+            <div class="relative mb-3 overflow-hidden rounded-2xl bg-slate-50 h-48 md:h-56 flex items-center justify-center p-4">
+                <img src="${imageSrc}" class="max-w-full max-h-full object-contain group-hover:scale-110 transition-transform duration-700 mix-blend-multiply relative z-10">
             </div>
             
-            <div class="flex flex-col flex-grow">
-                <p class="text-[9px] font-black text-brand-cyan uppercase tracking-widest mb-1 truncate">${p.subcategory || p.category || 'Tecnología'}</p>
-                <h3 class="font-black text-sm text-brand-black line-clamp-2 uppercase leading-tight mb-4 min-h-[2.5em] group-hover:text-brand-cyan transition-colors">${p.name}</h3>
+            <div class="flex flex-col flex-grow text-center">
+                <p class="text-[8px] font-black text-brand-cyan uppercase tracking-widest mb-1 truncate">${p.subcategory || p.category || 'Tecnología'}</p>
+                <h3 class="font-bold text-xs md:text-sm text-brand-black mb-2 line-clamp-2 uppercase leading-tight min-h-[2.5em] group-hover:text-brand-cyan transition-colors">${p.name}</h3>
                 
-                <div class="mt-auto pt-4 border-t border-gray-50 flex items-end justify-between">
-                    <div>
-                        ${hasDiscount ? `<p class="text-gray-300 text-[10px] line-through font-bold leading-none">$${p.originalPrice.toLocaleString('es-CO')}</p>` : ''}
-                        <p class="text-lg font-black text-brand-black tracking-tight">$${p.price.toLocaleString('es-CO')}</p>
-                    </div>
+                <div class="mt-auto w-full">
+                    ${priceDisplay}
+                    ${actionBtnHTML}
                 </div>
             </div>
         </div>`;

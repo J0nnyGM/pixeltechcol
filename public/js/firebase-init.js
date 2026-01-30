@@ -4,7 +4,7 @@ import { getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signO
 
 // LIBRERÍA DE FIRESTORE (Base de datos)
 import { 
-    getFirestore, collection, addDoc, getDocs, doc, Timestamp, getDoc, setDoc, updateDoc, deleteDoc, query, where, orderBy, limit, runTransaction, onSnapshot, serverTimestamp, arrayUnion
+    getFirestore, collection, addDoc, getDocs, doc, Timestamp, getDoc, setDoc, updateDoc, deleteDoc, query, where, orderBy, limit, runTransaction, onSnapshot, serverTimestamp, arrayUnion, startAfter
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
 // LIBRERÍA DE STORAGE (Imágenes)
@@ -59,5 +59,6 @@ export {
     arrayUnion,
     Timestamp,
     // --- NUEVO: Exportar para usar en checkout.js ---
-    httpsCallable 
+    httpsCallable ,
+    startAfter
 };

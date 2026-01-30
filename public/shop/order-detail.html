@@ -10,8 +10,12 @@
     <style>
         .custom-scroll::-webkit-scrollbar { width: 6px; }
         .custom-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
-        .animate-in { animation: fadeIn 0.3s ease-out; }
-        @keyframes fadeIn { from { opacity: 0; transform: scale(0.98); } to { opacity: 1; transform: scale(1); } }
+        .animate-in { animation: fadeIn 0.5s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        
+        /* Timeline Connector */
+        .step-connector { @apply h-1 bg-gray-200 flex-grow rounded-full mx-2; }
+        .step-connector.active { @apply bg-brand-cyan; }
     </style>
 </head>
 
@@ -19,94 +23,74 @@
 
     <div id="global-header"></div>
 
-    <main class="flex-grow p-6 md:p-10 lg:p-14 max-w-7xl mx-auto w-full">
+    <main class="flex-grow p-4 md:p-10 lg:p-14 max-w-7xl mx-auto w-full animate-in">
         
-        <div class="mb-10">
-            <a href="/profile.html" class="inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-gray-400 hover:text-brand-black transition mb-4">
-                <i class="fa-solid fa-arrow-left"></i> Volver a mi panel
+        <div class="mb-8">
+            <a href="/profile.html" class="inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-gray-400 hover:text-brand-black transition mb-6 group">
+                <div class="w-6 h-6 rounded-full bg-white border border-gray-200 flex items-center justify-center group-hover:border-brand-cyan transition"><i class="fa-solid fa-arrow-left"></i></div>
+                Volver al panel
             </a>
-            <div class="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
-                <div>
-                    <h1 class="text-3xl md:text-5xl font-black tracking-tighter uppercase text-brand-black" id="order-id-display">CARGANDO...</h1>
-                    <p class="text-xs font-bold text-gray-400 uppercase tracking-widest mt-2" id="order-date-display">...</p>
+            
+            <div class="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-6 bg-white p-6 md:p-8 rounded-[2rem] border border-gray-100 shadow-sm relative overflow-hidden">
+                <div class="absolute top-0 right-0 w-64 h-64 bg-slate-50 rounded-full -translate-y-1/2 translate-x-1/2 z-0"></div>
+                
+                <div class="relative z-10">
+                    <div class="flex items-center gap-3 mb-2">
+                        <span class="w-2 h-8 bg-brand-cyan rounded-full"></span>
+                        <h1 class="text-2xl md:text-4xl font-black tracking-tighter uppercase text-brand-black" id="order-id-display">CARGANDO...</h1>
+                    </div>
+                    <p class="text-xs font-bold text-gray-400 uppercase tracking-widest pl-5" id="order-date-display">...</p>
                 </div>
-                <div id="order-status-badge"></div>
+                
+                <div class="relative z-10 flex flex-col items-end gap-2">
+                    <div id="order-status-badge"></div>
+                    <p class="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Estado Actual</p>
+                </div>
             </div>
         </div>
 
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-10">
+        <div class="bg-white rounded-[2.5rem] p-8 md:p-12 border border-gray-100 shadow-sm mb-10 overflow-x-auto">
+            <div class="min-w-[600px] max-w-5xl mx-auto flex justify-between items-start pt-2" id="timeline-container">
+                    <div class="flex items-center justify-center w-full text-gray-300 py-4"><i class="fa-solid fa-circle-notch fa-spin"></i> Cargando línea de tiempo...</div>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
             
-            <div class="lg:col-span-2 space-y-8">
-                <div class="bg-white rounded-[2.5rem] p-8 border border-gray-100 shadow-sm">
-                    <h3 class="text-xl font-black uppercase tracking-tighter mb-8 flex items-center gap-3">
-                        <i class="fa-solid fa-box-open text-brand-cyan"></i> Productos
+            <div class="lg:col-span-8 space-y-8">
+                
+                <div class="bg-white rounded-[2.5rem] p-6 md:p-8 border border-gray-100 shadow-sm">
+                    <h3 class="text-lg font-black uppercase tracking-tighter mb-6 flex items-center gap-3 border-b border-gray-50 pb-4">
+                        <i class="fa-solid fa-box-open text-brand-cyan"></i> Contenido del Pedido
                     </h3>
-                    <div id="order-items-list" class="space-y-6">
+                    <div id="order-items-list" class="space-y-4">
                         <div class="text-center py-10">
                             <i class="fa-solid fa-circle-notch fa-spin text-gray-300 text-2xl"></i>
                         </div>
                     </div>
                 </div>
+
+                <div class="bg-white rounded-[2.5rem] p-6 md:p-8 border border-gray-100 shadow-sm">
+                    <h3 class="text-lg font-black uppercase tracking-tighter mb-6 flex items-center gap-3 border-b border-gray-50 pb-4">
+                        <i class="fa-regular fa-credit-card text-brand-cyan"></i> Información de Pago
+                    </h3>
+                    <div class="flex flex-col md:flex-row gap-6" id="payment-info-container">
+                        <p class="text-sm text-gray-400">Cargando información de pago...</p>
+                    </div>
+                </div>
+
             </div>
 
-            <div class="space-y-8">
+<div class="lg:col-span-4 space-y-6">
                 
-                <div class="bg-white rounded-[2.5rem] p-8 border border-gray-100 shadow-sm">
-                    <h3 class="text-xl font-black uppercase tracking-tighter mb-6">Datos de <span class="text-brand-cyan">Envío</span></h3>
+                <div class="bg-slate-900 text-white rounded-[2.5rem] p-8 shadow-2xl relative overflow-hidden group">
+                    <div class="absolute top-0 right-0 w-40 h-40 bg-brand-cyan blur-[80px] opacity-20 rounded-full pointer-events-none group-hover:opacity-30 transition duration-700"></div>
                     
-                    <div class="space-y-6">
-                        <div class="flex items-start gap-4">
-                            <div class="w-10 h-10 rounded-full bg-slate-50 flex items-center justify-center text-gray-400 shrink-0">
-                                <i class="fa-solid fa-location-dot"></i>
-                            </div>
-                            <div>
-                                <p class="text-[9px] font-black text-gray-400 uppercase tracking-widest">Dirección de Entrega</p>
-                                <p id="shipping-address" class="text-sm font-bold text-brand-black mt-1">...</p>
-                                <p id="shipping-city" class="text-xs font-medium text-gray-500">...</p>
-                            </div>
-                        </div>
-
-                        <div id="tracking-container" class="hidden flex items-start gap-4 pt-6 border-t border-gray-50">
-                            <div class="w-10 h-10 rounded-full bg-brand-cyan/10 flex items-center justify-center text-brand-cyan shrink-0">
-                                <i class="fa-solid fa-truck-fast"></i>
-                            </div>
-                            <div>
-                                <p class="text-[9px] font-black text-gray-400 uppercase tracking-widest">Guía de Rastreo</p>
-                                <p id="shipping-guide" class="text-sm font-mono font-bold text-brand-black mt-1">...</p>
-                                <a id="tracking-link" href="#" target="_blank" class="text-[9px] font-bold text-brand-cyan hover:underline mt-1 block">Rastrear Paquete</a>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div id="billing-info-card" class="hidden bg-slate-100 rounded-[2.5rem] p-8 border border-gray-200">
-                    <h3 class="text-lg font-black uppercase tracking-tighter mb-4 text-gray-500">Facturación</h3>
-                    <div class="space-y-3">
-                        <div>
-                            <p class="text-[9px] font-bold text-gray-400 uppercase">Razón Social</p>
-                            <p id="bill-name" class="text-xs font-black text-brand-black uppercase"></p>
-                        </div>
-                        <div class="grid grid-cols-2 gap-4">
-                            <div>
-                                <p class="text-[9px] font-bold text-gray-400 uppercase">NIT</p>
-                                <p id="bill-taxid" class="text-xs font-mono font-bold text-brand-black"></p>
-                            </div>
-                            <div>
-                                <p class="text-[9px] font-bold text-gray-400 uppercase">Email</p>
-                                <p id="bill-email" class="text-xs font-bold text-brand-black truncate"></p>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="bg-slate-900 text-white rounded-[2.5rem] p-8 shadow-2xl relative overflow-hidden">
-                    <div class="absolute top-0 right-0 w-32 h-32 bg-brand-cyan blur-[60px] opacity-20 rounded-full pointer-events-none"></div>
-                    
-                    <h3 class="text-xl font-black uppercase tracking-tighter mb-6 relative z-10">Resumen</h3>
+                    <h3 class="text-lg font-black uppercase tracking-tighter mb-6 relative z-10">Resumen</h3>
                     
                     <div class="space-y-3 relative z-10">
                         <div class="flex justify-between items-center text-sm">
-                            <span class="font-medium text-gray-400">Total Productos (<span id="items-count">0</span>)</span>
+                            <span class="font-medium text-gray-400">Subtotal (<span id="items-count">0</span>)</span>
                             <span id="order-subtotal" class="font-bold">...</span>
                         </div>
                         <div class="flex justify-between items-center text-sm">
@@ -114,15 +98,93 @@
                             <span id="order-shipping" class="font-bold text-brand-cyan">...</span>
                         </div>
                         <div class="pt-6 mt-4 border-t border-white/10 flex justify-between items-end">
-                            <span class="font-black text-xs uppercase tracking-widest text-brand-cyan">Total Pagado</span>
+                            <div class="flex flex-col">
+                                <span class="font-black text-[10px] uppercase tracking-widest text-brand-cyan mb-1">Total Pagado</span>
+                                <span class="text-[9px] text-gray-500 uppercase">Incluye impuestos</span>
+                            </div>
                             <span id="order-total" class="text-3xl font-black tracking-tighter">...</span>
                         </div>
                     </div>
                 </div>
 
-                <div class="text-center">
-                    <a href="https://wa.me/573000000000" target="_blank" class="inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-gray-400 hover:text-brand-cyan transition">
-                        <i class="fa-brands fa-whatsapp text-lg"></i> ¿Necesitas ayuda con este pedido?
+                <div class="bg-white rounded-[2.5rem] p-8 border border-gray-100 shadow-sm">
+                    <h3 class="text-lg font-black uppercase tracking-tighter mb-6 flex items-center gap-2">
+                        Datos de <span class="text-brand-cyan">Entrega</span>
+                    </h3>
+                    
+                    <div class="space-y-6">
+                        
+                        <div class="flex items-start gap-4">
+                            <div class="w-10 h-10 rounded-2xl bg-slate-50 flex items-center justify-center text-gray-400 shrink-0">
+                                <i class="fa-solid fa-map-location-dot"></i>
+                            </div>
+                            <div>
+                                <p class="text-[9px] font-black text-gray-400 uppercase tracking-widest">Dirección de Envío</p>
+                                <p id="shipping-address" class="text-sm font-bold text-brand-black mt-1 leading-tight">...</p>
+                                <p id="shipping-city" class="text-xs font-black text-brand-cyan uppercase mt-1 flex items-center gap-1">
+                                    <i class="fa-solid fa-city text-[10px]"></i> ...
+                                </p>
+                            </div>
+                        </div>
+
+                        <div class="flex items-start gap-4">
+                            <div class="w-10 h-10 rounded-2xl bg-slate-50 flex items-center justify-center text-gray-400 shrink-0">
+                                <i class="fa-regular fa-user"></i>
+                            </div>
+                            <div>
+                                <p class="text-[9px] font-black text-gray-400 uppercase tracking-widest">Recibe / Contacto</p>
+                                <p id="buyer-name" class="text-sm font-bold text-brand-black mt-1 uppercase">...</p>
+                                <p id="buyer-contact" class="text-xs font-medium text-gray-500">...</p>
+                            </div>
+                        </div>
+
+                        <div id="tracking-container" class="hidden flex flex-col pt-4 border-t border-dashed border-gray-100 gap-3">
+                            <div class="flex items-start gap-4">
+                                <div class="w-10 h-10 rounded-2xl bg-brand-cyan text-brand-black flex items-center justify-center shrink-0 shadow-lg shadow-cyan-500/30 animate-pulse">
+                                    <i class="fa-solid fa-truck-fast"></i>
+                                </div>
+                                <div class="flex-grow">
+                                    <p class="text-[9px] font-black text-gray-400 uppercase tracking-widest">Rastreo Oficial</p>
+                                    <div class="flex items-center gap-2 mt-1">
+                                        <p id="shipping-guide" class="text-sm font-mono font-bold text-brand-black">...</p>
+                                        <button id="copy-guide-btn" class="w-6 h-6 flex items-center justify-center rounded-full bg-gray-50 text-gray-400 hover:text-brand-cyan hover:bg-white border border-transparent hover:border-gray-200 transition" title="Copiar código">
+                                            <i class="fa-regular fa-copy text-xs"></i>
+                                        </button>
+                                    </div>
+                                    <a id="tracking-link" href="#" target="_blank" class="text-[10px] font-black text-brand-cyan hover:underline mt-1 block uppercase tracking-wide">
+                                        Ver en Transportadora <i class="fa-solid fa-arrow-up-right-from-square ml-1"></i>
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="billing-info-container" class="hidden pt-6 mt-2 border-t border-gray-100">
+                            <div class="flex items-center gap-2 mb-3">
+                                <i class="fa-solid fa-file-invoice-dollar text-brand-cyan"></i>
+                                <h4 class="text-xs font-black uppercase text-brand-black tracking-widest">Datos Facturación</h4>
+                            </div>
+                            <div class="bg-slate-50 rounded-2xl p-4 space-y-2 border border-gray-100">
+                                <div class="flex justify-between items-center border-b border-gray-200 pb-2">
+                                    <span class="text-[9px] text-gray-400 font-bold uppercase">Razón Social</span>
+                                    <span id="bill-name" class="text-[10px] font-bold text-brand-black text-right uppercase">...</span>
+                                </div>
+                                <div class="flex justify-between items-center border-b border-gray-200 pb-2">
+                                    <span class="text-[9px] text-gray-400 font-bold uppercase">NIT / CC</span>
+                                    <span id="bill-taxid" class="text-[10px] font-bold text-brand-black text-right font-mono">...</span>
+                                </div>
+                                <div class="flex justify-between items-center">
+                                    <span class="text-[9px] text-gray-400 font-bold uppercase">Email Elec.</span>
+                                    <span id="bill-email" class="text-[10px] font-bold text-brand-black text-right truncate max-w-[140px]">...</span>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+
+                <div class="text-center pt-2">
+                    <a href="https://wa.me/573000000000" target="_blank" class="inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-gray-400 hover:text-brand-cyan transition bg-white px-5 py-3 rounded-full border border-gray-100 hover:border-brand-cyan shadow-sm hover:shadow-md">
+                        <i class="fa-brands fa-whatsapp text-lg text-emerald-500"></i> ¿Necesitas ayuda con este pedido?
                     </a>
                 </div>
 
@@ -230,6 +292,9 @@
             </div>
         </div>
     </div>
+
+        <div id="global-footer"></div>
+
 
     <script type="module">
         import { loadGlobalHeader, loadGlobalFooter } from '../js/global-components.js';
