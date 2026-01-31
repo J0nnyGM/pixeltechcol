@@ -11,7 +11,8 @@ export function loadAdminSidebar() {
         {
             title: 'Principal',
             items: [
-                { name: 'Dashboard', icon: 'fa-chart-line', path: '/admin/index.html' }
+                { name: 'Dashboard', icon: 'fa-chart-line', path: '/admin/index.html' },
+                { name: 'WhatsApp', icon: 'fa-brands fa-whatsapp', path: '/admin/whatsapp.html' }
             ]
         },
         {

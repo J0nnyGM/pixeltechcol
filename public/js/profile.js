@@ -1,4 +1,4 @@
-import { auth, db, onAuthStateChanged, doc, getDoc, updateDoc, collection, getDocs, query, where, orderBy, limit, startAfter, Timestamp } from "./firebase-init.js";
+import { auth, db, onAuthStateChanged, doc, getDoc, updateDoc, collection, getDocs, query, where, orderBy, limit, startAfter, Timestamp, signOut} from "./firebase-init.js";
 let currentUserId = null;
 let allDepartments = [];
 let allCities = [];

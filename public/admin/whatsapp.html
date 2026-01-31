@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WhatsApp CRM | PixelTech Admin</title>
+    <link href="../css/styles.css" rel="stylesheet">
+    <script src="https://kit.fontawesome.com/0d623ded97.js" crossorigin="anonymous"></script>
+    <style>
+        /* ... (Estilos anteriores) ... */
+        .chat-scroll::-webkit-scrollbar { width: 6px; }
+        .chat-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+        .chat-bubble-in { background: #ffffff; border-radius: 0px 12px 12px 12px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+        .chat-bubble-out { background: #dcf8c6; border-radius: 12px 0px 12px 12px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+        .bg-chat-pattern { background-color: #e5ddd5; background-image: url("data:image/svg+xml,..."); } /* Tu SVG aquí */
+        .transition-width { transition-property: width; transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1); transition-duration: 300ms; }
+    </style>
+</head>
+<body class="bg-slate-50 font-sans text-brand-black">
+
+    <audio id="notify-sound" src="https://assets.mixkit.co/active_storage/sfx/2354/2354-preview.mp3" preload="auto"></audio>
+
+    <div class="flex h-screen overflow-hidden">
+        <div id="admin-sidebar" class="shrink-0 z-50"></div>
+
+        <main class="flex-1 flex flex-col h-full min-w-0 bg-white relative">
+            <div class="flex flex-1 overflow-hidden relative">
+                
+                <div id="chat-list-panel" class="w-full md:w-80 lg:w-96 bg-white border-r border-gray-200 flex flex-col h-full z-10 pb-16 md:pb-0 shrink-0">
+                    
+                    <div class="p-4 bg-gray-50 border-b border-gray-200 shrink-0">
+                        <div class="flex justify-between items-center mb-3">
+                            <h2 class="font-black text-lg text-brand-black">Bandeja</h2>
+                            <button class="p-2 hover:bg-gray-200 rounded-full transition" title="Nuevo Chat"><i class="fa-solid fa-pen-to-square"></i></button>
+                        </div>
+                        
+                        <div class="flex bg-gray-200 p-1 rounded-xl">
+                            <button id="tab-open" class="flex-1 py-1.5 text-[10px] font-black uppercase rounded-lg bg-white shadow-sm text-brand-black transition">Abiertos</button>
+                            <button id="tab-resolved" class="flex-1 py-1.5 text-[10px] font-black uppercase rounded-lg text-gray-500 hover:text-brand-black transition">Resueltos</button>
+                        </div>
+                    </div>
+
+                    <div class="p-3 border-b border-gray-100 shrink-0">
+                        <div class="relative">
+                            <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs"></i>
+                            <input type="text" id="chat-search-input" placeholder="Buscar chat..." class="w-full bg-gray-100 rounded-lg pl-9 pr-4 py-2 text-xs font-bold outline-none focus:ring-1 focus:ring-brand-cyan transition">
+                        </div>
+                    </div>
+                    <div id="chat-list" class="flex-1 overflow-y-auto chat-scroll p-2 space-y-1"></div>
+                </div>
+
+                <div id="chat-conversation-panel" class="absolute inset-0 md:static flex-1 bg-chat-pattern flex flex-col transform translate-x-full md:translate-x-0 transition-transform duration-300 z-20 pb-16 md:pb-0 min-w-0">
+                    
+                    <div id="chat-header" class="bg-gray-50 border-b border-gray-200 p-3 flex justify-between items-center shadow-sm shrink-0 hidden">
+                        <div class="flex items-center gap-3">
+                            <button id="back-to-list-btn" class="md:hidden text-gray-500 hover:text-brand-black px-2"><i class="fa-solid fa-arrow-left"></i></button>
+                            <div class="w-10 h-10 rounded-full bg-gray-300 flex items-center justify-center text-white font-bold text-lg overflow-hidden shrink-0">
+                                <i class="fa-solid fa-user"></i>
+                            </div>
+                            <div>
+                                <h3 id="active-chat-name" class="font-black text-sm text-brand-black leading-tight cursor-pointer hover:underline">Nombre Cliente</h3>
+                                <p id="active-chat-phone" class="text-[10px] font-mono text-gray-500">+57 300 000 0000</p>
+                            </div>
+                        </div>
+                        
+                        <div class="flex items-center gap-2">
+                            <button id="btn-resolve-chat" class="hidden md:flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-200 rounded-lg text-xs font-bold text-gray-500 hover:text-green-600 hover:border-green-200 hover:bg-green-50 transition" title="Marcar como Resuelto">
+                                <i class="fa-solid fa-check"></i> <span class="hidden lg:inline">Resolver</span>
+                            </button>
+
+                            <div id="session-timer-badge" class="hidden flex items-center gap-2 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest bg-emerald-100 text-emerald-700">
+                                <i class="fa-regular fa-clock"></i> <span id="session-timer-text">23:59</span>
+                            </div>
+
+                            <div class="relative">
+                                <button id="btn-actions-trigger" class="w-9 h-9 rounded-full bg-white border border-gray-200 text-gray-500 hover:bg-brand-black hover:text-white hover:border-brand-black transition flex items-center justify-center shadow-sm" title="Menú de Acciones">
+                                    <i class="fa-solid fa-ellipsis-vertical"></i>
+                                </button>
+
+                                <div id="actions-dropdown" class="hidden absolute right-0 top-full mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 overflow-hidden z-50 animate-in zoom-in duration-200 origin-top-right">
+                                    <button id="btn-action-orders" class="w-full text-left px-4 py-3 hover:bg-slate-50 flex items-center gap-3 text-xs font-bold text-gray-600 transition">
+                                        <i class="fa-solid fa-box-open text-brand-cyan"></i> Historial Pedidos
+                                    </button>
+                                    <button id="btn-action-new-client" class="w-full text-left px-4 py-3 hover:bg-slate-50 flex items-center gap-3 text-xs font-bold text-gray-600 transition border-t border-gray-50">
+                                        <i class="fa-solid fa-user-plus text-blue-500"></i> Registrar Cliente
+                                    </button>
+                                    <button id="btn-action-new-sale" class="w-full text-left px-4 py-3 hover:bg-slate-50 flex items-center gap-3 text-xs font-bold text-gray-600 transition border-t border-gray-50">
+                                        <i class="fa-solid fa-cart-plus text-green-500"></i> Nueva Venta
+                                    </button>
+                                </div>
+                            </div>
+
+                            <a href="#" id="wa-link-direct" target="_blank" class="text-gray-400 hover:text-green-600 transition text-lg px-2" title="Abrir en Web"><i class="fa-brands fa-whatsapp"></i></a>
+                        </div>
+                    </div>
+
+                    <div id="chat-messages-area" class="flex-1 overflow-y-auto chat-scroll p-4 md:p-8 space-y-3 hidden"></div>
+                    
+                    <div id="chat-empty-state" class="flex-1 flex flex-col items-center justify-center text-center p-10 bg-slate-50/90 h-full">
+                        <div class="w-32 h-32 bg-white rounded-full flex items-center justify-center shadow-sm mb-6"><i class="fa-brands fa-whatsapp text-6xl text-brand-cyan/50"></i></div>
+                        <h2 class="text-2xl font-black text-gray-700 mb-2">Bandeja de Entrada</h2>
+                        <p class="text-sm text-gray-500 max-w-md">Gestiona tus ventas y soporte.<br>Usa <strong>/</strong> para respuestas rápidas.</p>
+                    </div>
+
+                    <div id="chat-input-area" class="bg-gray-50 p-3 flex items-end gap-2 border-t border-gray-200 hidden relative">
+                        
+                        <div id="quick-reply-menu" class="hidden absolute bottom-full left-4 mb-2 w-72 bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden z-50 animate-in slide-in-from-bottom-2">
+                            <div class="bg-gray-50 p-2 text-[9px] font-black uppercase text-gray-400 tracking-widest border-b border-gray-100">Respuestas Rápidas</div>
+                            <div id="quick-reply-list" class="max-h-60 overflow-y-auto custom-scroll">
+                                </div>
+                        </div>
+
+                        <div id="product-picker-popover" class="hidden absolute bottom-full left-0 mb-2 ml-2 w-80 bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden z-50 flex flex-col h-96 animate-in slide-in-from-bottom-5">
+                            <div class="p-3 border-b border-gray-100 flex gap-2">
+                                <input type="text" id="prod-picker-search" placeholder="Buscar producto..." class="w-full bg-slate-50 rounded-lg px-3 py-2 text-xs font-bold outline-none focus:ring-1 focus:ring-brand-cyan">
+                                <button id="close-prod-picker" class="text-gray-400 hover:text-red-500"><i class="fa-solid fa-xmark"></i></button>
+                            </div>
+                            <div id="prod-picker-list" class="flex-1 overflow-y-auto custom-scroll p-2 space-y-1"></div>
+                        </div>
+
+                        <input type="file" id="image-upload-input" accept="image/*" class="hidden">
+                        
+                        <button id="btn-products" class="p-3 text-gray-400 hover:text-brand-cyan transition relative group" title="Enviar Producto">
+                            <i class="fa-solid fa-tag"></i>
+                        </button>
+
+                        <button id="btn-attach" class="p-3 text-gray-400 hover:text-brand-cyan transition" title="Adjuntar Imagen"><i class="fa-solid fa-paperclip"></i></button>
+                        
+                        <div class="flex-1 bg-white rounded-2xl border border-gray-200 flex items-center px-4 py-2 shadow-sm focus-within:ring-1 focus-within:ring-brand-cyan/50 focus-within:border-brand-cyan transition relative">
+                            <textarea id="message-input" rows="1" placeholder="Escribe un mensaje o usa /" disabled class="w-full bg-transparent outline-none text-sm resize-none max-h-32"></textarea>
+                        </div>
+                        <button id="send-btn" disabled class="p-3 w-12 h-12 rounded-full bg-gray-200 text-gray-400 flex items-center justify-center transition cursor-not-allowed hover:shadow-md"><i class="fa-solid fa-paper-plane"></i></button>
+                    </div>
+                </div>
+
+                <div id="customer-info-panel" class="w-0 overflow-hidden bg-white shadow-xl transition-width duration-300 z-10 flex flex-col border-l border-gray-200 shrink-0">
+                    <div class="p-4 bg-gray-50 border-b border-gray-200 flex justify-between items-center shrink-0 w-96">
+                        <h3 class="font-black text-sm uppercase tracking-wider text-brand-black flex items-center gap-2"><i class="fa-solid fa-box-open text-brand-cyan"></i> Historial Pedidos</h3>
+                        <button id="close-info-panel" class="text-gray-400 hover:text-brand-red"><i class="fa-solid fa-xmark"></i></button>
+                    </div>
+                    <div class="flex-1 overflow-y-auto chat-scroll p-6 space-y-6 w-96">
+                        <div class="flex items-center gap-3 bg-slate-50 p-3 rounded-xl border border-gray-100">
+                             <div class="w-10 h-10 rounded-full bg-white border border-gray-100 flex items-center justify-center text-gray-400"><i class="fa-regular fa-user"></i></div>
+                             <div class="min-w-0"><h2 id="info-name" class="text-xs font-black text-brand-black truncate">...</h2><p id="info-phone" class="text-[10px] font-mono text-gray-500">...</p></div>
+                             <span id="info-status-badge" class="ml-auto px-2 py-0.5 bg-gray-100 text-gray-500 rounded text-[9px] font-bold uppercase">...</span>
+                        </div>
+                        <div>
+                            <label class="block text-[9px] font-black uppercase text-gray-400 tracking-widest mb-1">Buscar Orden</label>
+                            <div class="flex gap-2"><input type="text" id="order-search-input" placeholder="ID ORDEN..." class="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-xs font-bold outline-none focus:border-brand-cyan transition uppercase"><button id="order-search-btn" class="w-8 h-8 rounded-lg bg-brand-black text-white flex items-center justify-center hover:bg-brand-cyan hover:text-brand-black transition"><i class="fa-solid fa-magnifying-glass text-xs"></i></button></div>
+                        </div>
+                        <div>
+                            <div id="orders-list-container" class="space-y-3"><p class="text-xs text-gray-400 text-center py-4">Selecciona una opción.</p></div>
+                            <button id="load-more-orders-btn" class="hidden w-full mt-4 py-2 text-[10px] font-bold uppercase text-gray-400 hover:text-brand-cyan hover:bg-cyan-50 rounded-lg transition border border-dashed border-gray-200">Cargar más</button>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </main>
+    </div>
+
+    <div id="order-modal" class="fixed inset-0 z-[60] hidden flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-sm">
+        <div class="bg-white w-full max-w-4xl rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+            <div class="bg-slate-50 p-6 md:p-8 border-b border-gray-100 flex justify-between items-start shrink-0">
+                <div class="flex items-center gap-4"><div id="modal-source-icon"></div><div><h2 class="text-2xl font-black text-brand-black uppercase tracking-tighter" id="modal-order-id">...</h2><div class="flex items-center gap-2 mt-1"><p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest" id="modal-order-date">...</p><span id="modal-order-status-badge"></span></div></div></div>
+                <button onclick="document.getElementById('order-modal').classList.add('hidden')" class="w-10 h-10 rounded-full bg-white border border-gray-200 text-gray-400 hover:text-brand-red transition flex items-center justify-center"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="flex-1 overflow-y-auto chat-scroll p-6 md:p-8">
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+                    <div class="space-y-6"><div class="bg-white border border-gray-100 p-5 rounded-2xl relative overflow-hidden"><h4 class="text-xs font-black uppercase text-gray-400 tracking-widest mb-3">Cliente</h4><p id="modal-client-name" class="text-sm font-bold text-brand-black uppercase">...</p><p id="modal-client-doc" class="text-xs font-mono text-gray-500">...</p><p id="modal-client-contact" class="text-xs text-gray-500 mt-1">...</p></div><div class="bg-white border border-gray-100 p-5 rounded-2xl"><h4 class="text-xs font-black uppercase text-gray-400 tracking-widest mb-3">Envío</h4><p id="modal-delivery-address" class="text-sm font-bold text-brand-black">...</p><p id="modal-delivery-city" class="text-xs font-black text-brand-cyan uppercase mt-1">...</p></div></div>
+                    <div class="space-y-6"><div id="modal-payment-info" class="hidden bg-white border border-gray-100 p-5 rounded-2xl"></div><div id="modal-billing-section" class="hidden bg-slate-50 border border-gray-100 p-5 rounded-2xl"><h4 class="text-xs font-black uppercase text-gray-400 tracking-widest mb-2 flex items-center gap-2"><i class="fa-solid fa-file-invoice-dollar"></i> Facturación</h4><p id="bill-modal-name" class="text-xs font-bold text-brand-black uppercase">...</p><p id="bill-modal-id" class="text-xs font-mono text-gray-500">...</p><p id="bill-modal-email" class="text-xs text-gray-500 truncate">...</p></div></div>
+                </div>
+                <div id="modal-order-notes" class="hidden bg-yellow-50 border border-yellow-100 p-4 rounded-xl mb-8 flex items-start gap-3"><i class="fa-regular fa-note-sticky text-yellow-500 mt-1"></i><div><p class="text-[10px] font-black uppercase text-yellow-600 tracking-widest">Nota del Cliente</p><p id="note-text" class="text-xs font-medium text-yellow-800 mt-1"></p></div></div>
+                <div class="mb-8"><h4 class="text-xs font-black uppercase text-gray-400 tracking-widest mb-4 border-b border-gray-100 pb-2">Contenido del Pedido</h4><div id="modal-items-list-responsive" class="space-y-4"></div></div>
+                <div class="flex justify-end"><div class="w-full max-w-xs space-y-2"><div class="flex justify-between text-xs text-gray-500"><span>Subtotal</span> <span id="modal-order-subtotal" class="font-bold">...</span></div><div class="flex justify-between text-xs text-gray-500"><span>Envío</span> <span id="modal-order-shipping" class="font-bold text-brand-cyan">...</span></div><div class="flex justify-between text-xl font-black text-brand-black border-t border-gray-100 pt-2 mt-2"><span>Total</span> <span id="modal-order-total">...</span></div></div></div>
+            </div>
+            <div class="bg-gray-50 p-6 border-t border-gray-200 shrink-0 flex justify-between items-center"><div id="modal-footer-msg" class="text-xs font-bold hidden"></div><div id="modal-footer-actions" class="flex gap-3 hidden"><button id="btn-save-alistado" onclick="saveAlistamiento()" class="px-6 py-3 bg-brand-cyan text-brand-black font-black text-xs uppercase rounded-xl hover:shadow-lg transition hidden">Guardar Alistamiento</button><button id="btn-set-despachado" onclick="openDispatchModal()" class="px-6 py-3 bg-slate-800 text-white font-black text-xs uppercase rounded-xl hover:bg-black transition hidden">Despachar Pedido</button></div></div>
+        </div>
+    </div>
+    
+    <div id="client-modal" class="fixed inset-0 z-[80] hidden flex items-center justify-center p-4">
+        <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-md transition-opacity" onclick="document.getElementById('client-modal').classList.add('hidden')"></div>
+        <div class="relative bg-white w-full max-w-2xl rounded-[2.5rem] shadow-2xl overflow-hidden animate-in zoom-in duration-300 max-h-[90vh] flex flex-col">
+            <div class="p-8 border-b border-gray-50 flex justify-between items-center bg-slate-50/50">
+                <h3 class="font-black text-xl uppercase tracking-tighter">Registrar <span class="text-brand-cyan">Cliente</span></h3>
+                <button onclick="document.getElementById('client-modal').classList.add('hidden')" class="w-10 h-10 rounded-full bg-white border border-gray-200 text-gray-400 hover:text-brand-red transition flex items-center justify-center"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <div class="p-8 overflow-y-auto custom-scroll space-y-6">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+                    <div class="md:col-span-2"><label class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1 block ml-1">Nombre Completo *</label><input type="text" id="new-client-name" class="w-full bg-slate-50 border border-gray-100 p-4 rounded-2xl text-sm font-bold outline-none focus:border-brand-cyan"></div>
+                    <div><label class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1 block ml-1">Teléfono</label><input type="text" id="new-client-phone" class="w-full bg-slate-50 border border-gray-100 p-4 rounded-2xl text-sm font-bold outline-none focus:border-brand-cyan"></div>
+                    <div><label class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1 block ml-1">Cédula / NIT</label><input type="text" id="new-client-doc" class="w-full bg-slate-50 border border-gray-100 p-4 rounded-2xl text-sm font-bold outline-none focus:border-brand-cyan"></div>
+                    <div class="md:col-span-2"><label class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1 block ml-1">Email</label><input type="email" id="new-client-email" class="w-full bg-slate-50 border border-gray-100 p-4 rounded-2xl text-sm font-bold outline-none focus:border-brand-cyan"></div>
+                    <div><label class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1 block ml-1">Departamento</label><div class="relative"><select id="new-client-dept" class="w-full bg-slate-50 border border-gray-100 p-4 rounded-2xl text-sm font-bold outline-none focus:border-brand-cyan appearance-none"><option value="">Seleccione...</option></select><i class="fa-solid fa-chevron-down absolute right-4 top-1/2 -translate-y-1/2 text-gray-300 pointer-events-none text-xs"></i></div></div>
+                    <div><label class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1 block ml-1">Ciudad</label><div class="relative"><select id="new-client-city" class="w-full bg-slate-50 border border-gray-100 p-4 rounded-2xl text-sm font-bold outline-none focus:border-brand-cyan appearance-none" disabled><option value="">Seleccione Depto...</option></select><i class="fa-solid fa-chevron-down absolute right-4 top-1/2 -translate-y-1/2 text-gray-300 pointer-events-none text-xs"></i></div></div>
+                    <div class="md:col-span-2"><label class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1 block ml-1">Dirección</label><input type="text" id="new-client-address" class="w-full bg-slate-50 border border-gray-100 p-4 rounded-2xl text-sm font-bold outline-none focus:border-brand-cyan"></div>
+                </div>
+            </div>
+            <div class="p-8 bg-slate-50 border-t border-gray-100"><button id="save-client" class="w-full bg-brand-black text-white font-black py-4 rounded-2xl uppercase text-xs tracking-widest hover:bg-brand-cyan hover:text-brand-black transition">Guardar Cliente</button></div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { loadAdminSidebar } from '../js/admin-ui.js';
+        import { auth, onAuthStateChanged } from '../js/firebase-init.js';
+        import '../js/order-actions.js';
+        loadAdminSidebar();
+        onAuthStateChanged(auth, (user) => { if (!user) window.location.href = '/auth/login.html'; });
+    </script>
+    <script type="module" src="../js/admin-whatsapp.js"></script>
+</body>
+</html>

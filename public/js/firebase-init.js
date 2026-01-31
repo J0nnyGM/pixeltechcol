@@ -4,7 +4,7 @@ import { getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signO
 
 // LIBRERÍA DE FIRESTORE (Base de datos)
 import { 
-    getFirestore, collection, addDoc, getDocs, doc, Timestamp, getDoc, setDoc, updateDoc, deleteDoc, query, where, orderBy, limit, runTransaction, onSnapshot, serverTimestamp, arrayUnion, startAfter
+    getFirestore, collection, addDoc, getDocs, doc, Timestamp, getDoc, setDoc, updateDoc, deleteDoc, query, where, orderBy, limit, runTransaction, onSnapshot,limitToLast,  endAt, startAt, serverTimestamp, arrayUnion, startAfter
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
 // LIBRERÍA DE STORAGE (Imágenes)
@@ -42,13 +42,16 @@ export {
     addDoc, 
     getDocs, 
     doc, 
+    limitToLast,
     getDoc,
     setDoc,
     updateDoc,
     deleteDoc,
     query,      
     orderBy,    
-    limit,      
+    limit,   
+    startAt,
+    endAt,  
     where,      
     ref,
     uploadBytes,

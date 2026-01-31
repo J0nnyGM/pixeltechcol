@@ -24,7 +24,6 @@ service cloud.firestore {
     match /users/{userId} {
       allow read, write: if isOwner(userId) || isAdmin();
       
-      // *** CORRECCIÓN AQUÍ *** // Permitir acceso a la subcolección de direcciones
       match /addresses/{addressId} {
         allow read, write: if isOwner(userId) || isAdmin();
       }
@@ -35,7 +34,6 @@ service cloud.firestore {
       allow read: if true;
       allow create, delete: if isAdmin();
       
-      // Permitimos actualización de stock para el proceso de compra
       allow update: if isAdmin() || (
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stock', 'combinations', 'updatedAt'])
       );
@@ -59,11 +57,8 @@ service cloud.firestore {
 
     // 5. Pedidos (Orders)
     match /orders/{orderId} {
-      // 1. CREACIÓN: Permitida a todos (para guardar pagos de MP)
       allow create: if true; 
       
-      // 2. LECTURA: 
-      // Permitimos leer si: Es Admin O Es el dueño (Logueado) O Es una orden de invitado ('GUEST_MP')
       allow read: if isAdmin() || 
                   (request.auth != null && resource.data.userId == request.auth.uid) || 
                   resource.data.userId == 'GUEST_MP';
@@ -124,6 +119,17 @@ service cloud.firestore {
     // 15. CUENTAS POR PAGAR (CARTERA)
     match /payables/{payableId} {
       allow read, write: if isAdmin();
+    }
+
+    // --- NUEVO ---
+    // 16. CHATS (WhatsApp CRM)
+    // Solo el admin puede ver y responder chats desde el panel
+    match /chats/{chatId} {
+      allow read, write: if isAdmin();
+
+      match /messages/{messageId} {
+        allow read, write: if isAdmin();
+      }
     }
   }
 }
