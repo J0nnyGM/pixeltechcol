@@ -1,4 +1,4 @@
-import { db, storage, collection, addDoc, getDocs, ref, uploadBytes, getDownloadURL } from './firebase-init.js';
+import { db, storage, collection, addDoc, getDocs, ref, uploadBytes, getDownloadURL, query, orderBy } from './firebase-init.js'; // Asegúrate de importar query/orderBy si no estaban
 import { loadAdminSidebar } from './admin-ui.js';
 
 loadAdminSidebar();
@@ -16,6 +16,7 @@ let definedColors = [];
 let definedCaps = [];
 let colorImagesMap = {};
 let matrixData = {};
+let cachedCategories = []; // <--- NUEVO: Array en memoria
 
 // --- 1. GALERÍA GLOBAL (CON FLECHAS RESTAURADAS) ---
 const pImagesInput = document.getElementById('p-images');
@@ -177,67 +178,183 @@ function recalcTotalStock() {
 function lockGlobalInputs() { stockInput.readOnly = true; stockInput.classList.add('bg-gray-100', 'text-gray-400'); stockLabel.innerHTML = "Stock <span class='text-xs text-brand-cyan'>(Auto)</span>"; }
 function unlockGlobalInputs() { stockInput.readOnly = false; stockInput.classList.remove('bg-gray-100', 'text-gray-400'); stockLabel.innerHTML = "Stock <span class='text-brand-cyan'>(Manual)</span>"; }
 
-// --- 5. BUSCADOR CATEGORÍAS (Igual) ---
+// ==========================================================================
+// 5. BUSCADOR CATEGORÍAS (CORREGIDO: MANEJO DE OBJETOS)
+// ==========================================================================
 const catSearchInput = document.getElementById('cat-search');
 const catResults = document.getElementById('cat-results');
 const pCategoryHidden = document.getElementById('p-category');
 let pSubCategoryHidden = document.getElementById('p-subcategory');
+
 if(!pSubCategoryHidden) {
     pSubCategoryHidden = document.createElement('input');
     pSubCategoryHidden.type = 'hidden';
     pSubCategoryHidden.id = 'p-subcategory';
     document.querySelector('.admin-input-group.relative').appendChild(pSubCategoryHidden);
 }
-if(catSearchInput) {
-    catSearchInput.oninput = async (e) => {
-        const term = e.target.value.toLowerCase();
-        if (term.length < 1) { catResults.classList.add('hidden'); return; }
-        const snap = await getDocs(collection(db, "categories"));
-        catResults.innerHTML = '';
-        let found = false;
+
+// A. Función para cargar categorías
+async function loadCategoriesToMemory() {
+    if (cachedCategories.length > 0) return;
+
+    const CACHE_KEY = 'admin_categories_cache_v2'; // Cambié el nombre para forzar limpieza del caché viejo
+
+    // 1. Intentar leer caché (Solo si es la versión nueva)
+    const stored = sessionStorage.getItem(CACHE_KEY);
+    if (stored) {
+        cachedCategories = JSON.parse(stored);
+        return;
+    }
+
+    // 2. Leer de Firebase
+    try {
+        const q = query(collection(db, "categories"), orderBy("name"));
+        const snap = await getDocs(q);
+        
+        cachedCategories = [];
+        
         snap.forEach(d => {
-            const cat = d.data();
-            cat.subcategories.forEach(sub => {
-                if (sub.toLowerCase().includes(term) || cat.name.toLowerCase().includes(term)) {
-                    found = true;
-                    const div = document.createElement('div');
-                    div.className = "p-4 hover:bg-brand-cyan/10 cursor-pointer text-xs font-bold rounded-xl flex justify-between items-center transition";
-                    div.innerHTML = `<span>${sub}</span> <span class="text-[8px] text-gray-400 uppercase bg-gray-50 px-2 py-1 rounded-md">${cat.name}</span>`;
-                    div.onclick = () => { catSearchInput.value = `${sub} (${cat.name})`; pCategoryHidden.value = cat.name; pSubCategoryHidden.value = sub; catResults.classList.add('hidden'); };
-                    catResults.appendChild(div);
-                }
-            });
+            const data = d.data();
+            const catName = data.name || "Sin Nombre";
+
+            if (data.subcategories && Array.isArray(data.subcategories) && data.subcategories.length > 0) {
+                data.subcategories.forEach(sub => {
+                    // --- CORRECCIÓN AQUÍ ---
+                    // Verificamos si 'sub' es un objeto o un texto simple
+                    let subName = sub;
+                    
+                    if (typeof sub === 'object' && sub !== null) {
+                        // Si es objeto, intentamos sacar 'name', 'label' o 'valor'
+                        subName = sub.name || sub.label || sub.value || "Subcategoría";
+                    }
+                    // -----------------------
+
+                    cachedCategories.push({
+                        category: catName,
+                        subcategory: subName,
+                        searchStr: `${subName} ${catName}`.toLowerCase()
+                    });
+                });
+            } else {
+                cachedCategories.push({
+                    category: catName,
+                    subcategory: null,
+                    searchStr: catName.toLowerCase()
+                });
+            }
         });
-        if (found) catResults.classList.remove('hidden'); else catResults.classList.add('hidden');
-    };
+
+        sessionStorage.setItem(CACHE_KEY, JSON.stringify(cachedCategories));
+
+    } catch (e) {
+        console.error("Error cargando categorías:", e);
+    }
 }
 
-// --- 6. GUARDAR (CON GARANTÍA) ---
+// B. Evento Focus y Input
+if (catSearchInput) {
+    catSearchInput.addEventListener('focus', loadCategoriesToMemory);
+
+    catSearchInput.addEventListener('input', (e) => {
+        const term = e.target.value.toLowerCase().trim();
+        
+        if (term.length < 1) { 
+            catResults.classList.add('hidden'); 
+            return; 
+        }
+
+        const matches = cachedCategories.filter(item => item.searchStr.includes(term));
+        
+        catResults.innerHTML = '';
+        
+        if (matches.length === 0) {
+            catResults.innerHTML = `<div class="p-3 text-xs text-gray-400 text-center">No encontrado</div>`;
+        } else {
+            matches.slice(0, 10).forEach(match => {
+                const div = document.createElement('div');
+                div.className = "p-4 hover:bg-brand-cyan/10 cursor-pointer text-xs font-bold rounded-xl flex justify-between items-center transition border-b border-gray-50 last:border-0";
+                
+                const subDisplay = match.subcategory ? match.subcategory : 'General';
+                
+                div.innerHTML = `
+                    <span class="text-brand-black">${subDisplay}</span> 
+                    <span class="text-[9px] text-gray-400 uppercase bg-gray-50 px-2 py-1 rounded-md border border-gray-100">${match.category}</span>
+                `;
+                
+                div.onclick = () => { 
+                    const displayVal = match.subcategory ? `${match.subcategory} (${match.category})` : match.category;
+                    catSearchInput.value = displayVal; 
+                    pCategoryHidden.value = match.category; 
+                    pSubCategoryHidden.value = match.subcategory || ''; 
+                    catResults.classList.add('hidden'); 
+                };
+                
+                catResults.appendChild(div);
+            });
+        }
+        
+        catResults.classList.remove('hidden');
+    });
+
+    document.addEventListener('click', (e) => {
+        if (!catSearchInput.contains(e.target) && !catResults.contains(e.target)) {
+            catResults.classList.add('hidden');
+        }
+    });
+}
+// --- 6. GUARDAR (OPTIMIZADO: SUBIDA PARALELA + COMPRESIÓN) ---
 form.onsubmit = async (e) => {
     e.preventDefault();
     if (!pCategoryHidden.value) { alert("Selecciona una categoría."); return; }
 
     btnPublish.disabled = true;
-    btnPublish.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> GUARDANDO...';
+    btnPublish.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> OPTIMIZANDO Y GUARDANDO...';
 
     try {
-        const globalUrls = [];
-        for (const item of globalFiles) {
-            const refImg = ref(storage, `products/global/${Date.now()}_${item.file.name}`);
-            await uploadBytes(refImg, item.file);
-            globalUrls.push(await getDownloadURL(refImg));
-        }
+        // A. PROCESAR IMÁGENES GLOBALES
+        // 1. Comprimimos todas en paralelo
+        const optimizedGlobalFiles = await Promise.all(
+            globalFiles.map(item => compressImage(item.file))
+        );
 
+        // 2. Subimos las ya comprimidas
+        const globalPromises = optimizedGlobalFiles.map(async (file) => {
+            const refImg = ref(storage, `products/global/${Date.now()}_${file.name}`);
+            await uploadBytes(refImg, file);
+            return getDownloadURL(refImg);
+        });
+        
+        const globalUrls = await Promise.all(globalPromises);
+
+        // B. PROCESAR IMÁGENES POR COLOR
         const colorUrlsMap = {};
+        const colorUploadPromises = [];
+
         for (const color of definedColors) {
-            colorUrlsMap[color] = [];
-            for (const file of (colorImagesMap[color] || [])) {
-                const refImg = ref(storage, `products/variants/${Date.now()}_${color}_${file.name}`);
-                await uploadBytes(refImg, file);
-                colorUrlsMap[color].push(await getDownloadURL(refImg));
+            const rawFiles = colorImagesMap[color] || [];
+            if (rawFiles.length > 0) {
+                const colorPromise = (async () => {
+                    // 1. Comprimir
+                    const optimizedColorFiles = await Promise.all(
+                        rawFiles.map(file => compressImage(file))
+                    );
+
+                    // 2. Subir
+                    const urls = await Promise.all(optimizedColorFiles.map(async (file) => {
+                        const refImg = ref(storage, `products/variants/${Date.now()}_${color}_${file.name}`);
+                        await uploadBytes(refImg, file);
+                        return getDownloadURL(refImg);
+                    }));
+                    colorUrlsMap[color] = urls;
+                })();
+                colorUploadPromises.push(colorPromise);
             }
         }
+        
+        await Promise.all(colorUploadPromises);
 
+        // --- (EL RESTO DEL CÓDIGO DE GUARDAR DATOS SIGUE IGUAL) ---
+        // 3. Preparar Datos (Matriz)
         const combinations = [];
         let minPrice = Infinity;
         const activeKeys = [];
@@ -265,6 +382,7 @@ form.onsubmit = async (e) => {
         const finalPrice = isSimple ? Number(priceInput.value) : minPrice;
         const finalStock = isSimple ? Number(stockInput.value) : combinations.reduce((a, b) => a + b.stock, 0);
 
+        // 4. Guardar Documento
         const productData = {
             name: document.getElementById('p-name').value,
             sku: document.getElementById('p-sku').value,
@@ -276,27 +394,84 @@ form.onsubmit = async (e) => {
             createdAt: new Date(),
             price: finalPrice,
             stock: finalStock,
-            
-            // NUEVO: GARANTÍA
             warranty: {
                 time: Number(document.getElementById('p-warranty-time').value) || 0,
                 unit: document.getElementById('p-warranty-unit').value
             },
-
             isSimple: isSimple,
             combinations: combinations,
             definedColors: definedColors,
             definedCapacities: definedCaps,
             images: globalUrls,
             colorImages: colorUrlsMap,
-            mainImage: globalUrls[0] || Object.values(colorUrlsMap)[0]?.[0] || ''
+            mainImage: globalUrls[0] || (Object.values(colorUrlsMap)[0] ? Object.values(colorUrlsMap)[0][0] : '')
         };
 
         await addDoc(collection(db, "products"), productData);
-        alert("✅ Producto creado con matriz de inventario.");
+        alert("✅ Producto publicado y optimizado.");
         window.location.href = "products.html";
 
-    } catch (e) { console.error(e); alert("Error: " + e.message); btnPublish.disabled = false; }
+    } catch (e) { 
+        console.error(e); 
+        alert("Error: " + e.message); 
+        btnPublish.disabled = false; 
+        btnPublish.innerHTML = 'Guardar en Inventario';
+    }
 };
 
 window.formatDoc = (cmd, value = null) => { document.execCommand(cmd, false, value); descriptionEditor.focus(); };
+
+// --- HELPER DE OPTIMIZACIÓN DE IMÁGENES ---
+const compressImage = async (file) => {
+    // Si no es imagen, devolver tal cual
+    if (!file.type.startsWith('image/')) return file;
+
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        const reader = new FileReader();
+
+        reader.onload = (e) => {
+            img.src = e.target.result;
+            img.onload = () => {
+                // 1. Configuración de Calidad
+                const maxWidth = 1600; // Máximo ancho HD (Suficiente para zoom)
+                const quality = 0.85;  // 85% Calidad (Punto dulce visual)
+                
+                // 2. Calcular nuevas dimensiones manteniendo aspecto
+                let width = img.width;
+                let height = img.height;
+
+                if (width > maxWidth) {
+                    height = Math.round((height * maxWidth) / width);
+                    width = maxWidth;
+                }
+
+                // 3. Crear Canvas
+                const canvas = document.createElement('canvas');
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+
+                // 4. Dibujar imagen redimensionada
+                ctx.drawImage(img, 0, 0, width, height);
+
+                // 5. Exportar a WebP (Formato de Google súper ligero)
+                canvas.toBlob((blob) => {
+                    if (!blob) {
+                        reject(new Error('Error al comprimir imagen'));
+                        return;
+                    }
+                    // Crear nuevo archivo optimizado con el mismo nombre pero extensión .webp
+                    const newName = file.name.replace(/\.[^/.]+$/, "") + ".webp";
+                    const newFile = new File([blob], newName, {
+                        type: 'image/webp',
+                        lastModified: Date.now(),
+                    });
+                    resolve(newFile);
+                }, 'image/webp', quality);
+            };
+            img.onerror = (error) => reject(error);
+        };
+        reader.readAsDataURL(file);
+    });
+};

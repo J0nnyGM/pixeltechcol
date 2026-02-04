@@ -112,96 +112,170 @@ initManualSale(() => {
 });
 
 // ==========================================================================
-// 1. GESTIÓN DE CHATS (BANDEJA DE ENTRADA)
+// 1. GESTIÓN DE CHATS (OPTIMIZADA + BUSCADOR)
 // ==========================================================================
 
 function initChatList() {
     if (unsubscribeChats) unsubscribeChats();
 
     const ref = collection(db, "chats");
-    // Límite estricto de 50 para la vista inicial
+    // Límite de 50 para la vista inicial
     let q = query(ref, where("status", "==", currentTab), orderBy("lastMessageAt", "desc"), limit(50));
     
-    unsubscribeChats = onSnapshot(q, (snapshot) => {
+    // Solo limpiamos visualmente si NO estamos buscando
+    if (!els.chatSearchInput.value) {
+        els.chatList.innerHTML = ""; 
+    }
 
-if (!els.chatSearchInput.value) {
-            els.chatList.innerHTML = "";
-            if(snapshot.empty) {
+    unsubscribeChats = onSnapshot(q, (snapshot) => {
+        // SI EL USUARIO ESTÁ BUSCANDO, PAUSAMOS EL REALTIME PARA NO INTERRUMPIRLO
+        if (els.chatSearchInput.value.trim().length > 0) return;
+
+        if (snapshot.empty) {
             els.chatList.innerHTML = `<div class="p-10 text-center text-xs text-gray-400">No hay chats en esta bandeja.</div>`;
             return;
         }
 
-        // Detectar nuevos mensajes para el sonido
+        // --- OPTIMIZACIÓN QUIRÚRGICA (docChanges) ---
         snapshot.docChanges().forEach(change => {
-            if (change.type === "modified" || change.type === "added") {
-                const data = change.doc.data();
-                // Solo sonar si es reciente (< 5 seg), no leído y no es el chat que tengo abierto
-                if (data.unread && data.lastMessageAt && (Date.now() - data.lastMessageAt.toDate() < 5000)) {
-                    if (document.hidden || activeChatId !== change.doc.id) {
+            const data = change.doc.data();
+            const id = change.doc.id;
+            const source = change.doc.metadata.hasPendingWrites ? "Local" : "Server";
+
+            // 1. Sonido (Solo si es nuevo, del servidor y reciente)
+            if ((change.type === "added" || change.type === "modified") && source === "Server") {
+                if (data.unread && data.lastMessageAt && (Date.now() - data.lastMessageAt.toDate() < 10000)) {
+                    if (document.hidden || activeChatId !== id) {
                         playSound();
-                        document.title = "(1) Nuevo Mensaje | Admin";
-                        setTimeout(() => document.title = "WhatsApp CRM | PixelTech Admin", 3000);
+                        document.title = "🔔 Nuevo Mensaje!";
+                        setTimeout(() => document.title = "WhatsApp CRM", 4000);
                     }
                 }
             }
-        });
 
-        snapshot.forEach(docSnap => {
-            const chat = docSnap.data();
-            const chatId = docSnap.id;
-            
-            // Filtro local del buscador de chats
-            const searchTerm = (els.chatSearchInput.value || "").toLowerCase();
-            if (searchTerm && !chat.clientName.toLowerCase().includes(searchTerm) && !chatId.includes(searchTerm)) return;
-
-            // Si el chat que estoy viendo cambia (ej: cliente escribe), actualizo el timer
-            if (chatId === activeChatId) {
-                startSessionTimer(chat.lastCustomerInteraction);
+            // 2. Gestión DOM
+            if (change.type === "added") {
+                const card = createChatCard(id, data);
+                els.chatList.appendChild(card); // Agregamos al final
+                // Si es el más reciente (índice 0), lo movemos al principio
+                if (change.newIndex === 0) els.chatList.prepend(card);
             }
-            renderChatItem(docSnap.id, docSnap.data());
-            });
-        }
+
+            if (change.type === "modified") {
+                const existingCard = document.getElementById(`chat-card-${id}`);
+                if (existingCard) {
+                    updateChatCardContent(existingCard, data); // Actualizar texto sin borrar
+                    
+                    // Si subió de posición (nuevo mensaje), mover al inicio
+                    if (change.newIndex === 0) {
+                        els.chatList.prepend(existingCard);
+                        existingCard.classList.add('bg-blue-50'); // Efecto visual
+                        setTimeout(() => existingCard.classList.remove('bg-blue-50'), 500);
+                    }
+                } else {
+                    // Caso raro: Se modificó pero no estaba (ej: filtro)
+                    const card = createChatCard(id, data);
+                    els.chatList.prepend(card);
+                }
+                if (activeChatId === id) startSessionTimer(data.lastCustomerInteraction);
+            }
+
+            if (change.type === "removed") {
+                const card = document.getElementById(`chat-card-${id}`);
+                if (card) card.remove();
+                if (activeChatId === id && currentTab === 'open') {
+                    els.conversationPanel.classList.add('translate-x-full');
+                    activeChatId = null;
+                }
+            }
+        });
     });
 }
 
-function renderChatItem(id, data) {
-    const isActive = id === activeChatId;
-    const isUnread = data.unread === true;
-    
-    let preview = data.lastMessage || '...';
-    if (preview.includes('Imagen')) preview = '📷 Foto'; 
-    if (preview.includes('Audio')) preview = '🎤 Audio';
-    
-    let timeStr = "";
-    if (data.lastMessageAt) {
-        const date = data.lastMessageAt.toDate();
-        const now = new Date();
-        timeStr = (date.toDateString() === now.toDateString()) 
-            ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) 
-            : date.toLocaleDateString();
-    }
-
+// --- HELPER 1: CREAR TARJETA (Reemplaza a renderChatItem) ---
+function createChatCard(id, data) {
     const div = document.createElement('div');
-    div.className = `flex items-center gap-3 p-3 rounded-xl cursor-pointer transition relative group ${isActive ? 'bg-gray-100' : 'hover:bg-gray-50 bg-white'}`;
-    div.onclick = () => openChat(id, data);
+    div.id = `chat-card-${id}`;
+    div.className = `flex items-center gap-3 p-3 rounded-xl cursor-pointer transition relative group border-b border-gray-50 last:border-0 hover:bg-gray-50`;
+    
+    if (id === activeChatId) div.classList.add('bg-gray-100');
+
+    div.onclick = () => {
+        document.querySelectorAll('[id^="chat-card-"]').forEach(el => el.classList.remove('bg-gray-100'));
+        div.classList.add('bg-gray-100');
+        openChat(id, data);
+    };
 
     div.innerHTML = `
         <div class="w-12 h-12 rounded-full bg-slate-200 flex items-center justify-center text-gray-500 relative shrink-0">
             <i class="fa-solid fa-user"></i>
-            ${isUnread ? '<span class="absolute top-0 right-0 w-3 h-3 bg-brand-cyan rounded-full border-2 border-white shadow-sm"></span>' : ''}
+            <span id="badge-${id}" class="absolute top-0 right-0 w-3 h-3 bg-brand-cyan rounded-full border-2 border-white shadow-sm ${data.unread ? '' : 'hidden'}"></span>
         </div>
         <div class="flex-grow min-w-0">
             <div class="flex justify-between items-baseline mb-1">
-                <h4 class="text-sm font-bold text-gray-800 truncate ${isUnread ? 'font-black' : ''}">${data.clientName || id}</h4>
-                <span class="text-[10px] ${isUnread ? 'text-brand-cyan font-bold' : 'text-gray-400'}">${timeStr}</span>
+                <h4 id="name-${id}" class="text-sm font-bold text-gray-800 truncate ${data.unread ? 'font-black' : ''}">${data.clientName || id}</h4>
+                <span id="time-${id}" class="text-[10px] ${data.unread ? 'text-brand-cyan font-bold' : 'text-gray-400'}">${formatTime(data.lastMessageAt)}</span>
             </div>
-            <p class="text-xs text-gray-500 truncate ${isUnread ? 'font-bold text-gray-700' : ''}">${preview}</p>
+            <p id="msg-${id}" class="text-xs text-gray-500 truncate ${data.unread ? 'font-bold text-gray-700' : ''}">${formatPreview(data.lastMessage)}</p>
         </div>
     `;
-    els.chatList.appendChild(div);
+    return div;
 }
 
-// Control de Pestañas (Filtros)
+// --- HELPER 2: ACTUALIZAR TARJETA (Nuevo) ---
+function updateChatCardContent(card, data) {
+    const id = card.id.replace('chat-card-', '');
+    
+    const badge = card.querySelector(`#badge-${id}`);
+    const name = card.querySelector(`#name-${id}`);
+    const time = card.querySelector(`#time-${id}`);
+    const msg = card.querySelector(`#msg-${id}`);
+
+    if(name) name.textContent = data.clientName || id;
+    if(time) time.textContent = formatTime(data.lastMessageAt);
+    if(msg) msg.textContent = formatPreview(data.lastMessage);
+
+    if (data.unread) {
+        badge.classList.remove('hidden');
+        name.classList.add('font-black');
+        time.classList.replace('text-gray-400', 'text-brand-cyan');
+        time.classList.add('font-bold');
+        msg.classList.add('font-bold', 'text-gray-700');
+    } else {
+        badge.classList.add('hidden');
+        name.classList.remove('font-black');
+        time.classList.replace('text-brand-cyan', 'text-gray-400');
+        time.classList.remove('font-bold');
+        msg.classList.remove('font-bold', 'text-gray-700');
+    }
+    
+    // Actualizar onclick para tener la data nueva (ej: si cambia el nombre)
+    card.onclick = () => {
+        document.querySelectorAll('[id^="chat-card-"]').forEach(el => el.classList.remove('bg-gray-100'));
+        card.classList.add('bg-gray-100');
+        openChat(id, data);
+    };
+}
+
+// --- HELPERS DE FORMATO ---
+function formatTime(timestamp) {
+    if (!timestamp) return "";
+    const date = timestamp.toDate();
+    const now = new Date();
+    if (date.toDateString() === now.toDateString()) {
+        return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+    return date.toLocaleDateString([], { day: '2-digit', month: '2-digit' });
+}
+
+function formatPreview(msg) {
+    if (!msg) return "...";
+    if (msg.includes('image')) return '📷 Foto';
+    if (msg.includes('audio')) return '🎤 Audio';
+    return msg;
+}
+
+// --- CONTROL DE PESTAÑAS (MANTENIDO) ---
 els.tabOpen.onclick = () => {
     currentTab = 'open';
     els.tabOpen.classList.add('bg-white', 'shadow-sm', 'text-brand-black'); els.tabOpen.classList.remove('text-gray-500');
@@ -215,13 +289,12 @@ els.tabResolved.onclick = () => {
     initChatList();
 };
 
-
+// --- BUSCADOR (MANTENIDO Y ADAPTADO) ---
 els.chatSearchInput.oninput = (e) => {
     const term = e.target.value.toLowerCase().trim();
     
-    // 1. Si borra el texto, recargamos la lista por defecto (los 50 top)
     if (!term) {
-        initChatList(); 
+        initChatList(); // Volver a realtime
         return;
     }
 
@@ -231,30 +304,23 @@ els.chatSearchInput.oninput = (e) => {
         els.chatList.innerHTML = `<div class="p-10 text-center"><i class="fa-solid fa-circle-notch fa-spin text-brand-cyan"></i></div>`;
         
         try {
-            // Buscamos en Firebase (Aceptamos el costo de lectura porque el usuario lo pidió explícitamente)
             const ref = collection(db, "chats");
             
-            // Truco: Buscamos por clientName (sensible a mayúsculas simulado) o phoneNumber
-            // Firestore no permite 'OR' queries complejas fácilmente, priorizamos nombre
-            // Nota: Para búsqueda perfecta necesitas Algolia o Elastic, pero esto sirve para MVP
-            
-            // Opción A: Buscar por teléfono exacto (muy eficiente)
+            // 1. Intento Directo (Teléfono)
             if (!isNaN(term) && term.length > 5) {
-               const docSnap = await getDoc(doc(db, "chats", term)); // Intento directo ID sin 57
-               const docSnap57 = await getDoc(doc(db, "chats", "57"+term)); // Intento con 57
+               const docSnap = await getDoc(doc(db, "chats", term));
+               const docSnap57 = await getDoc(doc(db, "chats", "57"+term));
                
                els.chatList.innerHTML = "";
-               if (docSnap.exists()) renderChatItem(docSnap.id, docSnap.data());
-               if (docSnap57.exists()) renderChatItem(docSnap57.id, docSnap57.data());
+               if (docSnap.exists()) els.chatList.appendChild(createChatCard(docSnap.id, docSnap.data()));
+               if (docSnap57.exists()) els.chatList.appendChild(createChatCard(docSnap57.id, docSnap57.data()));
                
                if(!docSnap.exists() && !docSnap57.exists()) els.chatList.innerHTML = `<div class="p-4 text-center text-xs text-gray-400">No encontrado.</div>`;
                return;
             }
 
-            // Opción B: Buscar por nombre (Prefix search)
-            // Capitalizamos primera letra para intentar coincidir
+            // 2. Intento Nombre
             const termCap = term.charAt(0).toUpperCase() + term.slice(1);
-            
             const q = query(
                 ref, 
                 orderBy('clientName'), 
@@ -269,14 +335,17 @@ els.chatSearchInput.oninput = (e) => {
             if (snap.empty) {
                 els.chatList.innerHTML = `<div class="p-4 text-center text-xs text-gray-400">Sin resultados.</div>`;
             } else {
-                snap.forEach(d => renderChatItem(d.id, d.data()));
+                snap.forEach(d => {
+                    // Usamos createChatCard para reutilizar el diseño
+                    els.chatList.appendChild(createChatCard(d.id, d.data()));
+                });
             }
 
         } catch (e) {
             console.error(e);
-            initChatList(); // Fallback a la lista normal
+            initChatList(); 
         }
-    }, 600); // Esperar 600ms a que termine de escribir
+    }, 600); 
 };
 
 // ==========================================================================
@@ -372,14 +441,18 @@ els.btnResolve.onclick = async () => {
 };
 
 // ==========================================================================
-// 3. MENSAJERÍA (CARGA, ENVIO, PRODUCTOS, RESPUESTAS RÁPIDAS)
+// 3. MENSAJERÍA (OPTIMIZADA: docChanges + Scroll Inteligente)
 // ==========================================================================
 
 function loadMessages(id) {
-    els.msgArea.innerHTML = `<div class="flex justify-center p-4"><i class="fa-solid fa-circle-notch fa-spin text-gray-400"></i></div>`;
-    oldestMessageDoc = null; // Reset cursor
+    // Solo mostramos loader si es cambio de chat completo, no en updates
+    if (!els.msgArea.querySelector('#live-messages-container')) {
+        els.msgArea.innerHTML = `<div class="flex justify-center p-4"><i class="fa-solid fa-circle-notch fa-spin text-gray-400"></i></div>`;
+    }
+    
+    oldestMessageDoc = null; 
 
-    // QUERY: Orden ascendente (cronológico) pero limitado a los ÚLTIMOS 20
+    // QUERY: Últimos 20
     const q = query(
         collection(db, "chats", id, "messages"), 
         orderBy("timestamp", "asc"), 
@@ -387,35 +460,10 @@ function loadMessages(id) {
     );
     
     unsubscribeMessages = onSnapshot(q, (snapshot) => {
-        // Limpiamos el área solo si es la primera carga
-        // Si es una actualización (ej: mensaje nuevo), no borramos todo para evitar parpadeo
-        if (els.msgArea.querySelector('.fa-spin')) {
+        // A. Configuración Inicial del DOM (Solo una vez)
+        if (!document.getElementById('live-messages-container')) {
             els.msgArea.innerHTML = "";
-            // Agregar botón de carga (inicialmente oculto o visible según lógica)
-            createLoadMoreButton();
-        }
-
-        // Guardamos referencia al mensaje más viejo para la paginación
-        if (!snapshot.empty) {
-            oldestMessageDoc = snapshot.docs[0];
-        }
-
-        const isAtBottom = els.msgArea.scrollHeight - els.msgArea.scrollTop === els.msgArea.clientHeight;
-
-        // Renderizamos los mensajes
-        // Nota: onSnapshot devuelve todo el set de 20. 
-        // Para eficiencia en DOM, limpiamos y repintamos estos 20 (es rápido).
-        // Los mensajes "viejos" cargados manualmente se mantendrán arriba del contenedor.
-        
-        // Limpiar solo la parte de mensajes "vivos", manteniendo el botón de carga arriba
-        // Estrategia simplificada: Repintar todo el contenedor de mensajes vivos
-        
-        // 1. Obtener mensajes existentes (históricos cargados manualmente)
-        const historyContainer = document.getElementById('history-messages-container');
-        if (!historyContainer) {
-            // Si no existe contenedor de historial, creamos estructura
-            els.msgArea.innerHTML = "";
-            createLoadMoreButton();
+            createLoadMoreButton(); // Botón historial arriba
             
             const historyDiv = document.createElement('div');
             historyDiv.id = 'history-messages-container';
@@ -427,16 +475,56 @@ function loadMessages(id) {
         }
 
         const liveContainer = document.getElementById('live-messages-container');
-        liveContainer.innerHTML = ""; // Limpiar solo los recientes para actualizar estados
+        
+        // Guardar referencia para paginación (El primero del snapshot es el más viejo de este lote)
+        if (!snapshot.empty) {
+            oldestMessageDoc = snapshot.docs[0];
+        }
 
-        snapshot.forEach(doc => {
-            const msgNode = createMessageNode(doc.data());
-            liveContainer.appendChild(msgNode);
+        // Detectar si el usuario está abajo para hacer auto-scroll
+        // Margen de tolerancia de 100px por si subió un poquito
+        const isAtBottom = els.msgArea.scrollHeight - els.msgArea.scrollTop - els.msgArea.clientHeight < 100;
+
+        // B. PROCESAMIENTO QUIRÚRGICO (docChanges)
+        snapshot.docChanges().forEach(change => {
+            const data = change.doc.data();
+            const msgId = change.doc.id;
+
+            if (change.type === "added") {
+                // Crear nodo
+                const node = createMessageNode(data);
+                node.id = `msg-${msgId}`;
+                
+                // Insertar en orden
+                // Como limitToLast trae ordenado ASC, 'added' suele ser al final.
+                liveContainer.appendChild(node);
+                
+                // Animación de entrada suave
+                node.classList.add('animate-in', 'fade-in', 'slide-in-from-bottom-2');
+            }
+
+            if (change.type === "modified") {
+                // Si el mensaje cambió (ej: de 'enviando' a 'visto' o se editó)
+                const existing = document.getElementById(`msg-${msgId}`);
+                if (existing) {
+                    const newNode = createMessageNode(data);
+                    newNode.id = `msg-${msgId}`;
+                    liveContainer.replaceChild(newNode, existing);
+                }
+            }
+
+            if (change.type === "removed") {
+                const existing = document.getElementById(`msg-${msgId}`);
+                if (existing) existing.remove();
+            }
         });
 
-        // Scroll al fondo solo si estaba abajo o es carga inicial
-        if (isAtBottom || snapshot.docChanges().some(c => c.type === 'added')) {
-            setTimeout(() => els.msgArea.scrollTop = els.msgArea.scrollHeight, 100);
+        // C. AUTO-SCROLL
+        // Solo bajamos si el usuario ya estaba abajo o si es la carga inicial
+        if (isAtBottom || snapshot.metadata.fromCache) {
+            setTimeout(() => {
+                els.msgArea.scrollTo({ top: els.msgArea.scrollHeight, behavior: 'smooth' });
+            }, 100);
         }
     });
 }
@@ -528,7 +616,7 @@ function createMessageNode(m) {
     if (m.messageType === 'text' || m.type === 'text') {
         contentHtml = `<p class="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">${m.content}</p>`;
     } else if ((m.messageType === 'image' || m.type === 'image') && m.mediaUrl) {
-        contentHtml = `<a href="${m.mediaUrl}" target="_blank"><img src="${m.mediaUrl}" class="rounded-lg max-w-xs max-h-64 object-cover mb-1 border border-black/5 hover:opacity-90 transition"></a>${m.content ? `<p class="text-sm mt-1">${m.content}</p>` : ''}`;
+        contentHtml = `<a href="${m.mediaUrl}" target="_blank"><img src="${m.mediaUrl}" loading="lazy" class="rounded-lg max-w-xs max-h-64 object-cover mb-1 border border-black/5 hover:opacity-90 transition"></a>${m.content ? `<p class="text-sm mt-1">${m.content}</p>` : ''}`;
     } else if ((m.messageType === 'audio' || m.type === 'audio') && m.mediaUrl) {
         contentHtml = `<audio controls class="max-w-[240px] mt-1 mb-1"><source src="${m.mediaUrl}"></audio>`;
     } else {
@@ -627,17 +715,29 @@ els.btnProducts.onclick = () => {
 };
 els.closeProdBtn.onclick = () => els.prodPicker.classList.add('hidden');
 
-// A. Cargar Productos (Bajo Demanda)
+// A. Cargar Productos (Caché con TTL de 5 minutos)
 async function loadRecentProducts() {
     els.prodList.innerHTML = `<div class="p-4 text-center"><i class="fa-solid fa-circle-notch fa-spin text-gray-400"></i></div>`;
     
-    // 1. INTENTO LEER DE CACHÉ
-    const cached = sessionStorage.getItem('recent_products_cache');
-    if (cached) {
-        renderProductList(JSON.parse(cached));
-        return; // ¡Ahorramos la lectura!
+    const CACHE_KEY = 'recent_products_cache';
+    const CACHE_TIME_KEY = 'recent_products_time';
+    const TTL = 15 * 60 * 1000; // 15 Minutos en milisegundos
+
+    // 1. VERIFICAR CACHÉ
+    const cachedData = sessionStorage.getItem(CACHE_KEY);
+    const cachedTime = sessionStorage.getItem(CACHE_TIME_KEY);
+    const now = Date.now();
+
+    if (cachedData && cachedTime && (now - parseInt(cachedTime) < TTL)) {
+        console.log("📦 Usando caché de productos (Ahorro de lecturas)");
+        renderProductList(JSON.parse(cachedData));
+        
+        // Agregar botón manual de refresco por si acaso
+        addRefreshButton();
+        return; 
     }
 
+    // 2. LEER DE FIREBASE
     try {
         const ref = collection(db, "products");
         const q = query(ref, orderBy("createdAt", "desc"), limit(15)); 
@@ -646,14 +746,29 @@ async function loadRecentProducts() {
         const products = [];
         snap.forEach(d => products.push(d.data()));
         
-        // 2. GUARDAR EN CACHÉ
-        sessionStorage.setItem('recent_products_cache', JSON.stringify(products));
+        // 3. GUARDAR EN CACHÉ
+        sessionStorage.setItem(CACHE_KEY, JSON.stringify(products));
+        sessionStorage.setItem(CACHE_TIME_KEY, now.toString());
         
         renderProductList(products);
+        addRefreshButton();
+
     } catch(e) {
         console.error(e);
         els.prodList.innerHTML = `<div class="p-2 text-xs text-red-400">Error cargando lista.</div>`;
     }
+}
+
+// Helper para agregar botón de recarga al final de la lista
+function addRefreshButton() {
+    const btnDiv = document.createElement('div');
+    btnDiv.className = "p-2 text-center border-t border-gray-50 mt-2";
+    btnDiv.innerHTML = `<button class="text-[10px] text-brand-cyan hover:underline uppercase font-bold"><i class="fa-solid fa-sync"></i> Actualizar Lista</button>`;
+    btnDiv.onclick = () => {
+        sessionStorage.removeItem('recent_products_cache'); // Borrar caché
+        loadRecentProducts(); // Recargar forzado
+    };
+    els.prodList.appendChild(btnDiv);
 }
 
 // B. Buscador (Con Debounce)

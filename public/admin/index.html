@@ -215,9 +215,10 @@
         </div>
     </div>
 
-    <script type="module">
+<script type="module">
         import '../js/admin-guard.js';
-        import { db, collection, getDocs, orderBy, query, limit, auth, doc, getDoc, updateDoc, addDoc, where } from '../js/firebase-init.js';
+        // Agregamos los nuevos imports aquí también:
+        import { db, collection, getDocs, orderBy, query, limit, auth, doc, getDoc, updateDoc, addDoc, where, getCountFromServer, getAggregateFromServer, sum } from '../js/firebase-init.js';
         import { loadAdminSidebar } from '../js/admin-ui.js';
         import { initManualSale, openManualSaleModal } from '../js/manual-sale.js';
         import '../js/order-actions.js';
@@ -238,64 +239,109 @@
             if (user) document.getElementById('admin-name').textContent = user.displayName || "Admin";
         });
 
-        // --- DASHBOARD DATA ---
+// --- DASHBOARD DATA (OPTIMIZADO: Paralelo + Agregaciones Reales) ---
         async function fetchDashboardData() {
             try {
-                // 1. TOTAL VENTAS (Pagados + Entregados)
-                const incomeSnap = await getDocs(query(collection(db, "orders"), where("status", "in", ["PAGADO", "DESPACHADO", "ENTREGADO"])));
-                let totalIncome = 0;
-                incomeSnap.forEach(d => totalIncome += (d.data().total || 0));
+                // A. DEFINICIÓN DE CONSULTAS (Queries)
+                
+                // 1. VENTAS TOTALES (Filtro: Pagados/Entregados)
+                // Optimización: Suma en servidor (sin descargar docs)
+                const qIncome = query(
+                    collection(db, "orders"), 
+                    where("status", "in", ["PAGADO", "DESPACHADO", "ENTREGADO"])
+                );
+                
+                // 2. PEDIDOS POR ALISTAR (Operativo)
+                // Optimización: Conteo en servidor
+                const qPacking = query(
+                    collection(db, "orders"), 
+                    where("status", "in", ["PAGADO", "PENDIENTE"])
+                );
+                
+                // 3. CARTERA / POR COBRAR (Financiero) -> ¡AQUÍ ESTÁ TU CORRECCIÓN!
+                // Optimización: Suma en servidor de TODOS los pendientes (sin límite)
+                // Nota: Usamos 'not-in' para excluir cancelados, asegurando que sume todo lo válido.
+                // *Si la consola pide crear un índice, haz clic en el enlace que te dé.*
+                const qReceivable = query(
+                    collection(db, "orders"), 
+                    where("paymentStatus", "==", "PENDING"),
+                    where("status", "not-in", ["CANCELADO", "RECHAZADO"]) 
+                );
+
+                // 4. DEUDA PROVEEDORES
+                const qPayable = query(
+                    collection(db, "payables"), 
+                    where("status", "==", "PENDING")
+                );
+
+                // 5. TABLA VISUAL (Limitada a 100 para velocidad)
+                // Esta query es SOLO para pintar la tabla, no afecta los números de arriba.
+                const qOrdersTable = query(
+                    collection(db, "orders"), 
+                    where("status", "in", ["PAGADO", "PENDIENTE", "ALISTADO"]), 
+                    orderBy("createdAt", "desc"), 
+                    limit(100) // Límite de seguridad visual
+                );
+
+                // 6. Referencias simples
+                const accountsRef = collection(db, "accounts");
+                const configRef = doc(db, "config", "shipping");
+
+                // B. EJECUCIÓN PARALELA (Disparamos todo a la vez para velocidad máxima)
+                const [
+                    incomeSnap,      // Agregación
+                    packingSnap,     // Conteo
+                    receivableSnap,  // Agregación
+                    payableSnap,     // Docs (pocos)
+                    accountsSnap,    // Docs (pocos)
+                    ordersSnap,      // Docs (limitado a 100)
+                    configSnap       // Doc unitario
+                ] = await Promise.all([
+                    getAggregateFromServer(qIncome, { totalRevenue: sum('total') }),
+                    getCountFromServer(qPacking),
+                    getAggregateFromServer(qReceivable, { totalDebt: sum('total') }),
+                    getAggregateFromServer(qPayable, { totalPayable: sum('amount') }),
+                    getDocs(accountsRef),
+                    getDocs(qOrdersTable),
+                    getDoc(configRef)
+                ]);
+
+                // C. RENDERIZADO DE DATOS (KPIs)
+
+                // 1. Ventas
+                const totalIncome = incomeSnap.data().totalRevenue || 0;
                 safeSetText('stat-sales', `$${totalIncome.toLocaleString('es-CO')}`);
 
-                // 2. DINERO EN CUENTAS
-                const accountsSnap = await getDocs(collection(db, "accounts"));
+                // 2. Tesorería (Suma manual, son pocos docs)
                 let totalTreasury = 0;
                 accountsSnap.forEach(d => totalTreasury += (d.data().balance || 0));
                 safeSetText('stat-treasury', `$${totalTreasury.toLocaleString('es-CO')}`);
 
-                // 3. POR ALISTAR (OPERATIVO) -> (Pagados o Pendientes Manuales)
-                const qPacking = query(collection(db, "orders"), where("status", "in", ["PAGADO", "PENDIENTE"]));
-                const packingSnap = await getDocs(qPacking);
-                safeSetText('stat-packing', packingSnap.size);
+                // 3. Por Alistar (Conteo directo)
+                safeSetText('stat-packing', packingSnap.data().count);
 
-                // 4. CARTERA (POR COBRAR) -> (Entregado/Creado pero no pagado)
-                const qReceivable = query(collection(db, "orders"), where("paymentStatus", "==", "PENDING"));
-                const receivableSnap = await getDocs(qReceivable);
-                let totalReceivable = 0;
-                receivableSnap.forEach(d => {
-                    if (d.data().status !== 'CANCELADO' && d.data().status !== 'RECHAZADO') {
-                        totalReceivable += (d.data().total || 0);
-                    }
-                });
+                // 4. Cartera (¡CORREGIDO! Usa la suma total del servidor, ignorando el límite de la tabla)
+                const totalReceivable = receivableSnap.data().totalDebt || 0;
                 safeSetText('stat-receivable', `$${totalReceivable.toLocaleString('es-CO')}`);
 
-                // 5. DEUDA PROVEEDORES
-                let totalPayable = 0;
-                try {
-                    const qPayable = query(collection(db, "payables"), where("status", "==", "PENDING"));
-                    const payableSnap = await getDocs(qPayable);
-                    payableSnap.forEach(d => totalPayable += (d.data().amount || 0));
-                } catch(err) { console.warn(err); }
+                // 5. Por Pagar
+                const totalPayable = payableSnap.data().totalPayable || 0;
                 safeSetText('stat-payable', `$${totalPayable.toLocaleString('es-CO')}`);
 
 
-                // --- CARGAR TABLA PENDIENTES (Con Lógica de Corte) ---
-                if (!tableBody) return;
-                tableBody.innerHTML = `<tr><td colspan="7" class="p-8 text-center"><i class="fa-solid fa-circle-notch fa-spin text-brand-cyan"></i> Cargando...</td></tr>`;
 
-                const configSnap = await getDoc(doc(db, "config", "shipping"));
-                const cutoffTimeStr = configSnap.exists() ? (configSnap.data().cutoffTime || "14:00") : "14:00";
+                // D. RENDERIZADO DE TABLA (Lógica de Corte)
+                if (!tableBody) return;
                 
+                const cutoffTimeStr = configSnap.exists() ? (configSnap.data().cutoffTime || "14:00") : "14:00";
                 const now = new Date();
                 const [hours, minutes] = cutoffTimeStr.split(':').map(Number);
                 const cutoffDateToday = new Date(now);
                 cutoffDateToday.setHours(hours, minutes, 0, 0);
 
-                const q = query(collection(db, "orders"), where("status", "in", ["PAGADO", "PENDIENTE", "ALISTADO"]), orderBy("createdAt", "desc"));
-                const snapshot = await getDocs(q);
                 tableBody.innerHTML = "";
 
-                if (snapshot.empty) {
+                if (ordersSnap.empty) {
                     tableBody.innerHTML = `<tr><td colspan="7" class="p-10 text-center text-xs text-brand-black font-bold uppercase">¡Todo al día! No hay pedidos pendientes.</td></tr>`;
                     return;
                 }
@@ -303,13 +349,16 @@
                 const todayOrders = [];
                 const tomorrowOrders = [];
 
-                snapshot.forEach(d => {
+                ordersSnap.forEach(d => {
                     const o = d.data();
                     const orderDate = o.createdAt?.toDate ? o.createdAt.toDate() : new Date();
                     const isToday = orderDate.toDateString() === now.toDateString();
                     
-                    if (isToday && orderDate > cutoffDateToday) { tomorrowOrders.push({ id: d.id, ...o }); } 
-                    else { todayOrders.push({ id: d.id, ...o }); }
+                    if (isToday && orderDate > cutoffDateToday) { 
+                        tomorrowOrders.push({ id: d.id, ...o }); 
+                    } else { 
+                        todayOrders.push({ id: d.id, ...o }); 
+                    }
                 });
 
                 if (todayOrders.length > 0) {
@@ -322,10 +371,14 @@
                     tomorrowOrders.forEach(o => renderRow(o));
                 }
 
-            } catch (e) { console.error("Error dashboard:", e); }
+            } catch (e) { 
+                console.error("Error dashboard:", e); 
+                // En caso de error, el dashboard no se rompe, solo muestra los valores por defecto o anteriores
+            }
         }
 
         function renderRow(o) {
+            // ... (El contenido de renderRow se queda EXACTAMENTE IGUAL, no es necesario copiarlo aquí, solo asegúrate de no borrarlo en tu archivo)
             const isTienda = o.source === 'TIENDA' || o.source === 'TIENDA_WEB';
             let sClass = 'bg-gray-100 text-gray-500', sText = o.status;
             if (o.status === 'PENDIENTE') { sClass = 'bg-yellow-100 text-yellow-700 border-yellow-200'; sText = 'Por Atender'; }

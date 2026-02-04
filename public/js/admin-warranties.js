@@ -1,4 +1,4 @@
-import { db, storage, collection, getDocs, orderBy, query, doc, updateDoc, addDoc, getDoc, runTransaction, ref, uploadBytes, getDownloadURL } from './firebase-init.js';
+import { db, storage, collection, getDocs, orderBy, query, doc, updateDoc, addDoc, getDoc, runTransaction, ref, uploadBytes, getDownloadURL, limit, startAfter, where } from './firebase-init.js';
 import { loadAdminSidebar } from './admin-ui.js';
 
 loadAdminSidebar();
@@ -7,84 +7,251 @@ loadAdminSidebar();
 const table = document.getElementById('warranties-table');
 const manageModal = document.getElementById('manage-modal');
 const resolutionModal = document.getElementById('resolution-modal');
+const loadMoreBtn = document.getElementById('load-more-container');
+const searchInput = document.getElementById('search-input');
 
-let currentWarranty = null; // Almacena datos temporales durante la gestión
+// Estado Global
+let currentWarranty = null; 
+let lastVisible = null;
+let isLoading = false;
+let currentFilter = 'PENDING'; // Estado inicial: Solo pendientes
+const DOCS_PER_PAGE = 50;
 
-// --- 1. CARGAR LISTA DE GARANTÍAS ---
-async function loadWarranties() {
-    table.innerHTML = `<tr><td colspan="6" class="p-10 text-center"><i class="fa-solid fa-circle-notch fa-spin text-brand-cyan"></i></td></tr>`;
+// --- 1. CARGAR LISTA (OPTIMIZADA + FILTROS) ---
+async function fetchWarranties(isNextPage = false) {
+    if (isLoading) return;
+    isLoading = true;
+
+    // UI Loading
+    if (!isNextPage) {
+        table.innerHTML = `<tr><td colspan="6" class="p-10 text-center"><i class="fa-solid fa-circle-notch fa-spin text-brand-cyan"></i><p class="mt-2 text-xs font-bold text-gray-400">Cargando solicitudes...</p></td></tr>`;
+        loadMoreBtn.classList.add('hidden');
+    } else {
+        const btn = loadMoreBtn.querySelector('button');
+        btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Cargando...`;
+    }
     
     try {
-        const q = query(collection(db, "warranties"), orderBy("createdAt", "desc"));
-        const snap = await getDocs(q);
+        const refColl = collection(db, "warranties");
+        let constraints = [];
 
-        if (snap.empty) {
-            table.innerHTML = `<tr><td colspan="6" class="p-10 text-center text-xs font-bold text-gray-400 uppercase">Sin solicitudes pendientes.</td></tr>`;
+        // A. FILTROS DE ESTADO (Ahorro de lecturas)
+        if (currentFilter === 'PENDING') {
+            // Buscamos tanto 'PENDIENTE' como 'PENDIENTE_REVISION' para asegurar compatibilidad
+            constraints.push(where("status", "in", ["PENDIENTE", "PENDIENTE_REVISION"]));
+        } else if (currentFilter === 'APPROVED') {
+            constraints.push(where("status", "==", "APROBADO"));
+        } else if (currentFilter === 'REJECTED') {
+            constraints.push(where("status", "==", "RECHAZADO"));
+        }
+        // 'ALL' no agrega filtro, trae todo el historial.
+
+        // B. ORDENAMIENTO
+        constraints.push(orderBy("createdAt", "desc"));
+
+        // C. PAGINACIÓN
+        if (isNextPage && lastVisible) {
+            constraints.push(startAfter(lastVisible));
+        }
+
+        // D. LÍMITE
+        constraints.push(limit(DOCS_PER_PAGE));
+
+        const q = query(refColl, ...constraints);
+        const snapshot = await getDocs(q); // Variable correcta: snapshot
+
+        if (!isNextPage) table.innerHTML = "";
+
+        if (snapshot.empty) {
+            if (!isNextPage) table.innerHTML = `<tr><td colspan="6" class="p-10 text-center text-xs font-bold text-gray-400 uppercase">No hay solicitudes en esta sección.</td></tr>`;
+            loadMoreBtn.classList.add('hidden');
+            isLoading = false;
             return;
         }
 
-        table.innerHTML = "";
-        snap.forEach(d => {
-            const w = d.data();
-            
-            // Badges de Estado
-            let statusBadge = `<span class="bg-yellow-100 text-yellow-700 px-3 py-1 rounded-full text-[9px] font-black uppercase">Pendiente</span>`;
-            if (w.status === 'APROBADO') statusBadge = `<span class="bg-green-100 text-green-700 px-3 py-1 rounded-full text-[9px] font-black uppercase">Aprobado</span>`;
-            if (w.status === 'RECHAZADO') statusBadge = `<span class="bg-red-100 text-red-700 px-3 py-1 rounded-full text-[9px] font-black uppercase">Rechazado</span>`;
-            if (w.status === 'FINALIZADO') statusBadge = `<span class="bg-gray-100 text-gray-700 px-3 py-1 rounded-full text-[9px] font-black uppercase">Finalizado</span>`;
+        // --- CORRECCIÓN DEL ERROR ---
+        // Antes decía 'snap.docs', ahora usamos 'snapshot.docs' correctamente.
+        lastVisible = snapshot.docs[snapshot.docs.length - 1];
 
-            // Botón de Acción
-            let actionBtn = `<button onclick="window.openManageModal('${d.id}')" class="bg-brand-black text-white px-4 py-2 rounded-lg text-[9px] font-black uppercase hover:bg-brand-cyan hover:text-brand-black transition">Gestionar</button>`;
-            if (w.status !== 'PENDIENTE_REVISION') {
-                actionBtn = `<button onclick="window.openManageModal('${d.id}')" class="bg-slate-100 text-gray-400 px-4 py-2 rounded-lg text-[9px] font-black uppercase hover:bg-slate-200 transition">Ver Detalle</button>`;
-            }
+        // Botón Ver Más
+        if (snapshot.docs.length === DOCS_PER_PAGE) {
+            loadMoreBtn.classList.remove('hidden');
+            loadMoreBtn.querySelector('button').innerHTML = `<i class="fa-solid fa-circle-plus"></i> Cargar siguientes 50`;
+        } else {
+            loadMoreBtn.classList.add('hidden');
+        }
 
-            table.innerHTML += `
-                <tr class="hover:bg-slate-50 transition border-b border-gray-50 last:border-0">
-                    <td class="px-8 py-6">
-                        <p class="text-xs font-bold text-brand-black">${w.createdAt?.toDate().toLocaleDateString()}</p>
-                        <p class="text-[9px] font-black text-gray-400 uppercase tracking-widest">#${w.orderId.slice(0,6)}</p>
-                    </td>
-                    <td class="px-8 py-6">
-                        <p class="text-xs font-black uppercase">${w.userName}</p>
-                        <p class="text-[9px] text-gray-400 font-bold">${w.userEmail}</p>
-                    </td>
-                    <td class="px-8 py-6">
-                        <div class="flex items-center gap-2">
-                            <img src="${w.productImage || 'https://placehold.co/50'}" class="w-8 h-8 rounded-md object-contain bg-white border">
-                            <div>
-                                <p class="text-xs font-bold text-brand-black uppercase truncate max-w-[120px]">${w.productName}</p>
-                                <p class="text-[9px] font-mono text-brand-cyan font-bold">${w.snProvided}</p>
-                            </div>
-                        </div>
-                    </td>
-                    <td class="px-8 py-6 max-w-xs">
-                        <p class="text-xs text-gray-600 italic line-clamp-1">${w.reason}</p>
-                    </td>
-                    <td class="px-8 py-6 text-center">${statusBadge}</td>
-                    <td class="px-8 py-6 text-center">${actionBtn}</td>
-                </tr>
-            `;
+        // Renderizar
+        snapshot.forEach(d => {
+            renderWarrantyRow({ id: d.id, ...d.data() });
         });
-    } catch (e) { console.error(e); }
+
+    } catch (e) { 
+        console.error(e);
+        const msg = e.message.includes("indexes") 
+            ? "Falta un índice en Firebase. Abre la consola (F12) y haz clic en el enlace." 
+            : "Error de conexión.";
+        if(!isNextPage) table.innerHTML = `<tr><td colspan="6" class="text-center text-red-400 font-bold p-10 text-xs">${msg}</td></tr>`;
+    } finally {
+        isLoading = false;
+    }
 }
 
-// --- 2. FUNCIONES AUXILIARES (PDF y WhatsApp) ---
+// Globales
+window.loadMoreWarranties = () => fetchWarranties(true);
 
-// Subir PDF a Storage
+window.filterTab = (status) => {
+    if(isLoading) return;
+    currentFilter = status;
+    lastVisible = null; // Reiniciar paginación
+    searchInput.value = ""; // Limpiar busqueda visual
+
+    // Actualizar UI de botones
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        // Reset estilos inactivos
+        btn.className = "tab-btn px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-white text-gray-400 border border-gray-200 hover:text-brand-black hover:border-gray-300 transition-all whitespace-nowrap cursor-pointer";
+    });
+    
+    // Estilo activo
+    const activeId = status === 'PENDING' ? 'tab-pending' : 
+                     status === 'APPROVED' ? 'tab-approved' : 
+                     status === 'REJECTED' ? 'tab-rejected' : 'tab-all';
+    
+    const activeBtn = document.getElementById(activeId);
+    if(activeBtn) {
+        let colorClass = "bg-brand-black text-white shadow-lg"; // Default ALL
+        if(status === 'PENDING') colorClass = "bg-brand-cyan text-white shadow-lg shadow-cyan-500/30 border-transparent";
+        if(status === 'APPROVED') colorClass = "bg-green-500 text-white shadow-lg shadow-green-500/30 border-transparent";
+        if(status === 'REJECTED') colorClass = "bg-red-500 text-white shadow-lg shadow-red-500/30 border-transparent";
+        
+        activeBtn.className = `tab-btn px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all whitespace-nowrap cursor-default ${colorClass}`;
+    }
+
+    fetchWarranties(false);
+};
+
+function renderWarrantyRow(w) {
+    // Badges de Estado
+    let statusBadge = `<span class="bg-yellow-100 text-yellow-700 px-3 py-1 rounded-full text-[9px] font-black uppercase border border-yellow-200">Pendiente</span>`;
+    if (w.status === 'APROBADO') statusBadge = `<span class="bg-green-100 text-green-700 px-3 py-1 rounded-full text-[9px] font-black uppercase border border-green-200">Aprobado</span>`;
+    if (w.status === 'RECHAZADO') statusBadge = `<span class="bg-red-100 text-red-700 px-3 py-1 rounded-full text-[9px] font-black uppercase border border-red-200">Rechazado</span>`;
+    if (w.status === 'FINALIZADO') statusBadge = `<span class="bg-gray-100 text-gray-700 px-3 py-1 rounded-full text-[9px] font-black uppercase border border-gray-200">Finalizado</span>`;
+
+    // Botón de Acción
+    let actionBtn = `<button onclick="window.openManageModal('${w.id}')" class="bg-brand-black text-white px-4 py-2 rounded-lg text-[9px] font-black uppercase hover:bg-brand-cyan hover:text-brand-black transition shadow-md">Gestionar</button>`;
+    if (w.status !== 'PENDIENTE_REVISION' && w.status !== 'PENDIENTE') {
+        actionBtn = `<button onclick="window.openManageModal('${w.id}')" class="bg-slate-100 text-gray-400 px-4 py-2 rounded-lg text-[9px] font-black uppercase hover:bg-slate-200 transition">Ver Detalle</button>`;
+    }
+
+    const dateStr = w.createdAt?.toDate ? w.createdAt.toDate().toLocaleDateString() : '---';
+
+    table.innerHTML += `
+        <tr class="hover:bg-slate-50 transition border-b border-gray-50 last:border-0 fade-in group">
+            <td class="px-8 py-6">
+                <p class="text-xs font-bold text-brand-black">${dateStr}</p>
+                <p class="text-[9px] font-black text-gray-400 uppercase tracking-widest">#${w.orderId ? w.orderId.slice(0,6) : '---'}</p>
+            </td>
+            <td class="px-8 py-6">
+                <p class="text-xs font-black uppercase text-brand-black">${w.userName}</p>
+                <p class="text-[9px] text-gray-400 font-bold">${w.userEmail}</p>
+            </td>
+            <td class="px-8 py-6">
+                <div class="flex items-center gap-2">
+                    <img src="${w.productImage || 'https://placehold.co/50'}" class="w-8 h-8 rounded-md object-contain bg-white border border-gray-100">
+                    <div>
+                        <p class="text-xs font-bold text-brand-black uppercase truncate max-w-[120px]" title="${w.productName}">${w.productName}</p>
+                        <p class="text-[9px] font-mono text-brand-cyan font-bold">${w.snProvided}</p>
+                    </div>
+                </div>
+            </td>
+            <td class="px-8 py-6 max-w-xs">
+                <p class="text-xs text-gray-600 italic line-clamp-1" title="${w.reason}">${w.reason}</p>
+            </td>
+            <td class="px-8 py-6 text-center">${statusBadge}</td>
+            <td class="px-8 py-6 text-center">${actionBtn}</td>
+        </tr>
+    `;
+}
+
+// --- 2. BÚSQUEDA HÍBRIDA (CORREGIDO: SENSITIVIDAD DE CASO) ---
+if (searchInput) {
+    searchInput.addEventListener('keyup', (e) => {
+        const rawTerm = e.target.value.trim(); // Texto original (para servidor)
+        const lowerTerm = rawTerm.toLowerCase(); // Texto minúscula (para filtro visual)
+
+        // A. BÚSQUEDA REAL EN SERVIDOR (ENTER)
+        if (e.key === 'Enter' && rawTerm.length > 0) {
+            performServerSearch(rawTerm); // Enviamos el término EXACTO
+            return;
+        }
+
+        // B. FILTRO LOCAL (Mientras escribe)
+        const rows = document.querySelectorAll('#warranties-table tr');
+        rows.forEach(row => {
+            const text = row.innerText.toLowerCase();
+            row.style.display = text.includes(lowerTerm) ? '' : 'none';
+        });
+    });
+}
+
+async function performServerSearch(term) {
+    if(isLoading) return;
+    isLoading = true;
+
+    table.innerHTML = `<tr><td colspan="6" class="p-10 text-center"><i class="fa-solid fa-search fa-bounce text-brand-cyan"></i> Buscando...</td></tr>`;
+    loadMoreBtn.classList.add('hidden');
+
+    try {
+        const refColl = collection(db, "warranties");
+        const promises = [];
+
+        // 1. Por ID directo (Sensible a mayúsculas/minúsculas)
+        promises.push(getDoc(doc(db, "warranties", term)).then(s => s.exists() ? [s] : []));
+        
+        // 2. Por Order ID (Exacto)
+        const qOrder = query(refColl, where("orderId", "==", term));
+        promises.push(getDocs(qOrder).then(s => s.docs));
+
+        // 3. Por Serial (Exacto)
+        const qSn = query(refColl, where("snProvided", "==", term));
+        promises.push(getDocs(qSn).then(s => s.docs));
+
+        const results = await Promise.all(promises);
+        const flatResults = results.flat();
+
+        // Eliminar duplicados
+        const unique = new Map();
+        flatResults.forEach(d => unique.set(d.id, d));
+        
+        table.innerHTML = "";
+        
+        if (unique.size > 0) {
+            unique.forEach(d => renderWarrantyRow({ id: d.id, ...d.data() }));
+        } else {
+            table.innerHTML = `<tr><td colspan="6" class="p-10 text-center text-xs font-bold text-gray-400 uppercase">No se encontró solicitud con ese ID, Orden o Serial exacto.</td></tr>`;
+        }
+
+    } catch(e) {
+        console.error(e);
+        fetchWarranties(false);
+    } finally {
+        isLoading = false;
+    }
+}
+
+// --- 3. FUNCIONES AUXILIARES (PDF y WhatsApp) ---
 async function uploadPDF(warrantyId) {
     const fileInput = document.getElementById('m-tech-report');
     if (!fileInput || fileInput.files.length === 0) return null;
 
     const file = fileInput.files[0];
-    // Ruta: warranty_reports/ID_TIMESTAMP.pdf
     const storageRef = ref(storage, `warranty_reports/${warrantyId}_${Date.now()}.pdf`);
     
     await uploadBytes(storageRef, file);
     return await getDownloadURL(storageRef);
 }
 
-// --- 3. ABRIR MODAL DE GESTIÓN ---
+// --- 4. ABRIR MODAL DE GESTIÓN ---
 window.openManageModal = async (id) => {
     const snap = await getDoc(doc(db, "warranties", id));
     if(!snap.exists()) return;
@@ -100,10 +267,10 @@ window.openManageModal = async (id) => {
     
     document.getElementById('m-user-name').textContent = w.userName;
     document.getElementById('m-user-email').textContent = w.userEmail;
-    document.getElementById('m-order-id').textContent = `ORDEN: #${w.orderId.slice(0,8)}`;
+    document.getElementById('m-order-id').textContent = `ORDEN: #${w.orderId ? w.orderId.slice(0,8) : 'NA'}`;
     document.getElementById('m-reason').textContent = `"${w.reason}"`;
 
-    // Lógica WhatsApp (Buscar teléfono)
+    // WhatsApp
     const phoneEl = document.getElementById('m-user-phone');
     const waLink = document.getElementById('m-whatsapp-link');
     phoneEl.textContent = "Buscando...";
@@ -116,10 +283,8 @@ window.openManageModal = async (id) => {
                 const phone = userSnap.data().phone || "";
                 if (phone) {
                     phoneEl.textContent = phone;
-                    // Limpiar y formatear para WA
                     let cleanPhone = phone.replace(/\D/g, '');
-                    if(cleanPhone.length === 10) cleanPhone = '57' + cleanPhone; // Default Colombia
-                    
+                    if(cleanPhone.length === 10) cleanPhone = '57' + cleanPhone; 
                     waLink.href = `https://wa.me/${cleanPhone}?text=Hola ${w.userName.split(' ')[0]}, te contactamos de PixelTech respecto a tu garantía #${w.id}`;
                     waLink.classList.remove('hidden');
                 } else {
@@ -131,12 +296,12 @@ window.openManageModal = async (id) => {
         }
     } catch (err) { console.error(err); }
 
-    // Limpiar Inputs de Gestión
+    // Limpiar Inputs
     document.getElementById('m-received').value = w.receivedItems || "";
     document.getElementById('m-admin-notes').value = w.adminResponse || "";
-    document.getElementById('m-tech-report').value = ""; // Reset file input
+    document.getElementById('m-tech-report').value = ""; 
 
-    // Renderizar Evidencia (Imágenes del usuario)
+    // Evidencia
     const evidenceContainer = document.getElementById('m-evidence-container');
     evidenceContainer.innerHTML = "";
     if (w.evidenceImages && w.evidenceImages.length > 0) {
@@ -151,32 +316,22 @@ window.openManageModal = async (id) => {
         evidenceContainer.innerHTML = `<p class="text-xs text-gray-400 col-span-3 text-center py-4 italic">El usuario no adjuntó imágenes.</p>`;
     }
 
-    // Control de Botones e Inputs (Solo editable si está PENDIENTE)
-// 7. CONTROL DE ESTADO (Bloquear edición si no es Pendiente)
+    // Control de Estado (Bloqueo)
     const btnApprove = document.querySelector('button[onclick="approveWarranty()"]');
     const btnReject = document.querySelector('button[onclick="rejectWarranty()"]');
     
-    // AQUÍ AGREGAMOS 'm-tech-report' PARA QUE SE BLOQUEE TAMBIÉN
     const inputs = [
         document.getElementById('m-received'), 
         document.getElementById('m-admin-notes'),
-        document.getElementById('m-tech-report') // <--- CORRECCIÓN: Agregado
+        document.getElementById('m-tech-report') 
     ];
 
-    if (w.status !== 'PENDIENTE_REVISION') {
-        // CASO: Finalizado / Resuelto
+    if (w.status !== 'PENDIENTE_REVISION' && w.status !== 'PENDIENTE') {
         btnApprove.classList.add('hidden');
         btnReject.classList.add('hidden');
-        
-        // Deshabilitar todos los inputs (incluyendo el PDF)
-        inputs.forEach(i => {
-            i.disabled = true;
-            i.classList.add('bg-gray-100', 'cursor-not-allowed'); // Feedback visual opcional
-        });
+        inputs.forEach(i => { i.disabled = true; i.classList.add('bg-gray-100', 'cursor-not-allowed'); });
 
-        // Opcional: Si ya hay PDF, mostrar un link para que el admin lo vea
         if(w.technicalReportUrl) {
-            // Buscamos si ya existe el link visual, si no lo creamos temporalmente
             let linkLabel = document.getElementById('admin-pdf-link-preview');
             if(!linkLabel) {
                 linkLabel = document.createElement('a');
@@ -189,18 +344,10 @@ window.openManageModal = async (id) => {
             linkLabel.textContent = "Ver informe adjunto actual";
             linkLabel.classList.remove('hidden');
         }
-
     } else {
-        // CASO: Pendiente (Editable)
         btnApprove.classList.remove('hidden');
         btnReject.classList.remove('hidden');
-        
-        inputs.forEach(i => {
-            i.disabled = false;
-            i.classList.remove('bg-gray-100', 'cursor-not-allowed');
-        });
-
-        // Ocultar link de preview si estamos editando nuevo
+        inputs.forEach(i => { i.disabled = false; i.classList.remove('bg-gray-100', 'cursor-not-allowed'); });
         const linkLabel = document.getElementById('admin-pdf-link-preview');
         if(linkLabel) linkLabel.classList.add('hidden');
     }
@@ -213,20 +360,16 @@ window.closeManageModal = () => {
     currentWarranty = null;
 };
 
-// --- 4. INICIAR APROBACIÓN (Paso 1: Validar recepción) ---
+// --- 5. APROBAR Y RECHAZAR (Lógica Transaccional) ---
+
 window.approveWarranty = () => {
     const received = document.getElementById('m-received').value.trim();
-    if(!received) return alert("⚠️ Debes listar los componentes físicos recibidos (Ej: Equipo, Caja, Cargador) antes de aprobar.");
-
-    // Guardar datos temporales para el paso 2
+    if(!received) return alert("⚠️ Debes listar los componentes físicos recibidos antes de aprobar.");
     currentWarranty._tempReceived = received;
     currentWarranty._tempNotes = document.getElementById('m-admin-notes').value.trim();
-
-    // Abrir modal de decisión (Reemplazo / Dinero)
     resolutionModal.classList.remove('hidden');
 };
 
-// --- 5. CONFIRMAR RESOLUCIÓN (Paso 2: Transacción y PDF) ---
 window.confirmResolution = async () => {
     const btn = document.querySelector('button[onclick="confirmResolution()"]');
     const originalText = btn.textContent;
@@ -237,41 +380,29 @@ window.confirmResolution = async () => {
     const notes = currentWarranty._tempNotes;
 
     try {
-        // 1. Subir PDF (si existe)
         const pdfUrl = await uploadPDF(currentWarranty.id);
 
-        // 2. Ejecutar Transacción (Atomicidad: Stock + Garantía + Inventario RMA)
         await runTransaction(db, async (transaction) => {
-            
-            // A. DESCONTAR STOCK (Solo si es Reemplazo Físico)
             if (resolutionType === 'REPLACEMENT') {
-                if (!currentWarranty.productId) throw "Error: No hay ID de producto asociado.";
-                
+                if (!currentWarranty.productId) throw "Error: No hay ID de producto.";
                 const prodRef = doc(db, "products", currentWarranty.productId);
                 const prodSnap = await transaction.get(prodRef);
-                
-                if (!prodSnap.exists()) throw "El producto original ya no existe en el catálogo.";
-                
+                if (!prodSnap.exists()) throw "Producto no existe.";
                 const currentStock = prodSnap.data().stock || 0;
-                if (currentStock < 1) throw "⛔ No hay stock disponible en inventario para realizar el reemplazo físico.";
-
-                // Descontar 1 unidad
+                if (currentStock < 1) throw "⛔ No hay stock disponible para reemplazo.";
                 transaction.update(prodRef, { stock: currentStock - 1 });
             }
 
-            // B. ACTUALIZAR GARANTÍA
             const warrantyRef = doc(db, "warranties", currentWarranty.id);
             transaction.update(warrantyRef, {
                 status: 'APROBADO',
                 resolutionType: resolutionType,
                 receivedItems: received,
                 adminResponse: notes || "Garantía aprobada.",
-                technicalReportUrl: pdfUrl || null, // Guardar URL del PDF
+                technicalReportUrl: pdfUrl || null,
                 resolvedAt: new Date()
             });
 
-            // C. CREAR ENTRADA EN INVENTARIO RMA (Logística Inversa)
-            // Se registra el producto dañado que ingresa a la empresa
             const rmaRef = doc(collection(db, "warranty_inventory"));
             transaction.set(rmaRef, {
                 warrantyId: currentWarranty.id,
@@ -285,35 +416,31 @@ window.confirmResolution = async () => {
             });
         });
 
-        alert("✅ Garantía procesada exitosamente.");
+        alert("✅ Garantía procesada.");
         resolutionModal.classList.add('hidden');
         closeManageModal();
-        loadWarranties();
+        fetchWarranties(false); // Recargar lista
 
     } catch (e) {
         console.error(e);
-        alert("Error: " + e); // Muestra mensaje si falla stock o subida
+        alert("Error: " + e);
     } finally {
         btn.disabled = false; btn.textContent = originalText;
     }
 };
 
-// --- 6. RECHAZAR GARANTÍA ---
 window.rejectWarranty = async () => {
     const notes = document.getElementById('m-admin-notes').value.trim();
-    if(!notes) return alert("⚠️ Para rechazar, debes escribir la razón en 'Notas / Respuesta al Cliente'.");
+    if(!notes) return alert("⚠️ Escribe la razón del rechazo.");
 
-    if(!confirm("¿Rechazar garantía y finalizar proceso?")) return;
+    if(!confirm("¿Rechazar garantía?")) return;
 
     const btn = document.querySelector('button[onclick="rejectWarranty()"]');
     const originalText = btn.innerHTML;
     btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Subiendo...';
 
     try {
-        // 1. Subir PDF (si existe)
         const pdfUrl = await uploadPDF(currentWarranty.id);
-
-        // 2. Actualizar Documento
         await updateDoc(doc(db, "warranties", currentWarranty.id), {
             status: 'RECHAZADO',
             adminResponse: notes,
@@ -323,14 +450,15 @@ window.rejectWarranty = async () => {
 
         alert("⛔ Garantía Rechazada.");
         closeManageModal();
-        loadWarranties();
+        fetchWarranties(false);
 
     } catch (e) { 
         console.error(e); 
         alert("Error: " + e.message); 
+    } finally {
         btn.disabled = false; btn.innerHTML = originalText;
     }
 };
 
-// Carga inicial
-loadWarranties();
+// Iniciar
+fetchWarranties();

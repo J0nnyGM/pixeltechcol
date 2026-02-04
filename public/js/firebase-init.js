@@ -4,7 +4,10 @@ import { getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signO
 
 // LIBRERÍA DE FIRESTORE (Base de datos)
 import { 
-    getFirestore, collection, addDoc, getDocs, doc, Timestamp, getDoc, setDoc, updateDoc, deleteDoc, query, where, orderBy, limit, runTransaction, onSnapshot,limitToLast,  endAt, startAt, serverTimestamp, arrayUnion, startAfter
+    getFirestore, collection, addDoc, getDocs, doc, Timestamp, getDoc, setDoc, updateDoc, deleteDoc, query, where, orderBy, limit, runTransaction, writeBatch, onSnapshot,limitToLast,  endAt, startAt, serverTimestamp, arrayUnion, startAfter,
+    getCountFromServer, 
+    getAggregateFromServer, 
+    sum, count,endBefore
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
 // LIBRERÍA DE STORAGE (Imágenes)
@@ -51,6 +54,7 @@ export {
     orderBy,    
     limit,   
     startAt,
+    writeBatch,
     endAt,  
     where,      
     ref,
@@ -63,5 +67,11 @@ export {
     Timestamp,
     // --- NUEVO: Exportar para usar en checkout.js ---
     httpsCallable ,
-    startAfter
+    startAfter,
+    // NUEVAS EXPORTACIONES:
+    getCountFromServer,
+    getAggregateFromServer,
+    sum,
+    count,
+    endBefore                                                                                                    
 };

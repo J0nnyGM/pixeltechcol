@@ -110,383 +110,370 @@
         </div>
     </main>
 
-    <script type="module">
-        import '../js/admin-guard.js'; 
-        import { loadAdminSidebar } from '../js/admin-ui.js';
-        import { db, storage, collection, addDoc, updateDoc, getDoc, getDocs, doc, deleteDoc, ref, uploadBytes, getDownloadURL } from '../js/firebase-init.js';
+<script type="module">
+    import '../js/admin-guard.js'; 
+    import { loadAdminSidebar } from '../js/admin-ui.js';
+    import { db, storage, collection, addDoc, updateDoc, getDoc, getDocs, doc, deleteDoc, ref, uploadBytes, getDownloadURL, query, orderBy, limit } from '../js/firebase-init.js';
 
-        // Carga Sidebar Inmediata
-        loadAdminSidebar();
+    loadAdminSidebar();
 
-        // --- ESTADO GLOBAL ---
-        let tempSubcategories = []; 
-        let isEditing = false;
-        let editCategoryId = null;
-        let currentMainImageUrl = null;
-        let editingSubIndex = -1;
+    // --- ESTADO GLOBAL ---
+    let tempSubcategories = []; 
+    let isEditing = false;
+    let editCategoryId = null;
+    let currentMainImageUrl = null;
+    let editingSubIndex = -1;
 
-        // DOM Elements
-        const formTitle = document.getElementById('form-title');
-        const btnCancel = document.getElementById('btn-cancel-edit');
-        const saveBtnText = document.getElementById('save-btn-text');
-        
-        const mainNameInput = document.getElementById('cat-name');
-        const mainInput = document.getElementById('cat-image');
-        const mainPreview = document.getElementById('main-preview');
-        const mainNameDisplay = document.getElementById('main-file-name');
-        
-        // Subcategory DOM
-        const subInput = document.getElementById('sub-image');
-        const subPreview = document.getElementById('sub-preview');
-        const subNameDisplay = document.getElementById('sub-file-name');
-        const subNameText = document.getElementById('sub-name');
-        const btnSubText = document.getElementById('btn-sub-text');
-        const btnCancelSubEdit = document.getElementById('btn-cancel-sub-edit');
-        const subEditIndicator = document.getElementById('sub-edit-indicator');
-        
-        const tempContainer = document.getElementById('temp-subs-list');
-        const btnSave = document.getElementById('btn-save-all');
-
-        // --- PREVIEWS ---
-        mainInput.onchange = e => handlePreview(e.target, mainPreview, mainNameDisplay);
-        subInput.onchange = e => handlePreview(e.target, subPreview, subNameDisplay);
-
-        function handlePreview(input, imgEl, textEl) {
-            const file = input.files[0];
-            if(file) {
-                textEl.textContent = file.name;
-                const reader = new FileReader();
-                reader.onload = e => {
-                    imgEl.src = e.target.result;
-                    imgEl.classList.remove('hidden');
-                };
-                reader.readAsDataURL(file);
-            }
-        }
-
-        // --- LÓGICA AGREGAR / EDITAR SUBCATEGORÍA ---
-        document.getElementById('btn-add-sub').onclick = () => {
-            const name = subNameText.value.trim();
-            const file = subInput.files[0];
-
-            if(!name) return alert("Escribe un nombre para la subcategoría");
-            
-            // Placeholder por defecto
-            let previewUrl = 'https://placehold.co/100'; 
-            if(file) {
-                previewUrl = URL.createObjectURL(file);
-            }
-
-            if (editingSubIndex === -1) {
-                // AGREGAR NUEVO
-                tempSubcategories.push({ 
-                    name, 
-                    file: file || null, 
-                    image: null, 
-                    previewUrl: file ? previewUrl : 'https://placehold.co/100'
-                });
-            } else {
-                // ACTUALIZAR EXISTENTE
-                const existing = tempSubcategories[editingSubIndex];
-                const newFile = file || existing.file;
-                // Si sube foto nueva, usar nueva preview. Si no, usar la existente.
-                const newPreview = file ? previewUrl : existing.previewUrl;
-
-                tempSubcategories[editingSubIndex] = {
-                    name,
-                    file: newFile,
-                    image: existing.image, 
-                    previewUrl: newPreview
-                };
-                cancelSubEdit();
-            }
-            
-            renderTempList();
-            if(editingSubIndex === -1) clearSubInputs();
-        };
-
-        function clearSubInputs() {
-            subNameText.value = "";
-            subInput.value = "";
-            subPreview.classList.add('hidden');
-            subNameDisplay.textContent = "Opcional";
-        }
-
-        function cancelSubEdit() {
-            editingSubIndex = -1;
-            btnSubText.textContent = "Agregar a la Lista";
-            subEditIndicator.classList.add('hidden');
-            btnCancelSubEdit.classList.add('hidden');
-            clearSubInputs();
-        }
-        btnCancelSubEdit.onclick = cancelSubEdit;
-
-        // --- RENDERIZAR LISTA TEMPORAL ---
-        function renderTempList() {
-            if(tempSubcategories.length === 0) {
-                tempContainer.innerHTML = `<p class="col-span-full text-center text-gray-300 text-xs py-4">Agrega subcategorías para verlas aquí</p>`;
-                return;
-            }
-            
-            tempContainer.innerHTML = tempSubcategories.map((sub, index) => `
-                <div class="relative group rounded-xl overflow-hidden border border-gray-100 shadow-sm aspect-square bg-white ${editingSubIndex === index ? 'ring-2 ring-blue-400' : ''}">
-                    <img src="${sub.previewUrl || 'https://placehold.co/100'}" class="w-full h-full object-cover">
+    // --- HELPER COMPRESIÓN (NUEVO) ---
+    const compressImage = async (file) => {
+        if (!file.type.startsWith('image/')) return file;
+        return new Promise((resolve, reject) => {
+            const img = new Image();
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                img.src = e.target.result;
+                img.onload = () => {
+                    // Configuración específica para Categorías (Son pequeñas)
+                    const maxWidth = 800; // Suficiente para menú y grids
+                    const quality = 0.85;
                     
-                    <div class="absolute inset-0 bg-black/60 flex flex-col items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition duration-300">
-                        <span class="text-white text-[10px] font-bold uppercase text-center px-1 leading-tight">${sub.name}</span>
-                        <div class="flex gap-2">
-                            <button onclick="window.editTempSub(${index})" class="bg-blue-500 text-white w-7 h-7 rounded-full flex items-center justify-center hover:scale-110 transition shadow-md" title="Editar">
-                                <i class="fa-solid fa-pen text-xs"></i>
-                            </button>
-                            <button onclick="window.removeTemp(${index})" class="bg-red-500 text-white w-7 h-7 rounded-full flex items-center justify-center hover:scale-110 transition shadow-md" title="Borrar">
-                                <i class="fa-solid fa-xmark text-xs"></i>
-                            </button>
-                        </div>
+                    let width = img.width;
+                    let height = img.height;
+
+                    if (width > maxWidth) {
+                        height = Math.round((height * maxWidth) / width);
+                        width = maxWidth;
+                    }
+
+                    const canvas = document.createElement('canvas');
+                    canvas.width = width;
+                    canvas.height = height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, width, height);
+
+                    canvas.toBlob((blob) => {
+                        if (!blob) { reject(new Error('Error compress')); return; }
+                        const newName = file.name.replace(/\.[^/.]+$/, "") + ".webp";
+                        resolve(new File([blob], newName, { type: 'image/webp', lastModified: Date.now() }));
+                    }, 'image/webp', quality);
+                };
+                img.onerror = (e) => reject(e);
+            };
+            reader.readAsDataURL(file);
+        });
+    };
+
+    // DOM Elements (Se mantienen igual)
+    const formTitle = document.getElementById('form-title');
+    const btnCancel = document.getElementById('btn-cancel-edit');
+    const saveBtnText = document.getElementById('save-btn-text');
+    const mainNameInput = document.getElementById('cat-name');
+    const mainInput = document.getElementById('cat-image');
+    const mainPreview = document.getElementById('main-preview');
+    const mainNameDisplay = document.getElementById('main-file-name');
+    const subInput = document.getElementById('sub-image');
+    const subPreview = document.getElementById('sub-preview');
+    const subNameDisplay = document.getElementById('sub-file-name');
+    const subNameText = document.getElementById('sub-name');
+    const btnSubText = document.getElementById('btn-sub-text');
+    const btnCancelSubEdit = document.getElementById('btn-cancel-sub-edit');
+    const subEditIndicator = document.getElementById('sub-edit-indicator');
+    const tempContainer = document.getElementById('temp-subs-list');
+    const btnSave = document.getElementById('btn-save-all');
+
+    // --- PREVIEWS ---
+    mainInput.onchange = e => handlePreview(e.target, mainPreview, mainNameDisplay);
+    subInput.onchange = e => handlePreview(e.target, subPreview, subNameDisplay);
+
+    function handlePreview(input, imgEl, textEl) {
+        const file = input.files[0];
+        if(file) {
+            textEl.textContent = file.name;
+            const reader = new FileReader();
+            reader.onload = e => {
+                imgEl.src = e.target.result;
+                imgEl.classList.remove('hidden');
+            };
+            reader.readAsDataURL(file);
+        }
+    }
+
+    // --- LÓGICA SUBCATEGORÍA ---
+    document.getElementById('btn-add-sub').onclick = () => {
+        const name = subNameText.value.trim();
+        const file = subInput.files[0];
+
+        if(!name) return alert("Escribe un nombre para la subcategoría");
+        
+        let previewUrl = 'https://placehold.co/100'; 
+        if(file) previewUrl = URL.createObjectURL(file);
+
+        if (editingSubIndex === -1) {
+            tempSubcategories.push({ 
+                name, file: file || null, image: null, previewUrl: file ? previewUrl : 'https://placehold.co/100'
+            });
+        } else {
+            const existing = tempSubcategories[editingSubIndex];
+            const newFile = file || existing.file;
+            const newPreview = file ? previewUrl : existing.previewUrl;
+            tempSubcategories[editingSubIndex] = {
+                name, file: newFile, image: existing.image, previewUrl: newPreview
+            };
+            cancelSubEdit();
+        }
+        renderTempList();
+        if(editingSubIndex === -1) clearSubInputs();
+    };
+
+    function clearSubInputs() {
+        subNameText.value = "";
+        subInput.value = "";
+        subPreview.classList.add('hidden');
+        subNameDisplay.textContent = "Opcional";
+    }
+
+    function cancelSubEdit() {
+        editingSubIndex = -1;
+        btnSubText.textContent = "Agregar a la Lista";
+        subEditIndicator.classList.add('hidden');
+        btnCancelSubEdit.classList.add('hidden');
+        clearSubInputs();
+    }
+    btnCancelSubEdit.onclick = cancelSubEdit;
+
+    // --- RENDER TEMP LIST ---
+    function renderTempList() {
+        if(tempSubcategories.length === 0) {
+            tempContainer.innerHTML = `<p class="col-span-full text-center text-gray-300 text-xs py-4">Agrega subcategorías para verlas aquí</p>`;
+            return;
+        }
+        tempContainer.innerHTML = tempSubcategories.map((sub, index) => `
+            <div class="relative group rounded-xl overflow-hidden border border-gray-100 shadow-sm aspect-square bg-white ${editingSubIndex === index ? 'ring-2 ring-blue-400' : ''}">
+                <img src="${sub.previewUrl || 'https://placehold.co/100'}" class="w-full h-full object-cover">
+                <div class="absolute inset-0 bg-black/60 flex flex-col items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition duration-300">
+                    <span class="text-white text-[10px] font-bold uppercase text-center px-1 leading-tight">${sub.name}</span>
+                    <div class="flex gap-2">
+                        <button onclick="window.editTempSub(${index})" class="bg-blue-500 text-white w-7 h-7 rounded-full flex items-center justify-center hover:scale-110 transition shadow-md"><i class="fa-solid fa-pen text-xs"></i></button>
+                        <button onclick="window.removeTemp(${index})" class="bg-red-500 text-white w-7 h-7 rounded-full flex items-center justify-center hover:scale-110 transition shadow-md"><i class="fa-solid fa-xmark text-xs"></i></button>
                     </div>
                 </div>
-            `).join('');
-        }
+            </div>
+        `).join('');
+    }
 
-        window.removeTemp = (index) => {
-            if(editingSubIndex === index) cancelSubEdit();
-            tempSubcategories.splice(index, 1);
-            if(editingSubIndex > index) editingSubIndex--;
-            renderTempList();
-        };
+    window.removeTemp = (index) => {
+        if(editingSubIndex === index) cancelSubEdit();
+        tempSubcategories.splice(index, 1);
+        if(editingSubIndex > index) editingSubIndex--;
+        renderTempList();
+    };
 
-        window.editTempSub = (index) => {
-            const sub = tempSubcategories[index];
-            editingSubIndex = index;
-            
-            subNameText.value = sub.name;
-            subPreview.src = sub.previewUrl || 'https://placehold.co/100'; // Fallback
-            subPreview.classList.remove('hidden');
-            subNameDisplay.textContent = "Cambiar imagen (Opcional)";
-            
-            btnSubText.textContent = "Actualizar Item";
-            subEditIndicator.classList.remove('hidden');
-            btnCancelSubEdit.classList.remove('hidden');
-            
-            renderTempList();
-        };
+    window.editTempSub = (index) => {
+        const sub = tempSubcategories[index];
+        editingSubIndex = index;
+        subNameText.value = sub.name;
+        subPreview.src = sub.previewUrl || 'https://placehold.co/100'; 
+        subPreview.classList.remove('hidden');
+        subNameDisplay.textContent = "Cambiar imagen (Opcional)";
+        btnSubText.textContent = "Actualizar Item";
+        subEditIndicator.classList.remove('hidden');
+        btnCancelSubEdit.classList.remove('hidden');
+        renderTempList();
+    };
 
-        // --- GUARDADO GENERAL ---
-        window.saveFullCategory = async () => {
-            const catName = mainNameInput.value.trim();
-            const mainFile = mainInput.files[0];
+    // --- GUARDADO OPTIMIZADO (COMPRESIÓN + PARALELO) ---
+    window.saveFullCategory = async () => {
+        const catName = mainNameInput.value.trim();
+        const mainFile = mainInput.files[0];
 
-            if(!catName) return alert("Falta el nombre de la Categoría");
-            if(!isEditing && !mainFile) return alert("Falta la imagen principal");
+        if(!catName) return alert("Falta el nombre de la Categoría");
+        if(!isEditing && !mainFile) return alert("Falta la imagen principal");
 
-            try {
-                btnSave.disabled = true;
-                btnSave.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Guardando...`;
+        try {
+            btnSave.disabled = true;
+            btnSave.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Optimizando...`;
 
-                // 1. Imagen Principal
-                let mainUrl = currentMainImageUrl;
-                if (mainFile) {
-                    const mainRef = ref(storage, `categories/${Date.now()}_main_${mainFile.name}`);
-                    await uploadBytes(mainRef, mainFile);
-                    mainUrl = await getDownloadURL(mainRef);
+            // 1. Imagen Principal (Comprimir y Subir)
+            let mainUrl = currentMainImageUrl;
+            if (mainFile) {
+                const compressedMain = await compressImage(mainFile); // Optimización
+                const mainRef = ref(storage, `categories/${Date.now()}_main_${compressedMain.name}`);
+                await uploadBytes(mainRef, compressedMain);
+                mainUrl = await getDownloadURL(mainRef);
+            }
+
+            // 2. Subcategorías (Paralelo: Comprimir -> Subir -> URL)
+            const subcategoriesData = await Promise.all(tempSubcategories.map(async (sub) => {
+                let finalSubUrl = sub.image; 
+                
+                if (sub.file) {
+                    const compressedSub = await compressImage(sub.file); // Optimización
+                    const subRef = ref(storage, `categories/subs/${Date.now()}_${sub.name}_${compressedSub.name}`);
+                    await uploadBytes(subRef, compressedSub);
+                    finalSubUrl = await getDownloadURL(subRef);
+                } else if (!finalSubUrl) {
+                    finalSubUrl = 'https://placehold.co/300x300?text=No+Img';
                 }
 
-                // 2. Subcategorías
-                const subcategoriesData = await Promise.all(tempSubcategories.map(async (sub) => {
-                    let finalSubUrl = sub.image; 
-                    
-                    if (sub.file) {
-                        const subRef = ref(storage, `categories/subs/${Date.now()}_${sub.name}_${sub.file.name}`);
-                        await uploadBytes(subRef, sub.file);
-                        finalSubUrl = await getDownloadURL(subRef);
-                    } else if (!finalSubUrl) {
-                        finalSubUrl = 'https://placehold.co/300x300?text=No+Img';
-                    }
+                return { name: sub.name, image: finalSubUrl };
+            }));
 
-                    return { name: sub.name, image: finalSubUrl };
-                }));
+            // 3. Firestore
+            const docData = {
+                name: catName,
+                image: mainUrl || 'https://placehold.co/400x300',
+                subcategories: subcategoriesData,
+                updatedAt: new Date()
+            };
 
-                // 3. Firestore
-                const docData = {
-                    name: catName,
-                    image: mainUrl || 'https://placehold.co/400x300',
-                    subcategories: subcategoriesData,
-                    updatedAt: new Date()
-                };
+            if (isEditing) {
+                await updateDoc(doc(db, "categories", editCategoryId), docData);
+                alert("✅ Categoría actualizada");
+            } else {
+                docData.createdAt = new Date();
+                await addDoc(collection(db, "categories"), docData);
+                alert("✅ Categoría creada");
+            }
 
-                if (isEditing) {
-                    await updateDoc(doc(db, "categories", editCategoryId), docData);
-                    alert("✅ Categoría actualizada");
+            window.resetForm();
+            loadCategories();
+
+        } catch (e) {
+            console.error(e);
+            alert("Error: " + e.message);
+            btnSave.disabled = false;
+            btnSave.innerHTML = isEditing ? `Actualizar` : `Guardar Categoría Completa`;
+        }
+    };
+
+    // --- CARGAR LISTA (OPTIMIZADA) ---
+    async function loadCategories() {
+        const list = document.getElementById('categories-list');
+        list.innerHTML = `<div class="p-8 text-center text-gray-400"><i class="fa-solid fa-circle-notch fa-spin"></i> Cargando...</div>`;
+        
+        try {
+            const q = query(collection(db, "categories"), orderBy("updatedAt", "desc"), limit(100));
+            const snap = await getDocs(q);
+            list.innerHTML = "";
+            
+            if (snap.empty) {
+                list.innerHTML = `<div class="p-8 text-center text-gray-400 text-xs font-bold uppercase">No hay categorías</div>`;
+                return;
+            }
+
+            snap.forEach(d => {
+                const data = d.data();
+                const displayImage = data.image || 'https://placehold.co/100?text=No+Img';
+                const subcats = data.subcategories || [];
+                
+                let subcatsHTML = "";
+                if(subcats.length > 0) {
+                    subcatsHTML = `<div class="mt-3 flex flex-wrap gap-2">
+                        ${subcats.map(s => {
+                            const sName = typeof s === 'string' ? s : s.name;
+                            const sImg = (typeof s === 'object' && s.image) ? s.image : 'https://placehold.co/100?text=S';
+                            return `<div class="flex items-center gap-2 bg-gray-50 border border-gray-100 rounded-full pr-3 pl-1 py-1">
+                                <img src="${sImg}" loading="lazy" class="w-5 h-5 rounded-full object-cover">
+                                <span class="text-[9px] font-bold text-gray-500 uppercase">${sName}</span>
+                            </div>`;
+                        }).join('')}
+                    </div>`;
                 } else {
-                    docData.createdAt = new Date();
-                    await addDoc(collection(db, "categories"), docData);
-                    alert("✅ Categoría creada");
+                    subcatsHTML = `<p class="mt-2 text-[10px] text-gray-300 italic">Sin subcategorías</p>`;
                 }
 
-                window.resetForm();
-                loadCategories();
-
-            } catch (e) {
-                console.error(e);
-                alert("Error: " + e.message);
-                btnSave.disabled = false;
-                btnSave.innerHTML = isEditing ? `Actualizar` : `Guardar Categoría Completa`;
-            }
-        };
-
-        // --- CARGAR LISTA PRINCIPAL (FIXED UNDEFINED) ---
-        async function loadCategories() {
-            const list = document.getElementById('categories-list');
-            try {
-                const snap = await getDocs(collection(db, "categories"));
-                list.innerHTML = "";
-                
-                if (snap.empty) {
-                    list.innerHTML = `<div class="p-8 text-center text-gray-400 text-xs font-bold uppercase">No hay categorías</div>`;
-                    return;
-                }
-
-                snap.forEach(d => {
-                    const data = d.data();
-                    // Fallback para evitar 404
-                    const displayImage = data.image || 'https://placehold.co/100?text=No+Img';
-                    const subcats = data.subcategories || [];
-                    
-                    // Renderizar miniaturas de subcategorías con validación de imagen
-                    let subcatsHTML = "";
-                    if(subcats.length > 0) {
-                        subcatsHTML = `
-                            <div class="mt-3 flex flex-wrap gap-2">
-                                ${subcats.map(s => {
-                                    // Validación: Si es string antiguo o si no tiene imagen
-                                    const sName = typeof s === 'string' ? s : s.name;
-                                    const sImg = (typeof s === 'object' && s.image) ? s.image : 'https://placehold.co/100?text=S';
-                                    return `
-                                    <div class="flex items-center gap-2 bg-gray-50 border border-gray-100 rounded-full pr-3 pl-1 py-1">
-                                        <img src="${sImg}" class="w-5 h-5 rounded-full object-cover">
-                                        <span class="text-[9px] font-bold text-gray-500 uppercase">${sName}</span>
-                                    </div>
-                                    `;
-                                }).join('')}
-                            </div>
-                        `;
-                    } else {
-                        subcatsHTML = `<p class="mt-2 text-[10px] text-gray-300 italic">Sin subcategorías</p>`;
-                    }
-
-                    list.innerHTML += `
-                        <div class="p-5 hover:bg-slate-50 transition border-b border-gray-50 last:border-0 group">
-                            <div class="flex items-start justify-between">
-                                <div class="flex items-center gap-4">
-                                    <div class="w-16 h-16 rounded-xl bg-gray-100 overflow-hidden shrink-0 border border-gray-200 shadow-sm">
-                                        <img src="${displayImage}" class="w-full h-full object-cover">
-                                    </div>
-                                    <div>
-                                        <h3 class="font-black text-brand-black text-sm uppercase">${data.name}</h3>
-                                        <p class="text-[10px] text-gray-400 font-bold">${subcats.length} Colecciones</p>
-                                    </div>
+                list.innerHTML += `
+                    <div class="p-5 hover:bg-slate-50 transition border-b border-gray-50 last:border-0 group fade-in">
+                        <div class="flex items-start justify-between">
+                            <div class="flex items-center gap-4">
+                                <div class="w-16 h-16 rounded-xl bg-gray-100 overflow-hidden shrink-0 border border-gray-200 shadow-sm">
+                                    <img src="${displayImage}" loading="lazy" class="w-full h-full object-cover">
                                 </div>
-                                <div class="flex gap-2 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity">
-                                    <button onclick="window.loadForEdit('${d.id}')" class="w-8 h-8 flex items-center justify-center rounded-lg bg-white border border-gray-200 text-blue-400 hover:text-white hover:bg-blue-500 hover:border-blue-500 transition shadow-sm" title="Editar Categoría">
-                                        <i class="fa-solid fa-pen"></i>
-                                    </button>
-                                    <button onclick="window.deleteCat('${d.id}')" class="w-8 h-8 flex items-center justify-center rounded-lg bg-white border border-gray-200 text-gray-300 hover:text-white hover:bg-red-500 hover:border-red-500 transition shadow-sm" title="Eliminar">
-                                        <i class="fa-solid fa-trash-can"></i>
-                                    </button>
+                                <div>
+                                    <h3 class="font-black text-brand-black text-sm uppercase">${data.name}</h3>
+                                    <p class="text-[10px] text-gray-400 font-bold">${subcats.length} Colecciones</p>
                                 </div>
                             </div>
-                            ${subcatsHTML}
+                            <div class="flex gap-2 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity">
+                                <button onclick="window.loadForEdit('${d.id}')" class="w-8 h-8 flex items-center justify-center rounded-lg bg-white border border-gray-200 text-blue-400 hover:text-white hover:bg-blue-500 hover:border-blue-500 transition shadow-sm"><i class="fa-solid fa-pen"></i></button>
+                                <button onclick="window.deleteCat('${d.id}')" class="w-8 h-8 flex items-center justify-center rounded-lg bg-white border border-gray-200 text-gray-300 hover:text-white hover:bg-red-500 hover:border-red-500 transition shadow-sm"><i class="fa-solid fa-trash-can"></i></button>
+                            </div>
                         </div>
-                    `;
-                });
-            } catch (error) {
-                console.error(error);
-                list.innerHTML = `<div class="p-8 text-center text-red-400">Error al cargar datos</div>`;
-            }
+                        ${subcatsHTML}
+                    </div>
+                `;
+            });
+        } catch (error) {
+            console.error(error);
+            list.innerHTML = `<div class="p-8 text-center text-red-400">Error al cargar datos</div>`;
         }
+    }
 
-        // --- MODO EDICIÓN CATEGORÍA PRINCIPAL ---
-        window.loadForEdit = async (id) => {
-            try {
-                const snap = await getDoc(doc(db, "categories", id));
-                if (!snap.exists()) return;
-                
-                const data = snap.data();
-                
-                isEditing = true;
-                editCategoryId = id;
-                currentMainImageUrl = data.image;
+    // --- CARGA PARA EDICIÓN ---
+    window.loadForEdit = async (id) => {
+        try {
+            const snap = await getDoc(doc(db, "categories", id));
+            if (!snap.exists()) return;
+            const data = snap.data();
+            
+            isEditing = true;
+            editCategoryId = id;
+            currentMainImageUrl = data.image;
 
-                formTitle.textContent = `Editando: ${data.name}`;
-                formTitle.classList.remove('text-brand-cyan');
-                formTitle.classList.add('text-blue-500');
-                
-                btnCancel.classList.remove('hidden');
-                saveBtnText.textContent = "Actualizar Categoría";
-                
-                mainNameInput.value = data.name;
-                
-                mainPreview.src = data.image || 'https://placehold.co/100'; // Fallback
-                mainPreview.classList.remove('hidden');
-                mainNameDisplay.textContent = "Imagen actual cargada";
+            formTitle.textContent = `Editando: ${data.name}`;
+            formTitle.classList.remove('text-brand-cyan');
+            formTitle.classList.add('text-blue-500');
+            
+            btnCancel.classList.remove('hidden');
+            saveBtnText.textContent = "Actualizar Categoría";
+            
+            mainNameInput.value = data.name;
+            mainPreview.src = data.image || 'https://placehold.co/100'; 
+            mainPreview.classList.remove('hidden');
+            mainNameDisplay.textContent = "Imagen actual cargada";
 
-                // Cargar Subcategorías
-                tempSubcategories = [];
-                if (data.subcategories && Array.isArray(data.subcategories)) {
-                    data.subcategories.forEach(sub => {
-                        // Compatibilidad con datos viejos (string) y nuevos (objeto)
-                        const sName = typeof sub === 'string' ? sub : sub.name;
-                        const sImg = typeof sub === 'object' ? sub.image : 'https://placehold.co/100';
-                        
-                        tempSubcategories.push({
-                            name: sName,
-                            file: null,
-                            image: sImg,
-                            previewUrl: sImg 
-                        });
-                    });
-                }
-                
-                renderTempList();
-                document.querySelector('main').scrollTo({ top: 0, behavior: 'auto' });
-
-            } catch (e) {
-                console.error(e);
-                alert("Error al cargar datos");
-            }
-        };
-
-        window.resetForm = () => {
-            isEditing = false;
-            editCategoryId = null;
-            currentMainImageUrl = null;
             tempSubcategories = [];
-            
-            cancelSubEdit();
-            
-            document.getElementById('cat-form').reset();
-            
-            formTitle.textContent = "1. Categoría Principal";
-            formTitle.classList.add('text-brand-cyan');
-            formTitle.classList.remove('text-blue-500');
-            
-            btnCancel.classList.add('hidden');
-            saveBtnText.textContent = "Guardar Categoría Completa";
-            
-            mainPreview.classList.add('hidden');
-            mainNameDisplay.textContent = "Click para cambiar";
-            
-            renderTempList();
-        };
-
-        window.deleteCat = async (id) => {
-            if(confirm("¿Estás seguro de eliminar esta categoría y sus subcategorías?")) {
-                await deleteDoc(doc(db, "categories", id));
-                if(isEditing && editCategoryId === id) resetForm();
-                loadCategories();
+            if (data.subcategories && Array.isArray(data.subcategories)) {
+                data.subcategories.forEach(sub => {
+                    const sName = typeof sub === 'string' ? sub : sub.name;
+                    const sImg = typeof sub === 'object' ? sub.image : 'https://placehold.co/100';
+                    tempSubcategories.push({
+                        name: sName, file: null, image: sImg, previewUrl: sImg 
+                    });
+                });
             }
-        };
+            renderTempList();
+            document.querySelector('main').scrollTo({ top: 0, behavior: 'smooth' });
 
-        loadCategories();
-    </script>
+        } catch (e) { console.error(e); alert("Error al cargar"); }
+    };
+
+    window.resetForm = () => {
+        isEditing = false;
+        editCategoryId = null;
+        currentMainImageUrl = null;
+        tempSubcategories = [];
+        cancelSubEdit();
+        document.getElementById('cat-form').reset();
+        formTitle.textContent = "1. Categoría Principal";
+        formTitle.classList.add('text-brand-cyan');
+        formTitle.classList.remove('text-blue-500');
+        btnCancel.classList.add('hidden');
+        saveBtnText.textContent = "Guardar Categoría Completa";
+        mainPreview.classList.add('hidden');
+        mainNameDisplay.textContent = "Click para cambiar";
+        renderTempList();
+    };
+
+    window.deleteCat = async (id) => {
+        if(confirm("¿Eliminar esta categoría permanentemente?")) {
+            await deleteDoc(doc(db, "categories", id));
+            if(isEditing && editCategoryId === id) resetForm();
+            loadCategories();
+        }
+    };
+
+    loadCategories();
+</script>
 </body>
 </html>

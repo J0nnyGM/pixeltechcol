@@ -32,8 +32,33 @@
         </header>
 
         <div class="p-8 max-w-7xl mx-auto">
-            <h1 class="text-4xl font-black text-brand-black tracking-tighter uppercase mb-10">Solicitudes de <span
-                    class="text-brand-cyan">Garantía</span></h1>
+            <div class="flex flex-col md:flex-row justify-between items-end mb-8 gap-4">
+                <div>
+                    <h1 class="text-4xl font-black text-brand-black tracking-tighter uppercase mb-2">Solicitudes de <span class="text-brand-cyan">Garantía</span></h1>
+                    <p class="text-xs text-gray-400 font-bold uppercase tracking-widest">Gestión de reclamos y soporte</p>
+                </div>
+                
+                <div class="bg-white p-3 rounded-2xl border border-gray-200 flex items-center gap-3 w-full md:w-80 shadow-sm">
+                    <i class="fa-solid fa-magnifying-glass text-gray-400 ml-2"></i>
+                    <input type="text" id="search-input" placeholder="Buscar ID, Orden o Serial..." 
+                        class="w-full bg-transparent text-xs font-bold outline-none placeholder:text-gray-300 text-brand-black">
+                </div>
+            </div>
+
+            <div class="flex gap-2 mb-6 overflow-x-auto pb-2">
+                <button onclick="window.filterTab('PENDING')" id="tab-pending" class="tab-btn active px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-brand-cyan text-white shadow-lg shadow-cyan-500/30 transition-all border border-transparent whitespace-nowrap">
+                    <i class="fa-regular fa-clock mr-2"></i> Pendientes
+                </button>
+                <button onclick="window.filterTab('APPROVED')" id="tab-approved" class="tab-btn px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-white text-gray-400 border border-gray-200 hover:text-green-600 hover:border-green-200 transition-all whitespace-nowrap">
+                    <i class="fa-solid fa-check mr-2"></i> Aprobadas
+                </button>
+                <button onclick="window.filterTab('REJECTED')" id="tab-rejected" class="tab-btn px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-white text-gray-400 border border-gray-200 hover:text-red-500 hover:border-red-200 transition-all whitespace-nowrap">
+                    <i class="fa-solid fa-xmark mr-2"></i> Rechazadas
+                </button>
+                <button onclick="window.filterTab('ALL')" id="tab-all" class="tab-btn px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-white text-gray-400 border border-gray-200 hover:text-brand-black hover:border-gray-300 transition-all whitespace-nowrap">
+                    <i class="fa-solid fa-list mr-2"></i> Historial
+                </button>
+            </div>
 
             <div class="bg-white rounded-[2.5rem] shadow-xl border border-gray-100 overflow-hidden">
                 <table class="w-full text-left text-sm">
@@ -50,6 +75,12 @@
                     </thead>
                     <tbody id="warranties-table" class="divide-y divide-gray-50"></tbody>
                 </table>
+            </div>
+
+            <div id="load-more-container" class="py-8 text-center hidden">
+                <button onclick="window.loadMoreWarranties()" class="text-xs font-bold text-gray-400 hover:text-brand-cyan transition uppercase tracking-widest flex items-center justify-center gap-2 mx-auto">
+                    <i class="fa-solid fa-circle-plus"></i> Cargar siguientes 50
+                </button>
             </div>
         </div>
     </main>

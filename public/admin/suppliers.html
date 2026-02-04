@@ -78,7 +78,14 @@
                             <tbody id="suppliers-table-body" class="divide-y divide-gray-50 text-sm">
                                 </tbody>
                         </table>
+
+                        <div id="load-more-suppliers" class="py-6 text-center hidden border-t border-gray-100">
+                            <button onclick="window.loadMoreSuppliers()" class="text-xs font-bold text-gray-400 hover:text-brand-cyan transition uppercase tracking-widest flex items-center justify-center gap-2 mx-auto">
+                                <i class="fa-solid fa-circle-plus"></i> Cargar siguientes 50
+                            </button>
+                        </div>
                     </div>
+
                 </div>
             </div>
 
@@ -97,6 +104,11 @@
                             </thead>
                             <tbody id="purchases-table-body" class="divide-y divide-gray-50 text-sm"></tbody>
                         </table>
+                        <div id="load-more-purchases" class="py-6 text-center hidden border-t border-gray-100">
+                            <button onclick="window.loadMorePurchases()" class="text-xs font-bold text-gray-400 hover:text-brand-cyan transition uppercase tracking-widest flex items-center justify-center gap-2 mx-auto">
+                                <i class="fa-solid fa-circle-plus"></i> Cargar siguientes 50
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -166,106 +178,254 @@
         </div>
     </div>
 
-    <script type="module">
-        import { db, collection, getDocs, getDoc, addDoc, updateDoc, doc, deleteDoc, orderBy, query, where } from '../js/firebase-init.js';
+<script type="module">
+        import { db, collection, getDocs, getDoc, addDoc, updateDoc, doc, deleteDoc, orderBy, query, where, limit, startAfter } from '../js/firebase-init.js';
         import { loadAdminSidebar } from '../js/admin-ui.js';
 
         loadAdminSidebar();
 
+        // DOM Elements
         const tableBody = document.getElementById('suppliers-table-body');
         const purchasesTable = document.getElementById('purchases-table-body');
         const loading = document.getElementById('loading-state');
         const supplierModal = document.getElementById('supplier-modal');
         const supplierForm = document.getElementById('supplier-form');
         const searchInput = document.getElementById('search-input');
+        
+        const loadMoreSuppliersBtn = document.getElementById('load-more-suppliers');
+        const loadMorePurchasesBtn = document.getElementById('load-more-purchases');
 
-        let allSuppliers = [];
+        // Estado Global
+        let lastSupplierDoc = null;
+        let lastPurchaseDoc = null;
+        let isSuppliersLoading = false;
+        let isPurchasesLoading = false;
+        const DOCS_PER_PAGE = 50;
 
-        // --- 1. CARGAR PROVEEDORES ---
-        async function fetchSuppliers() {
-            loading.classList.remove('hidden');
-            tableBody.innerHTML = "";
+        // Caché para Búsqueda (Optimización Suprema)
+        let supplierIndexCache = null; // Se llenará solo si el usuario busca
+
+        // ====================================================================
+        // 1. CARGA PAGINADA (Vista Inicial Barata)
+        // ====================================================================
+        async function fetchSuppliers(isNextPage = false) {
+            // Si el usuario está buscando, no usamos la carga paginada, sino el render del buscador
+            if (searchInput.value.trim() !== '') return;
+
+            if (isSuppliersLoading) return;
+            isSuppliersLoading = true;
+
+            if (!isNextPage) {
+                loading.classList.remove('hidden');
+                tableBody.innerHTML = "";
+                loadMoreSuppliersBtn.classList.add('hidden');
+            } else {
+                loadMoreSuppliersBtn.querySelector('button').innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Cargando...`;
+            }
+
             try {
-                const snap = await getDocs(query(collection(db, "suppliers"), orderBy("name", "asc")));
-                allSuppliers = [];
-                snap.forEach(d => {
-                    allSuppliers.push({ id: d.id, ...d.data() });
-                });
-                renderSupplierTable(allSuppliers);
+                const coll = collection(db, "suppliers");
+                let q = query(coll, orderBy("name", "asc"), limit(DOCS_PER_PAGE));
+
+                if (isNextPage && lastSupplierDoc) {
+                    q = query(q, startAfter(lastSupplierDoc));
+                }
+
+                const snap = await getDocs(q);
+                
+                if (!isNextPage) loading.classList.add('hidden');
+
+                if (snap.empty) {
+                    if (!isNextPage) tableBody.innerHTML = `<tr><td colspan="6" class="p-12 text-center opacity-50"><i class="fa-solid fa-folder-open text-4xl mb-4 text-gray-300"></i><p class="font-bold text-gray-400">No hay proveedores registrados.</p></td></tr>`;
+                    loadMoreSuppliersBtn.classList.add('hidden');
+                    isSuppliersLoading = false;
+                    return;
+                }
+
+                lastSupplierDoc = snap.docs[snap.docs.length - 1];
+
+                if (snap.docs.length === DOCS_PER_PAGE) {
+                    loadMoreSuppliersBtn.classList.remove('hidden');
+                    loadMoreSuppliersBtn.querySelector('button').innerHTML = `<i class="fa-solid fa-circle-plus"></i> Cargar siguientes 50`;
+                } else {
+                    loadMoreSuppliersBtn.classList.add('hidden');
+                }
+
+                snap.forEach(d => renderSupplierRow({ id: d.id, ...d.data() }));
+
             } catch (e) { 
                 console.error(e);
-                tableBody.innerHTML = `<tr><td colspan="6" class="p-8 text-center text-red-400 font-bold">Error de conexión</td></tr>`;
+                if(!isNextPage) tableBody.innerHTML = `<tr><td colspan="6" class="p-8 text-center text-red-400 font-bold">Error de conexión</td></tr>`;
+                loading.classList.add('hidden');
+            } finally {
+                isSuppliersLoading = false;
             }
-            loading.classList.add('hidden');
         }
 
-        // --- 2. RENDERIZAR TABLA (NUEVO) ---
-        function renderSupplierTable(data) {
-            tableBody.innerHTML = "";
-            if(data.length === 0) {
-                tableBody.innerHTML = `<tr><td colspan="6" class="p-12 text-center opacity-50"><i class="fa-solid fa-folder-open text-4xl mb-4 text-gray-300"></i><p class="font-bold text-gray-400">No hay proveedores registrados.</p></td></tr>`;
+        window.loadMoreSuppliers = () => fetchSuppliers(true);
+
+        // ====================================================================
+        // 2. BUSCADOR INTELIGENTE (CACHÉ LOCAL)
+        // Descarga todo 1 vez, busca 1000 veces gratis. Encuentra subcadenas.
+        // ====================================================================
+        
+        async function ensureSupplierIndex() {
+            if (supplierIndexCache) return true; // Ya tenemos datos
+
+            // Intentar sesión (si recargó página)
+            const stored = sessionStorage.getItem('pixeltech_supplier_index');
+            if(stored) {
+                supplierIndexCache = JSON.parse(stored);
+                return true;
+            }
+
+            // Descargar Directorio (Solo ID, Nombre, NIT, Contacto, Info básica)
+            // Aunque sean 500 docs, es liviano y vale la pena por la UX de búsqueda
+            try {
+                loading.classList.remove('hidden'); // Feedback visual
+                const q = query(collection(db, "suppliers"), orderBy("name", "asc"));
+                const snap = await getDocs(q);
+                
+                supplierIndexCache = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+                
+                // Guardar en sesión
+                try { sessionStorage.setItem('pixeltech_supplier_index', JSON.stringify(supplierIndexCache)); } catch(e){}
+                
+                loading.classList.add('hidden');
+                return true;
+            } catch(e) {
+                console.error("Error indexando proveedores:", e);
+                loading.classList.add('hidden');
+                return false;
+            }
+        }
+
+        searchInput.addEventListener('input', async (e) => {
+            const term = e.target.value.toLowerCase().trim();
+
+            // 1. Si borra todo, volver a la vista paginada normal
+            if (term.length === 0) {
+                lastSupplierDoc = null;
+                fetchSuppliers(false);
                 return;
             }
 
-            data.forEach((s, index) => {
-                tableBody.innerHTML += `
-                    <tr class="hover:bg-slate-50 transition-colors border-b border-gray-50 last:border-0 group cursor-pointer fade-in" 
-                        style="animation-delay: ${index * 50}ms"
-                        onclick="window.location.href = 'supplier-detail.html?id=${s.id}'">
-                        
-                        <td class="px-8 py-5">
-                            <p class="font-black text-brand-black text-sm uppercase tracking-tight group-hover:text-brand-cyan transition-colors">${s.name}</p>
-                            <span class="text-[9px] font-bold text-gray-400 bg-gray-50 px-2 py-0.5 rounded uppercase tracking-wider inline-block mt-1">NIT: ${s.nit || '---'}</span>
-                        </td>
-                        
-                        <td class="px-8 py-5">
-                            <div class="flex items-center gap-3">
-                                <div class="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-gray-400 text-xs shrink-0 border border-slate-200">
-                                    <i class="fa-solid fa-user"></i>
-                                </div>
-                                <span class="font-bold text-gray-600 text-xs">${s.contactName || '---'}</span>
-                            </div>
-                        </td>
-                        
-                        <td class="px-8 py-5">
-                            <div class="flex flex-col gap-1">
-                                <span class="text-xs font-bold text-gray-600 flex items-center gap-2"><i class="fa-brands fa-whatsapp text-green-500"></i> ${s.phone}</span>
-                                ${s.email ? `<span class="text-[10px] font-bold text-gray-400 flex items-center gap-2"><i class="fa-regular fa-envelope"></i> ${s.email}</span>` : ''}
-                            </div>
-                        </td>
-                        
-                        <td class="px-8 py-5 text-right">
-                            <span class="font-black text-brand-black text-sm block group-hover:scale-105 transition-transform origin-right">$${(s.totalInvested || 0).toLocaleString('es-CO')}</span>
-                        </td>
-                        
-                        <td class="px-8 py-5 text-center">
-                            <span class="bg-brand-cyan/10 text-brand-cyan px-3 py-1 rounded-lg text-xs font-black border border-brand-cyan/20">${s.ordersCount || 0}</span>
-                        </td>
-                        
-                        <td class="px-8 py-5 text-center">
-                            <div class="flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity" onclick="event.stopPropagation()">
-                                <button onclick="openSupplierModal('${s.id}')" class="w-9 h-9 rounded-xl border border-gray-200 text-gray-400 hover:bg-brand-cyan hover:text-brand-black hover:border-transparent transition flex items-center justify-center shadow-sm">
-                                    <i class="fa-solid fa-pen text-xs"></i>
-                                </button>
-                                <button onclick="deleteSupplier('${s.id}')" class="w-9 h-9 rounded-xl border border-gray-200 text-gray-400 hover:bg-brand-red hover:text-white hover:border-transparent transition flex items-center justify-center shadow-sm">
-                                    <i class="fa-solid fa-trash text-xs"></i>
-                                </button>
-                            </div>
-                        </td>
-                    </tr>
-                `;
+            // 2. Asegurar que tenemos el índice (Lazy Load)
+            if (!supplierIndexCache) {
+                tableBody.innerHTML = `<tr><td colspan="6" class="p-8 text-center text-gray-400"><i class="fa-solid fa-circle-notch fa-spin"></i> Cargando directorio para búsqueda...</td></tr>`;
+                await ensureSupplierIndex();
+            }
+
+            // 3. Filtrar en Memoria (Súper rápido y encuentra "Exito" en "Vidrios Exito")
+            const filtered = supplierIndexCache.filter(s => {
+                const text = `${s.name} ${s.nit || ''} ${s.contactName || ''}`.toLowerCase();
+                return text.includes(term);
             });
+
+            // 4. Renderizar Resultados
+            tableBody.innerHTML = "";
+            loadMoreSuppliersBtn.classList.add('hidden'); // Ocultar paginación en búsqueda
+
+            if (filtered.length === 0) {
+                tableBody.innerHTML = `<tr><td colspan="6" class="p-12 text-center opacity-50"><p class="font-bold text-gray-400">No encontrado.</p></td></tr>`;
+            } else {
+                // Limitamos visualmente a 50 para no congelar el navegador si la búsqueda es muy amplia
+                filtered.slice(0, 50).forEach(s => renderSupplierRow(s));
+            }
+        });
+
+        // ====================================================================
+        // 3. RENDERIZADO FILA
+        // ====================================================================
+        function renderSupplierRow(s) {
+            tableBody.innerHTML += `
+                <tr class="hover:bg-slate-50 transition-colors border-b border-gray-50 last:border-0 group cursor-pointer fade-in" 
+                    onclick="window.location.href = 'supplier-detail.html?id=${s.id}'">
+                    
+                    <td class="px-8 py-5">
+                        <p class="font-black text-brand-black text-sm uppercase tracking-tight group-hover:text-brand-cyan transition-colors">${s.name}</p>
+                        <span class="text-[9px] font-bold text-gray-400 bg-gray-50 px-2 py-0.5 rounded uppercase tracking-wider inline-block mt-1">NIT: ${s.nit || '---'}</span>
+                    </td>
+                    
+                    <td class="px-8 py-5">
+                        <div class="flex items-center gap-3">
+                            <div class="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-gray-400 text-xs shrink-0 border border-slate-200">
+                                <i class="fa-solid fa-user"></i>
+                            </div>
+                            <span class="font-bold text-gray-600 text-xs">${s.contactName || '---'}</span>
+                        </div>
+                    </td>
+                    
+                    <td class="px-8 py-5">
+                        <div class="flex flex-col gap-1">
+                            <span class="text-xs font-bold text-gray-600 flex items-center gap-2"><i class="fa-brands fa-whatsapp text-green-500"></i> ${s.phone}</span>
+                            ${s.email ? `<span class="text-[10px] font-bold text-gray-400 flex items-center gap-2"><i class="fa-regular fa-envelope"></i> ${s.email}</span>` : ''}
+                        </div>
+                    </td>
+                    
+                    <td class="px-8 py-5 text-right">
+                        <span class="font-black text-brand-black text-sm block group-hover:scale-105 transition-transform origin-right">$${(s.totalInvested || 0).toLocaleString('es-CO')}</span>
+                    </td>
+                    
+                    <td class="px-8 py-5 text-center">
+                        <span class="bg-brand-cyan/10 text-brand-cyan px-3 py-1 rounded-lg text-xs font-black border border-brand-cyan/20">${s.ordersCount || 0}</span>
+                    </td>
+                    
+                    <td class="px-8 py-5 text-center">
+                        <div class="flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity" onclick="event.stopPropagation()">
+                            <button onclick="openSupplierModal('${s.id}')" class="w-9 h-9 rounded-xl border border-gray-200 text-gray-400 hover:bg-brand-cyan hover:text-brand-black hover:border-transparent transition flex items-center justify-center shadow-sm">
+                                <i class="fa-solid fa-pen text-xs"></i>
+                            </button>
+                            <button onclick="deleteSupplier('${s.id}')" class="w-9 h-9 rounded-xl border border-gray-200 text-gray-400 hover:bg-brand-red hover:text-white hover:border-transparent transition flex items-center justify-center shadow-sm">
+                                <i class="fa-solid fa-trash text-xs"></i>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+            `;
         }
 
-        // --- 3. HISTORIAL COMPRAS ---
-        async function fetchPurchases() {
-            loading.classList.remove('hidden');
-            purchasesTable.innerHTML = "";
+        // ====================================================================
+        // 4. CARGA OPTIMIZADA DE COMPRAS (HISTORIAL)
+        // ====================================================================
+        async function fetchPurchases(isNextPage = false) {
+            if (isPurchasesLoading) return;
+            isPurchasesLoading = true;
+
+            if (!isNextPage) {
+                purchasesTable.innerHTML = "";
+                loading.classList.remove('hidden'); 
+                loadMorePurchasesBtn.classList.add('hidden');
+            } else {
+                loadMorePurchasesBtn.querySelector('button').innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Cargando...`;
+            }
+
             try {
-                const snap = await getDocs(query(collection(db, "purchases"), orderBy("createdAt", "desc")));
+                const coll = collection(db, "purchases");
+                let q = query(coll, orderBy("createdAt", "desc"), limit(DOCS_PER_PAGE));
+
+                if (isNextPage && lastPurchaseDoc) {
+                    q = query(q, startAfter(lastPurchaseDoc));
+                }
+
+                const snap = await getDocs(q);
                 
-                if(snap.empty) {
-                     purchasesTable.innerHTML = `<tr><td colspan="5" class="p-8 text-center text-gray-400 font-bold uppercase text-xs">No hay historial de compras.</td></tr>`;
+                if (!isNextPage) loading.classList.add('hidden');
+
+                if (snap.empty) {
+                    if(!isNextPage) purchasesTable.innerHTML = `<tr><td colspan="5" class="p-8 text-center text-gray-400 font-bold uppercase text-xs">No hay historial de compras.</td></tr>`;
+                    loadMorePurchasesBtn.classList.add('hidden');
+                    isPurchasesLoading = false;
+                    return;
+                }
+
+                lastPurchaseDoc = snap.docs[snap.docs.length - 1];
+
+                if (snap.docs.length === DOCS_PER_PAGE) {
+                    loadMorePurchasesBtn.classList.remove('hidden');
+                    loadMorePurchasesBtn.querySelector('button').innerHTML = `<i class="fa-solid fa-circle-plus"></i> Cargar siguientes 50`;
+                } else {
+                    loadMorePurchasesBtn.classList.add('hidden');
                 }
 
                 snap.forEach(d => {
@@ -274,7 +434,7 @@
                     if(p.items.length > 2) itemsSummary += ` (+${p.items.length - 2} más)`;
 
                     purchasesTable.innerHTML += `
-                        <tr class="hover:bg-slate-50 transition-colors border-b border-gray-50 group cursor-default">
+                        <tr class="hover:bg-slate-50 transition-colors border-b border-gray-50 group cursor-default fade-in">
                             <td class="px-8 py-6">
                                 <p class="font-bold text-brand-black text-xs">${p.createdAt?.toDate().toLocaleDateString()}</p>
                                 <p class="font-mono text-[9px] text-gray-400 uppercase">ID: ${d.id.slice(0,6)}</p>
@@ -289,11 +449,18 @@
                             </td>
                         </tr>`;
                 });
-            } catch (e) { console.error(e); }
-            loading.classList.add('hidden');
+
+            } catch (e) { 
+                console.error(e); 
+                isPurchasesLoading = false;
+            }
         }
 
-        // --- 4. TABS LOGIC ---
+        window.loadMorePurchases = () => fetchPurchases(true);
+
+        // ====================================================================
+        // 5. LOGICA DE TABS
+        // ====================================================================
         const activeClasses = ["bg-brand-black", "text-white", "shadow-md"];
         const inactiveClasses = ["text-gray-400", "hover:bg-slate-50", "hover:text-brand-black"];
 
@@ -312,42 +479,43 @@
 
                 document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
                 document.getElementById(`section-${tabId}`).classList.remove('hidden');
-
-                if(tabId === 'purchases') fetchPurchases();
-                else fetchSuppliers();
+                
+                // Ocultar buscador en Historial, mostrar en Directorio
+                const searchContainer = document.getElementById('search-container');
+                if (tabId === 'purchases') {
+                    searchContainer.classList.add('hidden');
+                    if(purchasesTable.children.length === 0) fetchPurchases();
+                } else {
+                    searchContainer.classList.remove('hidden');
+                    if(tableBody.children.length === 0) fetchSuppliers();
+                }
             };
         });
 
-        // --- 5. BUSCADOR ---
-        searchInput.oninput = (e) => {
-            const term = e.target.value.toLowerCase();
-            const filtered = allSuppliers.filter(s => 
-                s.name.toLowerCase().includes(term) || 
-                (s.nit && s.nit.includes(term)) ||
-                (s.contactName && s.contactName.toLowerCase().includes(term))
-            );
-            renderSupplierTable(filtered);
-        };
-
-        // --- 6. MODAL ---
+        // ====================================================================
+        // 6. MODALES Y ACCIONES
+        // ====================================================================
         window.openSupplierModal = async (id = null) => {
             supplierForm.reset();
             document.getElementById('s-id-field').value = id || "";
             document.getElementById('modal-title').innerHTML = id ? `Editar <span class="text-brand-cyan">Aliado</span>` : `Nuevo <span class="text-brand-cyan">Aliado</span>`;
             
             if (id) {
-                const snap = await getDoc(doc(db, "suppliers", id));
-                if(snap.exists()){
-                    const s = snap.data();
-                    document.getElementById('s-name').value = s.name;
-                    document.getElementById('s-nit').value = s.nit;
-                    document.getElementById('s-contact').value = s.contactName || "";
-                    document.getElementById('s-phone').value = s.phone;
-                    document.getElementById('s-email').value = s.email || "";
-                    document.getElementById('s-bank').value = s.bankName || "";
-                    document.getElementById('s-acc-num').value = s.accNum || "";
-                    document.getElementById('s-acc-type').value = s.accType || "Ahorros";
-                }
+                // Para editar leemos el doc específico. 1 lectura.
+                try {
+                    const snap = await getDoc(doc(db, "suppliers", id));
+                    if(snap.exists()){
+                        const s = snap.data();
+                        document.getElementById('s-name').value = s.name;
+                        document.getElementById('s-nit').value = s.nit;
+                        document.getElementById('s-contact').value = s.contactName || "";
+                        document.getElementById('s-phone').value = s.phone;
+                        document.getElementById('s-email').value = s.email || "";
+                        document.getElementById('s-bank').value = s.bankName || "";
+                        document.getElementById('s-acc-num').value = s.accNum || "";
+                        document.getElementById('s-acc-type').value = s.accType || "Ahorros";
+                    }
+                } catch(e) { console.error(e); }
             }
             supplierModal.classList.remove('hidden');
         };
@@ -384,7 +552,13 @@
                     });
                 }
                 closeModal();
-                fetchSuppliers();
+                
+                // Limpiar caché y recargar lista
+                sessionStorage.removeItem('pixeltech_supplier_index');
+                supplierIndexCache = null;
+                lastSupplierDoc = null;
+                fetchSuppliers(false);
+
             } catch (err) {
                 alert("Error: " + err.message);
             } finally {
@@ -394,17 +568,18 @@
         };
 
         window.deleteSupplier = async (id) => { 
-            if(confirm("¿Eliminar este aliado? Se perderá el enlace con su historial.")) { 
+            if(confirm("¿Eliminar este aliado?")) { 
                 try {
                     await deleteDoc(doc(db, "suppliers", id)); 
-                    fetchSuppliers(); 
+                    sessionStorage.removeItem('pixeltech_supplier_index');
+                    supplierIndexCache = null;
+                    lastSupplierDoc = null;
+                    fetchSuppliers(false); 
                 } catch(e) { alert("Error: " + e.message); }
             } 
         };
 
-        window.closeModal = () => { 
-            supplierModal.classList.add('hidden'); 
-        };
+        window.closeModal = () => { supplierModal.classList.add('hidden'); };
 
         // Init
         fetchSuppliers();

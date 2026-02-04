@@ -50,6 +50,8 @@
                 <button onclick="window.switchTab('ACTIONABLE')" id="tab-actionable" class="tab-btn active px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2"><i class="fa-solid fa-bell"></i> Por Atender</button>
                 <button onclick="window.switchTab('WAITING')" id="tab-waiting" class="tab-btn px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2"><i class="fa-solid fa-clock"></i> En Espera</button>
                 <button onclick="window.switchTab('DISPATCHED')" id="tab-dispatched" class="tab-btn px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2"><i class="fa-solid fa-truck-fast"></i> Enviados</button>
+                <button onclick="window.switchTab('REFUNDS')" id="tab-refunds" class="tab-btn px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2"><i class="fa-solid fa-rotate-left"></i> Devoluciones</button>
+                
                 <button onclick="window.switchTab('FAILED')" id="tab-failed" class="tab-btn px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2"><i class="fa-solid fa-ban"></i> Cancelados</button>
                 <button onclick="window.switchTab('ALL')" id="tab-all" class="tab-btn px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2"><i class="fa-solid fa-list"></i> Todo</button>
             </div>
@@ -69,6 +71,12 @@
                         </thead>
                         <tbody id="orders-table-body" class="divide-y divide-gray-50"></tbody>
                     </table>
+                </div>
+                
+                <div id="load-more-container" class="p-6 text-center hidden border-t border-gray-100">
+                    <button onclick="window.loadMoreOrders()" class="text-xs font-bold text-gray-400 hover:text-brand-cyan transition uppercase tracking-widest flex items-center justify-center gap-2 mx-auto">
+                        <i class="fa-solid fa-circle-plus"></i> Cargar siguientes 50
+                    </button>
                 </div>
             </div>
         </div>
@@ -120,9 +128,18 @@
             </div>
             <div class="p-8 bg-slate-50 border-t border-gray-100 flex flex-col md:flex-row justify-between items-center gap-6">
                 <div class="flex gap-10 text-right md:text-left">
-                    <div><p class="text-[9px] font-black text-brand-black uppercase tracking-widest">Subtotal</p><p id="modal-order-subtotal" class="text-sm font-bold text-brand-black">---</p></div>
-                    <div><p class="text-[9px] font-black text-brand-cyan uppercase tracking-widest">Envío</p><p id="modal-order-shipping" class="text-sm font-bold text-brand-cyan">---</p></div>
-                    <div class="pl-8 border-l border-gray-200"><p class="text-[9px] font-black text-brand-black uppercase tracking-widest">Total Neto</p><h4 id="modal-order-total" class="text-3xl font-black text-brand-black leading-none">---</h4></div>
+                    <div>
+                        <p class="text-[9px] font-black text-brand-black uppercase tracking-widest">Subtotal</p>
+                        <p id="modal-order-subtotal" class="text-sm font-bold text-brand-black">---</p>
+                    </div>
+                    <div>
+                        <p class="text-[9px] font-black text-brand-cyan uppercase tracking-widest">Envío</p>
+                        <p id="modal-order-shipping" class="text-sm font-bold text-brand-cyan">---</p>
+                    </div>
+                    <div id="modal-total-container" class="pl-8 border-l border-gray-200 min-w-[150px] text-right">
+                        <p class="text-[9px] font-black text-brand-black uppercase tracking-widest">Total Neto</p>
+                        <h4 id="modal-order-total" class="text-3xl font-black text-brand-black leading-none">---</h4>
+                    </div>
                 </div>
                 <div class="flex items-center gap-4 w-full md:w-auto justify-end">
                     <div id="modal-footer-msg" class="text-xs font-bold uppercase tracking-widest hidden"></div>
@@ -150,7 +167,6 @@
     <div id="payment-modal" class="fixed inset-0 z-[90] hidden flex items-center justify-center p-4">
         <div class="absolute inset-0 bg-brand-black/80 backdrop-blur-sm transition-opacity" onclick="document.getElementById('payment-modal').classList.add('hidden')"></div>
         <div class="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden animate-in fade-in zoom-in-95">
-            
             <div class="p-8 border-b border-gray-100 flex justify-between items-center bg-slate-50">
                 <div>
                     <h3 class="text-xl font-black uppercase tracking-tighter text-brand-black">Registrar <span class="text-green-500">Ingreso</span></h3>
@@ -158,15 +174,12 @@
                 </div>
                 <button onclick="document.getElementById('payment-modal').classList.add('hidden')" class="w-8 h-8 rounded-full bg-white text-gray-400 hover:text-brand-red flex items-center justify-center transition border border-gray-200"><i class="fa-solid fa-xmark"></i></button>
             </div>
-
             <form id="payment-form" class="p-8 space-y-6">
                 <input type="hidden" id="pay-target-id">
-                
                 <div class="bg-green-50 p-6 rounded-2xl text-center border border-green-100">
-                    <p class="text-[9px] font-black text-green-600 uppercase tracking-widest mb-1">Monto a Recibir</p>
+                    <p class="text-[9px] font-black text-green-600 uppercase tracking-widest mb-1">Monto a Recibir (Saldo Pendiente)</p>
                     <input type="text" id="pay-amount" class="w-full bg-transparent text-4xl font-black text-green-700 text-center outline-none placeholder-green-300" placeholder="$0">
                 </div>
-
                 <div>
                     <label class="block text-[9px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">Cuenta de Destino (Tesorería)</label>
                     <div class="relative">
@@ -177,7 +190,6 @@
                         <i class="fa-solid fa-chevron-down absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 text-xs pointer-events-none"></i>
                     </div>
                 </div>
-
                 <button type="submit" class="w-full bg-brand-black text-white py-5 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] hover:bg-green-500 hover:text-white transition-all shadow-xl hover:shadow-green-500/30 flex items-center justify-center gap-3 group">
                     Confirmar Pago <div class="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center group-hover:bg-white group-hover:text-green-500 transition"><i class="fa-solid fa-check"></i></div>
                 </button>
@@ -185,124 +197,275 @@
         </div>
     </div>
 
-    <script type="module">
+    <div id="refund-modal" class="fixed inset-0 z-[95] hidden flex items-center justify-center p-4">
+        <div class="absolute inset-0 bg-red-900/40 backdrop-blur-sm transition-opacity" onclick="document.getElementById('refund-modal').classList.add('hidden')"></div>
+        <div class="relative bg-white w-full max-w-2xl rounded-[2.5rem] shadow-2xl overflow-hidden animate-fadeIn flex flex-col max-h-[90vh]">
+            <div class="p-8 border-b border-gray-100 flex justify-between items-center bg-red-50">
+                <div>
+                    <h3 class="text-xl font-black uppercase tracking-tighter text-brand-black">Gestionar <span class="text-red-500">Devolución</span></h3>
+                    <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest" id="refund-modal-order-id">#ORDEN</p>
+                </div>
+                <button onclick="document.getElementById('refund-modal').classList.add('hidden')" class="w-8 h-8 rounded-full bg-white text-gray-400 hover:text-brand-black flex items-center justify-center transition border border-gray-200"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <form id="refund-form" class="flex flex-col flex-grow overflow-hidden">
+                <input type="hidden" id="refund-target-id">
+                <input type="hidden" id="refund-was-paid"> 
+                <div class="p-8 overflow-y-auto custom-scroll flex-grow">
+                    <h4 class="text-[9px] font-black uppercase tracking-widest text-brand-black mb-3">1. Artículos a Reingresar al Inventario</h4>
+                    <div id="refund-items-container" class="space-y-3 mb-8"></div>
+                    <div id="refund-financial-section">
+                        <h4 class="text-[9px] font-black uppercase tracking-widest text-brand-black mb-3 border-t border-gray-100 pt-4">2. Devolución de Dinero</h4>
+                        <div class="bg-red-50 p-4 rounded-xl border border-red-100 mb-4">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div>
+                                    <label class="block text-[9px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">Cuenta de Egreso</label>
+                                    <div class="relative">
+                                        <select id="refund-account-select" class="w-full bg-white border border-gray-200 p-3 rounded-xl font-bold text-xs outline-none focus:border-red-500 appearance-none cursor-pointer text-brand-black">
+                                            <option value="">Seleccione Cuenta...</option>
+                                        </select>
+                                        <i class="fa-solid fa-chevron-down absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 text-xs pointer-events-none"></i>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="block text-[9px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">Monto a Devolver</label>
+                                    <input type="text" id="refund-amount" class="w-full bg-white border border-gray-200 p-3 rounded-xl text-lg font-black outline-none focus:border-red-500 text-brand-black text-right" placeholder="$0">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="refund-no-payment-msg" class="hidden bg-gray-50 p-4 rounded-xl border border-gray-200 text-center mb-4">
+                        <p class="text-xs font-bold text-gray-500"><i class="fa-solid fa-money-bill-wave-slash"></i> Esta orden no fue pagada. Solo se restaurará el stock.</p>
+                    </div>
+                    <div>
+                        <label class="block text-[9px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">Motivo / Nota</label>
+                        <input type="text" id="refund-reason" class="w-full bg-white border border-gray-200 p-3 rounded-xl text-xs font-bold outline-none focus:border-red-500 text-brand-black" placeholder="Ej: Garantía, Cambio de opinión...">
+                    </div>
+                </div>
+                <div class="p-8 bg-slate-50 border-t border-gray-100">
+                    <button type="submit" class="w-full bg-red-500 text-white py-4 rounded-xl font-black text-[10px] uppercase tracking-[0.2em] hover:bg-red-600 transition-all shadow-xl hover:shadow-red-500/30">
+                        Confirmar Devolución
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+<script type="module">
         import '../js/admin-guard.js';
-        import { db, collection, getDocs, orderBy, query, limit, auth, doc, getDoc, updateDoc, addDoc, where } from '../js/firebase-init.js';
+        import { db, collection, getDocs, orderBy, query, limit, auth, doc, getDoc, updateDoc, addDoc, where, startAfter } from '../js/firebase-init.js';
         import { loadAdminSidebar } from '../js/admin-ui.js';
-        // NUEVOS MODULOS
         import { initManualSale, openManualSaleModal } from '../js/manual-sale.js';
-        import '../js/order-actions.js'; // Carga las funciones globales (view, print, etc.)
+        import '../js/order-actions.js';
 
         loadAdminSidebar();
 
-        // Init Venta Manual
+        // --- ESTADO GLOBAL ---
+        let currentFilter = 'ACTIONABLE';
+        let lastVisible = null;
+        let isLoading = false;
+        let globalConfig = { cutoffTime: "14:00" }; 
+        const ORDERS_PER_PAGE = 50;
+
         initManualSale(() => { window.switchTab('ACTIONABLE'); });
         document.getElementById('btn-open-manual').onclick = openManualSaleModal;
 
-        const tableBody = document.getElementById('orders-table-body');
-        let currentFilter = 'ACTIONABLE';
-
-        window.switchTab = (tabName) => {
-            currentFilter = tabName;
-            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
-            if(tabName === 'ACTIONABLE') document.getElementById('tab-actionable').classList.add('active');
-            if(tabName === 'WAITING') document.getElementById('tab-waiting').classList.add('active');
-            if(tabName === 'DISPATCHED') document.getElementById('tab-dispatched').classList.add('active');
-            if(tabName === 'FAILED') document.getElementById('tab-failed').classList.add('active');
-            if(tabName === 'ALL') document.getElementById('tab-all').classList.add('active');
-            fetchOrders();
-        };
-
-        async function fetchOrders() {
-            if (!tableBody) return;
-            tableBody.innerHTML = `<tr><td colspan="7" class="p-8 text-center"><i class="fa-solid fa-circle-notch fa-spin text-brand-cyan"></i> Cargando...</td></tr>`;
-
+        async function loadInitialData() {
             try {
                 const configSnap = await getDoc(doc(db, "config", "shipping"));
-                const cutoffTimeStr = configSnap.exists() ? (configSnap.data().cutoffTime || "14:00") : "14:00";
-                
+                if (configSnap.exists()) globalConfig = configSnap.data();
+
+                const accSelect = document.getElementById('pay-account-select');
+                if (accSelect) {
+                    const accSnap = await getDocs(collection(db, "accounts"));
+                    let ops = '<option value="">Seleccione Cuenta...</option>';
+                    accSnap.forEach(d => {
+                        const acc = d.data();
+                        const label = acc.accountNumber ? `${acc.name} - ${acc.accountNumber}` : acc.name;
+                        ops += `<option value="${d.id}">${label}</option>`;
+                    });
+                    accSelect.innerHTML = ops;
+                }
+                fetchOrders();
+            } catch (e) { console.error("Error init data:", e); }
+        }
+        loadInitialData();
+
+        window.switchTab = (tabName) => {
+            if (isLoading) return;
+            currentFilter = tabName;
+            lastVisible = null;
+            document.getElementById('search-input').value = "";
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            const activeBtn = document.getElementById(`tab-${tabName.toLowerCase()}`);
+            if(activeBtn) activeBtn.classList.add('active');
+            const tableBody = document.getElementById('orders-table-body');
+            if(tableBody) tableBody.innerHTML = "";
+            fetchOrders(false);
+        };
+
+        async function fetchOrders(isNextPage = false) {
+            if (isLoading) return;
+            isLoading = true;
+            const tableBody = document.getElementById('orders-table-body');
+            const loadMoreBtn = document.getElementById('load-more-container');
+            const btnText = loadMoreBtn.querySelector('button');
+
+            if (!tableBody) return;
+
+            if (!isNextPage) {
+                tableBody.innerHTML = `<tr><td colspan="7" class="p-8 text-center"><i class="fa-solid fa-circle-notch fa-spin text-brand-cyan"></i> Cargando...</td></tr>`;
+                loadMoreBtn.classList.add('hidden');
+            } else {
+                btnText.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Cargando...`;
+            }
+
+            try {
+                const ordersRef = collection(db, "orders");
+                let constraints = [];
+
+                if (currentFilter === 'ACTIONABLE') {
+                    constraints.push(where("status", "in", ["PAGADO", "PENDIENTE", "ALISTADO"]));
+                } else if (currentFilter === 'WAITING') {
+                    constraints.push(where("status", "==", "PENDIENTE_PAGO"));
+                } else if (currentFilter === 'DISPATCHED') {
+                    constraints.push(where("status", "==", "DESPACHADO"));
+                } else if (currentFilter === 'REFUNDS') {
+                    constraints.push(where("status", "in", ["DEVUELTO", "DEVOLUCION_PARCIAL"]));
+                } else if (currentFilter === 'FAILED') {
+                    constraints.push(where("status", "in", ["CANCELADO", "RECHAZADO"]));
+                }
+
+                constraints.push(orderBy("createdAt", "desc"));
+                if (isNextPage && lastVisible) constraints.push(startAfter(lastVisible));
+                constraints.push(limit(ORDERS_PER_PAGE));
+
+                const q = query(ordersRef, ...constraints);
+                const snapshot = await getDocs(q);
+
+                if (!isNextPage) tableBody.innerHTML = "";
+
+                if (snapshot.empty) {
+                    if (!isNextPage) tableBody.innerHTML = `<tr><td colspan="7" class="p-10 text-center text-xs text-brand-black font-bold uppercase">No se encontraron pedidos.</td></tr>`;
+                    loadMoreBtn.classList.add('hidden');
+                    isLoading = false;
+                    return;
+                }
+
+                lastVisible = snapshot.docs[snapshot.docs.length - 1];
+                if (snapshot.docs.length === ORDERS_PER_PAGE) {
+                    loadMoreBtn.classList.remove('hidden');
+                    btnText.innerHTML = `<i class="fa-solid fa-circle-plus"></i> Cargar siguientes 50`;
+                } else {
+                    loadMoreBtn.classList.add('hidden');
+                }
+
+                const cutoffTimeStr = globalConfig.cutoffTime || "14:00";
                 const now = new Date();
                 const [hours, minutes] = cutoffTimeStr.split(':').map(Number);
                 const cutoffDateToday = new Date(now);
                 cutoffDateToday.setHours(hours, minutes, 0, 0);
 
-                let q;
-                const ordersRef = collection(db, "orders");
-
-                if (currentFilter === 'ACTIONABLE') {
-                    q = query(ordersRef, where("status", "in", ["PAGADO", "PENDIENTE", "ALISTADO"]), orderBy("createdAt", "desc"));
-                } else if (currentFilter === 'WAITING') {
-                    q = query(ordersRef, where("status", "==", "PENDIENTE_PAGO"), orderBy("createdAt", "desc"));
-                } else if (currentFilter === 'DISPATCHED') {
-                    q = query(ordersRef, where("status", "==", "DESPACHADO"), orderBy("createdAt", "desc"), limit(50));
-                } else if (currentFilter === 'FAILED') {
-                    q = query(ordersRef, where("status", "in", ["CANCELADO", "RECHAZADO"]), orderBy("createdAt", "desc"), limit(50));
-                } else {
-                    q = query(ordersRef, orderBy("createdAt", "desc"), limit(50));
-                }
-
-                const snapshot = await getDocs(q);
-                tableBody.innerHTML = "";
-
-                if (snapshot.empty) {
-                    tableBody.innerHTML = `<tr><td colspan="7" class="p-10 text-center text-xs text-brand-black font-bold uppercase">No se encontraron pedidos.</td></tr>`;
-                    return;
-                }
-
                 if (currentFilter === 'ACTIONABLE') {
                     const todayOrders = [];
                     const tomorrowOrders = [];
-
                     snapshot.forEach(d => {
                         const o = d.data();
                         const orderDate = o.createdAt?.toDate ? o.createdAt.toDate() : new Date();
                         const isToday = orderDate.toDateString() === now.toDateString();
-                        
-                        if (isToday && orderDate > cutoffDateToday) { tomorrowOrders.push({ id: d.id, ...o }); } 
-                        else { todayOrders.push({ id: d.id, ...o }); }
+                        if (isToday && orderDate > cutoffDateToday) tomorrowOrders.push({ id: d.id, ...o }); 
+                        else todayOrders.push({ id: d.id, ...o }); 
                     });
 
                     if (todayOrders.length > 0) {
-                        tableBody.innerHTML += `<tr class="bg-green-50/50 border-b border-green-100"><td colspan="7" class="py-4 px-8"><div class="flex items-center gap-3 text-green-700"><div class="p-1.5 bg-green-100 rounded-lg"><i class="fa-solid fa-truck-fast text-xs"></i></div><span class="text-[10px] font-black uppercase tracking-widest">Prioridad: Despachar Hoy (Antes de ${cutoffTimeStr})</span></div></td></tr>`;
+                        if (!isNextPage) tableBody.innerHTML += `<tr class="bg-green-50/50 border-b border-green-100 fade-in"><td colspan="7" class="py-4 px-8"><div class="flex items-center gap-3 text-green-700"><div class="p-1.5 bg-green-100 rounded-lg"><i class="fa-solid fa-truck-fast text-xs"></i></div><span class="text-[10px] font-black uppercase tracking-widest">Prioridad: Despachar Hoy (Antes de ${cutoffTimeStr})</span></div></td></tr>`;
                         todayOrders.forEach(o => renderRow(o));
                     }
                     if (tomorrowOrders.length > 0) {
-                        tableBody.innerHTML += `<tr class="bg-blue-50/50 border-b border-blue-100"><td colspan="7" class="py-4 px-8"><div class="flex items-center gap-3 text-blue-700"><div class="p-1.5 bg-blue-100 rounded-lg"><i class="fa-solid fa-clock text-xs"></i></div><span class="text-[10px] font-black uppercase tracking-widest">Despachar Mañana (Después de ${cutoffTimeStr})</span></div></td></tr>`;
+                        if (!isNextPage) tableBody.innerHTML += `<tr class="bg-blue-50/50 border-b border-blue-100 fade-in"><td colspan="7" class="py-4 px-8"><div class="flex items-center gap-3 text-blue-700"><div class="p-1.5 bg-blue-100 rounded-lg"><i class="fa-solid fa-clock text-xs"></i></div><span class="text-[10px] font-black uppercase tracking-widest">Despachar Mañana (Después de ${cutoffTimeStr})</span></div></td></tr>`;
                         tomorrowOrders.forEach(o => renderRow(o));
                     }
                 } else {
                     snapshot.forEach(d => renderRow({ id: d.id, ...d.data() }));
                 }
+            } catch (e) { 
+                console.error("Error:", e);
+                if(!isNextPage) tableBody.innerHTML = `<tr><td colspan="7" class="text-center text-red-500 py-4">Error de conexión.</td></tr>`;
+            } finally {
+                isLoading = false;
+            }
+        }
 
-            } catch (e) { console.error(e); }
+        window.loadMoreOrders = () => fetchOrders(true);
+
+        const searchInput = document.getElementById('search-input');
+        searchInput.addEventListener('keyup', function(e) {
+            const val = this.value.toLowerCase().trim();
+            if (e.key === 'Enter' && val.length > 0) { performServerSearch(val); return; }
+            const rows = document.querySelectorAll('#orders-table-body tr');
+            rows.forEach(row => { 
+                if(row.classList.contains('bg-green-50/50') || row.classList.contains('bg-blue-50/50')) return;
+                if(row.textContent) row.style.display = row.textContent.toLowerCase().includes(val) ? '' : 'none'; 
+            });
+        });
+
+        async function performServerSearch(term) {
+            if(isLoading) return;
+            isLoading = true;
+            const tableBody = document.getElementById('orders-table-body');
+            const loadMoreBtn = document.getElementById('load-more-container');
+            tableBody.innerHTML = `<tr><td colspan="7" class="p-8 text-center"><i class="fa-solid fa-search fa-bounce text-brand-cyan"></i> Buscando...</td></tr>`;
+            loadMoreBtn.classList.add('hidden');
+            try {
+                const docRef = doc(db, "orders", term);
+                const docSnap = await getDoc(docRef);
+                tableBody.innerHTML = "";
+                if (docSnap.exists()) renderRow({ id: docSnap.id, ...docSnap.data() });
+                else tableBody.innerHTML = `<tr><td colspan="7" class="p-10 text-center text-xs text-brand-black font-bold uppercase">No se encontró el ID exacto: "${term}".</td></tr>`;
+            } catch (e) {
+                console.error(e);
+                fetchOrders(false);
+            } finally {
+                isLoading = false;
+            }
         }
 
         function renderRow(o) {
             const isTienda = o.source === 'TIENDA' || o.source === 'TIENDA_WEB';
-            let sClass = 'bg-gray-100 text-gray-500', sText = o.status;
+            let sClass = 'bg-gray-100 text-gray-500 border-gray-200', sText = o.status;
             if (o.status === 'PENDIENTE') { sClass = 'bg-yellow-100 text-yellow-700 border-yellow-200'; sText = 'Por Atender'; }
-            if (o.status === 'ALISTADO') { sClass = 'bg-blue-100 text-blue-700 border-blue-200'; sText = 'Alistado'; }
-            if (o.status === 'PAGADO') { sClass = 'bg-red-100 text-red-600 border-red-200 animate-pulse'; sText = 'PAGADO (URGENTE)'; }
-            
+            else if (o.status === 'ALISTADO') { sClass = 'bg-blue-100 text-blue-700 border-blue-200'; sText = 'Alistado'; }
+            else if (o.status === 'PAGADO') { sClass = 'bg-red-100 text-red-600 border-red-200 animate-pulse'; sText = 'PAGADO (URGENTE)'; }
+            else if (o.status === 'DESPACHADO') { sClass = 'bg-green-100 text-green-700 border-green-200'; sText = 'Despachado'; }
+            else if (o.status === 'ENTREGADO') { sClass = 'bg-emerald-100 text-emerald-700 border-emerald-200'; sText = 'Entregado'; }
+            else if (['CANCELADO', 'RECHAZADO'].includes(o.status)) { sClass = 'bg-red-50 text-red-400 border-red-100'; sText = o.status; }
+            else if (o.status === 'DEVUELTO') { sClass = 'bg-purple-100 text-purple-700 border-purple-200'; sText = 'Devuelto'; }
+            else if (o.status === 'DEVOLUCION_PARCIAL') { sClass = 'bg-orange-100 text-orange-700 border-orange-200'; sText = 'Dev. Parcial'; }
+
             let pBadge = `<span class="text-[9px] font-black uppercase text-red-500 bg-red-50 px-2 py-1 rounded border border-red-100">Cartera</span>`;
-            if (o.status === 'PAGADO' || o.paymentStatus === 'PAID') {
+            if (o.status === 'PAGADO' || o.paymentStatus === 'PAID' || (o.amountPaid >= o.total)) {
                 pBadge = `<span class="text-[9px] font-black uppercase text-green-600 bg-green-50 px-2 py-1 rounded border border-green-100"><i class="fa-solid fa-check"></i> Pagado</span>`;
             }
 
             const dateStr = o.createdAt?.toDate ? o.createdAt.toDate().toLocaleDateString('es-CO', {day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit'}) : '--';
-
-            // BOTÓN FACTURA (Azul)
+            
+            // Botones Acciones
             const invoiceBtn = o.requiresInvoice 
                 ? `<span class="w-9 h-9 rounded-xl bg-blue-50 text-blue-500 border border-blue-100 flex items-center justify-center cursor-default" title="Factura Solicitada"><i class="fa-solid fa-check text-xs"></i></span>`
                 : `<button onclick="window.requestInvoice('${o.id}')" title="Solicitar Factura" class="w-9 h-9 rounded-xl bg-white border border-blue-200 text-blue-500 hover:bg-blue-500 hover:text-white transition shadow-sm flex items-center justify-center"><i class="fa-solid fa-file-invoice-dollar text-xs"></i></button>`;
 
-            // NUEVO: BOTÓN PAGO (Verde) - Solo si NO está pagado y NO cancelado
-            let payActionBtn = '';
-            const needsPayment = o.status !== 'PAGADO' && o.paymentStatus !== 'PAID' && o.status !== 'CANCELADO' && o.status !== 'RECHAZADO';
+            // Lógica de Botón Pagar (CORREGIDA PARA SALDO PENDIENTE)
+            const total = o.total || 0;
+            const paid = o.amountPaid || 0;
+            const refunded = o.refundedAmount || 0;
+            const pendingBalance = total - paid - refunded;
             
-            if (needsPayment) {
+            let payActionBtn = '';
+            const isFinished = ['CANCELADO', 'RECHAZADO'].includes(o.status);
+            
+            // Condición: Si debe plata y no está cancelado (Incluso si es devuelto parcial, puede deber)
+            if (pendingBalance > 0 && !isFinished) {
                 payActionBtn = `
-                    <button onclick="window.openPaymentModal('${o.id}', ${o.total})" 
+                    <button onclick="window.openPaymentModal('${o.id}', ${pendingBalance})" 
                             title="Registrar Pago Manual" 
                             class="w-9 h-9 rounded-xl bg-green-50 border border-green-200 text-green-600 hover:bg-green-500 hover:text-white transition shadow-sm flex items-center justify-center">
                         <i class="fa-solid fa-hand-holding-dollar text-xs"></i>
@@ -310,8 +473,24 @@
                 `;
             }
 
+            // Visualización Precio Neto
+            const netTotal = total - refunded;
+            let priceHtml = `<span class="font-black text-brand-black text-sm">$${total.toLocaleString('es-CO')}</span>`;
+            if (refunded > 0) {
+                priceHtml = `
+                    <div class="flex flex-col items-end leading-tight">
+                        <span class="text-[9px] text-gray-400 line-through decoration-red-300">$${total.toLocaleString('es-CO')}</span>
+                        <span class="text-sm font-black text-brand-black">$${netTotal.toLocaleString('es-CO')}</span>
+                        <span class="text-[8px] font-bold text-red-500 bg-red-50 px-1.5 py-0.5 rounded border border-red-100 mt-0.5">
+                            Dev: -$${refunded.toLocaleString('es-CO')}
+                        </span>
+                    </div>
+                `;
+            }
+
+            const tableBody = document.getElementById('orders-table-body');
             tableBody.innerHTML += `
-                <tr class="hover:bg-slate-50 transition border-b border-gray-50 group">
+                <tr class="hover:bg-slate-50 transition border-b border-gray-50 group fade-in">
                     <td class="px-8 py-6">
                         <div class="font-mono text-[10px] text-brand-black uppercase font-bold">#${o.id.slice(0, 8)}</div>
                         <div class="text-[9px] font-bold text-brand-black mt-1">${dateStr}</div>
@@ -325,9 +504,9 @@
                     </td>
                     <td class="px-8 py-6 text-center">${pBadge}</td>
                     <td class="px-8 py-6 text-center">
-                        <span class="${sClass} px-3 py-1 rounded-full text-[9px] font-black uppercase border shadow-sm block w-fit mx-auto">${sText}</span>
+                        <span class="${sClass} px-3 py-1 rounded-full text-[9px] font-black uppercase border shadow-sm block w-fit mx-auto whitespace-nowrap">${sText}</span>
                     </td>
-                    <td class="px-8 py-6 text-right font-black text-brand-black text-sm">$${(o.total || 0).toLocaleString('es-CO')}</td>
+                    <td class="px-8 py-6 text-right align-middle">${priceHtml}</td>
                     <td class="px-8 py-6 text-center">
                         <div class="flex items-center justify-center gap-2">
                             <button onclick="window.viewOrderDetail('${o.id}')" title="Ver Detalle" class="w-9 h-9 rounded-xl bg-white border border-gray-200 text-brand-black hover:bg-brand-black hover:text-white transition shadow-sm flex items-center justify-center"><i class="fa-solid fa-eye text-xs"></i></button>
@@ -338,15 +517,6 @@
                     </td>
                 </tr>`;
         }
-        
-        document.getElementById('search-input').addEventListener('keyup', function() {
-            const val = this.value.toLowerCase();
-            const rows = document.querySelectorAll('#orders-table-body tr');
-            rows.forEach(row => { row.style.display = row.textContent.toLowerCase().includes(val) ? '' : 'none'; });
-        });
-
-        // Inicio
-        fetchOrders();
     </script>
 </body>
 </html>

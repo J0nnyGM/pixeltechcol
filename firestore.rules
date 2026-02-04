@@ -111,6 +111,12 @@ service cloud.firestore {
       allow read, write: if isAdmin();
     }
 
+    // *** NUEVO: REGLA FALTANTE PARA LA PAPELERA ***
+    // 13.1 GASTOS ELIMINADOS (AUDITORÍA)
+    match /expenses_trash/{trashId} {
+      allow read, write: if isAdmin();
+    }
+
     // 14. CUENTAS (TESORERÍA)
     match /accounts/{accountId} {
       allow read, write: if isAdmin();
@@ -121,9 +127,7 @@ service cloud.firestore {
       allow read, write: if isAdmin();
     }
 
-    // --- NUEVO ---
     // 16. CHATS (WhatsApp CRM)
-    // Solo el admin puede ver y responder chats desde el panel
     match /chats/{chatId} {
       allow read, write: if isAdmin();
 

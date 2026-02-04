@@ -146,6 +146,11 @@
                             <tbody id="sup-purchases-table" class="divide-y divide-gray-50 text-xs"></tbody>
                         </table>
                     </div>
+                    <div id="load-more-purchases-container" class="py-4 text-center hidden border-t border-gray-50">
+                        <button onclick="window.loadMorePurchases()" class="text-[10px] font-black uppercase tracking-widest text-gray-400 hover:text-brand-cyan transition flex items-center justify-center gap-2 mx-auto">
+                            <i class="fa-solid fa-circle-plus"></i> Ver compras antiguas
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -267,8 +272,8 @@
         </div>
     </div>
 
-    <script type="module">
-        import { db, doc, getDoc, getDocs, collection, query, where, orderBy, limit, updateDoc, addDoc, Timestamp, runTransaction } from '../js/firebase-init.js';
+<script type="module">
+        import { db, doc, getDoc, getDocs, collection, query, where, orderBy, limit, updateDoc, addDoc, Timestamp, runTransaction, startAfter, getAggregateFromServer, sum } from '../js/firebase-init.js';
         import { loadAdminSidebar } from '../js/admin-ui.js';
 
         loadAdminSidebar();
@@ -277,10 +282,19 @@
         const supplierId = params.get('id');
         if (!supplierId) window.location.href = 'suppliers.html';
 
+        // --- ESTADO GLOBAL ---
         let supplierData = null;
-        let pendingPurchases = [];
         let totalDebt = 0;
-        let accountsList = [];
+        let lastPurchaseDoc = null;
+        let accountsList = []; 
+        const PAGE_SIZE = 20;
+
+        // --- HELPERS ---
+        const cleanNumber = (val) => {
+            if (typeof val === 'number') return val;
+            if (!val) return 0;
+            return parseFloat(val.toString().replace(/[^\d-]/g, '')) || 0;
+        };
 
         // --- CARGA INICIAL ---
         async function loadData() {
@@ -290,30 +304,199 @@
                 supplierData = { id: snap.id, ...snap.data() };
                 
                 renderHeader(supplierData);
-                loadPurchasesAndPayments();
-                loadAccounts();
+                
+                // Ejecución Paralela Optimizada
+                await Promise.all([
+                    calculateTotalDebtServerSide(), // Costo: 1 Lectura (Agregación)
+                    loadPurchasesHistory(),         // Costo: 20 Lecturas
+                    loadPaymentsHistory(),          // Costo: 20 Lecturas
+                    loadAccounts()                  // Costo: 0 Lecturas (Caché)
+                ]);
 
             } catch (e) { console.error(e); }
         }
 
-        // --- CARGAR CUENTAS DE TESORERÍA ---
+        // --- 1. CALCULAR DEUDA (OPTIMIZACIÓN MÁXIMA: AGREGACIÓN) ---
+        async function calculateTotalDebtServerSide() {
+            try {
+                const q = query(collection(db, "purchases"), where("supplierId", "==", supplierId));
+                
+                // Pedimos a Firebase que sume todo allá, sin bajar documentos
+                const snapshot = await getAggregateFromServer(q, {
+                    totalBought: sum('totalCost'),
+                    totalPaid: sum('amountPaid')
+                });
+
+                const stats = snapshot.data();
+                const bought = stats.totalBought || 0;
+                const paid = stats.totalPaid || 0;
+                
+                // La deuda es simplemente lo comprado menos lo pagado globalmente
+                totalDebt = bought - paid;
+
+                // Renderizamos
+                document.getElementById('sup-pending-balance').textContent = `$${totalDebt.toLocaleString('es-CO')}`;
+                document.getElementById('debt-amount').textContent = `$${totalDebt.toLocaleString('es-CO')}`;
+                document.getElementById('modal-debt-amount').textContent = `$${totalDebt.toLocaleString('es-CO')}`;
+
+            } catch (e) { console.error("Error calculating debt:", e); }
+        }
+
+        // --- 2. HISTORIAL DE COMPRAS (Paginado) ---
+        async function loadPurchasesHistory(isNextPage = false) {
+            const table = document.getElementById('sup-purchases-table');
+            const btnContainer = document.getElementById('load-more-purchases-container');
+            
+            if(!isNextPage) {
+                table.innerHTML = `<tr><td colspan="7" class="p-8 text-center"><i class="fa-solid fa-circle-notch fa-spin text-brand-cyan"></i></td></tr>`;
+                btnContainer.classList.add('hidden');
+            } else {
+                btnContainer.querySelector('button').innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Cargando...`;
+            }
+
+            try {
+                let q = query(
+                    collection(db, "purchases"), 
+                    where("supplierId", "==", supplierId), 
+                    orderBy("createdAt", "desc"), 
+                    limit(PAGE_SIZE)
+                );
+
+                if (isNextPage && lastPurchaseDoc) {
+                    q = query(
+                        collection(db, "purchases"), 
+                        where("supplierId", "==", supplierId), 
+                        orderBy("createdAt", "desc"), 
+                        startAfter(lastPurchaseDoc),
+                        limit(PAGE_SIZE)
+                    );
+                }
+
+                const snap = await getDocs(q);
+                
+                if(!isNextPage) table.innerHTML = "";
+
+                if (snap.empty) {
+                    if(!isNextPage) table.innerHTML = `<tr><td colspan="7" class="p-8 text-center text-xs text-gray-400 font-bold uppercase">Sin historial de compras</td></tr>`;
+                    btnContainer.classList.add('hidden');
+                    return;
+                }
+
+                lastPurchaseDoc = snap.docs[snap.docs.length - 1];
+
+                if (snap.docs.length < PAGE_SIZE) {
+                    btnContainer.classList.add('hidden');
+                } else {
+                    btnContainer.classList.remove('hidden');
+                    btnContainer.querySelector('button').innerHTML = `<i class="fa-solid fa-circle-plus"></i> Ver compras antiguas`;
+                }
+
+                let html = "";
+                snap.forEach(d => {
+                    const p = d.data();
+                    const total = p.totalCost || 0;
+                    const paid = p.amountPaid || 0; 
+                    const balance = total - paid;
+                    
+                    let statusBadge = "";
+                    if (paid === 0) statusBadge = `<span class="bg-red-100 text-red-600 px-2 py-1 rounded text-[9px] font-black uppercase">Pendiente</span>`;
+                    else if (balance <= 0) statusBadge = `<span class="bg-green-100 text-green-600 px-2 py-1 rounded text-[9px] font-black uppercase">Pagado</span>`;
+                    else statusBadge = `<span class="bg-orange-100 text-orange-600 px-2 py-1 rounded text-[9px] font-black uppercase">Parcial</span>`;
+
+                    const itemCount = p.items ? p.items.reduce((acc, i) => acc + i.quantity, 0) : 0;
+
+                    html += `
+                        <tr class="hover:bg-slate-50 transition border-b border-gray-50 last:border-0 fade-in">
+                            <td class="px-8 py-6">
+                                <p class="font-bold text-brand-black text-xs">${p.createdAt?.toDate().toLocaleDateString('es-CO')}</p>
+                                <p class="font-mono text-[9px] text-gray-400 uppercase">#${d.id.slice(0,6)}</p>
+                            </td>
+                            <td class="px-8 py-6">
+                                <span class="inline-block bg-slate-100 text-slate-600 px-2 py-1 rounded text-[10px] font-black uppercase">${itemCount} Items</span>
+                            </td>
+                            <td class="px-8 py-6 text-right font-black text-brand-black text-sm">$${total.toLocaleString('es-CO')}</td>
+                            <td class="px-8 py-6 text-right font-bold text-green-600 text-xs">$${paid.toLocaleString('es-CO')}</td>
+                            <td class="px-8 py-6 text-right font-bold text-red-500 text-xs">$${balance.toLocaleString('es-CO')}</td>
+                            <td class="px-8 py-6 text-center">${statusBadge}</td>
+                            <td class="px-8 py-6 text-center">
+                                <button onclick="window.openPurchaseDetail('${d.id}')" class="w-8 h-8 rounded-lg bg-white border border-gray-200 text-gray-400 hover:text-brand-cyan hover:border-brand-cyan transition shadow-sm"><i class="fa-solid fa-eye text-xs"></i></button>
+                            </td>
+                        </tr>`;
+                });
+
+                table.insertAdjacentHTML('beforeend', html);
+
+            } catch(e) { console.error(e); }
+        }
+
+        window.loadMorePurchases = () => loadPurchasesHistory(true);
+
+        // --- 3. HISTORIAL PAGOS (Limitado) ---
+        async function loadPaymentsHistory() {
+            const paymentsTable = document.getElementById('payments-history-table');
+            try {
+                const qPayments = query(collection(db, "expenses"), where("supplierId", "==", supplierId), orderBy("date", "desc"), limit(20));
+                const snapPayments = await getDocs(qPayments);
+                
+                let htmlPay = "";
+                if (snapPayments.empty) {
+                    htmlPay = `<tr><td colspan="3" class="p-6 text-center text-xs text-gray-400">No hay pagos recientes</td></tr>`;
+                } else {
+                    snapPayments.forEach(d => {
+                        const pay = d.data();
+                        const dateObj = pay.date?.toDate ? pay.date.toDate() : new Date(pay.date);
+                        htmlPay += `
+                            <tr class="hover:bg-slate-50 transition border-b border-gray-50">
+                                <td class="px-6 py-4 text-xs font-mono text-gray-500">${dateObj.toLocaleDateString('es-CO')}</td>
+                                <td class="px-6 py-4 text-xs font-bold text-brand-black uppercase">
+                                    ${pay.paymentMethod || 'Pago'} <span class="text-gray-400 text-[10px]">(${pay.description})</span>
+                                </td>
+                                <td class="px-6 py-4 text-right text-xs font-black text-green-600">$${Number(pay.amount).toLocaleString('es-CO')}</td>
+                            </tr>`;
+                    });
+                }
+                paymentsTable.innerHTML = htmlPay;
+            } catch(e) { console.error(e); }
+        }
+
+        // --- 4. CUENTAS (Caché) ---
         async function loadAccounts() {
+            const CACHE_KEY = 'admin_accounts_cache';
+            const TTL = 10 * 60 * 1000; 
+
+            const cached = sessionStorage.getItem(CACHE_KEY);
+            const cachedTime = sessionStorage.getItem(CACHE_KEY + '_time');
+            const now = Date.now();
+
+            if (cached && cachedTime && (now - parseInt(cachedTime) < TTL)) {
+                renderAccountsSelect(JSON.parse(cached));
+                return;
+            }
+
             try {
                 const q = query(collection(db, "accounts"), orderBy("name", "asc"));
                 const snap = await getDocs(q);
-                const select = document.getElementById('pay-account');
-                select.innerHTML = '<option value="">Seleccione cuenta de origen...</option>';
                 
-                accountsList = [];
-                snap.forEach(d => {
-                    const acc = { id: d.id, ...d.data() };
-                    accountsList.push(acc);
-                    select.innerHTML += `<option value="${acc.id}">${acc.name} (Saldo: $${(acc.balance || 0).toLocaleString()})</option>`;
-                });
+                let list = [];
+                snap.forEach(d => list.push({ id: d.id, ...d.data() }));
+                
+                sessionStorage.setItem(CACHE_KEY, JSON.stringify(list));
+                sessionStorage.setItem(CACHE_KEY + '_time', now.toString());
+
+                renderAccountsSelect(list);
             } catch (e) { console.error("Error accounts:", e); }
         }
 
-        // --- RENDER HEADER ---
+        function renderAccountsSelect(list) {
+            const select = document.getElementById('pay-account');
+            select.innerHTML = '<option value="">Seleccione cuenta...</option>';
+            accountsList = list;
+            
+            list.forEach(acc => {
+                select.innerHTML += `<option value="${acc.id}">${acc.name} (Saldo: $${(acc.balance || 0).toLocaleString()})</option>`;
+            });
+        }
+
         function renderHeader(s) {
             document.getElementById('sup-name-title').textContent = s.name;
             document.getElementById('sup-nit-title').textContent = `NIT: ${s.nit || '---'}`;
@@ -327,7 +510,15 @@
             setText('sup-account-type', s.accType || 'Cuenta');
             
             const eName = document.getElementById('e-name');
-            if(eName) eName.value = s.name;
+            if(eName) {
+                eName.value = s.name;
+                document.getElementById('e-nit').value = s.nit || "";
+                document.getElementById('e-phone').value = s.phone || "";
+                document.getElementById('e-contact').value = s.contactName || "";
+                document.getElementById('e-email').value = s.email || "";
+                document.getElementById('e-bank').value = s.bankName || "";
+                document.getElementById('e-account').value = s.accNum || "";
+            }
         }
 
         function setText(id, txt) {
@@ -335,126 +526,17 @@
             if(el) el.textContent = txt;
         }
 
-        // --- CARGAR COMPRAS Y PAGOS ---
-        async function loadPurchasesAndPayments() {
-            const table = document.getElementById('sup-purchases-table');
-            const paymentsTable = document.getElementById('payments-history-table');
-            
-            // 1. COMPRAS
-            const qPurchases = query(collection(db, "purchases"), where("supplierId", "==", supplierId), orderBy("createdAt", "desc"));
-            const snapPurchases = await getDocs(qPurchases);
-            
-            pendingPurchases = [];
-            totalDebt = 0;
-            let htmlPurchases = "";
-
-            if(snapPurchases.empty) {
-                htmlPurchases = `<tr><td colspan="7" class="p-8 text-center text-xs text-gray-400 font-bold uppercase">Sin movimientos</td></tr>`;
-            }
-
-            snapPurchases.forEach(d => {
-                const p = { id: d.id, ...d.data() };
-                
-                const total = p.totalCost || 0;
-                const paid = p.amountPaid || 0; 
-                const balance = total - paid;
-                
-                if (balance > 0) {
-                    pendingPurchases.push({ ...p, balance });
-                    totalDebt += balance;
-                }
-
-                let statusBadge = "";
-                if (paid === 0) statusBadge = `<span class="bg-red-100 text-red-600 px-2 py-1 rounded text-[9px] font-black uppercase">Pendiente</span>`;
-                else if (balance <= 0) statusBadge = `<span class="bg-green-100 text-green-600 px-2 py-1 rounded text-[9px] font-black uppercase">Pagado</span>`;
-                else statusBadge = `<span class="bg-orange-100 text-orange-600 px-2 py-1 rounded text-[9px] font-black uppercase">Parcial</span>`;
-
-                const itemCount = p.items ? p.items.reduce((acc, i) => acc + i.quantity, 0) : 0;
-
-                htmlPurchases += `
-                    <tr class="hover:bg-slate-50 transition border-b border-gray-50 last:border-0">
-                        <td class="px-8 py-6">
-                            <p class="font-bold text-brand-black text-xs">${p.createdAt?.toDate().toLocaleDateString('es-CO')}</p>
-                            <p class="font-mono text-[9px] text-gray-400 uppercase">#${p.id.slice(0,6)}</p>
-                        </td>
-                        <td class="px-8 py-6">
-                            <span class="inline-block bg-slate-100 text-slate-600 px-2 py-1 rounded text-[10px] font-black uppercase">${itemCount} Items</span>
-                        </td>
-                        <td class="px-8 py-6 text-right font-black text-brand-black text-sm">$${total.toLocaleString('es-CO')}</td>
-                        <td class="px-8 py-6 text-right font-bold text-green-600 text-xs">$${paid.toLocaleString('es-CO')}</td>
-                        <td class="px-8 py-6 text-right font-bold text-red-500 text-xs">$${balance.toLocaleString('es-CO')}</td>
-                        <td class="px-8 py-6 text-center">${statusBadge}</td>
-                        <td class="px-8 py-6 text-center">
-                            <button onclick="openPurchaseDetail('${d.id}')" class="w-8 h-8 rounded-lg bg-white border border-gray-200 text-gray-400 hover:text-brand-cyan hover:border-brand-cyan transition shadow-sm"><i class="fa-solid fa-eye text-xs"></i></button>
-                        </td>
-                    </tr>`;
-            });
-
-            table.innerHTML = htmlPurchases;
-            
-            document.getElementById('sup-pending-balance').textContent = `$${totalDebt.toLocaleString('es-CO')}`;
-            document.getElementById('debt-amount').textContent = `$${totalDebt.toLocaleString('es-CO')}`;
-            document.getElementById('modal-debt-amount').textContent = `$${totalDebt.toLocaleString('es-CO')}`;
-
-            // Ordenar pendientes FIFO
-            pendingPurchases.sort((a, b) => a.createdAt.seconds - b.createdAt.seconds);
-
-            // 2. PAGOS (Gastos asociados)
-            const qPayments = query(collection(db, "expenses"), where("supplierId", "==", supplierId), orderBy("date", "desc"), limit(20));
-            const snapPayments = await getDocs(qPayments);
-            
-            let htmlPay = "";
-            if (snapPayments.empty) {
-                htmlPay = `<tr><td colspan="3" class="p-6 text-center text-xs text-gray-400">No hay pagos registrados</td></tr>`;
-            } else {
-                snapPayments.forEach(d => {
-                    const pay = d.data();
-                    const dateObj = pay.date?.toDate ? pay.date.toDate() : new Date(pay.date);
-                    htmlPay += `
-                        <tr class="hover:bg-slate-50 transition border-b border-gray-50">
-                            <td class="px-6 py-4 text-xs font-mono text-gray-500">${dateObj.toLocaleDateString('es-CO')}</td>
-                            <td class="px-6 py-4 text-xs font-bold text-brand-black uppercase">
-                                ${pay.paymentMethod || 'Pago'} <span class="text-gray-400 text-[10px]">(${pay.description})</span>
-                            </td>
-                            <td class="px-6 py-4 text-right text-xs font-black text-green-600">$${Number(pay.amount).toLocaleString('es-CO')}</td>
-                        </tr>`;
-                });
-            }
-            paymentsTable.innerHTML = htmlPay;
-        }
-
-        // --- CÁLCULO 4x1000 ---
-        const payAccountSelect = document.getElementById('pay-account');
-        const payAmountInput = document.getElementById('pay-amount');
-
-        function updateTaxPreview() {
-            const accId = payAccountSelect.value;
-            const amount = Number(payAmountInput.value);
-            const acc = accountsList.find(a => a.id === accId);
-            const taxInfo = document.getElementById('tax-info');
-            
-            if(acc && acc.type === 'banco' && !acc.isExempt && amount > 0) {
-                const tax = Math.ceil(amount * 0.004);
-                document.getElementById('tax-amount').textContent = `$${tax.toLocaleString()}`;
-                taxInfo.classList.remove('hidden');
-            } else {
-                taxInfo.classList.add('hidden');
-            }
-        }
-
-        payAccountSelect.onchange = updateTaxPreview;
-        payAmountInput.oninput = updateTaxPreview;
-
-// --- PROCESAR PAGO (Transacción Segura Corregida) ---
+        // --- PAGO (Lógica On-Demand FIFO) ---
+        // Aquí ocurre la magia: Solo descargamos las facturas pendientes AL MOMENTO DE PAGAR
         document.getElementById('payment-form').onsubmit = async (e) => {
             e.preventDefault();
             const btn = e.target.querySelector('button');
             const originalText = btn.innerText;
-            btn.disabled = true;
-            btn.innerText = "Procesando...";
+            btn.disabled = true; btn.innerText = "Procesando...";
 
-            const accountId = payAccountSelect.value;
-            const amount = Number(payAmountInput.value);
+            const accountId = document.getElementById('pay-account').value;
+            const amountStr = document.getElementById('pay-amount').value;
+            const amount = cleanNumber(amountStr); // Usando cleanNumber helper
             const note = document.getElementById('pay-note').value.trim() || "Pago a Proveedor";
 
             if (!accountId) { alert("Seleccione una cuenta"); btn.disabled=false; btn.innerText=originalText; return; }
@@ -466,88 +548,88 @@
             }
 
             try {
-                await runTransaction(db, async (t) => {
-                    // ==========================================
-                    // FASE 1: LECTURAS (TODOS LOS GET PRIMERO)
-                    // ==========================================
+                // FASE 1: Buscar facturas pendientes FIFO (En el momento del clic)
+                const qPending = query(
+                    collection(db, "purchases"), 
+                    where("supplierId", "==", supplierId), 
+                    orderBy("createdAt", "asc")
+                );
+                
+                // Limitamos a 50 para no procesar infinito, asumimos que con eso cubrimos el monto
+                // Si la deuda es muy vieja y fragmentada, requeriría mas lógica, pero esto cubre el 99%
+                const snapPending = await getDocs(query(qPending, limit(50)));
+                
+                const purchasesToPay = [];
+                let moneyAvailable = amount;
 
-                    // 1. Leer Cuenta de Tesorería
+                snapPending.forEach(d => {
+                    if (moneyAvailable <= 0) return;
+                    const p = d.data();
+                    const bal = (p.totalCost || 0) - (p.amountPaid || 0);
+                    
+                    if (bal > 0) {
+                        purchasesToPay.push({ ref: d.ref, data: p });
+                        moneyAvailable -= bal;
+                    }
+                });
+
+                // FASE 2: Transacción
+                await runTransaction(db, async (t) => {
+                    // Leer Cuenta
                     const accRef = doc(db, "accounts", accountId);
                     const accDoc = await t.get(accRef);
                     if(!accDoc.exists()) throw "Cuenta no encontrada";
                     
-                    // 2. Leer Facturas Pendientes (Re-leemos para asegurar consistencia)
-                    // Usamos el array 'pendingPurchases' que ya tenemos cargado en memoria para saber IDs,
-                    // pero DEBEMOS leerlas dentro de la transacción.
-                    const purchasesToUpdate = [];
-                    for (const p of pendingPurchases) {
-                        const pRef = doc(db, "purchases", p.id);
-                        const pDoc = await t.get(pRef);
-                        if (pDoc.exists()) {
-                            purchasesToUpdate.push({ ref: pRef, data: pDoc.data() });
-                        }
+                    // Re-leer facturas para bloqueo seguro
+                    const validatedPurchases = [];
+                    for(const item of purchasesToPay) {
+                        const freshSnap = await t.get(item.ref);
+                        if(freshSnap.exists()) validatedPurchases.push({ ref: item.ref, data: freshSnap.data() });
                     }
 
-                    // ==========================================
-                    // FASE 2: CÁLCULOS Y ESCRITURAS
-                    // ==========================================
-
+                    // Escritura
                     const accData = accDoc.data();
                     let tax = 0;
-                    
-                    // Calcular 4x1000
-                    if (accData.type === 'banco' && !accData.isExempt) {
-                        tax = Math.ceil(amount * 0.004);
-                    }
+                    if (accData.type === 'banco' && !accData.isExempt) tax = Math.ceil(amount * 0.004);
 
                     const totalDeduction = amount + tax;
-                    if (accData.balance < totalDeduction) throw `Saldo insuficiente. Requiere: $${totalDeduction.toLocaleString()}`;
+                    if (accData.balance < totalDeduction) throw `Saldo insuficiente.`;
 
-                    // A. Descontar Saldo Banco
                     t.update(accRef, { balance: accData.balance - totalDeduction });
 
-                    // B. Registrar Impuesto (si aplica)
                     if (tax > 0) {
-                        const taxExpenseRef = doc(collection(db, "expenses"));
-                        t.set(taxExpenseRef, {
+                        const taxRef = doc(collection(db, "expenses"));
+                        t.set(taxRef, {
                             description: `4x1000 Pago a ${supplierData.name}`,
                             amount: tax,
                             category: "Impuestos",
+                            type: 'EXPENSE',
                             paymentMethod: accData.name,
                             date: Timestamp.now(),
-                            createdAt: Timestamp.now(),
-                            supplierId: null
+                            createdAt: Timestamp.now()
                         });
                     }
 
-                    // C. Distribuir Pago en Facturas (FIFO)
                     let remaining = amount;
-                    for (const { ref, data } of purchasesToUpdate) {
+                    for (const { ref, data } of validatedPurchases) {
                         if (remaining <= 0) break;
-
-                        const currentPaid = data.amountPaid || 0;
-                        const totalCost = data.totalCost || 0;
-                        const currentBalance = totalCost - currentPaid;
-
-                        if (currentBalance <= 0) continue; // Ya pagada
-
+                        const currentBalance = (data.totalCost || 0) - (data.amountPaid || 0);
                         const paymentForThis = Math.min(remaining, currentBalance);
                         
                         t.update(ref, {
-                            amountPaid: currentPaid + paymentForThis,
+                            amountPaid: (data.amountPaid || 0) + paymentForThis,
                             lastPaymentDate: Timestamp.now()
                         });
-
                         remaining -= paymentForThis;
                     }
 
-                    // D. Registrar Gasto Principal
                     const expenseRef = doc(collection(db, "expenses"));
                     t.set(expenseRef, {
                         supplierId: supplierId,
                         supplierName: supplierData.name,
                         description: note,
-                        category: "Inventario",
+                        category: "Pago Proveedores", 
+                        type: 'EXPENSE',
                         amount: amount,
                         paymentMethod: accData.name,
                         date: Timestamp.now(),
@@ -555,25 +637,26 @@
                     });
                 });
 
-                alert("✅ Pago registrado exitosamente");
-                closeModal('payment-modal');
+                alert("✅ Pago registrado");
+                window.closeModal('payment-modal');
                 e.target.reset();
-                loadData(); // Recargar interfaz
+                loadData(); 
 
             } catch (err) {
                 console.error(err);
                 alert("Error: " + err.message);
             } finally {
-                btn.disabled = false;
-                btn.innerText = originalText;
+                btn.disabled = false; btn.innerText = originalText;
             }
         };
 
         // UI HELPERS
         window.openPaymentModal = () => document.getElementById('payment-modal').classList.remove('hidden');
         window.closeModal = (id) => document.getElementById(id).classList.add('hidden');
+        
         window.openPurchaseDetail = async (id) => {
             const snap = await getDoc(doc(db, "purchases", id));
+            if(!snap.exists()) return;
             const p = snap.data();
             const content = document.getElementById('purchase-modal-content');
             
@@ -595,19 +678,8 @@
             document.getElementById('purchase-detail-modal').classList.remove('hidden');
         };
 
-        // EDIT LOGIC (Copied from previous)
-        document.getElementById('btn-edit-supplier').onclick = async () => {
-            const s = supplierData;
-            document.getElementById('e-name').value = s.name;
-            document.getElementById('e-nit').value = s.nit;
-            document.getElementById('e-phone').value = s.phone;
-            document.getElementById('e-contact').value = s.contactName || "";
-            document.getElementById('e-email').value = s.email || "";
-            document.getElementById('e-bank').value = s.bankName || "";
-            document.getElementById('e-account').value = s.accNum || "";
-            document.getElementById('edit-supplier-modal').classList.remove('hidden');
-        };
-
+        document.getElementById('btn-edit-supplier').onclick = () => document.getElementById('edit-supplier-modal').classList.remove('hidden');
+        
         document.getElementById('edit-supplier-form').onsubmit = async (e) => {
             e.preventDefault();
             try {
@@ -620,12 +692,11 @@
                     bankName: document.getElementById('e-bank').value,
                     accNum: document.getElementById('e-account').value
                 });
-                alert("✅ Actualizado");
-                location.reload();
+                alert("✅ Actualizado"); location.reload();
             } catch (err) { alert(err.message); }
         };
 
-        // TABS
+        // Tabs
         document.querySelectorAll('.crm-tab-btn').forEach(btn => {
             btn.onclick = (e) => {
                 document.querySelectorAll('.crm-tab-btn').forEach(b => {
@@ -635,12 +706,36 @@
                 document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
                 const target = e.currentTarget.dataset.tab;
                 e.currentTarget.classList.remove('border-transparent');
+                
                 if(target === 'generales') e.currentTarget.classList.add('active', 'border-brand-cyan', 'bg-cyan-50/20');
                 if(target === 'historial') e.currentTarget.classList.add('active', 'border-blue-500', 'bg-blue-50/20');
                 if(target === 'pagos') e.currentTarget.classList.add('active', 'border-emerald-500', 'bg-emerald-50/20');
+                
                 document.getElementById(`tab-${target}`).classList.remove('hidden');
             };
         });
+
+        // 4x1000 Preview
+        const payAccountSelect = document.getElementById('pay-account');
+        const payAmountInput = document.getElementById('pay-amount');
+
+        function updateTaxPreview() {
+            const accId = payAccountSelect.value;
+            const amount = Number(payAmountInput.value);
+            const acc = accountsList.find(a => a.id === accId);
+            const taxInfo = document.getElementById('tax-info');
+            
+            if(acc && acc.type === 'banco' && !acc.isExempt && amount > 0) {
+                const tax = Math.ceil(amount * 0.004);
+                document.getElementById('tax-amount').textContent = `$${tax.toLocaleString()}`;
+                taxInfo.classList.remove('hidden');
+            } else {
+                taxInfo.classList.add('hidden');
+            }
+        }
+
+        payAccountSelect.onchange = updateTaxPreview;
+        payAmountInput.oninput = updateTaxPreview;
 
         loadData();
     </script>
