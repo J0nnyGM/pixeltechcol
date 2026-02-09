@@ -22,7 +22,7 @@ const els = {
     guideContainer: document.getElementById('tracking-container'),
     guideText: document.getElementById('shipping-guide'),
     trackingLink: document.getElementById('tracking-link'),
-    copyGuideBtn: document.getElementById('copy-guide-btn'), // Nuevo Botón
+    copyGuideBtn: document.getElementById('copy-guide-btn'), 
     
     buyerName: document.getElementById('buyer-name'),
     buyerContact: document.getElementById('buyer-contact'),
@@ -76,44 +76,153 @@ if (els.inpImages) {
 
 onAuthStateChanged(auth, (user) => {
     if (user) {
-        loadOrderDetails();
+        loadOrderDetailsSmart();
     } else {
         window.location.href = "/auth/login.html";
     }
 });
 
-async function loadOrderDetails() {
+// ==========================================================================
+// 🧠 CARGA INTELIGENTE (CACHÉ + LECTURA CONDICIONAL)
+// ==========================================================================
+async function loadOrderDetailsSmart() {
     try {
-        const snap = await getDoc(doc(db, "orders", orderId));
-        if (!snap.exists()) { window.location.href = '/profile.html'; return; }
-        currentOrder = snap.data();
+        let orderFromCache = null;
 
-        // Cargar Garantías
-        const qW = query(
-            collection(db, "warranties"),
-            where("orderId", "==", orderId),
-            where("userId", "==", auth.currentUser.uid)
-        );
+        // 1. CARGAR ORDEN (Caché vs Red)
+        const cachedOrdersRaw = localStorage.getItem('pixeltech_user_orders');
+        if (cachedOrdersRaw) {
+            const ordersList = JSON.parse(cachedOrdersRaw);
+            orderFromCache = ordersList.find(o => o.id === orderId);
+        }
 
-        const snapW = await getDocs(qW);
-        activeWarranties = snapW.docs.map(d => ({ id: d.id, ...d.data() }));
+        if (orderFromCache) {
+            console.log("⚡ [OrderDetail] Orden cargada desde caché local.");
+            currentOrder = orderFromCache;
+        } else {
+            console.log("☁️ [OrderDetail] Descargando orden de Firebase...");
+            const snap = await getDoc(doc(db, "orders", orderId));
+            if (!snap.exists()) { window.location.href = '/profile.html'; return; }
+            currentOrder = { id: snap.id, ...snap.data() };
+        }
 
-        renderHeaderInfo(snap.id, currentOrder);
-        renderTimeline(currentOrder.status);
-        renderPaymentInfo(currentOrder);
-        renderItems(currentOrder);
+        // 2. 🚀 PASO CRÍTICO: ASEGURAR QUE LOS PRODUCTOS ESTÉN EN CACHÉ
+        // Esto soluciona el problema de los "60 días por defecto".
+        // Si el producto no está en memoria, lo bajamos ahora mismo.
+        await ensureProductsInCache(currentOrder.items);
+
+        // 3. Renderizar todo con datos seguros
+        renderAllOrderData(currentOrder);
+        
+        // 4. Cargar garantías (siempre frescas)
+        loadWarranties();
+
+        // 5. Actualización en segundo plano si la orden está activa (Opcional)
+        const terminalStates = ['ENTREGADO', 'FINALIZADO', 'CANCELADO', 'RECHAZADO', 'ANULADO'];
+        if (!orderFromCache || !terminalStates.includes(currentOrder.status)) {
+            // Si vino de caché pero está activa, podríamos querer verificar cambios leves en background
+            // (Omitido para no gastar lecturas, ya que la lógica principal está cubierta)
+        }
+
     } catch (e) {
         console.error("Error al cargar orden:", e);
         if(els.itemsList) els.itemsList.innerHTML = `<p class="text-red-500 text-center">Error cargando la orden.</p>`;
     }
 }
+// --- HELPER: DESCARGAR PRODUCTOS FALTANTES PARA LA CACHÉ ---
+async function ensureProductsInCache(items) {
+    const STORAGE_KEY = 'pixeltech_master_catalog';
+    let rawCache = localStorage.getItem(STORAGE_KEY);
+    let catalogState = { map: {}, lastSync: 0 };
 
-// --- 2. RENDER HEADER (CON LÓGICA DE RASTREO) ---
+    if (rawCache) {
+        try { catalogState = JSON.parse(rawCache); } catch(e) {}
+    }
+
+    const uniqueItemIds = [...new Set(items.map(item => item.id))];
+    
+    const missingIds = uniqueItemIds.filter(id => {
+        // Verificamos si falta en el mapa de caché
+        return !catalogState.map[id];
+    });
+
+
+    items.forEach(item => {
+        // Verificamos si el producto existe en el mapa de caché
+        if (!catalogState.map[item.id]) {
+            missingIds.push(item.id);
+        }
+    });
+
+    if (missingIds.length === 0) return; // Todo está en caché, perfecto.
+
+    console.log(`☁️ [OrderDetail] Descargando ${missingIds.length} productos faltantes para calcular garantía...`);
+
+    // Descargar en lotes de 10 (Límite de 'in' query)
+    const batches = [];
+    while (missingIds.length) {
+        batches.push(missingIds.splice(0, 10));
+    }
+
+    // Ejecutar consultas
+    for (const batch of batches) {
+        // Nota: Importa 'documentId' en tus imports de firebase-init si no lo tienes
+        // import { ..., documentId } from "./firebase-init.js";
+        // Si no tienes documentId exportado, usa getDoc individual en paralelo:
+        
+        const promises = batch.map(pid => getDoc(doc(db, "products", pid)));
+        const snapshots = await Promise.all(promises);
+
+        snapshots.forEach(snap => {
+            if (snap.exists()) {
+                const prodData = { id: snap.id, ...snap.data() };
+                catalogState.map[snap.id] = prodData;
+                console.log(`📦 Producto cachado: ${prodData.name} (Garantía: ${JSON.stringify(prodData.warranty)})`);
+            }
+        });
+    }
+
+    // Guardar caché actualizada para que brands.html, catalog.html, etc. también la usen
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(catalogState));
+}
+
+// Función Helper para renderizar todo de una vez
+function renderAllOrderData(order) {
+    renderHeaderInfo(orderId, order);
+    renderTimeline(order.status);
+    renderPaymentInfo(order);
+    renderItems(order);
+}
+
+// Carga separada de garantías (Siempre frescas porque es soporte)
+async function loadWarranties() {
+    try {
+        const qW = query(
+            collection(db, "warranties"),
+            where("orderId", "==", orderId),
+            where("userId", "==", auth.currentUser.uid)
+        );
+        const snapW = await getDocs(qW);
+        activeWarranties = snapW.docs.map(d => ({ id: d.id, ...d.data() }));
+        // Re-renderizamos items para mostrar botones de garantía actualizados
+        if(currentOrder) renderItems(currentOrder);
+    } catch (e) { console.error(e); }
+}
+
+// --- 2. RENDER HEADER ---
 function renderHeaderInfo(displayId, order) {
     if(!els.id) return;
 
     els.id.textContent = `ORDEN #${displayId.slice(0, 8).toUpperCase()}`;
-    const dateObj = order.createdAt?.toDate ? order.createdAt.toDate() : new Date(order.createdAt);
+    
+    // Manejo de fechas seguro (caché guarda strings, firebase guarda timestamps)
+    let dateObj;
+    if (order.createdAt?.toDate) {
+        dateObj = order.createdAt.toDate();
+    } else {
+        dateObj = new Date(order.createdAt); // ISO String desde caché
+    }
+    
     els.date.textContent = "Realizado el: " + dateObj.toLocaleDateString('es-CO', { year: 'numeric', month: 'long', day: 'numeric' });
     
     // BADGES ESTADO
@@ -172,7 +281,7 @@ function renderHeaderInfo(displayId, order) {
     els.buyerName.textContent = (ship.name || buyer.name || "Cliente").toUpperCase();
     els.buyerContact.textContent = `${buyer.email || ''} ${buyer.phone ? ' • ' + buyer.phone : ''}`;
 
-    // RASTREO / TRACKING (LÓGICA ACTUALIZADA)
+    // RASTREO / TRACKING
     const guide = order.shippingTracking || order.guideNumber;
     const carrier = order.shippingCarrier || "Desconocida";
 
@@ -181,26 +290,17 @@ function renderHeaderInfo(displayId, order) {
         els.guideContainer.classList.add('flex');
         els.guideText.textContent = `${carrier} - ${guide}`;
         
-        // Definir URL según transportadora
         let trackingUrl = "#";
         const carrierLower = carrier.toLowerCase();
 
-        if (carrierLower.includes('servientrega')) {
-            trackingUrl = "https://www.servientrega.com/wps/portal/rastreo-envio";
-        } else if (carrierLower.includes('interrapidisimo') || carrierLower.includes('interrapidísimo')) {
-            trackingUrl = "https://interrapidisimo.com/sigue-tu-envio/";
-        } else if (carrierLower.includes('envia') || carrierLower.includes('envía')) {
-            trackingUrl = "https://envia.co/";
-        } else if (carrierLower.includes('coordinadora')) {
-            trackingUrl = "https://coordinadora.com/rastreo/rastreo-de-guia/";
-        } else {
-            // Fallback búsqueda Google
-            trackingUrl = `https://www.google.com/search?q=${carrier}+rastreo`;
-        }
+        if (carrierLower.includes('servientrega')) trackingUrl = "https://www.servientrega.com/wps/portal/rastreo-envio";
+        else if (carrierLower.includes('interrapidisimo') || carrierLower.includes('interrapidísimo')) trackingUrl = "https://interrapidisimo.com/sigue-tu-envio/";
+        else if (carrierLower.includes('envia') || carrierLower.includes('envía')) trackingUrl = "https://envia.co/";
+        else if (carrierLower.includes('coordinadora')) trackingUrl = "https://coordinadora.com/rastreo/rastreo-de-guia/";
+        else trackingUrl = `https://www.google.com/search?q=${carrier}+rastreo`;
 
         els.trackingLink.href = trackingUrl; 
 
-        // Lógica Botón Copiar
         if (els.copyGuideBtn) {
             els.copyGuideBtn.onclick = () => {
                 navigator.clipboard.writeText(guide).then(() => {
@@ -229,95 +329,64 @@ function renderHeaderInfo(displayId, order) {
     }
 
     // TOTALES
-    const totalItems = (order.items || []).reduce((acc, item) => acc + (parseInt(item.quantity) || 1), 0);
-    els.itemsCount.textContent = totalItems;
+    const itemCount = (order.items || []).reduce((acc, item) => acc + (parseInt(item.quantity) || 1), 0);
+    els.itemsCount.textContent = itemCount;
     els.subtotal.textContent = `$${(order.subtotal || 0).toLocaleString('es-CO')}`;
     const shipCost = order.shippingCost || 0;
     els.shipping.textContent = shipCost === 0 ? "Gratis" : `$${shipCost.toLocaleString('es-CO')}`;
     els.total.textContent = `$${(order.total || 0).toLocaleString('es-CO')}`;
 }
 
-// --- 3. RENDER TIMELINE (ESTILO Y LÓGICA CORREGIDOS) ---
+// --- 3. RENDER TIMELINE ---
 function renderTimeline(currentStatus) {
     if(!els.timelineContainer) return;
 
-    // 1. Configuración de Pasos Visuales
     const steps = [
-        { label: 'Pendiente Pago', icon: 'fa-file-invoice-dollar' }, // 0
-        { label: 'Recibido',       icon: 'fa-clipboard-check' },     // 1
-        { label: 'Alistado',       icon: 'fa-box-open' },            // 2
-        { label: 'Despachado',     icon: 'fa-truck-fast' }           // 3
+        { label: 'Pendiente Pago', icon: 'fa-file-invoice-dollar' },
+        { label: 'Recibido',       icon: 'fa-clipboard-check' }, 
+        { label: 'Alistado',       icon: 'fa-box-open' }, 
+        { label: 'Despachado',     icon: 'fa-truck-fast' } 
     ];
 
-    // 2. Lógica de Estado (Mapeo DB -> Visual)
     let activeIndex = 0;
     const status = (currentStatus || '').toUpperCase().trim();
 
-    if (status === 'PENDIENTE_PAGO') { 
-        activeIndex = 0; 
-    } 
-    else if (['PAGADO', 'PENDIENTE', 'CONFIRMADO', 'APROBADO'].includes(status)) {
-        // En tu admin, 'PENDIENTE' significa que ya entró la orden (Recibido)
-        activeIndex = 1;
-    } 
-    else if (['ALISTAMIENTO', 'ALISTADO', 'PREPARACION'].includes(status)) {
-        activeIndex = 2;
-    } 
-    else if (['DESPACHADO', 'EN_RUTA', 'EN_CAMINO', 'ENTREGADO', 'FINALIZADO'].includes(status)) {
-        // 'Despachado' es el último paso visual de la logística interna
-        activeIndex = 3;
-    } 
+    if (status === 'PENDIENTE_PAGO') activeIndex = 0; 
+    else if (['PAGADO', 'PENDIENTE', 'CONFIRMADO', 'APROBADO'].includes(status)) activeIndex = 1;
+    else if (['ALISTAMIENTO', 'ALISTADO', 'PREPARACION'].includes(status)) activeIndex = 2;
+    else if (['DESPACHADO', 'EN_RUTA', 'EN_CAMINO', 'ENTREGADO', 'FINALIZADO'].includes(status)) activeIndex = 3;
     else if (['CANCELADO', 'RECHAZADO', 'FAILED', 'ANULADO'].includes(status)) {
         els.timelineContainer.innerHTML = `
             <div class="w-full flex flex-col items-center justify-center p-8 bg-red-50 rounded-[2rem] border border-red-100 text-red-500">
-                <div class="w-14 h-14 rounded-full bg-red-100 flex items-center justify-center mb-3 shadow-sm animate-pulse">
-                    <i class="fa-solid fa-ban text-2xl"></i>
-                </div>
+                <div class="w-14 h-14 rounded-full bg-red-100 flex items-center justify-center mb-3 shadow-sm animate-pulse"><i class="fa-solid fa-ban text-2xl"></i></div>
                 <p class="font-black uppercase tracking-widest text-sm">Pedido Cancelado</p>
                 <p class="text-xs font-bold mt-1 opacity-70">El proceso se ha detenido.</p>
             </div>`;
         return;
     }
 
-    // 3. Cálculo de Progreso (0%, 33%, 66%, 100%)
     const progressPercent = (activeIndex / (steps.length - 1)) * 100;
-
-    // 4. Construcción del HTML
-    let html = '';
-
-    // A. BARRA DE FONDO (Detrás de los círculos)
-    // top-5 (20px) alinea con w-10 (40px). md:top-6 (24px) alinea con w-12 (48px).
-    // px-12 asegura que la línea empiece y termine en el centro de los círculos extremos.
-    html += `
+    let html = `
         <div class="absolute top-5 md:top-6 left-0 w-full px-12 md:px-14 z-0 flex items-center pointer-events-none">
             <div class="w-full h-1 bg-gray-100 rounded-full overflow-hidden relative">
-                <div class="h-full bg-brand-black transition-all duration-1000 ease-out shadow-sm" 
-                     style="width: ${progressPercent}%">
-                </div>
+                <div class="h-full bg-brand-black transition-all duration-1000 ease-out shadow-sm" style="width: ${progressPercent}%"></div>
             </div>
         </div>
-    `;
-
-    // B. CÍRCULOS Y TEXTO (Encima de la barra)
-    html += '<div class="relative w-full flex justify-between items-start z-10 px-2">';
+        <div class="relative w-full flex justify-between items-start z-10 px-2">`;
 
     steps.forEach((step, index) => {
         const isCompleted = index <= activeIndex;
         const isCurrent = index === activeIndex;
         
-        // Clases Base
-        let circleClass = "bg-white text-gray-300 border-4 border-gray-100"; // Futuro
+        let circleClass = "bg-white text-gray-300 border-4 border-gray-100";
         let iconClass = "";
         let textClass = "text-gray-300 font-bold";
 
         if (isCurrent) {
-            // ACTUAL: Cyan, Grande, Animado
             circleClass = "bg-brand-black text-brand-cyan border-4 border-brand-cyan shadow-xl shadow-cyan-500/30 scale-110 z-20";
             iconClass = "fa-beat-fade"; 
             textClass = "text-brand-cyan font-black transform scale-105";
-        } 
-        else if (isCompleted) {
-            // COMPLETADO: Negro
+        } else if (isCompleted) {
             circleClass = "bg-brand-black text-white border-4 border-brand-black shadow-lg";
             textClass = "text-brand-black font-black";
         }
@@ -327,18 +396,12 @@ function renderTimeline(currentStatus) {
                 <div class="w-10 h-10 md:w-12 md:h-12 rounded-full flex items-center justify-center transition-all duration-500 ${circleClass} relative z-10">
                     <i class="fa-solid ${step.icon} text-xs md:text-sm ${iconClass}"></i>
                 </div>
-                <p class="text-[8px] md:text-[9px] uppercase tracking-widest mt-3 text-center transition-all duration-300 ${textClass} leading-tight">
-                    ${step.label}
-                </p>
-            </div>
-        `;
+                <p class="text-[8px] md:text-[9px] uppercase tracking-widest mt-3 text-center transition-all duration-300 ${textClass} leading-tight">${step.label}</p>
+            </div>`;
     });
 
     html += '</div>';
-
-    // 5. Inyección
     els.timelineContainer.innerHTML = html;
-    // Aseguramos clases del contenedor padre para que el 'absolute' funcione
     els.timelineContainer.className = "relative w-full min-w-[320px] max-w-4xl mx-auto py-4"; 
 }
 
@@ -349,38 +412,19 @@ function renderPaymentInfo(order) {
     const payment = order.paymentData || {};
     const rawMethod = (order.paymentMethod || payment.payment_method_id || payment.type || "UNKNOWN").toUpperCase();
     
-    let icon = "fa-credit-card";
-    let label = "Tarjeta / Electrónico";
-    let iconColor = "text-brand-cyan";
-    let bgIcon = "bg-brand-cyan/10";
+    let icon = "fa-credit-card"; let label = "Tarjeta / Electrónico"; let iconColor = "text-brand-cyan"; let bgIcon = "bg-brand-cyan/10";
 
-    if (rawMethod.includes('COD') || rawMethod.includes('CONTRA') || rawMethod.includes('EFECTIVO')) {
-        icon = "fa-truck-fast"; label = "Pago Contra Entrega"; iconColor = "text-brand-black"; bgIcon = "bg-gray-100";
-    } 
-    else if (rawMethod.includes('ADDI')) {
-        icon = "fa-hand-holding-dollar"; label = "Crédito ADDI"; iconColor = "text-[#00D6D6]"; bgIcon = "bg-[#00D6D6]/10";
-    }
-    else if (rawMethod.includes('NEQUI')) {
-        icon = "fa-mobile-screen-button"; label = "Nequi"; iconColor = "text-purple-600"; bgIcon = "bg-purple-50";
-    }
-    else if (rawMethod.includes('PSE')) {
-        icon = "fa-building-columns"; label = "PSE (Transferencia)"; iconColor = "text-blue-600"; bgIcon = "bg-blue-50";
-    }
-    else if (rawMethod.includes('BANCOLOMBIA')) {
-        icon = "fa-building-columns"; label = "Bancolombia"; iconColor = "text-yellow-600"; bgIcon = "bg-yellow-50";
-    }
-    else if (rawMethod.includes('MANUAL') || rawMethod.includes('TIENDA')) {
-        icon = "fa-cash-register"; label = "Pago en Tienda / Manual"; iconColor = "text-gray-600"; bgIcon = "bg-gray-100";
-    }
+    if (rawMethod.includes('COD') || rawMethod.includes('CONTRA') || rawMethod.includes('EFECTIVO')) { icon = "fa-truck-fast"; label = "Pago Contra Entrega"; iconColor = "text-brand-black"; bgIcon = "bg-gray-100"; } 
+    else if (rawMethod.includes('ADDI')) { icon = "fa-hand-holding-dollar"; label = "Crédito ADDI"; iconColor = "text-[#00D6D6]"; bgIcon = "bg-[#00D6D6]/10"; }
+    else if (rawMethod.includes('NEQUI')) { icon = "fa-mobile-screen-button"; label = "Nequi"; iconColor = "text-purple-600"; bgIcon = "bg-purple-50"; }
+    else if (rawMethod.includes('PSE')) { icon = "fa-building-columns"; label = "PSE (Transferencia)"; iconColor = "text-blue-600"; bgIcon = "bg-blue-50"; }
+    else if (rawMethod.includes('BANCOLOMBIA')) { icon = "fa-building-columns"; label = "Bancolombia"; iconColor = "text-yellow-600"; bgIcon = "bg-yellow-50"; }
+    else if (rawMethod.includes('MANUAL') || rawMethod.includes('TIENDA')) { icon = "fa-cash-register"; label = "Pago en Tienda / Manual"; iconColor = "text-gray-600"; bgIcon = "bg-gray-100"; }
 
     let statusBadgeHTML = "";
-    if (order.status === 'CANCELADO' || order.status === 'RECHAZADO') {
-        statusBadgeHTML = `<p class="text-xs font-bold text-red-500 uppercase flex items-center gap-1 bg-red-50 px-3 py-1.5 rounded-lg w-fit mt-1"><i class="fa-solid fa-ban"></i> Anulado / Reembolso</p>`;
-    } else if (order.status === 'PENDIENTE_PAGO') {
-        statusBadgeHTML = `<p class="text-xs font-bold text-yellow-600 uppercase flex items-center gap-1 bg-yellow-50 px-3 py-1.5 rounded-lg w-fit mt-1"><i class="fa-solid fa-clock"></i> Pendiente</p>`;
-    } else {
-        statusBadgeHTML = `<p class="text-xs font-bold text-emerald-600 uppercase flex items-center gap-1 bg-emerald-50 px-3 py-1.5 rounded-lg w-fit mt-1"><i class="fa-solid fa-check-circle"></i> Aprobado</p>`;
-    }
+    if (order.status === 'CANCELADO' || order.status === 'RECHAZADO') statusBadgeHTML = `<p class="text-xs font-bold text-red-500 uppercase flex items-center gap-1 bg-red-50 px-3 py-1.5 rounded-lg w-fit mt-1"><i class="fa-solid fa-ban"></i> Anulado</p>`;
+    else if (order.status === 'PENDIENTE_PAGO') statusBadgeHTML = `<p class="text-xs font-bold text-yellow-600 uppercase flex items-center gap-1 bg-yellow-50 px-3 py-1.5 rounded-lg w-fit mt-1"><i class="fa-solid fa-clock"></i> Pendiente</p>`;
+    else statusBadgeHTML = `<p class="text-xs font-bold text-emerald-600 uppercase flex items-center gap-1 bg-emerald-50 px-3 py-1.5 rounded-lg w-fit mt-1"><i class="fa-solid fa-check-circle"></i> Aprobado</p>`;
 
     els.paymentContainer.innerHTML = `
         <div class="w-full flex flex-col md:flex-row gap-6 md:gap-10">
@@ -396,35 +440,120 @@ function renderPaymentInfo(order) {
         </div>`;
 }
 
-// --- 5. RENDER ITEMS ---
+// --- 5. RENDER ITEMS (CORREGIDO: BOTÓN ACTIVO EN DESPACHADO) ---
+// --- HELPER: CALCULAR DÍAS DE GARANTÍA (CORREGIDO Y CON LOGS) ---
+function getWarrantyDaysInTotal(item) {
+    let w = item.warranty || item.warrantyDays;
+    let source = "ORDER_ITEM";
+
+    // 1. Si no hay datos en el pedido, buscar en CACHÉ ACTUALIZADA
+    if (w === undefined || w === null) {
+        try {
+            const cachedRaw = localStorage.getItem('pixeltech_master_catalog');
+            if (cachedRaw) {
+                const catalog = JSON.parse(cachedRaw).map || {};
+                const cachedProduct = catalog[item.id];
+                
+                if (cachedProduct) {
+                    // Prioridad: Objeto warranty > Propiedad warrantyDays
+                    const cachedW = cachedProduct.warranty !== undefined ? cachedProduct.warranty : cachedProduct.warrantyDays;
+                    
+                    if (cachedW !== undefined && cachedW !== null) {
+                        w = cachedW;
+                        source = "CACHE_PRODUCT";
+                    }
+                }
+            }
+        } catch (e) { console.warn("Error leyendo caché:", e); }
+    }
+
+    // Debug para ver qué está encontrando
+    // console.log(`🔍 Garantía para ${item.name}:`, w, `(Fuente: ${source})`);
+
+    // 2. Si definitivamente no hay datos -> Default 60
+    if (w === undefined || w === null) return 60;
+
+    // 3. Procesamiento del valor
+    
+    // Caso A: Objeto { time: 6, unit: 'months' }
+    if (typeof w === 'object' && w.time !== undefined) {
+        const time = parseInt(w.time);
+        if (isNaN(time)) return 60;
+        if (time === 0) return 0; // Garantía explícita de 0 días
+
+        const unit = (w.unit || 'months').toLowerCase();
+        if (unit.includes('year') || unit.includes('año')) return time * 365;
+        if (unit.includes('month') || unit.includes('mes')) return time * 30;
+        if (unit.includes('week') || unit.includes('semana')) return time * 7;
+        return time; // Días
+    }
+
+    // Caso B: Número directo
+    const directTime = parseInt(w);
+    if (!isNaN(directTime)) return directTime;
+
+    return 60; // Fallback final
+}
+
+
+// --- 5. RENDER ITEMS (CORREGIDO: MANEJO DE 0 DÍAS) ---
 function renderItems(order) {
     if(!els.itemsList) return;
     els.itemsList.innerHTML = "";
     
-    const shippedDate = order.shippedAt ? order.shippedAt.toDate() : (order.status === 'ENTREGADO' ? new Date() : null);
+    const warrantyActiveStatuses = ['DESPACHADO', 'EN_RUTA', 'EN_CAMINO', 'ENTREGADO'];
+    const isShipped = warrantyActiveStatuses.includes(order.status);
+
+    let shippedDate = null;
+    const parseDate = (val) => {
+        if (!val) return null;
+        if (val.toDate) return val.toDate();
+        const d = new Date(val);
+        return isNaN(d.getTime()) ? null : d;
+    };
+
+    if (isShipped) {
+        shippedDate = parseDate(order.shippedAt) || parseDate(order.updatedAt) || parseDate(order.createdAt) || new Date();
+    }
+    
     const now = new Date();
 
     order.items.forEach((item, index) => {
-        const warrantyDays = item.warrantyDays || 365;
+        // Obtenemos días totales (0, 60, 365, etc.)
+        const totalWarrantyDays = getWarrantyDaysInTotal(item);
+        
         let isExpired = false;
         let daysLeft = 0;
+        const hasWarranty = totalWarrantyDays > 0; // Bandera para saber si tiene garantía
 
-        if (shippedDate) {
+        if (isShipped && shippedDate && hasWarranty) {
             const expirationDate = new Date(shippedDate);
-            expirationDate.setDate(expirationDate.getDate() + warrantyDays);
-            daysLeft = Math.ceil((expirationDate - now) / (1000 * 60 * 60 * 24));
+            expirationDate.setDate(expirationDate.getDate() + totalWarrantyDays);
+            const diffTime = expirationDate - now;
+            daysLeft = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
             isExpired = daysLeft <= 0;
+        } else if (!hasWarranty) {
+            // Si son 0 días, está "expirada" por defecto (no aplica)
+            isExpired = true;
         }
 
         const itemWarranties = activeWarranties.filter(w => 
-            w.productId === item.id && w.variantColor === (item.color || null) && w.variantCapacity === (item.capacity || null)
+            w.productId === item.id && 
+            w.variantColor === (item.color || null) && 
+            w.variantCapacity === (item.capacity || null)
         );
 
-        const canCreateNew = (order.status === 'ENTREGADO') && !isExpired && (itemWarranties.length < (item.quantity || 1));
+        // Botón solo si: Despachado + No Expirado + Tiene Garantía (>0 días) + Cantidad disponible
+        const canCreateNew = isShipped && !isExpired && hasWarranty && (itemWarranties.length < (item.quantity || 1));
 
+        // BADGES VISUALES
         let timeBadgeHTML = "";
-        if (order.status !== 'ENTREGADO') {
-            timeBadgeHTML = `<span class="text-[9px] font-bold text-gray-400 bg-gray-50 border border-gray-100 px-2 py-0.5 rounded flex items-center gap-1 w-fit"><i class="fa-regular fa-clock"></i> Garantía inicia al recibir</span>`;
+        
+        if (!hasWarranty) {
+            // CASO: 0 DÍAS
+            timeBadgeHTML = `<span class="text-[9px] font-bold text-gray-400 bg-gray-100 border border-gray-200 px-2 py-0.5 rounded flex items-center gap-1 w-fit"><i class="fa-solid fa-ban"></i> Sin garantía comercial</span>`;
+        } else if (!isShipped) {
+            timeBadgeHTML = `<span class="text-[9px] font-bold text-gray-400 bg-gray-50 border border-gray-100 px-2 py-0.5 rounded flex items-center gap-1 w-fit"><i class="fa-regular fa-clock"></i> Garantía inicia al despachar</span>`;
         } else if (isExpired) {
             timeBadgeHTML = `<span class="text-[9px] font-bold text-red-400 bg-red-50 border border-red-100 px-2 py-0.5 rounded flex items-center gap-1 w-fit"><i class="fa-solid fa-calendar-xmark"></i> Garantía Finalizada</span>`;
         } else {
@@ -436,6 +565,7 @@ function renderItems(order) {
             createBtnHTML = `<button onclick="window.openWarrantyModal(${index})" class="group flex items-center gap-2 bg-white border border-gray-200 hover:border-brand-black hover:text-brand-black text-gray-500 px-4 py-2 rounded-xl font-bold text-[9px] uppercase transition-all shadow-sm"><i class="fa-solid fa-triangle-exclamation"></i> Reportar Problema</button>`;
         }
 
+        // (Resto del código de existingCasesHTML y renderizado de tarjeta igual...)
         let existingCasesHTML = "";
         if (itemWarranties.length > 0) {
             existingCasesHTML = `<div class="flex flex-wrap gap-2 mt-2 w-full sm:justify-end">`;
@@ -479,7 +609,9 @@ function renderItems(order) {
     });
 }
 
-// --- MODALES (IGUAL QUE ANTES) ---
+
+// --- MODALES Y LÓGICA DE GARANTÍA (SIN CAMBIOS) ---
+// (Mismo código de modales que ya tenías, solo exportado a window)
 window.openWarrantyModal = (index) => {
     selectedItemIndex = index;
     const item = currentOrder.items[index];
@@ -515,20 +647,52 @@ els.warrantyForm.onsubmit = async (e) => {
     e.preventDefault();
     const btn = els.warrantyForm.querySelector('button');
     const originalText = btn.textContent;
-    btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Procesando...';
-    const snInput = els.inpSn.value.trim();
+    btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Verificando...';
+
+    const snInput = els.inpSn.value.trim().toUpperCase(); 
     const reason = els.inpReason.value.trim();
     const item = currentOrder.items[selectedItemIndex];
     const imageFiles = els.inpImages.files;
+
     try {
-        if (item.sns && item.sns.length > 0) {
-            const snFound = item.sns.some(sn => sn.trim().toUpperCase() === snInput.toUpperCase());
-            if (!snFound) throw new Error("⛔ El Serial no coincide con los registros de despacho de este pedido.");
+        // --- VALIDACIÓN DE SERIAL FLEXIBLE ---
+        // Solo validamos estrictamente si el item tiene una lista de seriales (sns) no vacía.
+        if (item.sns && Array.isArray(item.sns) && item.sns.length > 0) {
+            // Si HAY lista, el input debe coincidir con uno de ellos
+            const snFound = item.sns.some(validSn => validSn.trim().toUpperCase() === snInput);
+            
+            if (!snFound) {
+                // Si el input está vacío o no coincide, error.
+                throw new Error(`⛔ El Serial "${snInput}" no corresponde a este despacho. Verifica la etiqueta o caja del producto.`);
+            }
+        } else {
+            // Si NO HAY lista en la orden (despacho sin SN o antiguo), PERMITIMOS TODO.
+            // Opcional: Podrías exigir que al menos escriban algo si quieres evitar vacíos
+            if (snInput.length < 3) {
+               // throw new Error("⛔ Por favor escribe el serial del equipo (o 'N/A' si no aplica).");
+            }
         }
-        const qDup = query(collection(db, "warranties"), where("userId", "==", auth.currentUser.uid), where("snProvided", "==", snInput));
-        const dupSnap = await getDocs(qDup);
-        const activeDup = dupSnap.docs.find(d => d.data().status !== 'RECHAZADO');
-        if (activeDup) throw new Error("⛔ Ya existe una solicitud activa para este serial.");
+
+        // Validación de duplicados
+        const qDup = query(
+            collection(db, "warranties"), 
+            where("userId", "==", auth.currentUser.uid), 
+            where("snProvided", "==", snInput),
+            where("productId", "==", item.id)
+        );
+        
+        // Solo verificamos duplicados si el SN no es genérico (ej: N/A) para evitar bloquear múltiples reclamos sin SN
+        if (snInput.length > 3 && snInput !== "N/A") {
+            const dupSnap = await getDocs(qDup);
+            const activeDup = dupSnap.docs.find(d => {
+                const s = d.data().status;
+                return s !== 'RECHAZADO' && s !== 'FINALIZADO';
+            });
+            if (activeDup) throw new Error("⛔ Ya existe una solicitud activa para este serial.");
+        }
+
+        // Subida de imágenes
+        btn.innerHTML = '<i class="fa-solid fa-cloud-arrow-up fa-bounce"></i> Subiendo evidencia...';
         const evidenceUrls = [];
         if (imageFiles.length > 0) {
             for (const file of imageFiles) {
@@ -538,14 +702,34 @@ els.warrantyForm.onsubmit = async (e) => {
                 evidenceUrls.push(url);
             }
         }
+
         await addDoc(collection(db, "warranties"), {
-            orderId: orderId, userId: auth.currentUser.uid, userEmail: auth.currentUser.email, userName: auth.currentUser.displayName || "Cliente",
-            productId: item.id || 'unknown', productName: item.name, productImage: item.mainImage || item.image || '',
-            variantColor: item.color || null, variantCapacity: item.capacity || null,
-            snProvided: snInput, reason: reason, evidenceImages: evidenceUrls,
-            status: 'PENDIENTE_REVISION', createdAt: new Date(), shippedAtDate: currentOrder.shippedAt || new Date()
+            orderId: orderId, 
+            userId: auth.currentUser.uid, 
+            userEmail: auth.currentUser.email, 
+            userName: auth.currentUser.displayName || "Cliente",
+            productId: item.id || 'unknown', 
+            productName: item.name, 
+            productImage: item.mainImage || item.image || '',
+            variantColor: item.color || null, 
+            variantCapacity: item.capacity || null,
+            snProvided: snInput || "NO REGISTRADO", // Guardamos lo que escribió o placeholder
+            reason: reason, 
+            evidenceImages: evidenceUrls,
+            status: 'PENDIENTE_REVISION', 
+            createdAt: new Date(), 
+            shippedAtDate: currentOrder.shippedAt ? (currentOrder.shippedAt.toDate ? currentOrder.shippedAt.toDate() : new Date(currentOrder.shippedAt)) : new Date()
         });
-        alert("✅ Solicitud enviada exitosamente. Nuestro equipo la revisará pronto.");
-        window.closeWarrantyModal(); location.reload();
-    } catch (err) { console.error("Error:", err); alert(err.message); } finally { btn.disabled = false; btn.textContent = originalText; }
+
+        alert("✅ Solicitud enviada exitosamente.");
+        window.closeWarrantyModal(); 
+        location.reload();
+
+    } catch (err) { 
+        console.error("Error garantía:", err); 
+        alert(err.message); 
+    } finally { 
+        btn.disabled = false; 
+        btn.textContent = originalText; 
+    }
 };

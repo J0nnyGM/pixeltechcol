@@ -1,4 +1,3 @@
-// 1. AGREGAMOS 'query' y 'where' A LOS IMPORTS
 import { db, collection, getDocs, query, where } from "./firebase-init.js";
 import { addToCart, updateCartCount, getProductQtyInCart, removeOneUnit } from "./cart.js";
 import { renderBrandCarousel } from "./global-components.js";
@@ -35,7 +34,6 @@ const drawer = document.getElementById('mobile-filters-drawer');
 const mobileOverlay = document.getElementById('mobile-filters-overlay');
 const mobileContent = document.getElementById('mobile-filters-content');
 
-
 // --- 1. INICIALIZACIÓN ---
 document.addEventListener('DOMContentLoaded', async () => {
     
@@ -48,7 +46,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         if(sortLabel) sortLabel.textContent = "Mejores Ofertas";
     }
 
-    await loadProducts();
+    // CARGA INTELIGENTE (SMART SYNC)
+    await loadProductsSmart();
     
     const catParam = urlParams.get('category');
     const subParam = urlParams.get('subcategory');
@@ -72,44 +71,112 @@ function setupPromoView() {
     if(carousel) carousel.classList.add('hidden');
 }
 
-// --- 2. CARGAR PRODUCTOS (CORREGIDO: SOLO ACTIVOS) ---
-async function loadProducts() {
+// ==========================================================================
+// 🧠 SMART PRODUCT SYNC (Lógica Delta para Catálogo)
+// ==========================================================================
+async function loadProductsSmart() {
+    const STORAGE_KEY = 'pixeltech_master_catalog';
+    let runtimeMap = {};
+    let lastSyncTime = 0;
+
+    // 1. CARGA DESDE CACHÉ (Memoria Local)
+    const cachedRaw = localStorage.getItem(STORAGE_KEY);
+    if (cachedRaw) {
+        try {
+            const parsed = JSON.parse(cachedRaw);
+            runtimeMap = parsed.map || {};
+            lastSyncTime = parsed.lastSync || 0;
+            console.log(`⚡ [Catalog] Cargados ${Object.keys(runtimeMap).length} productos de caché.`);
+        } catch (e) {
+            console.warn("Caché corrupto en catálogo");
+        }
+    }
+
+    // Convertir mapa a array para uso inicial
+    allProducts = Object.values(runtimeMap).filter(p => p.status === 'active');
+    
+    // Si tenemos datos, mostramos algo inmediatamente mientras verificamos
+    if (allProducts.length > 0) {
+        // Ejecutamos una primera renderización rápida
+        applySortAndFilter();
+        renderFiltersUI(); 
+    }
+
+    // 2. VERIFICACIÓN DE CAMBIOS (Deltas)
+    // Usamos la misma lógica que en app.js para mantener consistencia
     try {
-        // AQUI ESTA EL CAMBIO CLAVE: Filtramos por status = 'active'
-        const q = query(
-            collection(db, "products"), 
-            where("status", "==", "active")
-        );
+        const collectionRef = collection(db, "products");
+        let q;
 
-        const snap = await getDocs(q);
-        
-        let rawProducts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-
-        // Si estamos en modo promo, filtramos adicionales
-        if (isPromoMode) {
-            allProducts = rawProducts.filter(p => p.originalPrice && p.price < p.originalPrice);
+        if (lastSyncTime === 0 || allProducts.length === 0) {
+            console.log("☁️ [Catalog] Descarga completa inicial...");
+            q = query(collectionRef, where("status", "==", "active"));
         } else {
-            allProducts = rawProducts;
+            console.log("🔄 [Catalog] Verificando cambios desde:", new Date(lastSyncTime).toLocaleString());
+            // Nota: Se asume que 'updatedAt' existe. Si no, esto no traerá nada (seguro).
+            q = query(collectionRef, where("updatedAt", ">", new Date(lastSyncTime)));
         }
 
-        filteredProducts = [...allProducts];
-        
-        renderFiltersUI(); 
-        
-        if (!isPromoMode) {
-            const activeBrands = new Set();
-            allProducts.forEach(p => {
-                if(p.brand) activeBrands.add(p.brand);
-                if(p.subcategory) activeBrands.add(p.subcategory);
+        const snap = await getDocs(q);
+
+        if (!snap.empty) {
+            console.log(`🔥 [Catalog] Detectados ${snap.size} cambios.`);
+            
+            snap.forEach(docSnap => {
+                const data = docSnap.data();
+                const id = docSnap.id;
+
+                if (data.status === 'active') {
+                    runtimeMap[id] = { id, ...data };
+                } else {
+                    // Si cambió a inactivo, lo sacamos
+                    if (runtimeMap[id]) delete runtimeMap[id];
+                }
             });
-            renderBrandCarousel('brands-carousel-area', activeBrands);
+
+            // Actualizamos la caché global compartida
+            const newState = {
+                map: runtimeMap,
+                lastSync: Date.now()
+            };
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(newState));
+
+            // Actualizamos la variable en memoria de este script
+            allProducts = Object.values(runtimeMap).filter(p => p.status === 'active');
+        } else {
+            console.log("✅ [Catalog] Todo actualizado.");
         }
 
     } catch (e) {
-        console.error("Error catálogo:", e);
-        grid.innerHTML = `<p class="col-span-full text-center text-red-400 font-bold">Error de conexión.</p>`;
+        console.error("Error en SmartSync Catalog:", e);
+        // Si falla la sync, nos quedamos con lo que había en caché
+        if (allProducts.length === 0) {
+             grid.innerHTML = `<p class="col-span-full text-center text-red-400 font-bold">Error cargando inventario.</p>`;
+        }
     }
+
+    // FILTRO DE PROMOS (Si aplica)
+    if (isPromoMode) {
+        allProducts = allProducts.filter(p => p.originalPrice && p.price < p.originalPrice);
+    }
+
+    // RENDER FINAL (Con datos frescos)
+    filteredProducts = [...allProducts];
+    renderFiltersUI(); 
+    
+    if (!isPromoMode) {
+        const activeBrands = new Set();
+        allProducts.forEach(p => {
+            if(p.brand) activeBrands.add(p.brand);
+            if(p.subcategory) activeBrands.add(p.subcategory);
+        });
+        renderBrandCarousel('brands-carousel-area', activeBrands);
+    }
+    
+    // Forzamos un re-render final por si llegaron cambios
+    applySortAndFilter();
 }
+
 
 // --- 3. UI FILTROS ---
 function renderFiltersUI() {
@@ -289,7 +356,7 @@ function renderGrid() {
         const hasDiscount = !isOutOfStock && (p.originalPrice && p.originalPrice > p.price);
         const qtyInCart = getProductQtyInCart(p.id);
 
-        // 2. Definir Botones de Acción (Inteligentes)
+        // 2. Definir Botones de Acción
         let actionBtnHTML;
         
         if (isOutOfStock) {
@@ -312,7 +379,7 @@ function renderGrid() {
                 </button>`;
         }
 
-        // 3. Estilos del Contenedor
+        // 3. Estilos
         let containerClasses = "group bg-white rounded-[2rem] p-4 border border-gray-100 shadow-sm hover:shadow-2xl transition-all duration-300 flex flex-col cursor-pointer h-full relative overflow-hidden ";
         if (isOutOfStock) containerClasses += "opacity-70 grayscale";
         else if (hasDiscount) containerClasses += "hover:border-red-100 hover:shadow-red-500/10 hover:-translate-y-1";

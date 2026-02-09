@@ -1,5 +1,6 @@
 import { db, doc, getDoc, collection, query, where, limit, getDocs } from './firebase-init.js';
 import { addToCart } from './cart.js'; 
+import { trackEcommerceEvent } from './global-components.js';
 
 // Estado local
 let state = {
@@ -53,6 +54,27 @@ const els = {
     relatedGrid: document.getElementById('related-grid')
 };
 
+/* ==========================================================================
+   OPTIMIZACIÓN: CARGA DESDE CACHÉ LOCAL (0 LECTURAS)
+   ========================================================================== */
+function getProductFromCache(id) {
+    try {
+        const cachedRaw = localStorage.getItem('pixeltech_master_catalog');
+        if (!cachedRaw) return null;
+        
+        const cachedData = JSON.parse(cachedRaw);
+        const map = cachedData.map || {};
+        
+        if (map[id]) {
+            console.log("⚡ Producto cargado desde SmartCache (0 lecturas)");
+            return map[id];
+        }
+    } catch (e) {
+        console.warn("Error leyendo caché en detalle:", e);
+    }
+    return null;
+}
+
 export async function initProductDetail() {
     const params = new URLSearchParams(window.location.search);
     const productId = params.get('id');
@@ -60,20 +82,33 @@ export async function initProductDetail() {
     if (!productId) { window.location.href = '/index.html'; return; }
 
     try {
-        const docRef = doc(db, "products", productId);
-        const snap = await getDoc(docRef);
+        let p = null;
 
-        if (!snap.exists()) {
-            document.body.innerHTML = "<div class='flex flex-col items-center justify-center h-screen'><h1 class='text-2xl font-black mb-4'>Producto no encontrado 😔</h1><a href='/' class='bg-brand-cyan px-6 py-3 rounded-xl font-bold'>Volver al Inicio</a></div>";
-            return;
+        // 1. INTENTO 1: Buscar en SmartCache (Memoria Local)
+        p = getProductFromCache(productId);
+
+        // 2. INTENTO 2: Si no está en caché (ej: link directo), pedir a Firebase
+        if (!p) {
+            console.log("☁️ Producto no en caché, descargando de Firebase (1 lectura)...");
+            const docRef = doc(db, "products", productId);
+            const snap = await getDoc(docRef);
+
+            if (!snap.exists()) {
+                document.body.innerHTML = "<div class='flex flex-col items-center justify-center h-screen'><h1 class='text-2xl font-black mb-4'>Producto no encontrado 😔</h1><a href='/' class='bg-brand-cyan px-6 py-3 rounded-xl font-bold'>Volver al Inicio</a></div>";
+                return;
+            }
+            p = { id: snap.id, ...snap.data() };
         }
 
-        const p = { id: snap.id, ...snap.data() };
+        // --- DE AQUÍ EN ADELANTE ES TU CÓDIGO NORMAL DE RENDERIZADO ---
         state.product = p;
+
         state.currentPrice = p.price;
         state.currentStock = p.stock || 0;
         state.currentImage = p.mainImage || p.image || 'https://placehold.co/500';
 
+        injectProductSchema(p);
+        updateMetaTags(p);
         saveToHistory(p);
 
         // 1. Datos Básicos
@@ -103,12 +138,24 @@ export async function initProductDetail() {
             els.warrantyText.textContent = `Garantía directa de ${p.warranty.time} ${unitText} por defectos de fábrica.`;
         }
 
+        trackEcommerceEvent('view_item', {
+            currency: "COP",
+            value: p.price,
+            items: [{
+                item_id: p.id,
+                item_name: p.name,
+                price: p.price,
+                item_category: p.category
+            }]
+        });
+
         // 4. Inicializar & Render
         initializeSelection(p);
         renderOptions(p);
         updatePriceDisplay();
         updateGallery();
         els.mainImg.src = state.currentImage;
+        els.mainImg.alt = `Comprar ${p.name} - ${p.category} en Colombia`;
         await updateShippingText();
 
         els.whatsappBtn.href = `https://wa.me/573159834171?text=Hola PixelTech, me interesa este producto: ${p.name} (Ref: ${productId})`;
@@ -117,10 +164,80 @@ export async function initProductDetail() {
         els.btnAdd.onclick = handleAddToCart;
 
         // 5. ACTIVAR STICKY BAR Y RELACIONADOS
-        initStickyBar(); // Activa el detector de scroll
-        loadRelatedProducts(p.category, p.id); // Carga sugerencias
+        initStickyBar(); 
+        
+        // OPTIMIZACIÓN EN RELACIONADOS: Usar caché si es posible
+        // Si ya tenemos el catálogo completo en localStorage, filtramos ahí en vez de hacer query
+        loadRelatedProductsOptimized(p.category, p.id); 
 
     } catch (e) { console.error(e); }
+}
+
+// --- VERSIÓN OPTIMIZADA DE RELACIONADOS ---
+async function loadRelatedProductsOptimized(category, currentId) {
+    if (!category || !els.relatedSection) return;
+
+    let related = [];
+
+    // 1. Intentar filtrar desde caché local
+    const cachedData = localStorage.getItem('pixeltech_master_catalog');
+    if (cachedData) {
+        try {
+            const allProducts = Object.values(JSON.parse(cachedData).map || {});
+            related = allProducts.filter(p => p.category === category && p.status === 'active' && p.id !== currentId);
+            console.log("⚡ Relacionados cargados desde SmartCache");
+        } catch (e) {}
+    }
+
+    // 2. Si no hay suficientes en caché, pedimos a Firebase (Fallback)
+    if (related.length === 0) {
+        console.log("☁️ Descargando relacionados de Firebase...");
+        const q = query(
+            collection(db, "products"),
+            where("category", "==", category),
+            where("status", "==", "active"),
+            limit(5)
+        );
+        const snap = await getDocs(q);
+        snap.forEach(d => {
+            if (d.id !== currentId) related.push({ id: d.id, ...d.data() });
+        });
+    }
+
+    if (related.length === 0) return;
+
+    // Aleatorizar un poco
+    related.sort(() => 0.5 - Math.random());
+
+    els.relatedSection.classList.remove('hidden');
+    // ... [RESTO DEL RENDERIZADO IDÉNTICO AL TUYO] ...
+    els.relatedGrid.innerHTML = related.slice(0, 4).map(p => {
+        const price = p.price.toLocaleString('es-CO');
+        const img = p.mainImage || p.image || 'https://placehold.co/150';
+        
+        const hasDiscount = p.originalPrice && p.originalPrice > p.price;
+        const discountBadge = hasDiscount 
+            ? `<span class="absolute top-2 left-2 bg-brand-red text-white text-[8px] font-black px-2 py-0.5 rounded shadow-sm">OFERTA</span>` 
+            : '';
+
+        return `
+            <div class="bg-white rounded-[2rem] p-4 border border-gray-100 shadow-sm hover:border-brand-cyan/30 hover:shadow-md transition cursor-pointer group relative overflow-hidden" onclick="window.location.href='/shop/product.html?id=${p.id}'">
+                ${discountBadge}
+                <div class="h-32 mb-4 flex items-center justify-center p-2 bg-slate-50 rounded-xl">
+                    <img src="${img}" class="max-w-full max-h-full object-contain group-hover:scale-110 transition duration-500 mix-blend-multiply">
+                </div>
+                <p class="text-[8px] font-bold text-gray-400 uppercase tracking-widest truncate">${p.category}</p>
+                <h4 class="text-xs font-black text-brand-black uppercase leading-tight line-clamp-2 h-8 mb-2 group-hover:text-brand-cyan transition">${p.name}</h4>
+                <div class="flex justify-between items-center">
+                    <div class="flex flex-col">
+                        ${hasDiscount ? `<span class="text-[9px] text-gray-300 line-through">$${p.originalPrice.toLocaleString('es-CO')}</span>` : ''}
+                        <span class="text-sm font-black ${hasDiscount ? 'text-brand-red' : 'text-brand-black'}">$${price}</span>
+                    </div>
+                    <button class="w-8 h-8 rounded-full bg-gray-50 text-gray-400 flex items-center justify-center hover:bg-brand-black hover:text-white transition"><i class="fa-solid fa-arrow-right text-[10px]"></i></button>
+                </div>
+            </div>
+        `;
+    }).join('');
 }
 
 // --- FUNCIÓN STICKY BAR ---
@@ -463,6 +580,17 @@ function handleAddToCart() {
     const originalText = els.btnAdd.innerText;
     els.btnAdd.innerText = "¡Agregado!";
     els.btnAdd.classList.add('bg-green-500', 'text-white');
+
+    trackEcommerceEvent('add_to_cart', {
+        currency: "COP",
+        value: state.currentPrice * qty,
+        items: [{
+            item_id: state.product.id,
+            item_name: state.product.name,
+            price: state.currentPrice,
+            quantity: qty
+        }]
+    });
     
     addToCart({ id: p.id, name: p.name, price: state.currentPrice, image: state.currentImage, color: state.selectedColor, capacity: state.selectedCapacity, quantity: qty });
     if(window.showToast) window.showToast(`${p.name} agregado al carrito`);
@@ -476,3 +604,93 @@ window.changeQty = (d) => {
     if(v > state.currentStock) v = state.currentStock;
     i.value = v;
 };
+
+// --- FUNCIÓN: INYECTAR SCHEMA.ORG (SEO) ---
+function injectProductSchema(p) {
+    // 1. Limpiar schemas anteriores si existen (al navegar entre productos)
+    const oldSchema = document.getElementById('json-ld-product');
+    if (oldSchema) oldSchema.remove();
+
+    // 2. Determinar disponibilidad
+    const availability = (p.stock > 0) ? "https://schema.org/InStock" : "https://schema.org/OutOfStock";
+    
+    // 3. Construir el objeto JSON-LD
+    const schemaData = {
+        "@context": "https://schema.org/",
+        "@type": "Product",
+        "name": p.name,
+        "image": [
+            p.mainImage || p.image,
+            ...(p.images || []) // Agrega la galería si existe
+        ],
+        "description": p.description ? p.description.replace(/<[^>]*>?/gm, '') : `Compra ${p.name} en PixelTech.`, // Limpiar HTML básico
+        "sku": p.id,
+        "brand": {
+            "@type": "Brand",
+            "name": p.brand || "Genérico"
+        },
+        "offers": {
+            "@type": "Offer",
+            "url": window.location.href,
+            "priceCurrency": "COP",
+            "price": p.price,
+            "availability": availability,
+            "itemCondition": "https://schema.org/NewCondition"
+        }
+    };
+
+    // 4. Crear e inyectar el script
+    const script = document.createElement('script');
+    script.id = "json-ld-product";
+    script.type = "application/ld+json";
+    script.text = JSON.stringify(schemaData);
+    document.head.appendChild(script);
+    
+    console.log("🔍 SEO Schema inyectado para:", p.name);
+}
+
+function updateMetaTags(p) {
+    // Título del Navegador
+    document.title = `${p.name} | Compra en PixelTech`;
+
+    // Función auxiliar para actualizar o crear meta tags
+    const setMeta = (name, content, attribute = 'name') => {
+        let element = document.querySelector(`meta[${attribute}="${name}"]`);
+        if (!element) {
+            element = document.createElement('meta');
+            element.setAttribute(attribute, name);
+            document.head.appendChild(element);
+        }
+        element.setAttribute('content', content);
+    };
+
+    const currentUrl = window.location.href;
+    const image = p.mainImage || p.image;
+    const description = (p.description || '').replace(/<[^>]*>?/gm, '').substring(0, 150);
+
+    // Basic SEO
+    setMeta('description', `Compra ${p.name} al mejor precio. ${description}`);
+
+    // Open Graph / Facebook / WhatsApp
+    setMeta('og:type', 'product', 'property');
+    setMeta('og:title', p.name, 'property');
+    setMeta('og:description', description, 'property');
+    setMeta('og:image', image, 'property');
+    setMeta('og:url', currentUrl, 'property');
+    setMeta('og:site_name', 'PixelTech Elite Store', 'property');
+    setMeta('product:price:amount', p.price, 'property');
+    setMeta('product:price:currency', 'COP', 'property');
+
+    // Twitter Cards
+    setMeta('twitter:card', 'summary_large_image');
+    setMeta('twitter:title', p.name);
+    setMeta('twitter:description', description);
+    setMeta('twitter:image', image);
+
+    // Agrega esta lógica
+    const canonicalLink = document.querySelector("link[rel='canonical']") || document.createElement("link");
+    canonicalLink.setAttribute("rel", "canonical");
+    // Limpiamos la URL de parámetros de rastreo (fbclid, utm_source, etc), dejando solo el ID
+    canonicalLink.setAttribute("href", `${window.location.origin}/shop/product.html?id=${p.id}`);
+    document.head.appendChild(canonicalLink);
+}

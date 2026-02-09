@@ -7,7 +7,7 @@ import {
     getFirestore, collection, addDoc, getDocs, doc, Timestamp, getDoc, setDoc, updateDoc, deleteDoc, query, where, orderBy, limit, runTransaction, writeBatch, onSnapshot,limitToLast,  endAt, startAt, serverTimestamp, arrayUnion, startAfter,
     getCountFromServer, 
     getAggregateFromServer, 
-    sum, count,endBefore
+    sum, count,endBefore,documentId
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
 
 // LIBRERÍA DE STORAGE (Imágenes)
@@ -73,5 +73,6 @@ export {
     getAggregateFromServer,
     sum,
     count,
-    endBefore                                                                                                    
+    endBefore,
+    documentId                                                                                                 
 };

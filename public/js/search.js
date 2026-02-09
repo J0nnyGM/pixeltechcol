@@ -1,5 +1,4 @@
-// 1. IMPORTANTE: Agregamos 'where' a los imports
-import { db, collection, getDocs, query, orderBy, where } from "./firebase-init.js";
+import { db, collection, getDocs, query, where } from "./firebase-init.js";
 import { addToCart, updateCartCount, getProductQtyInCart, removeOneUnit } from "./cart.js";
 import { renderBrandCarousel } from "./global-components.js";
 
@@ -35,7 +34,9 @@ const mobileContent = document.getElementById('mobile-filters-content');
 
 // --- 1. INICIALIZACIÓN ---
 export async function initSearch() {
-    await loadProducts();
+    
+    // CARGA INTELIGENTE (SMART SYNC)
+    await loadProductsSmart();
     
     const params = new URLSearchParams(window.location.search);
     
@@ -69,22 +70,33 @@ export async function initSearch() {
     applySortAndFilter();
 }
 
-// --- 2. CARGAR DATOS (CORREGIDO: SOLO ACTIVOS) ---
-async function loadProducts() {
-    try {
-        // AQUI ESTA LA CORRECCIÓN: Filtramos por status = 'active'
-        const q = query(
-            collection(db, "products"), 
-            where("status", "==", "active")
-        );
+// ==========================================================================
+// 🧠 SMART PRODUCT SYNC (Lógica Delta para Search)
+// ==========================================================================
+async function loadProductsSmart() {
+    const STORAGE_KEY = 'pixeltech_master_catalog';
+    let runtimeMap = {};
+    let lastSyncTime = 0;
 
-        const snap = await getDocs(q);
-        
-        allProducts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        filteredProducts = [...allProducts];
-        
-        renderFiltersUI(); 
-        
+    // 1. CARGA DESDE CACHÉ (Memoria Local)
+    const cachedRaw = localStorage.getItem(STORAGE_KEY);
+    if (cachedRaw) {
+        try {
+            const parsed = JSON.parse(cachedRaw);
+            runtimeMap = parsed.map || {};
+            lastSyncTime = parsed.lastSync || 0;
+            console.log(`⚡ [Search] Cargados ${Object.keys(runtimeMap).length} productos de caché.`);
+        } catch (e) {
+            console.warn("Caché corrupto en búsqueda");
+        }
+    }
+
+    // Convertir mapa a array para uso inicial
+    allProducts = Object.values(runtimeMap).filter(p => p.status === 'active');
+    
+    // Si tenemos datos, mostramos algo inmediatamente mientras verificamos en segundo plano
+    if (allProducts.length > 0) {
+        renderFiltersUI();
         // Carrusel Marcas Activas
         const activeBrands = new Set();
         allProducts.forEach(p => {
@@ -92,14 +104,72 @@ async function loadProducts() {
             if(p.subcategory) activeBrands.add(p.subcategory);
         });
         renderBrandCarousel('brands-carousel-area', activeBrands);
+    }
+
+    // 2. VERIFICACIÓN DE CAMBIOS (Deltas)
+    try {
+        const collectionRef = collection(db, "products");
+        let q;
+
+        if (lastSyncTime === 0 || allProducts.length === 0) {
+            console.log("☁️ [Search] Descarga completa inicial...");
+            q = query(collectionRef, where("status", "==", "active"));
+        } else {
+            console.log("🔄 [Search] Verificando cambios desde:", new Date(lastSyncTime).toLocaleString());
+            q = query(collectionRef, where("updatedAt", ">", new Date(lastSyncTime)));
+        }
+
+        const snap = await getDocs(q);
+
+        if (!snap.empty) {
+            console.log(`🔥 [Search] Detectados ${snap.size} cambios.`);
+            
+            snap.forEach(docSnap => {
+                const data = docSnap.data();
+                const id = docSnap.id;
+
+                if (data.status === 'active') {
+                    runtimeMap[id] = { id, ...data };
+                } else {
+                    // Si cambió a inactivo, lo sacamos
+                    if (runtimeMap[id]) delete runtimeMap[id];
+                }
+            });
+
+            // Actualizamos la caché global compartida
+            const newState = {
+                map: runtimeMap,
+                lastSync: Date.now()
+            };
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(newState));
+
+            // Actualizamos la variable en memoria
+            allProducts = Object.values(runtimeMap).filter(p => p.status === 'active');
+            
+            // Refrescamos UI filtros y carrusel
+            renderFiltersUI();
+            const activeBrands = new Set();
+            allProducts.forEach(p => {
+                if(p.brand) activeBrands.add(p.brand);
+                if(p.subcategory) activeBrands.add(p.subcategory);
+            });
+            renderBrandCarousel('brands-carousel-area', activeBrands);
+        } else {
+            console.log("✅ [Search] Todo actualizado.");
+        }
 
     } catch (e) {
-        console.error("Error search:", e);
-        grid.innerHTML = `<p class="col-span-full text-center text-red-400">Error de conexión.</p>`;
+        console.error("Error en SmartSync Search:", e);
+        if (allProducts.length === 0) {
+             grid.innerHTML = `<p class="col-span-full text-center text-red-400 font-bold">Error cargando inventario.</p>`;
+        }
     }
+    
+    // Forzamos un re-render final por si llegaron cambios
+    applySortAndFilter();
 }
 
-// --- 3. UI FILTROS (Mantenemos tu lógica intacta) ---
+// --- 3. UI FILTROS (Sin cambios en lógica visual) ---
 function renderFiltersUI() {
     const extractCounts = (key, isVariantField = false) => {
         const counts = {};
@@ -176,21 +246,21 @@ function syncCheckboxes() {
 
 window.clearAllFilters = () => {
     Object.keys(activeFilters).forEach(key => activeFilters[key] = []);
-    searchQuery = ""; 
-    searchTitle.textContent = "Catálogo Completo";
-    searchSubtitle.textContent = "Explorando";
-    window.history.pushState({}, '', '/shop/search.html'); 
+    // Si hay búsqueda, no la borramos del todo, solo filtros
+    // searchQuery = "";  <-- OPCIONAL: Si quieres que 'Limpiar' borre también el texto, descomenta esto.
     
+    // Reset UI
     document.querySelectorAll('.filter-checkbox').forEach(cb => cb.checked = false);
     applySortAndFilter();
     if(window.innerWidth < 1024) toggleDrawer(false);
 };
 
-// --- 5. MOTOR PRINCIPAL ---
+// --- 5. MOTOR PRINCIPAL (BÚSQUEDA + FILTROS) ---
 function applySortAndFilter() {
     filteredProducts = allProducts.filter(p => {
         const norm = (str) => str ? str.toLowerCase() : '';
         
+        // 1. FILTRO DE TEXTO (SEARCH QUERY)
         if (searchQuery) {
             const textMatch = norm(p.name).includes(searchQuery) || 
                               norm(p.description).includes(searchQuery) || 
@@ -200,6 +270,7 @@ function applySortAndFilter() {
             if (!textMatch) return false;
         }
 
+        // 2. FILTROS LATERALES
         const matchCat = activeFilters.category.length === 0 || activeFilters.category.some(f => norm(p.category) === norm(f));
         const matchBrand = activeFilters.brand.length === 0 || activeFilters.brand.some(f => norm(p.brand) === norm(f) || norm(p.subcategory) === norm(f));
         
@@ -229,16 +300,19 @@ function applySortAndFilter() {
     // UI Updates
     currentPage = 1;
     if(countLabel) countLabel.textContent = filteredProducts.length;
+    
+    // Mostrar botón limpiar si hay filtros o búsqueda
     const hasActiveFilters = Object.values(activeFilters).some(arr => arr.length > 0) || searchQuery !== "";
     if (btnClear) {
         if (hasActiveFilters) { btnClear.classList.remove('hidden'); btnClear.classList.add('flex'); }
         else { btnClear.classList.add('hidden'); btnClear.classList.remove('flex'); }
     }
+    
     renderGrid();
     renderPagination();
 }
 
-// --- 6. RENDER GRID (DISEÑO ELITE / PREMIUM) ---
+// --- 6. RENDER GRID (DISEÑO ELITE) ---
 function renderGrid() {
     if (filteredProducts.length === 0) {
         grid.classList.add('hidden');
@@ -256,19 +330,13 @@ function renderGrid() {
     const productsToShow = filteredProducts.slice(start, end);
 
     grid.innerHTML = productsToShow.map(p => {
-        // 1. Detectar Estados
         const isOutOfStock = (p.maxStock !== undefined && p.maxStock <= 0) || (p.stock || 0) <= 0;
         const hasDiscount = !isOutOfStock && (p.originalPrice && p.originalPrice > p.price);
         const qtyInCart = getProductQtyInCart(p.id);
 
-        // 2. Definir Botones de Acción (Inteligentes)
         let actionBtnHTML;
-        
         if (isOutOfStock) {
-            actionBtnHTML = `
-                <div class="w-full h-10 bg-gray-100 rounded-xl flex items-center justify-center text-gray-400 text-[10px] font-black uppercase tracking-widest cursor-not-allowed mt-auto">
-                    Agotado
-                </div>`;
+            actionBtnHTML = `<div class="w-full h-10 bg-gray-100 rounded-xl flex items-center justify-center text-gray-400 text-[10px] font-black uppercase tracking-widest cursor-not-allowed mt-auto">Agotado</div>`;
         } else if (qtyInCart > 0) {
             actionBtnHTML = `
                 <div onclick="event.stopPropagation()" class="mt-auto w-full h-10 bg-brand-black text-white rounded-xl shadow-lg flex items-center justify-between px-1">
@@ -278,71 +346,45 @@ function renderGrid() {
                 </div>`;
         } else {
             actionBtnHTML = `
-                <button onclick="event.stopPropagation(); window.handleCartAction('${p.id}', 1)" 
-                    class="mt-auto w-full h-10 bg-brand-black text-white rounded-xl shadow-md hover:bg-brand-cyan hover:text-brand-black transition-all flex items-center justify-center gap-2 font-black text-[10px] uppercase tracking-widest group-btn active:scale-95">
-                    <span>Agregar</span> <i class="fa-solid fa-cart-plus text-sm"></i>
-                </button>`;
+                <button onclick="event.stopPropagation(); window.handleCartAction('${p.id}', 1)" class="mt-auto w-full h-10 bg-brand-black text-white rounded-xl shadow-md hover:bg-brand-cyan hover:text-brand-black transition-all flex items-center justify-center gap-2 font-black text-[10px] uppercase tracking-widest group-btn active:scale-95"><span>Agregar</span> <i class="fa-solid fa-cart-plus text-sm"></i></button>`;
         }
 
-        // 3. Estilos del Contenedor
         let containerClasses = "group bg-white rounded-[2rem] p-4 border border-gray-100 shadow-sm hover:shadow-2xl transition-all duration-300 flex flex-col cursor-pointer h-full relative overflow-hidden ";
         if (isOutOfStock) containerClasses += "opacity-70 grayscale";
         else if (hasDiscount) containerClasses += "hover:border-red-100 hover:shadow-red-500/10 hover:-translate-y-1";
         else containerClasses += "hover:border-brand-cyan/20 hover:-translate-y-1";
 
         const imageSrc = p.mainImage || p.image || 'https://placehold.co/300x300?text=Sin+Imagen';
-        const clickAction = isOutOfStock ? "" : `window.location.href='/shop/product.html?id=${p.id}'`;
-
-        // 4. Badge
+        
         let badge = "";
-        if (isOutOfStock) {
-            badge = `<span class="absolute top-0 right-0 bg-gray-200 text-gray-500 text-[9px] font-black px-3 py-1.5 rounded-bl-2xl z-20">SIN STOCK</span>`;
-        } else if (hasDiscount) {
+        if (isOutOfStock) badge = `<span class="absolute top-0 right-0 bg-gray-200 text-gray-500 text-[9px] font-black px-3 py-1.5 rounded-bl-2xl z-20">SIN STOCK</span>`;
+        else if (hasDiscount) {
             const disc = Math.round(((p.originalPrice - p.price) / p.originalPrice) * 100);
-            badge = `
-                <div class="absolute top-0 left-0 bg-gradient-to-r from-red-600 to-pink-600 text-white text-[9px] font-black px-3 py-1.5 rounded-br-2xl z-20 shadow-md flex items-center gap-1">
-                    <i class="fa-solid fa-tags text-[8px]"></i> -${disc}%
-                </div>`;
+            badge = `<div class="absolute top-0 left-0 bg-gradient-to-r from-red-600 to-pink-600 text-white text-[9px] font-black px-3 py-1.5 rounded-br-2xl z-20 shadow-md flex items-center gap-1"><i class="fa-solid fa-tags text-[8px]"></i> -${disc}%</div>`;
         }
 
-        // 5. Precio
         let priceDisplay;
         if (hasDiscount) {
-            priceDisplay = `
-                <div class="flex flex-col mb-3">
-                    <span class="text-[10px] text-gray-400 line-through decoration-red-300 font-bold">Antes: $${p.originalPrice.toLocaleString('es-CO')}</span>
-                    <span class="text-xl font-black text-brand-red tracking-tight">$${p.price.toLocaleString('es-CO')}</span>
-                </div>`;
+            priceDisplay = `<div class="flex flex-col mb-3"><span class="text-[10px] text-gray-400 line-through decoration-red-300 font-bold">Antes: $${p.originalPrice.toLocaleString('es-CO')}</span><span class="text-xl font-black text-brand-red tracking-tight">$${p.price.toLocaleString('es-CO')}</span></div>`;
         } else {
-            priceDisplay = `
-                <div class="mb-3">
-                    <span class="text-lg font-black text-brand-black tracking-tight">$${p.price.toLocaleString('es-CO')}</span>
-                </div>`;
+            priceDisplay = `<div class="mb-3"><span class="text-lg font-black text-brand-black tracking-tight">$${p.price.toLocaleString('es-CO')}</span></div>`;
         }
 
         return `
-        <div class="${containerClasses}" onclick="${clickAction}">
+        <div class="${containerClasses}" onclick="window.location.href='/shop/product.html?id=${p.id}'">
             ${badge}
-            
             <div class="relative mb-3 overflow-hidden rounded-2xl bg-slate-50 h-48 md:h-56 flex items-center justify-center p-4">
                 <img src="${imageSrc}" class="max-w-full max-h-full object-contain group-hover:scale-110 transition-transform duration-700 mix-blend-multiply relative z-10">
             </div>
-            
             <div class="flex flex-col flex-grow text-center">
                 <p class="text-[8px] font-black text-brand-cyan uppercase tracking-widest mb-1 truncate">${p.subcategory || p.category || 'Tecnología'}</p>
                 <h3 class="font-bold text-xs md:text-sm text-brand-black mb-2 line-clamp-2 uppercase leading-tight min-h-[2.5em] group-hover:text-brand-cyan transition-colors">${p.name}</h3>
-                
-                <div class="mt-auto w-full">
-                    ${priceDisplay}
-                    ${actionBtnHTML}
-                </div>
+                <div class="mt-auto w-full">${priceDisplay}${actionBtnHTML}</div>
             </div>
         </div>`;
     }).join('');
     
-    if (currentPage > 1) {
-        document.getElementById('global-header').scrollIntoView({ behavior: 'smooth' });
-    }
+    if (currentPage > 1) document.getElementById('global-header').scrollIntoView({ behavior: 'smooth' });
 }
 
 // --- 7. UTILS Y EVENTOS ---
@@ -379,7 +421,7 @@ document.addEventListener('click', (e) => {
     }
 });
 
-// Paginación y Mobile Drawer (Simplificado)
+// Paginación
 function renderPagination() {
     const totalPages = Math.ceil(filteredProducts.length / ITEMS_PER_PAGE);
     if (totalPages <= 1) { paginationContainer.innerHTML = ''; return; }

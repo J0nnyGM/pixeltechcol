@@ -1,6 +1,20 @@
 {
   "hosting": {
     "public": "public",
+    "rewrites": [
+      {
+        "source": "/sitemap.xml",
+        "function": "sitemap"
+      },
+      {
+        "source": "/google-feed.xml",
+        "function": "generateProductFeed"
+      },
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ],
     "ignore": [
       "firebase.json",
       "**/.*",

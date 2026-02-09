@@ -363,13 +363,16 @@ if(discountForm) {
         try {
             const products = pagesCache[currentPage] || [];
             const product = products.find(p => p.id === currentEditingId);
-            const originalPrice = product.originalPrice || product.price;
-            const newPrice = parseFloat(document.getElementById('d-new-price').value);
             
-            if (newPrice >= originalPrice) throw new Error("Precio inválido");
+            // SANITIZACIÓN DE DATOS (IMPORTANTE)
+            // Aseguramos que originalPrice sea un número válido
+            const originalPrice = parseFloat(product.originalPrice || product.price) || 0;
+            const newPrice = parseFloat(document.getElementById('d-new-price').value) || 0;
+            
+            if (newPrice <= 0 || newPrice >= originalPrice) throw new Error("Precio inválido: Debe ser menor al original y mayor a 0.");
 
             let endDate = new Date();
-            if (currentDurationType === 'days') {
+if (currentDurationType === 'days') {
                 const days = parseInt(document.getElementById('d-duration-days').value);
                 if (!days) throw new Error("Días inválidos");
                 endDate.setDate(endDate.getDate() + days);
@@ -379,21 +382,28 @@ if(discountForm) {
                 endDate = new Date(dateVal);
             }
 
+            // Enviamos la actualización limpia
             await updateDoc(doc(db, "products", currentEditingId), {
                 originalPrice: originalPrice,
                 price: newPrice,
-                promoEndsAt: endDate
+                promoEndsAt: endDate,
+                updatedAt: new Date() // Buena práctica: actualizar fecha de edición
             });
 
             alert("✅ Oferta aplicada correctamente.");
             closeDiscountModal();
-            // Invalidar caché y recargar
+            
+            // Refrescar tabla
             pagesCache = {};
-            fetchPage(currentPage); // Recargar página actual para ver cambios
+            fetchPage(currentPage);
 
         } catch (e) {
             console.error(e);
-            if(!['Precio inválido','Días inválidos','Fecha inválida'].includes(e.message)) alert("Error al guardar oferta.");
+            let msg = "Error al guardar oferta.";
+            if (e.code === 'permission-denied') msg = "⛔ No tienes permisos (¿Expiró tu sesión?). Recarga la página.";
+            else if(['Precio inválido','Días inválidos','Fecha inválida'].some(m => e.message.includes(m))) msg = e.message;
+            
+            alert(msg);
         } finally {
             btn.disabled = false;
             btn.innerHTML = originalText;

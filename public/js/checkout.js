@@ -45,17 +45,15 @@ const els = {
 
 let currentUser = null;
 let userProfileData = null;
-// CORRECCIÓN 1: Filtrar carrito inicial para quitar items marcados como agotados
+// Filtramos items agotados para no procesarlos
 let cart = getCart().filter(item => item.maxStock === undefined || item.maxStock > 0);
 
 let shippingConfig = null;
 let currentShippingCost = 0;
-let selectedPaymentMethod = 'ONLINE'; 
-
+let selectedPaymentMethod = 'MANUAL';
 // --- 1. INICIALIZACIÓN ---
 onAuthStateChanged(auth, async (user) => {
     if (user) {
-        // CORRECCIÓN 2: Si al filtrar el carrito queda vacío, devolver al usuario
         if (cart.length === 0) {
             alert("Tu carrito no tiene productos disponibles para comprar.");
             window.location.href = '/shop/cart.html';
@@ -63,8 +61,15 @@ onAuthStateChanged(auth, async (user) => {
         }
 
         currentUser = user;
-        await Promise.all([ loadShippingConfig(), loadDepartments() ]);
-        await loadUserData(user.uid);
+        
+        // Carga Paralela Optimizada
+        await Promise.all([ 
+            loadShippingConfigSmart(), // <--- Optimizado
+            loadDepartments()          // API Externa (0 lecturas)
+        ]);
+        
+        await loadUserDataSmart(user.uid); // <--- Optimizado
+        
         renderOrderSummary();
         setupPaymentListeners(); 
         validatePaymentMethods(); 
@@ -87,6 +92,7 @@ function setupPaymentListeners() {
 
 function validatePaymentMethods() {
     const city = els.citySelect.value || "";
+    // Validación básica: Solo Bogotá permite contra entrega (ejemplo)
     const isBogota = city.toLowerCase().includes('bogot'); 
 
     if (isBogota) {
@@ -110,7 +116,12 @@ function updateSubmitButtonText() {
     const btn = els.btnSubmit;
     btn.className = "w-full mt-10 font-black py-5 rounded-2xl transition-all duration-300 uppercase text-xs tracking-[0.25em] flex items-center justify-center gap-3 cursor-pointer hover:shadow-lg";
 
-    if (selectedPaymentMethod === 'COD') {
+    if (selectedPaymentMethod === 'MANUAL') {
+        // NUEVO CASO
+        btn.innerHTML = `Confirmar Transferencia Manual <i class="fa-solid fa-building-columns"></i>`;
+        btn.classList.add('bg-gray-600', 'text-white');
+    }
+    else if (selectedPaymentMethod === 'COD') {
         btn.innerHTML = `Confirmar Contra Entrega <i class="fa-solid fa-truck-fast"></i>`;
         btn.classList.add('bg-brand-black', 'text-white');
     } 
@@ -124,14 +135,86 @@ function updateSubmitButtonText() {
     }
 }
 
-// --- 3. CARGAR DATOS ---
-async function loadShippingConfig() {
-    try {
-        const snap = await getDoc(doc(db, "config", "shipping"));
-        shippingConfig = snap.exists() ? snap.data() : { freeThreshold: 0, defaultPrice: 0, groups: [] };
-        checkDispatchTime(shippingConfig.cutoffTime || "14:00");
-    } catch (e) { console.error("Config Error:", e); }
+// ==========================================================================
+// 🧠 CARGA INTELIGENTE (SMART LOAD)
+// ==========================================================================
+
+// A. Configuración de Envío
+async function loadShippingConfigSmart() {
+    // 1. Intentar leer de SessionStorage
+    const cachedConfig = sessionStorage.getItem('pixeltech_shipping_config');
+    
+    if (cachedConfig) {
+        console.log("⚡ [Checkout] Config envío desde caché.");
+        shippingConfig = JSON.parse(cachedConfig);
+    } else {
+        // 2. Si no existe, leer de Firebase
+        console.log("☁️ [Checkout] Descargando config envío...");
+        try {
+            const snap = await getDoc(doc(db, "config", "shipping"));
+            shippingConfig = snap.exists() ? snap.data() : { freeThreshold: 0, defaultPrice: 0, groups: [] };
+            
+            // Guardar para el resto de la sesión
+            sessionStorage.setItem('pixeltech_shipping_config', JSON.stringify(shippingConfig));
+        } catch (e) { console.error("Config Error:", e); }
+    }
+    
+    checkDispatchTime(shippingConfig.cutoffTime || "14:00");
 }
+
+// B. Datos del Usuario y Direcciones
+async function loadUserDataSmart(uid) {
+    try {
+        // 1. Intentar reconstruir perfil desde SessionStorage (usado en profile.js y cart.js)
+        const cachedProfile = sessionStorage.getItem('pixeltech_user_profile');
+        const cachedAddr = sessionStorage.getItem('pixeltech_user_addresses');
+
+        if (cachedProfile && cachedAddr) {
+            console.log("⚡ [Checkout] Perfil cargado desde caché.");
+            const profile = JSON.parse(cachedProfile);
+            const addresses = JSON.parse(cachedAddr);
+            
+            // Reconstruimos el objeto completo que espera el checkout
+            userProfileData = { ...profile, addresses: addresses };
+        } else {
+            // 2. Fallback a Firebase
+            console.log("☁️ [Checkout] Descargando perfil completo...");
+            const snap = await getDoc(doc(db, "users", uid));
+            if (!snap.exists()) return;
+            userProfileData = snap.data();
+
+            // Guardamos en caché disgregado para que sirva también en profile.js
+            const { addresses, ...profileData } = userProfileData;
+            sessionStorage.setItem('pixeltech_user_profile', JSON.stringify(profileData));
+            sessionStorage.setItem('pixeltech_user_addresses', JSON.stringify(addresses || []));
+        }
+
+        // Llenar Formulario
+        if (!els.idNumber.value) els.idNumber.value = userProfileData.document || ""; 
+        if (!els.name.value) els.name.value = userProfileData.name || currentUser.displayName || "";
+        if (!els.phone.value) els.phone.value = userProfileData.phone || userProfileData.contactPhone || "";
+
+        const addresses = userProfileData.addresses || [];
+        els.savedAddrSelect.innerHTML = '<option value="">-- Mis Direcciones Guardadas --</option>';
+        
+        let defaultIndex = -1;
+        addresses.forEach((addr, idx) => {
+            const opt = document.createElement('option');
+            opt.value = idx;
+            opt.textContent = `${addr.alias} (${addr.city}) ${addr.isDefault ? '★' : ''}`;
+            els.savedAddrSelect.appendChild(opt);
+            if (addr.isDefault) defaultIndex = idx;
+        });
+
+        if (defaultIndex >= 0) {
+            els.savedAddrSelect.value = defaultIndex;
+            fillFormWithData(addresses[defaultIndex]);
+        } 
+
+    } catch (e) { console.error("Profile Error:", e); }
+}
+
+// --- UTILIDADES ---
 
 function checkDispatchTime(cutoffTimeStr) {
     if(!els.dispatchMsg) return;
@@ -141,9 +224,8 @@ function checkDispatchTime(cutoffTimeStr) {
     cutoffDate.setHours(hours, minutes, 0, 0);
 
     const isBeforeCutoff = now < cutoffDate;
-    const diffMs = cutoffDate - now;
-    const diffHrs = Math.floor(diffMs / 3600000);
-    const diffMins = Math.floor((diffMs % 3600000) / 60000);
+    const diffHrs = Math.floor((cutoffDate - now) / 3600000);
+    const diffMins = Math.floor(((cutoffDate - now) % 3600000) / 60000);
 
     els.dispatchMsg.classList.remove('hidden');
 
@@ -171,35 +253,6 @@ async function loadDepartments() {
             els.deptSelect.appendChild(opt);
         });
     } catch (e) { console.error("API Dept Error:", e); }
-}
-
-async function loadUserData(uid) {
-    try {
-        const snap = await getDoc(doc(db, "users", uid));
-        if (!snap.exists()) return;
-        userProfileData = snap.data();
-
-        if (!els.idNumber.value) els.idNumber.value = userProfileData.document || ""; 
-        if (!els.name.value) els.name.value = userProfileData.name || currentUser.displayName || "";
-        if (!els.phone.value) els.phone.value = userProfileData.phone || userProfileData.contactPhone || "";
-
-        const addresses = userProfileData.addresses || [];
-        els.savedAddrSelect.innerHTML = '<option value="">-- Seleccionar o Crear Nueva --</option>';
-        
-        let defaultIndex = -1;
-        addresses.forEach((addr, idx) => {
-            const opt = document.createElement('option');
-            opt.value = idx;
-            opt.textContent = `${addr.alias} (${addr.city}) ${addr.isDefault ? '★' : ''}`;
-            els.savedAddrSelect.appendChild(opt);
-            if (addr.isDefault) defaultIndex = idx;
-        });
-
-        if (defaultIndex >= 0) {
-            els.savedAddrSelect.value = defaultIndex;
-            fillFormWithData(addresses[defaultIndex]);
-        } 
-    } catch (e) { console.error("Profile Error:", e); }
 }
 
 els.savedAddrSelect.addEventListener('change', (e) => {
@@ -272,7 +325,6 @@ els.citySelect.addEventListener('change', () => { calculateShipping(); validateP
 
 // --- 4. CÁLCULOS Y UI ---
 function calculateShipping() {
-    // CORRECCIÓN 3: Calcular total solo con items válidos
     const cartTotal = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
     
     const city = els.citySelect.value;
@@ -308,7 +360,6 @@ function calculateShipping() {
 }
 
 function updateTotalDisplay() {
-    // CORRECCIÓN 4: Calcular total solo con items válidos
     const cartTotal = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
     const t = cartTotal + currentShippingCost;
     
@@ -332,7 +383,7 @@ function toggleSubmitBtn(enable) {
 els.btnSubmit.addEventListener('click', async (e) => {
     e.preventDefault();
     if (!els.name.value || !els.phone.value || !els.idNumber.value || !els.citySelect.value || !els.address.value) {
-        alert("⚠️ Completa todos los campos obligatorios (Nombre, ID, Teléfono, Dirección)."); 
+        alert("⚠️ Completa todos los campos obligatorios."); 
         return;
     }
 
@@ -348,7 +399,10 @@ els.btnSubmit.addEventListener('click', async (e) => {
             phone: els.billInputs.phone.value
         };
     }
-
+    if (selectedPaymentMethod === 'MANUAL') {
+        // NUEVO CASO: Usamos la misma función de COD para crear la orden directa
+        await processCODOrder(billData);
+    }
     if (selectedPaymentMethod === 'COD') {
         await processCODOrder(billData);
     } 
@@ -375,7 +429,6 @@ els.btnSubmit.addEventListener('click', async (e) => {
             const payloadCompleto = {
                 userToken: String(token),
                 shippingCost: Number(currentShippingCost),
-                // CORRECCIÓN 5: Enviar solo items válidos al backend
                 items: cart.map(i => ({ id: i.id, quantity: i.quantity, color: i.color || "", capacity: i.capacity || "" })),
                 extraData: {
                     userName: els.name.value,
@@ -397,7 +450,6 @@ els.btnSubmit.addEventListener('click', async (e) => {
             const response = await createPreference(payloadCompleto);
             const { initPoint } = response.data;
             if (initPoint) {
-                // CORRECCIÓN 6: Guardar pending order limpio
                 localStorage.setItem('pending_order_data', JSON.stringify({ items: cart, shipping: els.address.value, buyerInfo: { name: els.name.value, email: auth.currentUser.email } }));
                 window.location.href = initPoint; 
             } else throw new Error("No se recibió link de pago.");
@@ -435,7 +487,6 @@ els.btnSubmit.addEventListener('click', async (e) => {
             const payloadCompleto = {
                 userToken: String(token),
                 shippingCost: Number(currentShippingCost),
-                // CORRECCIÓN 7: Enviar solo items válidos
                 items: cart.map(i => ({ id: i.id, quantity: i.quantity, color: i.color || "", capacity: i.capacity || "" })),
                 extraData: {
                     userName: els.name.value,
@@ -492,7 +543,6 @@ async function processCODOrder(billData) {
 
         const payload = {
             userToken: String(userToken),
-            // CORRECCIÓN 8: Enviar solo items válidos
             items: cart.map(i => ({ id: i.id, quantity: i.quantity, color: i.color || "", capacity: i.capacity || "" })),
             shippingCost: currentShippingCost,
             extraData: {
@@ -521,6 +571,8 @@ async function processCODOrder(billData) {
                 isDefault: false
             };
             updateDoc(doc(db, "users", currentUser.uid), { addresses: arrayUnion(newAddr) }).catch(console.warn);
+            // IMPORTANTE: Invalidar caché de direcciones para que profile.js la recargue fresca
+            sessionStorage.removeItem('pixeltech_user_addresses');
         }
 
         localStorage.removeItem('pixeltech_cart');
@@ -541,9 +593,7 @@ els.checkInvoice.addEventListener('change', (e) => {
 });
 
 function renderOrderSummary() {
-    if (cart.length === 0) return window.location.href = '/index.html';
-    
-    // CORRECCIÓN 9: Recalcular totales con items válidos solamente
+    // Totales calculados en el inicio con items válidos
     const totalItems = cart.reduce((acc, item) => acc + (item.quantity || 1), 0);
     const qtyDisplay = document.getElementById('order-qty-display');
     if(qtyDisplay) qtyDisplay.textContent = `${totalItems} Ítems`;
