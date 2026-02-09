@@ -41,18 +41,18 @@
             </div>
 
             <div class="bg-white rounded-3xl shadow-xl border border-gray-100 overflow-hidden">
-                <table class="w-full text-left text-sm">
-                    <thead class="bg-gray-50 text-[10px] uppercase font-black text-gray-400 tracking-widest border-b border-gray-100">
-                        <tr>
-                            <th class="px-8 py-5">Nombre / Cliente</th>
-                            <th class="px-8 py-5">Contacto</th>
-                            <th class="px-8 py-5">Origen</th>
-                            <th class="px-8 py-5">Fecha Registro</th>
-                            <th class="px-8 py-5 text-center">Acciones</th>
-                        </tr>
-                    </thead>
-                    <tbody id="clients-table-body" class="divide-y divide-gray-50"></tbody>
-                </table>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-sm min-w-[900px] md:min-w-0"> <thead class="bg-gray-50 text-[10px] uppercase font-black text-gray-400 tracking-widest border-b border-gray-100">
+                            <tr>
+                                <th class="px-8 py-5 whitespace-nowrap">Nombre / Cliente</th> <th class="px-8 py-5 whitespace-nowrap">Contacto</th>
+                                <th class="px-8 py-5 whitespace-nowrap">Origen</th>
+                                <th class="px-8 py-5 whitespace-nowrap">Fecha Registro</th>
+                                <th class="px-8 py-5 text-center whitespace-nowrap">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="clients-table-body" class="divide-y divide-gray-50"></tbody>
+                    </table>
+                </div>
             </div>
 
             </div> <div id="load-more-container" class="py-8 text-center hidden">

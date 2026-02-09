@@ -445,12 +445,46 @@ els.btnResolve.onclick = async () => {
 // ==========================================================================
 
 function loadMessages(id) {
-    // Solo mostramos loader si es cambio de chat completo, no en updates
-    if (!els.msgArea.querySelector('#live-messages-container')) {
-        els.msgArea.innerHTML = `<div class="flex justify-center p-4"><i class="fa-solid fa-circle-notch fa-spin text-gray-400"></i></div>`;
+    // 1. Limpieza de contenedores
+    const liveContainerExists = document.getElementById('live-messages-container');
+    const historyContainerExists = document.getElementById('history-messages-container');
+    const btnWrapper = document.getElementById('btn-load-more-wrapper'); // <--- Referencia al botón
+
+    if (liveContainerExists && historyContainerExists) {
+        // Limpiamos mensajes antiguos
+        liveContainerExists.innerHTML = "";
+        historyContainerExists.innerHTML = "";
+        
+        // --- CORRECCIÓN AQUÍ ---
+        // Si el contenedor del botón existe, lo REINICIAMOS para que vuelva a ser un botón
+        // y quitamos el texto de "Inicio de la conversación" del chat anterior.
+        if (btnWrapper) {
+            btnWrapper.innerHTML = ""; // Borramos lo que tenga dentro
+            
+            const btn = document.createElement('button');
+            btn.className = "text-xs font-bold text-brand-cyan hover:underline bg-cyan-50 px-3 py-1 rounded-full border border-cyan-100 transition";
+            btn.innerHTML = '<i class="fa-solid fa-clock-rotate-left"></i> Cargar mensajes anteriores';
+            btn.onclick = loadOlderMessages;
+            
+            btnWrapper.appendChild(btn);
+        }
+        // -----------------------
+
+    } else {
+        // Si es la primera vez, creamos todo de cero
+        els.msgArea.innerHTML = "";
+        createLoadMoreButton(); 
+        
+        const historyDiv = document.createElement('div');
+        historyDiv.id = 'history-messages-container';
+        els.msgArea.appendChild(historyDiv);
+
+        const liveDiv = document.createElement('div');
+        liveDiv.id = 'live-messages-container';
+        els.msgArea.appendChild(liveDiv);
     }
     
-    oldestMessageDoc = null; 
+    oldestMessageDoc = null;
 
     // QUERY: Últimos 20
     const q = query(

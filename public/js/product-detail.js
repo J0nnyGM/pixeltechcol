@@ -240,6 +240,8 @@ async function loadRelatedProductsOptimized(category, currentId) {
     }).join('');
 }
 
+
+
 // --- FUNCIÓN STICKY BAR ---
 function initStickyBar() {
     if (!els.stickyBar || !els.purchaseSection) {

@@ -6223,6 +6223,11 @@
       max-width: 70%;
     }
   }
+  .md\:min-w-0 {
+    @media (width >= 48rem) {
+      min-width: calc(var(--spacing) * 0);
+    }
+  }
   .md\:flex-none {
     @media (width >= 48rem) {
       flex: none;
