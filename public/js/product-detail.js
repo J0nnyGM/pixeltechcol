@@ -158,7 +158,7 @@ export async function initProductDetail() {
         els.mainImg.alt = `Comprar ${p.name} - ${p.category} en Colombia`;
         await updateShippingText();
 
-        els.whatsappBtn.href = `https://wa.me/573159834171?text=Hola PixelTech, me interesa este producto: ${p.name} (Ref: ${productId})`;
+        els.whatsappBtn.href = `https://wa.me/573229243907?text=Hola PixelTech, me interesa este producto: ${p.name} (Ref: ${productId})`;
         els.loader.classList.add('hidden');
         els.content.classList.remove('hidden');
         els.btnAdd.onclick = handleAddToCart;

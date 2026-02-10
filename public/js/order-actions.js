@@ -316,7 +316,6 @@ export async function printRemission(orderId) {
             <style>body{font-family:sans-serif;padding:20px;font-size:12px} table{width:100%;border-collapse:collapse;margin-top:20px} th{text-align:left;background:#eee;padding:5px} td{padding:5px;border-bottom:1px solid #eee} .box{background:#f9f9f9;padding:15px;border-radius:10px;margin-bottom:20px} .cufe{margin-top:40px;padding:10px;background:#e0f2fe;color:#0369a1;border:1px solid #bae6fd;border-radius:5px;text-align:center;font-weight:bold}</style>
             </head><body>
                 <div style="display:flex;justify-content:space-between;margin-bottom:20px">
-                    <div><h1 style="margin:0;color:#00AEC7">PixelTech</h1><p>NIT: 900.123.456</p></div>
                     <div style="text-align:right"><h2>Remisión de Venta</h2><p>#${snap.id.slice(0,8).toUpperCase()}</p><p>${dateStr}</p></div>
                 </div>
                 <div class="box">

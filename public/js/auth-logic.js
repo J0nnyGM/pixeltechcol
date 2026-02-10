@@ -12,7 +12,8 @@ import {
 import { 
     createUserWithEmailAndPassword, 
     signInWithEmailAndPassword, 
-    updateProfile 
+    updateProfile,
+    sendPasswordResetEmail // <--- Agrega esta importación
 } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 
 // --- ELEMENTOS DEL DOM ---
@@ -149,6 +150,33 @@ if (googleBtn) {
         } catch (error) {
             console.error(error);
             showMessage("Error al conectar con Google.");
+        }
+    });
+}
+
+// --- LÓGICA DE RESTABLECER CONTRASEÑA ---
+const forgotPasswordLink = document.getElementById('forgot-password');
+
+if (forgotPasswordLink) {
+    forgotPasswordLink.addEventListener('click', async (e) => {
+        e.preventDefault();
+        const email = document.getElementById('email').value;
+
+        if (!email) {
+            showMessage("Por favor, escribe tu correo electrónico primero.");
+            return;
+        }
+
+        try {
+            await sendPasswordResetEmail(auth, email);
+            showMessage("Correo de restablecimiento enviado. Revisa tu bandeja de entrada.", "success");
+        } catch (error) {
+            console.error(error);
+            if (error.code === 'auth/user-not-found') {
+                showMessage("No hay ningún usuario registrado con este correo.");
+            } else {
+                showMessage("Error: " + error.message);
+            }
         }
     });
 }

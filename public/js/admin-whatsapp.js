@@ -97,12 +97,42 @@ const ORDERS_PER_PAGE = 3;
 // Mapas de traducción y Config
 const TIME_UNITS = { 'months': 'Meses', 'years': 'Años', 'days': 'Días' };
 const QUICK_REPLIES = [
-    { title: "👋 Saludo", text: "¡Hola! Gracias por escribir a PixelTech. ¿En qué podemos ayudarte hoy?" },
-    { title: "🚚 Info Envío", text: "Tus guías se generan en la noche y te llegarán por correo. El tiempo de entrega es de 1 a 3 días hábiles." },
-    { title: "💰 Cuenta Bancaria", text: "Nuestra cuenta Bancolombia Ahorros es: 000-000-0000 a nombre de PixelTech SAS. NIT: 900..." },
-    { title: "📍 Ubicación", text: "Estamos ubicados en Bogotá, Centro Comercial Tecnológico, Local 101. Horario: Lunes a Sábado 9am - 6pm." },
-    { title: "✅ Despedida", text: "¡Gracias por tu compra! Quedamos atentos a cualquier otra duda. ¡Feliz día!" },
-    { title: "🛡️ Garantía", text: "Todos nuestros equipos tienen 1 año de garantía directa por defectos de fábrica. Debes conservar la caja y factura." }
+    { 
+        title: "👋 Saludo", 
+        text: "¡Hola! Gracias por escribir a PixelTech. ¿En qué podemos ayudarte hoy?" 
+    },
+    { 
+        title: "🛵 Envío Bogotá", 
+        text: "Para Bogotá el envío llega el mismo día (Lunes a Sábado) si confirmas antes de las 2:30 PM.\n\n💰 Costo: $10.000\n🤝 Pago: Contra entrega." 
+    },
+    { 
+        title: "🚚 Envío Nacional", 
+        text: "Realizamos envíos a toda Colombia 🇨🇴. Si confirmas antes de las 4:00 PM sale hoy mismo.\n\n📸 Te enviamos foto del paquete y la guía de rastreo.\n💰 Costo promedio: $18.000 (varía según ubicación)." 
+    },
+    { 
+        title: "📍 Pasar a Recoger", 
+        text: "Estamos en Chapinero, Bogotá (a 1 cuadra de estación Marly).\n\n🏢 *Avenida Caracas # 47-39*\nEdificio Almenar 48, Torre A, Apto 801.\n\n⚠️ *Importante:* Avísame 30 minutos antes de pasar para estar pendiente, a veces salimos a hacer envíos." 
+    },
+    { 
+        title: "⏰ Horarios", 
+        text: "Nuestros horarios de atención son:\n\n📅 Lunes a Viernes: 9:00 AM - 5:00 PM\n📅 Sábados: 10:00 AM - 2:30 PM" 
+    },
+    { 
+        title: "🟣 Nequi/Davi", 
+        text: "Puedes realizar el pago a:\n\n📱 *Nequi / Daviplata*\n3003729020\nLina Gil" 
+    },
+    { 
+        title: "🏢 Datos Empresa", 
+        text: "Datos para facturación:\n\n*Pixel Tech Col SAS*\nNIT: 901.561.037-7\nTel: 300 904 6450\nDir: Av Caracas # 47-39, Ed. Almenar 48, Apto 801." 
+    },
+    { 
+        title: "📝 Pedir Datos", 
+        text: "Para procesar tu pedido, regálame por favor estos datos:\n\n🧑🏻 Nombre:\n🎫 C.C:\n📲 Cel:\n🏠 Dirección:\n🏭 Barrio:\n🌆 Ciudad:" 
+    },
+    { 
+        title: "🛡️ Garantía", 
+        text: "Todos nuestros productos tienen *1 mes de garantía* por defectos de fábrica.\n\nNota: Los defectos de fábrica usualmente se muestran inmediatamente o durante la primera semana." 
+    }
 ];
 
 // Inicializar módulo de Venta Manual
