@@ -3,7 +3,7 @@ const admin = require("firebase-admin");
 
 // ⚠️ IMPORTANTE: Cuando tengas tu dominio real, cámbialo aquí.
 // Ejemplo: "https://www.pixeltech.com.co"
-const DOMAIN = "https://pixeltechcol.web.app"; 
+const DOMAIN = "https://pixeltechcol.com/"; 
 
 // Función para limpiar caracteres que rompen el XML
 const escapeXml = (unsafe) => {
@@ -88,9 +88,9 @@ exports.generateSitemap = onRequest({ timeoutSeconds: 60, cors: true }, async (r
         const sitemapXml = `<?xml version="1.0" encoding="UTF-8"?>
         <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
             ${urls}
-        </urlset>`;
+        </urlset>`.trim(); // <-- Agregamos .trim() aquí
 
-        res.set('Content-Type', 'application/xml');
+        res.set('Content-Type', 'application/xml; charset=utf-8'); // <-- Agregamos charset
         // Cache-Control: Le decimos a Google y al CDN que guarden esto 1 hora
         // para no quemar lecturas de Firestore en cada petición repetida.
         res.set('Cache-Control', 'public, max-age=3600, s-maxage=7200');

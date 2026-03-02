@@ -1,4 +1,4 @@
-import { db, collection, getDocs, addDoc, query, orderBy, Timestamp, limit, startAfter, where, doc, getDoc } from "./firebase-init.js";
+import { db, collection, addDoc, query, orderBy, Timestamp, limit, startAfter, where, doc, getDoc, onSnapshot } from "./firebase-init.js";
 
 // --- REFERENCIAS DOM ---
 const modal = document.getElementById('client-modal');
@@ -12,13 +12,18 @@ const loadMoreBtn = document.getElementById('load-more-container');
 const inpDept = document.getElementById('new-client-dept');
 const inpCity = document.getElementById('new-client-city');
 
-// --- ESTADO GLOBAL PAGINACIÓN ---
+// --- ESTADO GLOBAL ---
 let lastVisible = null;
 let isLoading = false;
 const DOCS_PER_PAGE = 50;
 
-// --- 1. CARGA OPTIMIZADA DE CLIENTES ---
-async function fetchClients(isNextPage = false) {
+let unsubscribeClientsList = null;
+let adminClientsCache = []; // RAM Cache para búsquedas instantáneas
+
+// ==========================================================================
+// 🧠 SMART REAL-TIME CACHE: LISTA DE CLIENTES
+// ==========================================================================
+function startClientsListener(isNextPage = false) {
     if (isLoading) return;
     isLoading = true;
 
@@ -26,6 +31,9 @@ async function fetchClients(isNextPage = false) {
     if (!isNextPage) {
         listContainer.innerHTML = `<tr><td colspan="5" class="p-10 text-center"><i class="fa-solid fa-circle-notch fa-spin text-2xl text-brand-cyan"></i><p class="mt-2 text-xs font-bold text-gray-400">Cargando clientes...</p></td></tr>`;
         loadMoreBtn.classList.add('hidden');
+        
+        // Si empezamos de cero (página 1), apagamos el listener viejo
+        if (unsubscribeClientsList) unsubscribeClientsList();
     } else {
         const btn = loadMoreBtn.querySelector('button');
         btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Cargando...`;
@@ -35,57 +43,78 @@ async function fetchClients(isNextPage = false) {
         const usersRef = collection(db, "users");
         let constraints = [];
 
-        // Filtro base: Ordenar por fecha de creación (Recientes primero)
         constraints.push(orderBy("createdAt", "desc"));
 
-        // Paginación
+        // B. EJECUCIÓN HÍBRIDA (getDocs para paginación, onSnapshot para página 1)
         if (isNextPage && lastVisible) {
             constraints.push(startAfter(lastVisible));
-        }
-
-        constraints.push(limit(DOCS_PER_PAGE));
-
-        const q = query(usersRef, ...constraints);
-        const snapshot = await getDocs(q);
-
-        if (!isNextPage) listContainer.innerHTML = "";
-
-        if (snapshot.empty) {
-            if (!isNextPage) listContainer.innerHTML = `<tr><td colspan="5" class="p-10 text-center text-gray-400 font-bold uppercase text-xs">No hay clientes registrados.</td></tr>`;
-            loadMoreBtn.classList.add('hidden');
-            isLoading = false;
-            return;
-        }
-
-        // Guardar cursor
-        lastVisible = snapshot.docs[snapshot.docs.length - 1];
-
-        // Botón "Ver más"
-        if (snapshot.docs.length === DOCS_PER_PAGE) {
-            loadMoreBtn.classList.remove('hidden');
-            loadMoreBtn.querySelector('button').innerHTML = `<i class="fa-solid fa-circle-plus"></i> Cargar siguientes 50`;
+            constraints.push(limit(DOCS_PER_PAGE));
+            
+            const q = query(usersRef, ...constraints);
+            getDocs(q).then(snapshot => handleSnapshotResult(snapshot, true)).catch(e => {
+                console.error("Error Paginación Clientes:", e);
+                isLoading = false;
+            });
+            
         } else {
-            loadMoreBtn.classList.add('hidden');
+            constraints.push(limit(DOCS_PER_PAGE));
+            const q = query(usersRef, ...constraints);
+            
+            unsubscribeClientsList = onSnapshot(q, (snapshot) => {
+                handleSnapshotResult(snapshot, false);
+            }, (error) => {
+                console.error("Error Live Clientes:", error);
+                listContainer.innerHTML = `<tr><td colspan="5" class="text-center text-red-400 font-bold p-10">Error de conexión en vivo.</td></tr>`;
+            });
         }
-
-        // Renderizar
-        snapshot.forEach(docSnap => {
-            renderClientRow(docSnap);
-        });
 
     } catch (e) {
-        console.error("Error cargando clientes:", e);
-        if(!isNextPage) listContainer.innerHTML = `<tr><td colspan="5" class="text-center text-red-400 font-bold p-10">Error de conexión.</td></tr>`;
-    } finally {
+        console.error("Error configurando query de clientes:", e);
         isLoading = false;
     }
 }
 
-// Global para el botón HTML
-window.loadMoreClients = () => fetchClients(true);
+function handleSnapshotResult(snapshot, isNextPage) {
+    if (!isNextPage) {
+        listContainer.innerHTML = "";
+        // Reiniciamos el caché RAM en la página 1
+        adminClientsCache = [];
+    }
 
-function renderClientRow(docSnap) {
-    const c = docSnap.data();
+    if (snapshot.empty) {
+        if (!isNextPage) listContainer.innerHTML = `<tr><td colspan="5" class="p-10 text-center text-gray-400 font-bold uppercase text-xs">No hay clientes registrados.</td></tr>`;
+        loadMoreBtn.classList.add('hidden');
+        isLoading = false;
+        return;
+    }
+
+    // Actualizamos lastVisible solo si NO es un repintado en vivo de un docChange (para evitar dañar la paginación)
+    if (snapshot.docs.length > 0 && !snapshot.metadata.hasPendingWrites) {
+         lastVisible = snapshot.docs[snapshot.docs.length - 1];
+    }
+
+    // UI del botón "Cargar más"
+    if (snapshot.docs.length === DOCS_PER_PAGE) {
+        loadMoreBtn.classList.remove('hidden');
+        loadMoreBtn.querySelector('button').innerHTML = `<i class="fa-solid fa-circle-plus"></i> Cargar siguientes 50`;
+    } else {
+        loadMoreBtn.classList.add('hidden');
+    }
+
+    // Renderizar y guardar en RAM para el buscador
+    snapshot.forEach(docSnap => {
+        const clientData = { id: docSnap.id, ...docSnap.data() };
+        adminClientsCache.push(clientData);
+        renderClientRow(clientData);
+    });
+
+    isLoading = false;
+}
+
+// Global para el botón HTML
+window.loadMoreClients = () => startClientsListener(true);
+
+function renderClientRow(c) {
     const date = c.createdAt?.toDate ? c.createdAt.toDate().toLocaleDateString('es-CO') : '---';
     const sourceTag = c.source === 'MANUAL' ? 
         `<span class="bg-slate-100 text-slate-500 px-3 py-1 rounded-full text-[9px] font-black uppercase border border-slate-200">Manual</span>` : 
@@ -112,7 +141,7 @@ function renderClientRow(docSnap) {
         <td class="px-8 py-5">${sourceTag}</td>
         <td class="px-8 py-5 text-xs text-gray-400 font-bold">${date}</td>
         <td class="px-8 py-5 text-center">
-            <a href="client-details.html?id=${docSnap.id}" class="inline-flex w-10 h-10 items-center justify-center rounded-xl bg-slate-100 text-slate-400 hover:bg-brand-black hover:text-white transition shadow-sm" title="Ver Detalle">
+            <a href="client-details.html?id=${c.id}" class="inline-flex w-10 h-10 items-center justify-center rounded-xl bg-slate-100 text-slate-400 hover:bg-brand-black hover:text-white transition shadow-sm" title="Ver Detalle">
                 <i class="fa-solid fa-eye text-xs"></i>
             </a>
         </td>
@@ -120,10 +149,20 @@ function renderClientRow(docSnap) {
     listContainer.appendChild(row);
 }
 
-// --- 2. BÚSQUEDA HÍBRIDA ---
+// --- 2. BÚSQUEDA HÍBRIDA (RAM + SERVIDOR) ---
 if (searchInput) {
     searchInput.addEventListener('keyup', (e) => {
         const term = e.target.value.toLowerCase().trim();
+
+        // Si el usuario borró todo
+        if (term.length === 0) {
+            if (e.key === 'Backspace' || e.key === 'Delete') {
+                // Restaurar desde la RAM en milisegundos (0 lecturas)
+                listContainer.innerHTML = "";
+                adminClientsCache.forEach(c => renderClientRow(c));
+            }
+            return;
+        }
 
         // A. BÚSQUEDA EN SERVIDOR (ENTER)
         if (e.key === 'Enter' && term.length > 0) {
@@ -131,12 +170,21 @@ if (searchInput) {
             return;
         }
 
-        // B. FILTRO LOCAL (Mientras escribe)
-        const rows = document.querySelectorAll('#clients-table-body tr');
-        rows.forEach(row => {
-            const text = row.innerText.toLowerCase();
-            row.style.display = text.includes(term) ? '' : 'none';
+        // B. BÚSQUEDA LOCAL EN RAM (Mientras escribe)
+        listContainer.innerHTML = "";
+        const results = adminClientsCache.filter(c => {
+            const nameMatch = (c.name || c.userName || "").toLowerCase().includes(term);
+            const phoneMatch = (c.phone || "").toLowerCase().includes(term);
+            const docMatch = (c.document || "").toLowerCase().includes(term);
+            const emailMatch = (c.email || "").toLowerCase().includes(term);
+            return nameMatch || phoneMatch || docMatch || emailMatch;
         });
+
+        if (results.length === 0) {
+            listContainer.innerHTML = `<tr><td colspan="5" class="p-10 text-center text-xs font-bold text-gray-400 uppercase">No visible en caché. Pulsa Enter para buscar a fondo.</td></tr>`;
+        } else {
+            results.forEach(c => renderClientRow(c));
+        }
     });
 }
 
@@ -144,34 +192,37 @@ async function performServerSearch(term) {
     if(isLoading) return;
     isLoading = true;
 
-    listContainer.innerHTML = `<tr><td colspan="5" class="p-10 text-center"><i class="fa-solid fa-search fa-bounce text-brand-cyan"></i> Buscando en base de datos...</td></tr>`;
+    // Apagamos live listener para no interferir con la vista de búsqueda
+    if(unsubscribeClientsList) unsubscribeClientsList();
+
+    listContainer.innerHTML = `<tr><td colspan="5" class="p-10 text-center"><i class="fa-solid fa-search fa-bounce text-brand-cyan"></i> Buscando a fondo...</td></tr>`;
     loadMoreBtn.classList.add('hidden');
 
     try {
-        // Estrategia: Buscar por varios campos posibles (ID exacto, Email, Documento)
-        // Nota: Firestore no permite búsquedas "OR" complejas nativamente de forma sencilla en una sola query sin índices avanzados.
-        // Haremos 3 intentos paralelos eficientes.
-
         const queries = [];
         const usersRef = collection(db, "users");
 
         // 1. Por ID de Documento (Firebase ID)
         const docRef = doc(db, "users", term);
-        const p1 = getDoc(docRef).then(s => s.exists() ? [s] : []);
+        const p1 = getDoc(docRef).then(s => s.exists() ? [{ id: s.id, ...s.data() }] : []);
 
         // 2. Por Email Exacto
         const qEmail = query(usersRef, where("email", "==", term));
-        const p2 = getDocs(qEmail).then(s => s.docs);
+        const p2 = getDocs(qEmail).then(s => s.docs.map(d => ({ id: d.id, ...d.data() })));
 
         // 3. Por Cédula/NIT Exacto (campo 'document')
         const qDoc = query(usersRef, where("document", "==", term));
-        const p3 = getDocs(qDoc).then(s => s.docs);
+        const p3 = getDocs(qDoc).then(s => s.docs.map(d => ({ id: d.id, ...d.data() })));
+        
+        // 4. Por Teléfono Exacto (Súper común)
+        const qPhone = query(usersRef, where("phone", "==", term));
+        const p4 = getDocs(qPhone).then(s => s.docs.map(d => ({ id: d.id, ...d.data() })));
 
-        // Ejecutar todo
-        const [r1, r2, r3] = await Promise.all([p1, p2, p3]);
+        // Ejecutar todo en paralelo
+        const [r1, r2, r3, r4] = await Promise.all([p1, p2, p3, p4]);
         
         // Unir resultados eliminando duplicados
-        const allResults = [...r1, ...r2, ...r3];
+        const allResults = [...r1, ...r2, ...r3, ...r4];
         const uniqueIds = new Set();
         const finalDocs = [];
 
@@ -187,19 +238,19 @@ async function performServerSearch(term) {
         if (finalDocs.length > 0) {
             finalDocs.forEach(d => renderClientRow(d));
         } else {
-            listContainer.innerHTML = `<tr><td colspan="5" class="p-10 text-center text-xs font-bold text-gray-400 uppercase">No se encontró cliente con ID, Email o Documento exacto: "${term}"</td></tr>`;
+            listContainer.innerHTML = `<tr><td colspan="5" class="p-10 text-center text-xs font-bold text-gray-400 uppercase">No se encontró cliente con ID, Email, Teléfono o Documento exacto: "${term}"<br><span class="text-[9px] text-brand-cyan cursor-pointer hover:underline mt-2 block" onclick="window.loadMoreClients()">Recargar Lista Original</span></td></tr>`;
         }
 
     } catch(e) {
         console.error(e);
-        fetchClients(false); // Restaurar lista si falla
+        startClientsListener(false); // Restaurar lista si falla
     } finally {
         isLoading = false;
     }
 }
 
 
-// --- 3. API COLOMBIA (Igual que antes) ---
+// --- 3. API COLOMBIA ---
 let deptsLoaded = false;
 
 async function loadDepartments() {
@@ -249,7 +300,7 @@ if(inpDept) {
     });
 }
 
-// --- 4. LÓGICA DEL MODAL (Igual que antes) ---
+// --- 4. LÓGICA DEL MODAL ---
 if (btnOpen) {
     btnOpen.onclick = () => {
         document.getElementById('new-client-name').value = '';
@@ -269,7 +320,7 @@ if (btnOpen) {
 const closeModal = () => modal.classList.add('hidden');
 btnCloseList.forEach(btn => btn.onclick = closeModal);
 
-// --- 5. GUARDAR CLIENTE MANUAL (Igual que antes) ---
+// --- 5. GUARDAR CLIENTE MANUAL ---
 if (btnSave) {
     btnSave.onclick = async () => {
         const btnOriginalText = btnSave.innerHTML;
@@ -307,10 +358,7 @@ if (btnSave) {
             
             alert("✅ Cliente registrado");
             closeModal();
-            // Recargar lista desde cero
-            lastVisible = null;
-            listContainer.innerHTML = "";
-            fetchClients(false); 
+            // ¡La tabla se actualizará sola gracias al onSnapshot!
 
         } catch (e) { 
             alert("Error: " + e.message); 
@@ -321,5 +369,5 @@ if (btnSave) {
     };
 }
 
-// Iniciar carga
-fetchClients();
+// Iniciar carga inteligente
+startClientsListener(false);

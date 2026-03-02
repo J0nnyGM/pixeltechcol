@@ -1,16 +1,19 @@
-import { auth, db, onAuthStateChanged, doc, getDoc, updateDoc, collection, getDocs, query, where, orderBy, limit, startAfter, signOut} from "./firebase-init.js";
+import { auth, db, onAuthStateChanged, doc, updateDoc, collection, query, where, orderBy, onSnapshot, signOut } from "./firebase-init.js";
 
 let currentUserId = null;
 let allDepartments = [];
 let allCities = [];
 let editingAddressIndex = -1;
 
-// Estado Local para Pedidos
+// Estado Local
 let ordersCache = []; 
-let lastVisibleOrder = null; 
+let addressesCache = [];
 const ORDERS_PER_PAGE = 10;
 const STORAGE_KEY_ORDERS = 'pixeltech_user_orders';
-const SYNC_KEY_ORDERS = 'pixeltech_orders_last_sync';
+
+// Controladores de onSnapshot para poder apagarlos si cierra sesión
+let unsubscribeOrders = null;
+let unsubscribeUser = null;
 
 // Referencias DOM
 const addrModal = document.getElementById('address-modal');
@@ -28,152 +31,202 @@ onAuthStateChanged(auth, async (user) => {
         updateUserUI(user);
         initYearSelect(); 
         
-        await Promise.all([
-            loadUserDataSmart(),
-            loadAddressesSmart(),
-            loadOrdersSmart() // <--- Aquí está la nueva lógica
-        ]);
+        // Iniciamos los motores en tiempo real
+        initUserRealtimeSync();
+        initOrdersRealtimeSync();
         
         initColombiaAPI();
     } else {
+        // Limpiar escuchas si cierra sesión
+        if(unsubscribeOrders) unsubscribeOrders();
+        if(unsubscribeUser) unsubscribeUser();
         window.location.href = "/auth/login.html";
     }
 });
 
 // ==========================================================================
-// 🧠 SMART SYNC: PEDIDOS (DOBLE VALIDACIÓN)
+// 🧠 SMART REAL-TIME CACHE: USUARIO Y DIRECCIONES (onSnapshot)
 // ==========================================================================
-async function loadOrdersSmart() {
+function initUserRealtimeSync() {
+    const cachedProfile = sessionStorage.getItem('pixeltech_user_profile');
+    if (cachedProfile) {
+        try {
+            const data = JSON.parse(cachedProfile);
+            fillProfileForm(data);
+            if (data.addresses) renderAddresses(data.addresses);
+        } catch(e){}
+    }
+
+    if (unsubscribeUser) unsubscribeUser();
+
+    // Escuchamos el documento del usuario (Perfil y Direcciones)
+    unsubscribeUser = onSnapshot(doc(db, "users", currentUserId), (snap) => {
+        if (snap.exists()) {
+            const data = snap.data();
+            sessionStorage.setItem('pixeltech_user_profile', JSON.stringify(data));
+            
+            fillProfileForm(data);
+            
+            const newAddresses = data.addresses || [];
+            // Solo repinta si hubo un cambio real en las direcciones (comparación rápida)
+            if (JSON.stringify(addressesCache) !== JSON.stringify(newAddresses)) {
+                addressesCache = newAddresses;
+                renderAddresses(addressesCache);
+            }
+        }
+    }, (error) => {
+        console.error("Error en SmartSync Usuario:", error);
+    });
+}
+
+function fillProfileForm(data) {
+    // Si el usuario está escribiendo, no queremos sobreescribirle la letra, solo si está vacío o difiere y no tiene focus
+    const updateInput = (id, val) => {
+        const el = document.getElementById(id);
+        if (el && document.activeElement !== el) el.value = val || "";
+    };
+    
+    updateInput('form-name', data.name);
+    updateInput('form-id', data.document);
+    updateInput('form-phone', data.phone);
+    updateInput('form-birth', data.birthdate);
+}
+
+function renderAddresses(addresses) {
+    const list = document.getElementById('addresses-list');
+    if (!list) return;
+
+    if (addresses.length === 0) {
+        list.innerHTML = `<div class="col-span-full py-10 border-2 border-dashed border-gray-200 rounded-[2rem] text-center"><p class="text-gray-400 text-xs font-bold uppercase">No hay direcciones guardadas</p></div>`;
+        return;
+    }
+    
+    list.innerHTML = addresses.map((addr, index) => {
+        const isDef = addr.isDefault;
+        return `
+            <div class="bg-white p-6 rounded-[2rem] border ${isDef ? 'border-brand-cyan shadow-md shadow-cyan-500/10' : 'border-gray-100 hover:border-gray-200'} shadow-sm relative group transition-all">
+                <div class="flex justify-between items-start mb-4">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-xl ${isDef ? 'bg-brand-cyan text-brand-black' : 'bg-slate-100 text-gray-400'} flex items-center justify-center transition-colors"><i class="fa-solid ${isDef ? 'fa-star' : 'fa-location-dot'}"></i></div>
+                        <div><h4 class="font-black text-xs uppercase tracking-tight text-brand-black">${addr.alias}</h4>${isDef ? '<span class="text-[8px] font-black uppercase text-brand-cyan">Principal</span>' : ''}</div>
+                    </div>
+                    <div class="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button onclick="window.editAddress(${index})" class="w-8 h-8 rounded-full hover:bg-slate-100 text-gray-400 flex items-center justify-center transition"><i class="fa-solid fa-pen text-xs"></i></button>
+                        <button onclick="window.deleteAddress(${index})" class="w-8 h-8 rounded-full hover:bg-red-50 text-gray-400 hover:text-red-500 flex items-center justify-center transition"><i class="fa-solid fa-trash text-xs"></i></button>
+                    </div>
+                </div>
+                <div class="space-y-1 mb-4">
+                    <p class="text-sm font-bold text-gray-800 leading-tight">${addr.address}</p>
+                    <p class="text-[10px] text-gray-500 font-bold uppercase">${addr.city}, ${addr.dept}</p>
+                    ${addr.notes ? `<p class="text-[9px] text-gray-400 italic mt-2 line-clamp-1">"${addr.notes}"</p>` : ''}
+                </div>
+            </div>`;
+    }).join('');
+}
+
+// ==========================================================================
+// 🧠 SMART REAL-TIME CACHE: PEDIDOS (onSnapshot + Caché Persistente)
+// ==========================================================================
+function initOrdersRealtimeSync() {
     const container = document.getElementById('orders-container');
     
-    // 1. CARGA DE CACHÉ
+    // 1. CARGA RÁPIDA DE CACHÉ
     const cachedRaw = localStorage.getItem(STORAGE_KEY_ORDERS);
-    let lastSyncTime = parseInt(localStorage.getItem(SYNC_KEY_ORDERS) || '0');
+    let lastSyncTime = 0;
 
     if (cachedRaw) {
         try {
-            ordersCache = JSON.parse(cachedRaw);
-            // Validación de integridad: si el primer elemento no tiene ID, la caché es inválida
-            if (ordersCache.length > 0 && !ordersCache[0].id) ordersCache = []; 
-        } catch (e) { ordersCache = []; }
-    } else {
-        ordersCache = [];
+            const parsed = JSON.parse(cachedRaw);
+            if (parsed.map && parsed.lastSync) {
+                const mapValues = Object.values(parsed.map);
+                if (mapValues.length === 0 || mapValues[0].userId === currentUserId) {
+                    ordersCache = mapValues.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+                    lastSyncTime = parsed.lastSync;
+                    if(ordersCache.length > 0) renderOrdersList(ordersCache);
+                } else {
+                    throw new Error("Usuario distinto");
+                }
+            } else {
+                throw new Error("Formato antiguo");
+            }
+        } catch (e) { 
+            console.warn("Caché de pedidos corrupto o antiguo, limpiando...");
+            ordersCache = []; 
+            localStorage.removeItem(STORAGE_KEY_ORDERS);
+        }
     }
 
-    // 🚀 CORRECCIÓN CRÍTICA: 
-    // Si la caché está vacía, FORZAMOS la fecha a 0 para descargar TODO el historial.
-    // Esto evita el bug donde solo se ve el último pedido si se borró la caché.
-    if (ordersCache.length === 0) {
-        lastSyncTime = 0;
-    }
-
-    // Mostrar inmediato si hay datos viejos mientras buscamos nuevos
-    if (ordersCache.length > 0) {
-        renderOrdersList(ordersCache);
-    } else {
+    if (ordersCache.length === 0 && container) {
         container.innerHTML = `<div class="text-center py-10 text-gray-400"><i class="fa-solid fa-circle-notch fa-spin"></i> Cargando historial de pedidos...</div>`;
     }
 
-    // 2. BUSCAR EN FIREBASE
-    try {
-        const colRef = collection(db, "orders");
-        const syncDate = new Date(lastSyncTime);
-        let newDocs = [];
+    // 2. CONEXIÓN EN TIEMPO REAL
+    if (unsubscribeOrders) unsubscribeOrders();
 
-        if (lastSyncTime === 0) {
-            // CASO A: DESCARGA TOTAL (Historial completo)
-            // Usamos solo createdAt para la carga inicial, es más eficiente y seguro.
-            console.log("☁️ [Orders] Descargando historial completo...");
-            
-            const q = query(
-                colRef, 
-                where("userId", "==", currentUserId), 
-                orderBy("createdAt", "desc") // Requiere índice: userId ASC, createdAt DESC
-            );
-            
-            const snap = await getDocs(q);
-            snap.forEach(d => newDocs.push({ id: d.id, ...d.data() }));
-        
-        } else {
-            // CASO B: INCREMENTAL (Solo nuevos o modificados)
-            console.log("🔄 [Orders] Buscando actualizaciones...");
-            
-            // Consulta 1: Pedidos NUEVOS creados después de la última visita
-            const qCreated = query(colRef, 
-                where("userId", "==", currentUserId), 
-                where("createdAt", ">", syncDate)
-            );
+    const colRef = collection(db, "orders");
+    let q;
 
-            // Consulta 2: Pedidos VIEJOS que cambiaron de estado (updatedAt)
-            const qUpdated = query(colRef, 
-                where("userId", "==", currentUserId), 
-                where("updatedAt", ">", syncDate)
-            );
+    if (lastSyncTime === 0 || ordersCache.length === 0) {
+        console.log("☁️ [Orders] Descargando historial completo y activando tiempo real...");
+        q = query(colRef, where("userId", "==", currentUserId), orderBy("createdAt", "desc"));
+    } else {
+        console.log("🔄 [Orders] Escuchando actualizaciones en tiempo real...");
+        q = query(colRef, where("userId", "==", currentUserId), where("updatedAt", ">", new Date(lastSyncTime)));
+    }
 
-            const [snapCreated, snapUpdated] = await Promise.all([
-                getDocs(qCreated),
-                getDocs(qUpdated)
-            ]);
-
-            // Unificar resultados eliminando duplicados
-            const mergedMap = new Map();
-            snapCreated.forEach(d => mergedMap.set(d.id, { id: d.id, ...d.data() }));
-            snapUpdated.forEach(d => mergedMap.set(d.id, { id: d.id, ...d.data() }));
-
-            newDocs = Array.from(mergedMap.values());
-            console.log(`🔥 [Orders] ${newDocs.length} cambios encontrados.`);
-        }
-
-        // Si no hay cambios y ya teníamos datos, no hacemos nada
-        if (newDocs.length === 0 && ordersCache.length > 0) {
-            console.log("✅ [Orders] Todo al día.");
-            localStorage.setItem(SYNC_KEY_ORDERS, Date.now().toString());
+    unsubscribeOrders = onSnapshot(q, (snapshot) => {
+        if (snapshot.empty && lastSyncTime !== 0) {
+            console.log("✅ [Orders] Historial al día.");
             return;
         }
 
-        // 3. FUSIÓN (MERGE)
-        newDocs.forEach(newData => {
-            // Normalizar fechas a texto ISO para que se guarden bien en localStorage
-            if (newData.createdAt?.toDate) newData.createdAt = newData.createdAt.toDate().toISOString();
-            if (newData.updatedAt?.toDate) newData.updatedAt = newData.updatedAt.toDate().toISOString();
+        let hasChanges = false;
+        let runtimeMap = {};
+        ordersCache.forEach(o => runtimeMap[o.id] = o);
 
-            const index = ordersCache.findIndex(o => o.id === newData.id);
-            if (index > -1) {
-                ordersCache[index] = newData; // Actualizamos el existente
-            } else {
-                ordersCache.push(newData); // Agregamos el nuevo
+        snapshot.docChanges().forEach(change => {
+            const data = change.doc.data();
+            const id = change.doc.id;
+
+            if (data.createdAt?.toDate) data.createdAt = data.createdAt.toDate().toISOString();
+            if (data.updatedAt?.toDate) data.updatedAt = data.updatedAt.toDate().toISOString();
+
+            if (change.type === 'added' || change.type === 'modified') {
+                runtimeMap[id] = { id, ...data };
+                hasChanges = true;
+            } else if (change.type === 'removed') {
+                if (runtimeMap[id]) {
+                    delete runtimeMap[id];
+                    hasChanges = true;
+                }
             }
         });
 
-        // 4. ORDENAR FINAL
-        // Ordenamos por fecha de creación descendente (lo más nuevo primero)
-        ordersCache.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+        if (hasChanges) {
+            console.log(`🔥 [Orders] Tiempo real: ${snapshot.docChanges().length} cambios detectados.`);
+            
+            ordersCache = Object.values(runtimeMap).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
-        // 5. GUARDAR
-        localStorage.setItem(STORAGE_KEY_ORDERS, JSON.stringify(ordersCache));
-        localStorage.setItem(SYNC_KEY_ORDERS, Date.now().toString());
+            localStorage.setItem(STORAGE_KEY_ORDERS, JSON.stringify({
+                map: runtimeMap,
+                lastSync: Date.now()
+            }));
 
-        // 6. RENDERIZAR
-        renderOrdersList(ordersCache);
-
-    } catch (e) {
-        console.error("Error cargando pedidos:", e);
-        // Si falla por falta de índices, intenta mostrar lo que hay en caché
-        if (e.message.includes("indexes")) {
-            console.warn("⚠️ Faltan índices en Firebase. Revisa la consola.");
+            window.applyOrderFilters(); 
         }
-        if(ordersCache.length === 0) {
-             container.innerHTML = `<div class="text-center py-10 text-red-400 font-bold text-xs"><i class="fa-solid fa-triangle-exclamation"></i> No se pudo cargar el historial. Revisa tu conexión.</div>`;
+    }, (error) => {
+        console.error("Error en SmartSync Orders Realtime:", error);
+        if(ordersCache.length === 0 && container) {
+             container.innerHTML = `<div class="text-center py-10 text-red-400 font-bold text-xs"><i class="fa-solid fa-triangle-exclamation"></i> No se pudo conectar a los pedidos.</div>`;
         }
-    }
+    });
 }
 
-// Función Helper de Renderizado (Paginación Visual Local)
 function renderOrdersList(orders) {
     const container = document.getElementById('orders-container');
+    if (!container) return;
     container.innerHTML = "";
     
-    // Mostramos los primeros 10 visualmente
     const pageOrders = orders.slice(0, ORDERS_PER_PAGE); 
     
     if (pageOrders.length === 0) {
@@ -238,9 +291,9 @@ function renderOrdersList(orders) {
 
 function renderOrdersListFull(orders) {
     const container = document.getElementById('orders-container');
+    if (!container) return;
     container.innerHTML = "";
     orders.forEach(order => { 
-        // Reutilizamos lógica de renderizado manual para no duplicar código
         const dateObj = new Date(order.createdAt);
         const dateStr = dateObj.toLocaleDateString('es-CO', {day: 'numeric', month: 'long', year: 'numeric'});
         let statusConfig = getStatusConfig(order.status);
@@ -284,79 +337,6 @@ function getStatusConfig(status) {
     if(status === 'ENTREGADO') return { color: "bg-emerald-50 text-emerald-700 border-emerald-200", icon: "fa-house-circle-check", label: "Entregado" };
     if(['CANCELADO', 'RECHAZADO'].includes(status)) return { color: "bg-red-50 text-red-600 border-red-200", icon: "fa-ban", label: "Cancelado" };
     return { color: "bg-gray-100 text-gray-500", icon: "fa-circle", label: status || "Pendiente" };
-}
-
-// --- 5. PERFIL Y DIRECCIONES (CACHE SIMPLE) ---
-async function loadUserDataSmart() {
-    const cachedProfile = sessionStorage.getItem('pixeltech_user_profile');
-    if (cachedProfile) {
-        fillProfileForm(JSON.parse(cachedProfile));
-        return;
-    }
-    try {
-        const userSnap = await getDoc(doc(db, "users", currentUserId));
-        if (userSnap.exists()) {
-            const data = userSnap.data();
-            sessionStorage.setItem('pixeltech_user_profile', JSON.stringify(data));
-            fillProfileForm(data);
-        }
-    } catch (e) { console.error(e); }
-}
-
-function fillProfileForm(data) {
-    if (document.getElementById('form-name')) document.getElementById('form-name').value = data.name || "";
-    if (document.getElementById('form-id')) document.getElementById('form-id').value = data.document || "";
-    if (document.getElementById('form-phone')) document.getElementById('form-phone').value = data.phone || "";
-    if (document.getElementById('form-birth')) document.getElementById('form-birth').value = data.birthdate || "";
-}
-
-async function loadAddressesSmart() {
-    const list = document.getElementById('addresses-list');
-    if (!list) return;
-    
-    const cachedAddrs = sessionStorage.getItem('pixeltech_user_addresses');
-    if (cachedAddrs) {
-        renderAddresses(JSON.parse(cachedAddrs));
-        return;
-    }
-
-    try {
-        const userSnap = await getDoc(doc(db, "users", currentUserId));
-        const addresses = userSnap.data()?.addresses || [];
-        sessionStorage.setItem('pixeltech_user_addresses', JSON.stringify(addresses));
-        renderAddresses(addresses);
-    } catch (e) { console.error(e); }
-}
-
-function renderAddresses(addresses) {
-    const list = document.getElementById('addresses-list');
-    if (addresses.length === 0) {
-        list.innerHTML = `<div class="col-span-full py-10 border-2 border-dashed border-gray-200 rounded-[2rem] text-center"><p class="text-gray-400 text-xs font-bold uppercase">No hay direcciones guardadas</p></div>`;
-        return;
-    }
-    list.innerHTML = "";
-    addresses.forEach((addr, index) => {
-        const isDef = addr.isDefault;
-        const div = document.createElement('div');
-        div.className = `bg-white p-6 rounded-[2rem] border ${isDef ? 'border-brand-cyan shadow-md shadow-cyan-500/10' : 'border-gray-100 hover:border-gray-200'} shadow-sm relative group transition-all`;
-        div.innerHTML = `
-            <div class="flex justify-between items-start mb-4">
-                <div class="flex items-center gap-3">
-                    <div class="w-10 h-10 rounded-xl ${isDef ? 'bg-brand-cyan text-brand-black' : 'bg-slate-100 text-gray-400'} flex items-center justify-center transition-colors"><i class="fa-solid ${isDef ? 'fa-star' : 'fa-location-dot'}"></i></div>
-                    <div><h4 class="font-black text-xs uppercase tracking-tight text-brand-black">${addr.alias}</h4>${isDef ? '<span class="text-[8px] font-black uppercase text-brand-cyan">Principal</span>' : ''}</div>
-                </div>
-                <div class="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button onclick="window.editAddress(${index})" class="w-8 h-8 rounded-full hover:bg-slate-100 text-gray-400 flex items-center justify-center transition"><i class="fa-solid fa-pen text-xs"></i></button>
-                    <button onclick="window.deleteAddress(${index})" class="w-8 h-8 rounded-full hover:bg-red-50 text-gray-400 hover:text-red-500 flex items-center justify-center transition"><i class="fa-solid fa-trash text-xs"></i></button>
-                </div>
-            </div>
-            <div class="space-y-1 mb-4">
-                <p class="text-sm font-bold text-gray-800 leading-tight">${addr.address}</p>
-                <p class="text-[10px] text-gray-500 font-bold uppercase">${addr.city}, ${addr.dept}</p>
-                ${addr.notes ? `<p class="text-[9px] text-gray-400 italic mt-2 line-clamp-1">"${addr.notes}"</p>` : ''}
-            </div>`;
-        list.appendChild(div);
-    });
 }
 
 function updateUserUI(user) {
@@ -420,7 +400,10 @@ window.loadMoreOrders = () => {
     renderOrdersListFull(ordersCache);
 };
 
-// --- GESTIÓN DIRECCIONES (CON INVALIDACIÓN DE CACHÉ) ---
+// ==========================================================================
+// GESTIÓN DIRECCIONES Y PERFIL
+// ==========================================================================
+
 window.toggleModal = (show) => {
     if (show) {
         addrModal.classList.add('active');
@@ -434,10 +417,12 @@ window.toggleModal = (show) => {
     }
 };
 
-if(document.getElementById('btn-open-address-modal')) document.getElementById('btn-open-address-modal').onclick = () => {
-    editingAddressIndex = -1;
-    toggleModal(true);
-};
+if(document.getElementById('btn-open-address-modal')) {
+    document.getElementById('btn-open-address-modal').onclick = () => {
+        editingAddressIndex = -1;
+        window.toggleModal(true);
+    };
+}
 
 addrForm.onsubmit = async (e) => {
     e.preventDefault();
@@ -456,9 +441,7 @@ addrForm.onsubmit = async (e) => {
     };
 
     try {
-        const userRef = doc(db, "users", currentUserId);
-        const snap = await getDoc(userRef);
-        let currentAddrs = snap.data()?.addresses || [];
+        let currentAddrs = [...addressesCache];
 
         if (newAddr.isDefault) currentAddrs = currentAddrs.map(a => ({ ...a, isDefault: false }));
         if (currentAddrs.length === 0) newAddr.isDefault = true;
@@ -466,19 +449,22 @@ addrForm.onsubmit = async (e) => {
         if (editingAddressIndex >= 0) currentAddrs[editingAddressIndex] = newAddr;
         else currentAddrs.push(newAddr);
 
-        await updateDoc(userRef, { addresses: currentAddrs });
-        sessionStorage.removeItem('pixeltech_user_addresses');
-        toggleModal(false);
-        await loadAddressesSmart(); 
-    } catch (error) { console.error(error); alert("Error al guardar"); } 
-    finally { btn.disabled = false; btn.textContent = "Guardar"; }
+        // Al hacer updateDoc, el onSnapshot (initUserRealtimeSync) se dispara automáticamente y repinta la UI
+        await updateDoc(doc(db, "users", currentUserId), { addresses: currentAddrs });
+        window.toggleModal(false);
+    } catch (error) { 
+        console.error(error); 
+        alert("Error al guardar la dirección"); 
+    } finally { 
+        btn.disabled = false; 
+        btn.textContent = "Guardar"; 
+    }
 };
 
-window.editAddress = async (index) => {
+window.editAddress = (index) => {
     editingAddressIndex = index;
-    const cachedAddrs = JSON.parse(sessionStorage.getItem('pixeltech_user_addresses') || '[]');
-    if(cachedAddrs.length > index) {
-        const addr = cachedAddrs[index];
+    if(addressesCache.length > index) {
+        const addr = addressesCache[index];
         document.getElementById('modal-addr-alias').value = addr.alias;
         document.getElementById('modal-addr-value').value = addr.address;
         deptInput.value = addr.dept;
@@ -488,19 +474,19 @@ window.editAddress = async (index) => {
         document.getElementById('modal-addr-zip').value = addr.zip || "";
         document.getElementById('modal-addr-notes').value = addr.notes || "";
         document.getElementById('modal-addr-default').checked = addr.isDefault || false;
-        toggleModal(true);
+        window.toggleModal(true);
     }
 };
 
 window.deleteAddress = async (index) => {
     if (!confirm("¿Eliminar esta ubicación?")) return;
-    const userRef = doc(db, "users", currentUserId);
-    const snap = await getDoc(userRef);
-    const currentAddrs = snap.data().addresses;
-    currentAddrs.splice(index, 1);
-    await updateDoc(userRef, { addresses: currentAddrs });
-    sessionStorage.removeItem('pixeltech_user_addresses');
-    await loadAddressesSmart();
+    try {
+        let currentAddrs = [...addressesCache];
+        currentAddrs.splice(index, 1);
+        await updateDoc(doc(db, "users", currentUserId), { addresses: currentAddrs });
+    } catch (e) {
+        console.error("Error al eliminar", e);
+    }
 };
 
 async function initColombiaAPI() {
@@ -569,9 +555,8 @@ document.getElementById('profile-form')?.addEventListener('submit', async (e) =>
             updatedAt: new Date()
         };
         await updateDoc(doc(db, "users", currentUserId), newData);
-        sessionStorage.removeItem('pixeltech_user_profile');
         alert("✅ Perfil actualizado");
-    } catch (e) { alert("Error"); }
+    } catch (e) { alert("Error al guardar perfil"); }
     finally { btn.disabled = false; btn.textContent = "Guardar Cambios"; }
 });
 
@@ -580,13 +565,13 @@ if (logoutBtn) {
     logoutBtn.addEventListener('click', async (e) => {
         e.preventDefault();
         if (confirm("¿Cerrar sesión?")) {
+            if(unsubscribeOrders) unsubscribeOrders();
+            if(unsubscribeUser) unsubscribeUser();
+            
             await signOut(auth);
             sessionStorage.clear();
             localStorage.removeItem(STORAGE_KEY_ORDERS);
-            localStorage.removeItem(SYNC_KEY_ORDERS);
             window.location.href = "/index.html";
         }
     });
 }
-
-window.toggleModal = toggleModal;

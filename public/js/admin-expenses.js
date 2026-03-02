@@ -1,4 +1,4 @@
-import { db, collection, addDoc, updateDoc, deleteDoc, doc, getDocs, getDoc, query, orderBy, Timestamp, runTransaction, limit, startAfter, startAt, endAt, where, getAggregateFromServer, sum } from './firebase-init.js';
+import { db, collection, addDoc, updateDoc, deleteDoc, doc, getDocs, getDoc, query, orderBy, Timestamp, runTransaction, limit, startAfter, startAt, endAt, where, getAggregateFromServer, sum, onSnapshot } from './firebase-init.js';
 import { loadAdminSidebar } from './admin-ui.js';
 
 loadAdminSidebar();
@@ -28,14 +28,16 @@ let accountsList = [];
 let currentFilterDate = null;
 const DOCS_PER_PAGE = 50;
 
+// Estado Smart Cache
+let unsubscribeExpensesList = null;
+let adminExpensesCache = [];
+
 // Obtener nombre del admin actual
 const getCurrentAdminName = () => document.getElementById('admin-name')?.textContent || 'Admin Desconocido';
 
-// --- HELPER CRÍTICO QUE FALTABA ---
 const cleanNumber = (val) => {
     if (typeof val === 'number') return val;
     if (!val) return 0;
-    // Elimina todo lo que no sea número o signo negativo
     return parseFloat(val.toString().replace(/[^\d-]/g, '')) || 0;
 };
 
@@ -53,7 +55,7 @@ async function init() {
 
 function reloadAll() {
     lastDoc = null; 
-    loadExpenses(false);
+    startExpensesListener(false);
     loadStats();
 }
 
@@ -74,14 +76,19 @@ btnClearDate.addEventListener('click', () => {
     reloadAll();
 });
 
-// 1. CARGAR GASTOS
-async function loadExpenses(isNextPage = false) {
+
+// ==========================================================================
+// 🧠 SMART REAL-TIME CACHE: LISTA DE GASTOS
+// ==========================================================================
+
+function startExpensesListener(isNextPage = false) {
     if (isLoading) return;
     isLoading = true;
 
     if (!isNextPage) {
         listContainer.innerHTML = `<tr><td colspan="7" class="p-8 text-center"><i class="fa-solid fa-circle-notch fa-spin text-brand-cyan"></i> Cargando...</td></tr>`;
         loadMoreBtn.classList.add('hidden');
+        if (unsubscribeExpensesList) unsubscribeExpensesList();
     } else {
         loadMoreBtn.querySelector('button').innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Cargando...`;
     }
@@ -90,7 +97,6 @@ async function loadExpenses(isNextPage = false) {
         const coll = collection(db, "expenses");
         let constraints = [];
 
-        // Filtro Estricto: Solo gastos
         constraints.push(where("type", "==", "EXPENSE"));
 
         if (currentFilterDate) {
@@ -104,50 +110,75 @@ async function loadExpenses(isNextPage = false) {
 
         constraints.push(orderBy("date", "desc"));
 
+        // EJECUCIÓN HÍBRIDA
         if (isNextPage && lastDoc) {
             constraints.push(startAfter(lastDoc));
-        }
-        constraints.push(limit(DOCS_PER_PAGE));
-
-        const q = query(coll, ...constraints);
-        const snap = await getDocs(q);
-        
-        if (!isNextPage) listContainer.innerHTML = "";
-
-        if (snap.empty) {
-            if (!isNextPage) listContainer.innerHTML = `<tr><td colspan="7" class="p-8 text-center text-gray-400">No hay gastos en este periodo.</td></tr>`;
-            loadMoreBtn.classList.add('hidden');
-            isLoading = false;
-            return;
-        }
-
-        lastDoc = snap.docs[snap.docs.length - 1];
-
-        if (snap.docs.length === DOCS_PER_PAGE) {
-            loadMoreBtn.classList.remove('hidden');
-            loadMoreBtn.querySelector('button').innerHTML = `<i class="fa-solid fa-circle-plus"></i> Cargar siguientes 50`;
+            constraints.push(limit(DOCS_PER_PAGE));
+            
+            const q = query(coll, ...constraints);
+            getDocs(q).then(snapshot => handleSnapshotResult(snapshot, true)).catch(e => {
+                console.error("Error Paginación Gastos:", e);
+                isLoading = false;
+            });
+            
         } else {
-            loadMoreBtn.classList.add('hidden');
+            constraints.push(limit(DOCS_PER_PAGE));
+            const q = query(coll, ...constraints);
+            
+            unsubscribeExpensesList = onSnapshot(q, (snapshot) => {
+                handleSnapshotResult(snapshot, false);
+                // Si hay un cambio en vivo en la página 1, también actualizamos el KPI total en background
+                if (!snapshot.metadata.fromCache && !snapshot.empty) loadStats();
+            }, (error) => {
+                console.error(error);
+                const msg = error.message.includes("index") ? "Falta índice (type + date)" : "Error de conexión en vivo";
+                listContainer.innerHTML = `<tr><td colspan="7" class="text-center text-red-400 font-bold p-10 text-xs">${msg}</td></tr>`;
+            });
         }
-
-        const expenses = snap.docs.map(d => {
-            const data = d.data();
-            const dateObj = data.date && data.date.toDate ? data.date.toDate() : new Date(data.date);
-            return { id: d.id, ...data, dateObj };
-        });
-
-        renderTable(expenses);
 
     } catch (error) {
-        console.error(error);
-        const msg = error.message.includes("index") ? "Falta índice (type + date)" : "Error de conexión";
-        if(!isNextPage) listContainer.innerHTML = `<tr><td colspan="7" class="text-center text-red-400 p-8">${msg}. Abre la consola.</td></tr>`;
-    } finally {
+        console.error("Error configurando query gastos:", error);
         isLoading = false;
     }
 }
 
-window.loadMoreExpenses = () => loadExpenses(true);
+function handleSnapshotResult(snapshot, isNextPage) {
+    if (!isNextPage) {
+        listContainer.innerHTML = "";
+        adminExpensesCache = []; 
+    }
+
+    if (snapshot.empty) {
+        if (!isNextPage) listContainer.innerHTML = `<tr><td colspan="7" class="p-10 text-center text-gray-400 text-xs font-bold uppercase">No hay gastos en este periodo.</td></tr>`;
+        loadMoreBtn.classList.add('hidden');
+        isLoading = false;
+        return;
+    }
+
+    if (snapshot.docs.length > 0 && !snapshot.metadata.hasPendingWrites) {
+        lastDoc = snapshot.docs[snapshot.docs.length - 1];
+    }
+
+    if (snapshot.docs.length === DOCS_PER_PAGE) {
+        loadMoreBtn.classList.remove('hidden');
+        loadMoreBtn.querySelector('button').innerHTML = `<i class="fa-solid fa-circle-plus"></i> Cargar siguientes 50`;
+    } else {
+        loadMoreBtn.classList.add('hidden');
+    }
+
+    const expenses = snapshot.docs.map(d => {
+        const data = d.data();
+        const dateObj = data.date && data.date.toDate ? data.date.toDate() : new Date(data.date);
+        const item = { id: d.id, ...data, dateObj };
+        adminExpensesCache.push(item);
+        return item;
+    });
+
+    renderTable(expenses);
+    isLoading = false;
+}
+
+window.loadMoreExpenses = () => startExpensesListener(true);
 
 function renderTable(data) {
     const html = data.map(item => `
@@ -168,12 +199,37 @@ function renderTable(data) {
     listContainer.insertAdjacentHTML('beforeend', html);
 }
 
+
+// --- BUSCADOR LOCAL EN RAM ---
+searchInput.addEventListener('keyup', (e) => {
+    const term = e.target.value.toLowerCase().trim();
+
+    if (term.length === 0) {
+        listContainer.innerHTML = "";
+        renderTable(adminExpensesCache);
+        return;
+    }
+
+    const results = adminExpensesCache.filter(item => {
+        const suppMatch = (item.supplierName || "").toLowerCase().includes(term);
+        const descMatch = (item.description || "").toLowerCase().includes(term);
+        return suppMatch || descMatch;
+    });
+
+    listContainer.innerHTML = "";
+    if (results.length === 0) {
+        listContainer.innerHTML = `<tr><td colspan="7" class="p-8 text-center text-gray-400 text-xs font-bold uppercase">No encontrado en la página actual. (Busca cargando más registros primero)</td></tr>`;
+    } else {
+        renderTable(results);
+    }
+});
+
+
 // 2. ELIMINACIÓN MAESTRA (Reembolso Banco + Reversión Deuda + Auditoría)
 window.deleteExpense = async (id) => {
     if (!confirm("⚠️ ¿Estás seguro?\n\n1. Se devolverá el dinero a la cuenta.\n2. Si es pago a proveedor, la deuda volverá a aparecer.\n3. El registro irá a la papelera.")) return;
 
     try {
-        // PASO 1: Obtener datos del gasto
         const expenseSnap = await getDoc(doc(db, "expenses", id));
         if (!expenseSnap.exists()) throw "El documento no existe.";
         
@@ -181,19 +237,16 @@ window.deleteExpense = async (id) => {
         const amountToReverse = Number(expenseData.amount);
         const accountName = expenseData.paymentMethod;
         const supplierName = expenseData.supplierName;
-        // Detectar si es un pago a proveedor (puede variar según cómo guardes la categoría exacta)
+        
         const isSupplierPayment = expenseData.category === "Pago Proveedores" || expenseData.category === "Logística" || expenseData.category === "Inventario"; 
 
-        // PASO 2: Buscar cuenta bancaria para reembolso
         const accQuery = query(collection(db, "accounts"), where("name", "==", accountName), limit(1));
         const accSnapshot = await getDocs(accQuery);
         let accountRef = null;
         if (!accSnapshot.empty) accountRef = accSnapshot.docs[0].ref;
 
-        // PASO 3: Si es pago a proveedor, buscar facturas para "resucitar" deuda (LIFO)
         let payablesToReopen = [];
         if (isSupplierPayment && supplierName) {
-            // Simplificación: Traer todo lo pagado del proveedor y filtrar en memoria
             const payQuerySimple = query(
                 collection(db, "payables"), 
                 where("provider", "==", supplierName),
@@ -202,13 +255,11 @@ window.deleteExpense = async (id) => {
             
             const pSnap = await getDocs(payQuerySimple);
             
-            // Ordenar en JS: Las que se pagaron más recientemente primero (LIFO)
-            // Usamos lastPaymentDate. Si no existe, usamos createdAt.
             const docs = pSnap.docs.map(d => ({...d.data(), id: d.id, ref: d.ref}));
             docs.sort((a, b) => {
                 const dateA = a.lastPaymentDate?.seconds || a.createdAt?.seconds || 0;
                 const dateB = b.lastPaymentDate?.seconds || b.createdAt?.seconds || 0;
-                return dateB - dateA; // Descendente
+                return dateB - dateA; 
             });
             
             let remainingReverse = amountToReverse;
@@ -216,10 +267,7 @@ window.deleteExpense = async (id) => {
             for (const p of docs) {
                 if (remainingReverse <= 0) break;
                 
-                // Cuánto se le abonó a esta factura
                 const paidInThisDoc = cleanNumber(p.amountPaid);
-                
-                // Cuánto vamos a reversar de esta factura (lo que quede por reversar o todo lo pagado)
                 const amountToSubtract = Math.min(remainingReverse, paidInThisDoc);
                 
                 payablesToReopen.push({
@@ -233,9 +281,7 @@ window.deleteExpense = async (id) => {
             }
         }
 
-        // PASO 4: Transacción Atómica
         await runTransaction(db, async (t) => {
-            // A. Devolver dinero al Banco
             if (accountRef) {
                 const accDoc = await t.get(accountRef);
                 if (accDoc.exists()) {
@@ -244,7 +290,6 @@ window.deleteExpense = async (id) => {
                 }
             }
 
-            // B. Resucitar Deuda (Update Payables)
             for (const item of payablesToReopen) {
                 const newPaid = item.currentPaid - item.subtract;
                 const newBalance = item.currentTotal - newPaid;
@@ -256,7 +301,6 @@ window.deleteExpense = async (id) => {
                 });
             }
 
-            // C. Mover a Papelera
             const trashRef = doc(db, "expenses_trash", id);
             t.set(trashRef, {
                 ...expenseData,
@@ -266,7 +310,6 @@ window.deleteExpense = async (id) => {
                 originalCollection: "expenses"
             });
 
-            // D. Eliminar Original
             t.delete(doc(db, "expenses", id));
         });
 
@@ -276,7 +319,7 @@ window.deleteExpense = async (id) => {
         }
         alert(msg);
         
-        reloadAll(); 
+        // NO hacemos reloadAll(). El onSnapshot repintará la tabla.
 
     } catch (e) {
         console.error(e);
@@ -297,7 +340,7 @@ window.openTrashModal = async () => {
 
         trashList.innerHTML = "";
         if (snap.empty) {
-            trashList.innerHTML = `<tr><td colspan="4" class="p-8 text-center text-gray-400 text-xs">Papelera vacía.</td></tr>`;
+            trashList.innerHTML = `<tr><td colspan="4" class="p-8 text-center text-gray-400 text-xs font-bold uppercase">Papelera vacía.</td></tr>`;
             return;
         }
 
@@ -330,7 +373,7 @@ window.openTrashModal = async () => {
     }
 };
 
-// 4. STATS
+// 4. STATS (1 Lectura usando AggregateFromServer)
 async function loadStats() {
     try {
         const coll = collection(db, "expenses");
@@ -362,45 +405,8 @@ async function loadStats() {
     }
 }
 
-// 5. BUSCADOR
-let searchTimeout = null;
-searchInput.addEventListener('input', (e) => {
-    const term = e.target.value.trim();
-    if (term.length === 0) { lastDoc = null; loadExpenses(false); return; }
 
-    clearTimeout(searchTimeout);
-    searchTimeout = setTimeout(async () => {
-        listContainer.innerHTML = `<tr><td colspan="7" class="p-8 text-center"><i class="fa-solid fa-circle-notch fa-spin text-brand-cyan"></i> Buscando...</td></tr>`;
-        loadMoreBtn.classList.add('hidden');
-
-        try {
-            const termCap = term.charAt(0).toUpperCase() + term.slice(1).toLowerCase();
-            const q = query(
-                collection(db, "expenses"), 
-                where("type", "==", "EXPENSE"),
-                orderBy('supplierName'), 
-                startAt(termCap), 
-                endAt(termCap + '\uf8ff'), 
-                limit(20)
-            );
-
-            const snap = await getDocs(q);
-            listContainer.innerHTML = "";
-            
-            if(snap.empty) {
-                listContainer.innerHTML = `<tr><td colspan="7" class="p-8 text-center text-gray-400">No encontrado</td></tr>`;
-            } else {
-                const results = snap.docs.map(d => {
-                    const data = d.data();
-                    return { id: d.id, ...data, dateObj: data.date.toDate() };
-                });
-                renderTable(results);
-            }
-        } catch(e) { console.error(e); }
-    }, 500);
-});
-
-// 6. PROVEEDORES
+// --- FORMULARIO Y CREACIÓN ---
 let supplierTimeout = null;
 supplierSearch.addEventListener('input', (e) => {
     const term = e.target.value.trim();
@@ -546,11 +552,11 @@ form.addEventListener('submit', async (e) => {
 
         alert("✅ Gasto registrado");
         window.closeModal();
-        reloadAll();
-        loadAccounts(); 
+        // El onSnapshot de la tabla se encarga del update visual.
+        loadAccounts(); // Recargamos select para actualizar saldos visuales en el modal.
 
     } catch (error) { alert("Error: " + error.message); } 
-    finally { btn.disabled = false; btn.innerText = "Registrar Gasto y Descontar"; }
+    finally { btn.disabled = false; btn.innerText = "Registrar Gasto"; }
 });
 
 window.openModal = () => {

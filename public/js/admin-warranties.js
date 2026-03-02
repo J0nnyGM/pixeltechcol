@@ -1,4 +1,4 @@
-import { db, storage, collection, getDocs, orderBy, query, doc, updateDoc, addDoc, getDoc, runTransaction, ref, uploadBytes, getDownloadURL, limit, startAfter, where } from './firebase-init.js';
+import { db, storage, collection, getDocs, orderBy, query, doc, updateDoc, getDoc, runTransaction, ref, uploadBytes, getDownloadURL, limit, startAfter, where, onSnapshot } from './firebase-init.js';
 import { loadAdminSidebar } from './admin-ui.js';
 
 loadAdminSidebar();
@@ -17,8 +17,13 @@ let isLoading = false;
 let currentFilter = 'PENDING'; // Estado inicial: Solo pendientes
 const DOCS_PER_PAGE = 50;
 
-// --- 1. CARGAR LISTA (OPTIMIZADA + FILTROS) ---
-async function fetchWarranties(isNextPage = false) {
+let unsubscribeWarrantiesList = null;
+let adminWarrantiesCache = []; // RAM Cache para búsquedas instantáneas
+
+// ==========================================================================
+// 🧠 SMART REAL-TIME CACHE: LISTA DE GARANTÍAS
+// ==========================================================================
+function startWarrantiesListener(isNextPage = false) {
     if (isLoading) return;
     isLoading = true;
 
@@ -26,6 +31,9 @@ async function fetchWarranties(isNextPage = false) {
     if (!isNextPage) {
         table.innerHTML = `<tr><td colspan="6" class="p-10 text-center"><i class="fa-solid fa-circle-notch fa-spin text-brand-cyan"></i><p class="mt-2 text-xs font-bold text-gray-400">Cargando solicitudes...</p></td></tr>`;
         loadMoreBtn.classList.add('hidden');
+        
+        // Si empezamos de cero, apagamos el listener viejo
+        if (unsubscribeWarrantiesList) unsubscribeWarrantiesList();
     } else {
         const btn = loadMoreBtn.querySelector('button');
         btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Cargando...`;
@@ -35,70 +43,87 @@ async function fetchWarranties(isNextPage = false) {
         const refColl = collection(db, "warranties");
         let constraints = [];
 
-        // A. FILTROS DE ESTADO (Ahorro de lecturas)
+        // A. FILTROS DE ESTADO 
         if (currentFilter === 'PENDING') {
-            // Buscamos tanto 'PENDIENTE' como 'PENDIENTE_REVISION' para asegurar compatibilidad
             constraints.push(where("status", "in", ["PENDIENTE", "PENDIENTE_REVISION"]));
         } else if (currentFilter === 'APPROVED') {
             constraints.push(where("status", "==", "APROBADO"));
         } else if (currentFilter === 'REJECTED') {
             constraints.push(where("status", "==", "RECHAZADO"));
         }
-        // 'ALL' no agrega filtro, trae todo el historial.
 
-        // B. ORDENAMIENTO
         constraints.push(orderBy("createdAt", "desc"));
 
-        // C. PAGINACIÓN
+        // B. EJECUCIÓN HÍBRIDA (Paginación = getDocs, Página 1 = onSnapshot)
         if (isNextPage && lastVisible) {
             constraints.push(startAfter(lastVisible));
-        }
-
-        // D. LÍMITE
-        constraints.push(limit(DOCS_PER_PAGE));
-
-        const q = query(refColl, ...constraints);
-        const snapshot = await getDocs(q); // Variable correcta: snapshot
-
-        if (!isNextPage) table.innerHTML = "";
-
-        if (snapshot.empty) {
-            if (!isNextPage) table.innerHTML = `<tr><td colspan="6" class="p-10 text-center text-xs font-bold text-gray-400 uppercase">No hay solicitudes en esta sección.</td></tr>`;
-            loadMoreBtn.classList.add('hidden');
-            isLoading = false;
-            return;
-        }
-
-        // --- CORRECCIÓN DEL ERROR ---
-        // Antes decía 'snap.docs', ahora usamos 'snapshot.docs' correctamente.
-        lastVisible = snapshot.docs[snapshot.docs.length - 1];
-
-        // Botón Ver Más
-        if (snapshot.docs.length === DOCS_PER_PAGE) {
-            loadMoreBtn.classList.remove('hidden');
-            loadMoreBtn.querySelector('button').innerHTML = `<i class="fa-solid fa-circle-plus"></i> Cargar siguientes 50`;
+            constraints.push(limit(DOCS_PER_PAGE));
+            
+            const q = query(refColl, ...constraints);
+            getDocs(q).then(snapshot => handleSnapshotResult(snapshot, true)).catch(e => {
+                console.error("Error Paginación Garantías:", e);
+                isLoading = false;
+            });
+            
         } else {
-            loadMoreBtn.classList.add('hidden');
+            constraints.push(limit(DOCS_PER_PAGE));
+            const q = query(refColl, ...constraints);
+            
+            unsubscribeWarrantiesList = onSnapshot(q, (snapshot) => {
+                handleSnapshotResult(snapshot, false);
+            }, (error) => {
+                console.error("Error Live Warranties:", error);
+                const msg = error.message.includes("indexes") 
+                    ? "Falta un índice en Firebase. Abre la consola (F12) y haz clic en el enlace." 
+                    : "Error de conexión en vivo.";
+                if(!isNextPage) table.innerHTML = `<tr><td colspan="6" class="text-center text-red-400 font-bold p-10 text-xs">${msg}</td></tr>`;
+            });
         }
-
-        // Renderizar
-        snapshot.forEach(d => {
-            renderWarrantyRow({ id: d.id, ...d.data() });
-        });
 
     } catch (e) { 
-        console.error(e);
-        const msg = e.message.includes("indexes") 
-            ? "Falta un índice en Firebase. Abre la consola (F12) y haz clic en el enlace." 
-            : "Error de conexión.";
-        if(!isNextPage) table.innerHTML = `<tr><td colspan="6" class="text-center text-red-400 font-bold p-10 text-xs">${msg}</td></tr>`;
-    } finally {
+        console.error("Error configurando query de garantías:", e);
         isLoading = false;
     }
 }
 
+function handleSnapshotResult(snapshot, isNextPage) {
+    if (!isNextPage) {
+        table.innerHTML = "";
+        adminWarrantiesCache = []; // Reiniciamos RAM
+    }
+
+    if (snapshot.empty) {
+        if (!isNextPage) table.innerHTML = `<tr><td colspan="6" class="p-10 text-center text-xs font-bold text-gray-400 uppercase">No hay solicitudes en esta sección.</td></tr>`;
+        loadMoreBtn.classList.add('hidden');
+        isLoading = false;
+        return;
+    }
+
+    // Actualizamos lastVisible solo si NO es un docChange en vivo para no dañar paginación
+    if (snapshot.docs.length > 0 && !snapshot.metadata.hasPendingWrites) {
+        lastVisible = snapshot.docs[snapshot.docs.length - 1];
+    }
+
+    // Botón Ver Más
+    if (snapshot.docs.length === DOCS_PER_PAGE) {
+        loadMoreBtn.classList.remove('hidden');
+        loadMoreBtn.querySelector('button').innerHTML = `<i class="fa-solid fa-circle-plus"></i> Cargar siguientes 50`;
+    } else {
+        loadMoreBtn.classList.add('hidden');
+    }
+
+    // Renderizar
+    snapshot.forEach(d => {
+        const warrantyData = { id: d.id, ...d.data() };
+        adminWarrantiesCache.push(warrantyData);
+        renderWarrantyRow(warrantyData);
+    });
+
+    isLoading = false;
+}
+
 // Globales
-window.loadMoreWarranties = () => fetchWarranties(true);
+window.loadMoreWarranties = () => startWarrantiesListener(true);
 
 window.filterTab = (status) => {
     if(isLoading) return;
@@ -108,11 +133,9 @@ window.filterTab = (status) => {
 
     // Actualizar UI de botones
     document.querySelectorAll('.tab-btn').forEach(btn => {
-        // Reset estilos inactivos
         btn.className = "tab-btn px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest bg-white text-gray-400 border border-gray-200 hover:text-brand-black hover:border-gray-300 transition-all whitespace-nowrap cursor-pointer";
     });
     
-    // Estilo activo
     const activeId = status === 'PENDING' ? 'tab-pending' : 
                      status === 'APPROVED' ? 'tab-approved' : 
                      status === 'REJECTED' ? 'tab-rejected' : 'tab-all';
@@ -127,7 +150,7 @@ window.filterTab = (status) => {
         activeBtn.className = `tab-btn px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all whitespace-nowrap cursor-default ${colorClass}`;
     }
 
-    fetchWarranties(false);
+    startWarrantiesListener(false);
 };
 
 function renderWarrantyRow(w) {
@@ -152,8 +175,8 @@ function renderWarrantyRow(w) {
                 <p class="text-[9px] font-black text-gray-400 uppercase tracking-widest">#${w.orderId ? w.orderId.slice(0,6) : '---'}</p>
             </td>
             <td class="px-8 py-6">
-                <p class="text-xs font-black uppercase text-brand-black">${w.userName}</p>
-                <p class="text-[9px] text-gray-400 font-bold">${w.userEmail}</p>
+                <p class="text-xs font-black uppercase text-brand-black">${w.userName || 'Cliente'}</p>
+                <p class="text-[9px] text-gray-400 font-bold">${w.userEmail || ''}</p>
             </td>
             <td class="px-8 py-6">
                 <div class="flex items-center gap-2">
@@ -173,24 +196,41 @@ function renderWarrantyRow(w) {
     `;
 }
 
-// --- 2. BÚSQUEDA HÍBRIDA (CORREGIDO: SENSITIVIDAD DE CASO) ---
+// --- 2. BÚSQUEDA HÍBRIDA (RAM + SERVIDOR) ---
 if (searchInput) {
     searchInput.addEventListener('keyup', (e) => {
-        const rawTerm = e.target.value.trim(); // Texto original (para servidor)
-        const lowerTerm = rawTerm.toLowerCase(); // Texto minúscula (para filtro visual)
+        const rawTerm = e.target.value.trim(); 
+        const lowerTerm = rawTerm.toLowerCase(); 
 
-        // A. BÚSQUEDA REAL EN SERVIDOR (ENTER)
-        if (e.key === 'Enter' && rawTerm.length > 0) {
-            performServerSearch(rawTerm); // Enviamos el término EXACTO
+        // Si el usuario borra todo, restaura desde RAM
+        if (lowerTerm.length === 0) {
+            table.innerHTML = "";
+            adminWarrantiesCache.forEach(w => renderWarrantyRow(w));
             return;
         }
 
-        // B. FILTRO LOCAL (Mientras escribe)
-        const rows = document.querySelectorAll('#warranties-table tr');
-        rows.forEach(row => {
-            const text = row.innerText.toLowerCase();
-            row.style.display = text.includes(lowerTerm) ? '' : 'none';
+        // A. BÚSQUEDA REAL EN SERVIDOR (ENTER)
+        if (e.key === 'Enter' && rawTerm.length > 0) {
+            performServerSearch(rawTerm); 
+            return;
+        }
+
+        // B. FILTRO LOCAL EN RAM (Mientras escribe)
+        table.innerHTML = "";
+        const results = adminWarrantiesCache.filter(w => {
+            const idMatch = w.id.toLowerCase().includes(lowerTerm);
+            const orderMatch = (w.orderId || "").toLowerCase().includes(lowerTerm);
+            const snMatch = (w.snProvided || "").toLowerCase().includes(lowerTerm);
+            const nameMatch = (w.userName || "").toLowerCase().includes(lowerTerm);
+            
+            return idMatch || orderMatch || snMatch || nameMatch;
         });
+
+        if (results.length === 0) {
+            table.innerHTML = `<tr><td colspan="6" class="p-10 text-center text-xs font-bold text-gray-400 uppercase">No visible en caché. Pulsa Enter para buscar a fondo.</td></tr>`;
+        } else {
+            results.forEach(w => renderWarrantyRow(w));
+        }
     });
 }
 
@@ -198,23 +238,26 @@ async function performServerSearch(term) {
     if(isLoading) return;
     isLoading = true;
 
-    table.innerHTML = `<tr><td colspan="6" class="p-10 text-center"><i class="fa-solid fa-search fa-bounce text-brand-cyan"></i> Buscando...</td></tr>`;
+    // Apagar live listener durante la búsqueda
+    if(unsubscribeWarrantiesList) unsubscribeWarrantiesList();
+
+    table.innerHTML = `<tr><td colspan="6" class="p-10 text-center"><i class="fa-solid fa-search fa-bounce text-brand-cyan"></i> Buscando a fondo...</td></tr>`;
     loadMoreBtn.classList.add('hidden');
 
     try {
         const refColl = collection(db, "warranties");
         const promises = [];
 
-        // 1. Por ID directo (Sensible a mayúsculas/minúsculas)
-        promises.push(getDoc(doc(db, "warranties", term)).then(s => s.exists() ? [s] : []));
+        // 1. Por ID directo
+        promises.push(getDoc(doc(db, "warranties", term)).then(s => s.exists() ? [{ id: s.id, ...s.data() }] : []));
         
         // 2. Por Order ID (Exacto)
         const qOrder = query(refColl, where("orderId", "==", term));
-        promises.push(getDocs(qOrder).then(s => s.docs));
+        promises.push(getDocs(qOrder).then(s => s.docs.map(d => ({ id: d.id, ...d.data() }))));
 
         // 3. Por Serial (Exacto)
         const qSn = query(refColl, where("snProvided", "==", term));
-        promises.push(getDocs(qSn).then(s => s.docs));
+        promises.push(getDocs(qSn).then(s => s.docs.map(d => ({ id: d.id, ...d.data() }))));
 
         const results = await Promise.all(promises);
         const flatResults = results.flat();
@@ -226,14 +269,14 @@ async function performServerSearch(term) {
         table.innerHTML = "";
         
         if (unique.size > 0) {
-            unique.forEach(d => renderWarrantyRow({ id: d.id, ...d.data() }));
+            unique.forEach(d => renderWarrantyRow(d));
         } else {
             table.innerHTML = `<tr><td colspan="6" class="p-10 text-center text-xs font-bold text-gray-400 uppercase">No se encontró solicitud con ese ID, Orden o Serial exacto.</td></tr>`;
         }
 
     } catch(e) {
         console.error(e);
-        fetchWarranties(false);
+        window.filterTab(currentFilter); // Restaurar si falla
     } finally {
         isLoading = false;
     }
@@ -253,6 +296,7 @@ async function uploadPDF(warrantyId) {
 
 // --- 4. ABRIR MODAL DE GESTIÓN ---
 window.openManageModal = async (id) => {
+    // Leemos fresco de firebase para asegurar que no chocamos con otro admin editando lo mismo
     const snap = await getDoc(doc(db, "warranties", id));
     if(!snap.exists()) return;
     
@@ -265,8 +309,8 @@ window.openManageModal = async (id) => {
     document.getElementById('m-prod-name').textContent = w.productName;
     document.getElementById('m-sn').textContent = w.snProvided;
     
-    document.getElementById('m-user-name').textContent = w.userName;
-    document.getElementById('m-user-email').textContent = w.userEmail;
+    document.getElementById('m-user-name').textContent = w.userName || 'Cliente';
+    document.getElementById('m-user-email').textContent = w.userEmail || '';
     document.getElementById('m-order-id').textContent = `ORDEN: #${w.orderId ? w.orderId.slice(0,8) : 'NA'}`;
     document.getElementById('m-reason').textContent = `"${w.reason}"`;
 
@@ -285,7 +329,7 @@ window.openManageModal = async (id) => {
                     phoneEl.textContent = phone;
                     let cleanPhone = phone.replace(/\D/g, '');
                     if(cleanPhone.length === 10) cleanPhone = '57' + cleanPhone; 
-                    waLink.href = `https://wa.me/${cleanPhone}?text=Hola ${w.userName.split(' ')[0]}, te contactamos de PixelTech respecto a tu garantía #${w.id}`;
+                    waLink.href = `https://wa.me/${cleanPhone}?text=Hola ${w.userName ? w.userName.split(' ')[0] : 'Cliente'}, te contactamos de PixelTech respecto a tu garantía #${w.id.slice(0,6)}`;
                     waLink.classList.remove('hidden');
                 } else {
                     phoneEl.textContent = "Sin teléfono registrado";
@@ -419,7 +463,8 @@ window.confirmResolution = async () => {
         alert("✅ Garantía procesada.");
         resolutionModal.classList.add('hidden');
         closeManageModal();
-        fetchWarranties(false); // Recargar lista
+        
+        // NO necesitamos llamar a fetchWarranties(), el onSnapshot actualizará la lista.
 
     } catch (e) {
         console.error(e);
@@ -450,7 +495,8 @@ window.rejectWarranty = async () => {
 
         alert("⛔ Garantía Rechazada.");
         closeManageModal();
-        fetchWarranties(false);
+        
+        // NO necesitamos llamar a fetchWarranties(), el onSnapshot actualizará la lista.
 
     } catch (e) { 
         console.error(e); 
@@ -461,4 +507,4 @@ window.rejectWarranty = async () => {
 };
 
 // Iniciar
-fetchWarranties();
+startWarrantiesListener(false);

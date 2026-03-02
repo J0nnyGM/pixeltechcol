@@ -18,7 +18,7 @@
     </style>
 </head>
 
-<body class="bg-gray-100 font-sans text-brand-black flex h-screen overflow-hidden">
+<body class="bg-gray-100 font-sans text-brand-black flex h-screen overflow-hidden" style="display: none;">
     <div id="admin-sidebar"></div>
     <main class="flex-grow overflow-y-auto bg-slate-50 relative custom-scroll">
         <header class="bg-white border-b border-gray-200 px-8 py-4 flex justify-between items-center sticky top-0 z-10">
@@ -140,6 +140,7 @@
         import { loadAdminSidebar } from '../js/admin-ui.js';
         loadAdminSidebar();
     </script>
+    <script type="module" src="../js/admin-guard.js"></script>
     <script type="module" src="../js/admin-clients.js"></script>
 </body>
 </html>

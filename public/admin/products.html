@@ -35,7 +35,7 @@
 </head>
 
 <body
-    class="bg-slate-50 font-sans text-brand-black flex h-screen overflow-hidden selection:bg-brand-cyan selection:text-white">
+    class="bg-slate-50 font-sans text-brand-black flex h-screen overflow-hidden selection:bg-brand-cyan selection:text-white" style="display: none;">
 
     <div id="admin-sidebar"></div>
 
@@ -129,78 +129,62 @@
         </div>
     </main>
 
-    <div id="discount-modal"
-        class="fixed inset-0 z-50 hidden flex items-center justify-center p-4 bg-slate-900/90 backdrop-blur-sm">
-        <div class="bg-white w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl animate-in zoom-in-95">
+    <div id="discount-modal" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4 bg-slate-900/90 backdrop-blur-sm">
+        <div class="bg-white w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl animate-in zoom-in-95 max-h-[90vh] overflow-y-auto no-scrollbar">
             <div class="flex justify-between items-center mb-6">
                 <div>
-                    <h3 class="text-xl font-black uppercase text-brand-black">Aplicar <span
-                            class="text-brand-cyan">Descuento</span></h3>
+                    <h3 class="text-xl font-black uppercase text-brand-black">Aplicar <span class="text-brand-cyan">Descuento</span></h3>
                     <p id="d-prod-name" class="text-xs font-bold text-gray-400 mt-1">Producto...</p>
                 </div>
-                <button onclick="closeDiscountModal()"
-                    class="w-10 h-10 rounded-full bg-slate-50 text-gray-400 hover:text-red-500 transition flex items-center justify-center">
+                <button onclick="closeDiscountModal()" class="w-10 h-10 rounded-full bg-slate-50 text-gray-400 hover:text-red-500 transition flex items-center justify-center">
                     <i class="fa-solid fa-xmark"></i>
                 </button>
             </div>
 
             <form id="discount-form" class="space-y-5">
-                <div class="flex gap-4">
+                
+                <div id="single-price-container" class="flex gap-4">
                     <div class="w-1/2">
-                        <label class="block text-[9px] font-black text-gray-400 uppercase tracking-widest mb-2">Precio
-                            Original</label>
-                        <input type="text" id="d-original-price" disabled
-                            class="w-full bg-gray-50 border border-gray-100 rounded-xl p-3 text-sm font-bold text-gray-400 cursor-not-allowed">
+                        <label class="block text-[9px] font-black text-gray-400 uppercase tracking-widest mb-2">Precio Original</label>
+                        <input type="text" id="d-original-price" disabled class="w-full bg-gray-50 border border-gray-100 rounded-xl p-3 text-sm font-bold text-gray-400 cursor-not-allowed">
                     </div>
                     <div class="w-1/2">
-                        <label class="block text-[9px] font-black text-brand-cyan uppercase tracking-widest mb-2">Precio
-                            Oferta</label>
-                        <input type="number" id="d-new-price" required
-                            class="w-full bg-white border-2 border-brand-cyan/20 rounded-xl p-3 text-sm font-black text-brand-black outline-none focus:border-brand-cyan transition shadow-sm">
+                        <label class="block text-[9px] font-black text-brand-cyan uppercase tracking-widest mb-2">Precio Oferta</label>
+                        <input type="text" id="d-new-price" class="currency-input w-full bg-white border-2 border-brand-cyan/20 rounded-xl p-3 text-sm font-black text-brand-black outline-none focus:border-brand-cyan transition shadow-sm" placeholder="$ 0">
                     </div>
                 </div>
+
+                <div id="variants-discount-container" class="hidden flex flex-col gap-2 max-h-48 overflow-y-auto pr-1 no-scrollbar border border-gray-100 rounded-xl p-3 bg-slate-50">
+                    </div>
 
                 <hr class="border-gray-100">
 
                 <div>
-                    <label class="block text-[9px] font-black text-gray-400 uppercase tracking-widest mb-3">Duración de
-                        la Promoción</label>
-
+                    <label class="block text-[9px] font-black text-gray-400 uppercase tracking-widest mb-3">Duración de la Promoción</label>
                     <div class="flex bg-slate-50 p-1 rounded-xl mb-4">
-                        <button type="button" onclick="toggleDurationType('days')" id="btn-type-days"
-                            class="flex-1 py-2 rounded-lg text-[10px] font-black uppercase transition-all bg-white shadow-sm text-brand-black">Por
-                            Días</button>
-                        <button type="button" onclick="toggleDurationType('date')" id="btn-type-date"
-                            class="flex-1 py-2 rounded-lg text-[10px] font-black uppercase transition-all text-gray-400 hover:text-brand-black">Hasta
-                            Fecha</button>
+                        <button type="button" onclick="toggleDurationType('days')" id="btn-type-days" class="flex-1 py-2 rounded-lg text-[10px] font-black uppercase transition-all bg-white shadow-sm text-brand-black">Por Días</button>
+                        <button type="button" onclick="toggleDurationType('date')" id="btn-type-date" class="flex-1 py-2 rounded-lg text-[10px] font-black uppercase transition-all text-gray-400 hover:text-brand-black">Hasta Fecha</button>
                     </div>
 
                     <div id="input-days-container">
                         <div class="relative">
-                            <input type="number" id="d-duration-days" placeholder="Ej: 3"
-                                class="w-full bg-white border border-gray-200 rounded-xl p-3 text-sm font-bold outline-none focus:border-brand-cyan">
-                            <span
-                                class="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400">Días</span>
+                            <input type="number" id="d-duration-days" placeholder="Ej: 3" class="w-full bg-white border border-gray-200 rounded-xl p-3 text-sm font-bold outline-none focus:border-brand-cyan">
+                            <span class="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400">Días</span>
                         </div>
-                        <p class="text-[9px] text-gray-400 mt-2 italic">La oferta expirará automáticamente después de
-                            estos días.</p>
+                        <p class="text-[9px] text-gray-400 mt-2 italic">La oferta expirará automáticamente.</p>
                     </div>
 
                     <div id="input-date-container" class="hidden">
-                        <input type="datetime-local" id="d-duration-date"
-                            class="w-full bg-white border border-gray-200 rounded-xl p-3 text-xs font-bold outline-none focus:border-brand-cyan text-gray-600">
-                        <p class="text-[9px] text-gray-400 mt-2 italic">La oferta expirará en la fecha y hora
-                            seleccionada.</p>
+                        <input type="datetime-local" id="d-duration-date" class="w-full bg-white border border-gray-200 rounded-xl p-3 text-sm font-bold outline-none focus:border-brand-cyan text-gray-600">
+                        <p class="text-[9px] text-brand-cyan mt-2 italic font-bold">Ajusta la fecha y hora de expiración.</p>
                     </div>
                 </div>
 
                 <div class="pt-4 flex gap-3">
-                    <button type="button" onclick="removeDiscount()" id="btn-remove-discount"
-                        class="hidden flex-1 bg-red-50 text-red-500 py-3 rounded-xl font-black text-[10px] uppercase hover:bg-red-500 hover:text-white transition">
-                        Quitar Oferta
+                    <button type="button" onclick="removeDiscount()" id="btn-remove-discount" class="hidden flex-1 bg-red-50 text-red-500 py-3 rounded-xl font-black text-[10px] uppercase hover:bg-red-500 hover:text-white transition shadow-sm">
+                        Quitar
                     </button>
-                    <button type="submit"
-                        class="flex-[2] bg-brand-black text-white py-3 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-brand-cyan hover:text-brand-black transition shadow-lg">
+                    <button type="submit" class="flex-[2] bg-brand-black text-white py-3 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-brand-cyan hover:text-brand-black transition shadow-lg">
                         Aplicar Descuento
                     </button>
                 </div>
@@ -209,6 +193,7 @@
     </div>
 
     <script type="module" src="../js/admin-inventory.js"></script>
+    <script type="module" src="../js/admin-guard.js"></script>
 </body>
 
 </html>

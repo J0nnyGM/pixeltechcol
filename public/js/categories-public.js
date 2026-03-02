@@ -1,4 +1,4 @@
-import { db, collection, getDocs, query, orderBy, where } from "./firebase-init.js";
+import { db, collection, query, orderBy, where, onSnapshot } from "./firebase-init.js";
 
 const mainGrid = document.getElementById('categories-grid');
 const subGrid = document.getElementById('subcategories-grid');
@@ -12,23 +12,36 @@ let categoriesData = [];
 
 // Claves de almacenamiento
 const STORAGE_KEY = 'pixeltech_categories';
-const SYNC_KEY = 'pixeltech_cat_last_sync';
+let isListening = false; // Evita múltiples conexiones simultáneas
 
 // ==========================================================================
-// 🧠 SMART DELTA SYNC (Sincronización Incremental Real)
+// 🧠 SMART REAL-TIME CACHE (Máxima Eficiencia con onSnapshot)
 // ==========================================================================
-async function loadCategories() {
-    // 1. CARGA INICIAL (CACHE)
+function loadCategories() {
+    // 1. CARGA INICIAL (Instantánea desde Memoria)
     const cachedRaw = localStorage.getItem(STORAGE_KEY);
-    // Recuperamos la fecha de la última actualización (o 0 si es la primera vez)
-    let lastSyncTime = parseInt(localStorage.getItem(SYNC_KEY) || '0');
+    let lastSyncTime = 0;
 
     if (cachedRaw) {
         try {
-            categoriesData = JSON.parse(cachedRaw);
-            if (categoriesData.length > 0) {
-                console.log(`⚡ [DeltaSync] Cargadas ${categoriesData.length} categorías de memoria.`);
-                renderMainGrid(); // Mostramos inmediato
+            const parsed = JSON.parse(cachedRaw);
+            
+            // Validación de la nueva estructura de caché
+            const isCacheValid = parsed.map && parsed.lastSync;
+            
+            if (!isCacheValid) {
+                console.warn("⚠️ Caché de categorías antiguo o corrupto. Limpiando...");
+                categoriesData = [];
+                lastSyncTime = 0;
+                localStorage.removeItem(STORAGE_KEY);
+            } else {
+                categoriesData = Object.values(parsed.map || {});
+                lastSyncTime = parsed.lastSync || 0;
+
+                if (categoriesData.length > 0) {
+                    console.log(`⚡ [Categories] Cargadas ${categoriesData.length} categorías de caché instantáneo.`);
+                    renderMainGrid();
+                }
             }
         } catch (e) {
             console.warn("Caché corrupto, reiniciando...");
@@ -37,73 +50,86 @@ async function loadCategories() {
         }
     }
 
-    // 2. BUSCAR SOLO LO QUE CAMBIÓ (Deltas)
-    await fetchIncrements(lastSyncTime);
+    // 2. INICIAR ESCUCHA EN TIEMPO REAL (Solo Deltas)
+    listenForUpdates(lastSyncTime);
 }
 
-async function fetchIncrements(lastSyncTime) {
-    try {
-        console.log("🕵️ [DeltaSync] Buscando actualizaciones desde:", new Date(lastSyncTime).toLocaleString());
-        
-        let q;
-        const colRef = collection(db, "categories");
+function listenForUpdates(lastSyncTime) {
+    if (isListening) return;
+    isListening = true;
 
-        if (lastSyncTime === 0 || categoriesData.length === 0) {
-            // CASO A: Primera vez (Descarga Todo)
-            console.log("☁️ Descarga completa inicial...");
-            q = query(colRef); // Sin filtros, trae todo
-        } else {
-            // CASO B: Actualización Incremental (Solo cambios)
-            // REQUISITO: Tus categorías deben tener campo 'updatedAt'
-            q = query(colRef, where("updatedAt", ">", new Date(lastSyncTime)));
-        }
+    const colRef = collection(db, "categories");
+    let q;
 
-        const snapshot = await getDocs(q);
+    // CASO 1: Primera vez (Descarga Todo)
+    if (lastSyncTime === 0 || categoriesData.length === 0) {
+        console.log("☁️ [Categories] Descarga completa inicial y activando tiempo real...");
+        q = query(colRef); 
+    } 
+    // CASO 2: Actualización Incremental (Solo cambios)
+    else {
+        console.log("🔄 [Categories] Escuchando actualizaciones en la nube desde:", new Date(lastSyncTime).toLocaleString());
+        q = query(colRef, where("updatedAt", ">", new Date(lastSyncTime)));
+    }
 
+    onSnapshot(q, (snapshot) => {
         if (snapshot.empty) {
-            console.log("✅ [DeltaSync] Todo al día. 0 cambios.");
-            // Actualizamos el timestamp para que la próxima consulta sea desde "ahora"
-            // aunque no haya habido cambios, para mantener la ventana de tiempo corta.
-            localStorage.setItem(SYNC_KEY, Date.now().toString());
+            if (lastSyncTime !== 0) console.log("✅ [Categories] Caché 100% sincronizado.");
             return; 
         }
 
-        console.log(`🔥 [DeltaSync] Recibidos ${snapshot.size} cambios.`);
+        let hasChanges = false;
+        
+        // Transformamos categoriesData a Diccionario para fusiones O(1)
+        let runtimeMap = {};
+        categoriesData.forEach(c => runtimeMap[c.id] = c);
 
-        // 3. FUSIÓN (MERGE) EN MEMORIA
-        snapshot.forEach(doc => {
-            const newData = { id: doc.id, ...doc.data() };
-            
-            // Busamos si ya existe en nuestro array local
-            const index = categoriesData.findIndex(c => c.id === newData.id);
+        snapshot.docChanges().forEach(change => {
+            const data = change.doc.data();
+            const id = change.doc.id;
 
-            if (index > -1) {
-                // ACTUALIZAR: Si existe, reemplazamos
-                console.log(`🔄 Actualizando categoría: ${newData.name}`);
-                categoriesData[index] = newData;
-            } else {
-                // INSERTAR: Si no existe, agregamos
-                console.log(`✨ Nueva categoría: ${newData.name}`);
-                categoriesData.push(newData);
+            if (change.type === 'added' || change.type === 'modified') {
+                runtimeMap[id] = { id, ...data };
+                hasChanges = true;
+            } else if (change.type === 'removed') {
+                if (runtimeMap[id]) {
+                    delete runtimeMap[id];
+                    hasChanges = true;
+                }
             }
         });
 
-        // 4. ORDENAR Y GUARDAR
-        // Como mezclamos datos, el orden puede haberse perdido. Reordenamos alfabéticamente.
-        categoriesData.sort((a, b) => a.name.localeCompare(b.name));
+        if (hasChanges) {
+            console.log(`🔥 [Categories] Tiempo real: Procesando ${snapshot.docChanges().length} modificaciones.`);
+            
+            // Volver a convertir en Array y Ordenar
+            categoriesData = Object.values(runtimeMap);
+            categoriesData.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
 
-        // Guardamos el nuevo estado completo
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(categoriesData));
-        localStorage.setItem(SYNC_KEY, Date.now().toString());
+            // Guardar Estado Inteligente
+            const stateToSave = {
+                map: runtimeMap,
+                lastSync: Date.now()
+            };
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(stateToSave));
 
-        // Re-renderizamos la vista con los datos frescos
-        renderMainGrid();
-
-    } catch (error) {
-        console.error("Error en DeltaSync:", error);
-        // Fallback: Si falla la query incremental (ej: falta índice), mostramos error en consola
-        // pero el usuario sigue viendo lo que había en caché.
-    }
+            // Re-renderizamos la vista principal con los datos frescos
+            renderMainGrid();
+            
+            // Si el usuario está viendo una subcategoría, actualizamos esa vista también si la categoría actual cambió
+            if (!subView.classList.contains('hidden') && currentCatNameEl.textContent) {
+                const currentCatIndex = categoriesData.findIndex(c => c.name === currentCatNameEl.textContent);
+                if (currentCatIndex !== -1) {
+                    window.showSubcategories(currentCatIndex); // Repinta la subcategoría en caliente
+                } else {
+                    // Si la categoría que estaba viendo fue borrada, lo regresamos al inicio
+                    window.showMainCategories();
+                }
+            }
+        }
+    }, (error) => {
+        console.error("Error en SmartSync Realtime Categories:", error);
+    });
 }
 
 // ==========================================================================

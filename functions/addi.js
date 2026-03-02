@@ -107,7 +107,7 @@ exports.createAddiCheckout = async (data, context) => {
             quantity: qty,
             color: item.color || "",
             capacity: item.capacity || "",
-            mainImage: pData.mainImage || pData.image || "https://pixeltechcol.web.app/img/logo.png"
+            mainImage: pData.mainImage || pData.image || "https://pixeltechcol.com/img/logo.png"
         });
     }
 
@@ -211,9 +211,9 @@ exports.createAddiCheckout = async (data, context) => {
         shippingAddress: addressObj,
         billingAddress: addressObj,
         allyUrlRedirection: {
-            logoUrl: "https://pixeltechcol.web.app/img/logo.png",
+            logoUrl: "https://pixeltechcol.com/img/logo.png",
             callbackUrl: WEBHOOK_URL,
-            redirectionUrl: `https://pixeltechcol.web.app/shop/success.html?order=${firebaseOrderId}`
+            redirectionUrl: `https://pixeltechcol.com/shop/success.html?order=${firebaseOrderId}`
         }
     };
 

@@ -20,7 +20,7 @@
     </style>
 </head>
 
-<body class="bg-slate-50 font-sans text-brand-black flex h-screen overflow-hidden selection:bg-brand-cyan selection:text-white">
+<body class="bg-slate-50 font-sans text-brand-black flex h-screen overflow-hidden selection:bg-brand-cyan selection:text-white" style="display: none;">
 
     <div id="admin-sidebar"></div>
 
@@ -220,17 +220,21 @@
 
 <script type="module">
         import '../js/admin-guard.js';
-        // Agregamos los nuevos imports aquí también:
-        import { db, collection, getDocs, orderBy, query, limit, auth, doc, getDoc, updateDoc, addDoc, where, getCountFromServer, getAggregateFromServer, sum } from '../js/firebase-init.js';
+        import { db, collection, getDocs, orderBy, query, limit, auth, doc, getDoc, where, getCountFromServer, getAggregateFromServer, sum, onSnapshot } from '../js/firebase-init.js';
         import { loadAdminSidebar } from '../js/admin-ui.js';
         import { initManualSale, openManualSaleModal } from '../js/manual-sale.js';
         import '../js/order-actions.js';
 
         loadAdminSidebar();
 
-        // Inicializar el modal de venta manual
+        // Controladores de Tiempo Real
+        let unsubscribeOrders = null;
+        let unsubscribePayables = null;
+        let isFirstLoad = true;
+
         initManualSale(() => {
-            fetchDashboardData(); 
+            // Ya no es necesario llamar fetchDashboardData manualmente aquí
+            // porque el onSnapshot detectará la venta manual y se actualizará solo.
         });
 
         document.getElementById('btn-open-manual').onclick = openManualSaleModal;
@@ -239,66 +243,98 @@
         const safeSetText = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
 
         auth.onAuthStateChanged(user => {
-            if (user) document.getElementById('admin-name').textContent = user.displayName || "Admin";
+            if (user) {
+                document.getElementById('admin-name').textContent = user.displayName || "Admin";
+                initRealtimeDashboard();
+            } else {
+                if(unsubscribeOrders) unsubscribeOrders();
+                if(unsubscribePayables) unsubscribePayables();
+            }
         });
 
-// --- DASHBOARD DATA (OPTIMIZADO: Paralelo + Agregaciones Reales) ---
+        // ==========================================================================
+        // 🧠 SMART REAL-TIME CACHE: DASHBOARD ADMIN
+        // ==========================================================================
+        function initRealtimeDashboard() {
+            if(unsubscribeOrders) unsubscribeOrders();
+            if(unsubscribePayables) unsubscribePayables();
+
+            const ordersRef = collection(db, "orders");
+            const payablesRef = collection(db, "payables");
+
+            // 1. VIGILANTE DE ÓRDENES (Dispara el recálculo general si algo cambia)
+            // Solo necesitamos saber si *algo* cambió, no traer todos los datos, por eso limitamos la query visual.
+            // Para el dashboard, vigilamos las ordenes más recientes.
+            const qRecentOrders = query(ordersRef, orderBy("createdAt", "desc"), limit(100));
+
+            unsubscribeOrders = onSnapshot(qRecentOrders, (snap) => {
+                let hasChanges = false;
+                
+                snap.docChanges().forEach(change => {
+                    // Si hay órdenes nuevas, modificadas (cambió de estado) o eliminadas
+                    if (['added', 'modified', 'removed'].includes(change.type)) {
+                        hasChanges = true;
+                    }
+                });
+
+                // En la primera carga siempre renderizamos, luego solo si hay cambios.
+                if (isFirstLoad || hasChanges) {
+                    if(!isFirstLoad) console.log("🔥 [Admin] Nueva orden o cambio detectado. Recalculando Dashboard...");
+                    fetchDashboardData();
+                }
+            }, (error) => console.error("Error vigilando órdenes:", error));
+
+            // 2. VIGILANTE DE CUENTAS POR PAGAR
+            const qPayable = query(payablesRef, where("status", "==", "PENDING"));
+            unsubscribePayables = onSnapshot(qPayable, () => {
+                if(!isFirstLoad) {
+                    console.log("💸 [Admin] Cambio en cuentas por pagar.");
+                    fetchDashboardData(); 
+                }
+            });
+        }
+
+        // --- DASHBOARD DATA (OPTIMIZADO: Agregaciones Reales) ---
         async function fetchDashboardData() {
             try {
                 // A. DEFINICIÓN DE CONSULTAS (Queries)
                 
-                // 1. VENTAS TOTALES (Filtro: Pagados/Entregados)
-                // Optimización: Suma en servidor (sin descargar docs)
-                const qIncome = query(
-                    collection(db, "orders"), 
-                    where("status", "in", ["PAGADO", "DESPACHADO", "ENTREGADO"])
-                );
+                // 1. VENTAS TOTALES (Suma en servidor)
+                const qIncome = query(collection(db, "orders"), where("status", "in", ["PAGADO", "DESPACHADO", "ENTREGADO"]));
                 
-                // 2. PEDIDOS POR ALISTAR (Operativo)
-                // Optimización: Conteo en servidor
-                const qPacking = query(
-                    collection(db, "orders"), 
-                    where("status", "in", ["PAGADO", "PENDIENTE"])
-                );
+                // 2. PEDIDOS POR ALISTAR (Conteo en servidor)
+                const qPacking = query(collection(db, "orders"), where("status", "in", ["PAGADO", "PENDIENTE"]));
                 
-                // 3. CARTERA / POR COBRAR (Financiero) -> ¡AQUÍ ESTÁ TU CORRECCIÓN!
-                // Optimización: Suma en servidor de TODOS los pendientes (sin límite)
-                // Nota: Usamos 'not-in' para excluir cancelados, asegurando que sume todo lo válido.
-                // *Si la consola pide crear un índice, haz clic en el enlace que te dé.*
+                // 3. CARTERA / POR COBRAR (Suma en servidor)
                 const qReceivable = query(
                     collection(db, "orders"), 
                     where("paymentStatus", "==", "PENDING"),
                     where("status", "not-in", ["CANCELADO", "RECHAZADO"]) 
                 );
 
-                // 4. DEUDA PROVEEDORES
-                const qPayable = query(
-                    collection(db, "payables"), 
-                    where("status", "==", "PENDING")
-                );
+                // 4. DEUDA PROVEEDORES (Suma en servidor)
+                const qPayable = query(collection(db, "payables"), where("status", "==", "PENDING"));
 
-                // 5. TABLA VISUAL (Limitada a 100 para velocidad)
-                // Esta query es SOLO para pintar la tabla, no afecta los números de arriba.
+                // 5. TABLA VISUAL (Limitada a 100)
                 const qOrdersTable = query(
                     collection(db, "orders"), 
                     where("status", "in", ["PAGADO", "PENDIENTE", "ALISTADO"]), 
                     orderBy("createdAt", "desc"), 
-                    limit(100) // Límite de seguridad visual
+                    limit(100) 
                 );
 
-                // 6. Referencias simples
                 const accountsRef = collection(db, "accounts");
                 const configRef = doc(db, "config", "shipping");
 
-                // B. EJECUCIÓN PARALELA (Disparamos todo a la vez para velocidad máxima)
+                // B. EJECUCIÓN PARALELA MÁXIMA
                 const [
-                    incomeSnap,      // Agregación
-                    packingSnap,     // Conteo
-                    receivableSnap,  // Agregación
-                    payableSnap,     // Docs (pocos)
-                    accountsSnap,    // Docs (pocos)
-                    ordersSnap,      // Docs (limitado a 100)
-                    configSnap       // Doc unitario
+                    incomeSnap,      
+                    packingSnap,     
+                    receivableSnap,  
+                    payableSnap,     
+                    accountsSnap,    
+                    ordersSnap,      
+                    configSnap       
                 ] = await Promise.all([
                     getAggregateFromServer(qIncome, { totalRevenue: sum('total') }),
                     getCountFromServer(qPacking),
@@ -309,31 +345,24 @@
                     getDoc(configRef)
                 ]);
 
-                // C. RENDERIZADO DE DATOS (KPIs)
+                // C. RENDERIZADO DE KPIs
 
-                // 1. Ventas
                 const totalIncome = incomeSnap.data().totalRevenue || 0;
                 safeSetText('stat-sales', `$${totalIncome.toLocaleString('es-CO')}`);
 
-                // 2. Tesorería (Suma manual, son pocos docs)
                 let totalTreasury = 0;
                 accountsSnap.forEach(d => totalTreasury += (d.data().balance || 0));
                 safeSetText('stat-treasury', `$${totalTreasury.toLocaleString('es-CO')}`);
 
-                // 3. Por Alistar (Conteo directo)
                 safeSetText('stat-packing', packingSnap.data().count);
 
-                // 4. Cartera (¡CORREGIDO! Usa la suma total del servidor, ignorando el límite de la tabla)
                 const totalReceivable = receivableSnap.data().totalDebt || 0;
                 safeSetText('stat-receivable', `$${totalReceivable.toLocaleString('es-CO')}`);
 
-                // 5. Por Pagar
                 const totalPayable = payableSnap.data().totalPayable || 0;
                 safeSetText('stat-payable', `$${totalPayable.toLocaleString('es-CO')}`);
 
-
-
-                // D. RENDERIZADO DE TABLA (Lógica de Corte)
+                // D. RENDERIZADO DE TABLA VIVA
                 if (!tableBody) return;
                 
                 const cutoffTimeStr = configSnap.exists() ? (configSnap.data().cutoffTime || "14:00") : "14:00";
@@ -346,6 +375,7 @@
 
                 if (ordersSnap.empty) {
                     tableBody.innerHTML = `<tr><td colspan="7" class="p-10 text-center text-xs text-brand-black font-bold uppercase">¡Todo al día! No hay pedidos pendientes.</td></tr>`;
+                    isFirstLoad = false;
                     return;
                 }
 
@@ -374,14 +404,14 @@
                     tomorrowOrders.forEach(o => renderRow(o));
                 }
 
+                isFirstLoad = false;
+
             } catch (e) { 
                 console.error("Error dashboard:", e); 
-                // En caso de error, el dashboard no se rompe, solo muestra los valores por defecto o anteriores
             }
         }
 
         function renderRow(o) {
-            // ... (El contenido de renderRow se queda EXACTAMENTE IGUAL, no es necesario copiarlo aquí, solo asegúrate de no borrarlo en tu archivo)
             const isTienda = o.source === 'TIENDA' || o.source === 'TIENDA_WEB';
             let sClass = 'bg-gray-100 text-gray-500', sText = o.status;
             if (o.status === 'PENDIENTE') { sClass = 'bg-yellow-100 text-yellow-700 border-yellow-200'; sText = 'Por Atender'; }
@@ -395,7 +425,6 @@
 
             const dateStr = o.createdAt?.toDate ? o.createdAt.toDate().toLocaleDateString('es-CO', {day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit'}) : '--';
 
-            // Botón Factura Azul
             const invoiceBtn = o.requiresInvoice 
                 ? `<span class="w-9 h-9 rounded-xl bg-blue-50 text-blue-500 border border-blue-100 flex items-center justify-center cursor-default" title="Factura Solicitada"><i class="fa-solid fa-check text-xs"></i></span>`
                 : `<button onclick="window.requestInvoice('${o.id}')" title="Solicitar Factura" class="w-9 h-9 rounded-xl bg-white border border-blue-200 text-blue-500 hover:bg-blue-500 hover:text-white transition shadow-sm flex items-center justify-center"><i class="fa-solid fa-file-invoice-dollar text-xs"></i></button>`;
@@ -427,8 +456,8 @@
                     </td>
                 </tr>`;
         }
-
-        fetchDashboardData();
     </script>
+    
+    <script type="module" src="../js/admin-guard.js"></script>
 </body>
 </html>

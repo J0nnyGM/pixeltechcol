@@ -19,7 +19,7 @@
         .transition-width { transition-property: width; transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1); transition-duration: 300ms; }
     </style>
 </head>
-<body class="bg-slate-50 font-sans text-brand-black">
+<body class="bg-slate-50 font-sans text-brand-black" style="display: none;">
 
     <audio id="notify-sound" src="https://assets.mixkit.co/active_storage/sfx/2354/2354-preview.mp3" preload="auto"></audio>
 
@@ -136,12 +136,11 @@
                     </div>
                 </div>
 
-                <div id="customer-info-panel" class="w-0 overflow-hidden bg-white shadow-xl transition-all duration-300 z-30 flex flex-col border-l border-gray-200 shrink-0 absolute right-0 h-full md:static max-w-full">
-                    <div class="p-4 bg-gray-50 border-b border-gray-200 flex justify-between items-center shrink-0 w-96">
-                        <h3 class="font-black text-sm uppercase tracking-wider text-brand-black flex items-center gap-2"><i class="fa-solid fa-box-open text-brand-cyan"></i> Historial Pedidos</h3>
+                <div id="customer-info-panel" class="w-0 max-w-0 opacity-0 border-transparent overflow-hidden bg-white shadow-xl transition-all duration-300 z-30 flex flex-col shrink-0 absolute right-0 h-full md:static">                        
+                    <div class="p-4 bg-gray-50 border-b border-gray-200 flex justify-between items-center shrink-0 w-full min-w-[24rem]"> <h3 class="font-black text-sm uppercase tracking-wider text-brand-black flex items-center gap-2"><i class="fa-solid fa-box-open text-brand-cyan"></i> Historial Pedidos</h3>
                         <button id="close-info-panel" class="text-gray-400 hover:text-brand-red"><i class="fa-solid fa-xmark"></i></button>
                     </div>
-                    <div class="flex-1 overflow-y-auto chat-scroll p-6 space-y-6 w-96">
+                    <div class="flex-1 overflow-y-auto chat-scroll p-6 space-y-6 w-full min-w-[24rem]">
                         <div class="flex items-center gap-3 bg-slate-50 p-3 rounded-xl border border-gray-100">
                              <div class="w-10 h-10 rounded-full bg-white border border-gray-100 flex items-center justify-center text-gray-400"><i class="fa-regular fa-user"></i></div>
                              <div class="min-w-0"><h2 id="info-name" class="text-xs font-black text-brand-black truncate">...</h2><p id="info-phone" class="text-[10px] font-mono text-gray-500">...</p></div>
@@ -211,5 +210,6 @@
         onAuthStateChanged(auth, (user) => { if (!user) window.location.href = '/auth/login.html'; });
     </script>
     <script type="module" src="../js/admin-whatsapp.js"></script>
+    <script type="module" src="../js/admin-guard.js"></script>
 </body>
 </html>

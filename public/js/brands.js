@@ -1,40 +1,39 @@
-import { db, collection, getDocs, query, orderBy, where } from "./firebase-init.js";
+import { db, collection, query, orderBy, where, onSnapshot } from "./firebase-init.js";
 
 const grid = document.getElementById('brands-grid');
 
 // Variables de estado
 let brandsData = [];
 const STORAGE_KEY = 'pixeltech_brands';
-const SYNC_KEY = 'pixeltech_brands_last_sync';
-
-// CONFIGURACIÓN DE AHORRO
-const SYNC_TTL = 1000 * 60 * 10; // 10 Minutos (Tiempo de vida de la caché)
+let isListening = false; // Evita abrir múltiples canales de WebSockets
 
 // ==========================================================================
-// 🧠 SMART DELTA SYNC + TTL (Máxima Eficiencia)
+// 🧠 SMART REAL-TIME CACHE (Máxima Eficiencia con onSnapshot)
 // ==========================================================================
-async function loadBrands() {
-    // 1. CARGA INICIAL
+function loadBrands() {
+    // 1. CARGA INICIAL (Instantánea desde Memoria)
     const cachedRaw = localStorage.getItem(STORAGE_KEY);
-    let lastSyncTime = parseInt(localStorage.getItem(SYNC_KEY) || '0');
-    const now = Date.now();
+    let lastSyncTime = 0;
 
     if (cachedRaw) {
         try {
             const parsed = JSON.parse(cachedRaw);
             
             // Validación de integridad
-            const isCacheValid = parsed.length === 0 || (parsed[0] && parsed[0].id);
+            const isCacheValid = parsed.map && parsed.lastSync;
             
             if (!isCacheValid) {
-                console.warn("⚠️ Caché antigua. Limpiando...");
+                console.warn("⚠️ Caché antigua o corrupta. Limpiando...");
                 brandsData = [];
                 lastSyncTime = 0; 
                 localStorage.removeItem(STORAGE_KEY);
             } else {
-                brandsData = parsed;
+                // El caché ahora se guarda como un objeto { map: {...}, lastSync: 12345 }
+                brandsData = Object.values(parsed.map || {});
+                lastSyncTime = parsed.lastSync || 0;
+
                 if (brandsData.length > 0) {
-                    console.log(`⚡ [Brands] Cargadas ${brandsData.length} marcas de memoria.`);
+                    console.log(`⚡ [Brands] Cargadas ${brandsData.length} marcas de caché instantáneo.`);
                     renderGrid(); 
                 }
             }
@@ -44,71 +43,73 @@ async function loadBrands() {
         }
     }
 
-    // 🚀 OPTIMIZACIÓN FINAL (TTL): 
-    // Si la última verificación fue hace menos de 10 mins, NO preguntamos a Firebase.
-    if (now - lastSyncTime < SYNC_TTL && brandsData.length > 0) {
-        console.log("⏳ [Brands] Caché reciente. Omitiendo verificación de red.");
-        return;
-    }
-
-    // 2. BUSCAR ACTUALIZACIONES
-    await fetchIncrements(lastSyncTime);
+    // 2. INICIAR ESCUCHA EN TIEMPO REAL (Solo por los deltas/cambios)
+    listenForUpdates(lastSyncTime);
 }
 
-async function fetchIncrements(lastSyncTime) {
-    try {
-        let q;
-        const colRef = collection(db, "brands");
+function listenForUpdates(lastSyncTime) {
+    if (isListening) return;
+    isListening = true;
 
-        if (lastSyncTime === 0 || brandsData.length === 0) {
-            console.log("☁️ [Brands] Descarga completa inicial...");
-            q = query(colRef); 
-        } else {
-            console.log("🔄 [Brands] Verificando cambios en la nube...");
-            q = query(colRef, where("updatedAt", ">", new Date(lastSyncTime)));
-        }
+    const colRef = collection(db, "brands");
+    let q;
 
-        const snapshot = await getDocs(q);
+    if (lastSyncTime === 0 || brandsData.length === 0) {
+        console.log("☁️ [Brands] Descarga completa inicial y activando tiempo real...");
+        q = query(colRef); 
+    } else {
+        console.log("🔄 [Brands] Escuchando actualizaciones en la nube desde:", new Date(lastSyncTime).toLocaleString());
+        q = query(colRef, where("updatedAt", ">", new Date(lastSyncTime)));
+    }
 
-        // Actualizamos timestamp SIEMPRE para reiniciar el contador de 10 minutos
-        localStorage.setItem(SYNC_KEY, Date.now().toString());
-
+    onSnapshot(q, (snapshot) => {
         if (snapshot.empty) {
-            console.log("✅ [Brands] Todo al día.");
+            if (lastSyncTime !== 0) console.log("✅ [Brands] Caché 100% sincronizado.");
             return;
         }
 
-        console.log(`🔥 [Brands] Procesando ${snapshot.size} actualizaciones.`);
+        let hasChanges = false;
+        
+        // Transformamos brandsData (Array) en un Diccionario para fusiones ultrarrápidas O(1)
+        let runtimeMap = {};
+        brandsData.forEach(b => runtimeMap[b.id] = b);
 
-        // 3. FUSIÓN
-        snapshot.forEach(doc => {
-            const newData = { id: doc.id, ...doc.data() };
-            const index = brandsData.findIndex(b => b.id === newData.id);
+        snapshot.docChanges().forEach(change => {
+            const data = change.doc.data();
+            const id = change.doc.id;
 
-            if (index > -1) {
-                brandsData[index] = newData;
-            } else {
-                brandsData.push(newData);
+            if (change.type === 'added' || change.type === 'modified') {
+                runtimeMap[id] = { id, ...data };
+                hasChanges = true;
+            } else if (change.type === 'removed') {
+                if (runtimeMap[id]) {
+                    delete runtimeMap[id];
+                    hasChanges = true;
+                }
             }
         });
 
-        // 4. LIMPIEZA FINAL (Anti-Duplicados)
-        const uniqueMap = new Map();
-        brandsData.forEach(item => {
-            if(item.id) uniqueMap.set(item.id, item);
-        });
-        brandsData = Array.from(uniqueMap.values());
+        if (hasChanges) {
+            console.log(`🔥 [Brands] Tiempo real: Procesando ${snapshot.docChanges().length} modificaciones.`);
+            
+            // Volver a convertir en Array y Ordenar
+            brandsData = Object.values(runtimeMap);
+            brandsData.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
 
-        // 5. ORDENAR Y GUARDAR
-        brandsData.sort((a, b) => a.name.localeCompare(b.name));
+            // Guardar Estado Inteligente
+            const stateToSave = {
+                map: runtimeMap,
+                lastSync: Date.now()
+            };
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(stateToSave));
+            
+            // Re-renderizar la grilla visualmente
+            renderGrid();
+        }
 
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(brandsData));
-        
-        renderGrid();
-
-    } catch (error) {
-        console.error("Error en Sync Brands:", error);
-    }
+    }, (error) => {
+        console.error("Error en SmartSync Realtime Brands:", error);
+    });
 }
 
 // ==========================================================================
@@ -123,14 +124,13 @@ function renderGrid() {
     }
 
     brandsData.forEach((brand) => {
-        const imageSrc = brand.image || 'https://placehold.co/400x300?text=' + brand.name;
+        const imageSrc = brand.image || 'https://placehold.co/400x300?text=' + encodeURIComponent(brand.name || 'Marca');
         
         const card = document.createElement('a');
         card.href = `/shop/search.html?subcategory=${encodeURIComponent(brand.name)}`;
         
         card.className = "group relative bg-white rounded-[2rem] border border-gray-100 overflow-hidden shadow-sm hover:shadow-2xl hover:border-brand-cyan/30 transition-all duration-300 hover:-translate-y-2 cursor-pointer h-56 flex flex-col";
 
-        // AQUÍ ESTÁ EL CAMBIO EN LA ETIQUETA <img>
         card.innerHTML = `
             <div class="absolute inset-0 bg-gray-50 flex items-center justify-center p-8 group-hover:bg-white transition duration-500">
                 <img src="${imageSrc}" alt="${brand.name}" class="max-w-full max-h-full object-contain group-hover:scale-110 transition duration-500">

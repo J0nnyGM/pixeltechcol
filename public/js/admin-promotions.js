@@ -1,4 +1,4 @@
-import { db, storage, collection, getDocs, updateDoc, doc, query, orderBy, ref, uploadBytes, getDownloadURL, where, limit, startAt, endAt } from "./firebase-init.js";
+import { db, storage, collection, getDocs, updateDoc, doc, query, orderBy, ref, uploadBytes, getDownloadURL, where } from "./firebase-init.js";
 import { loadAdminSidebar } from './admin-ui.js';
 
 loadAdminSidebar();
@@ -15,7 +15,8 @@ const radioButtons = document.getElementsByName('bannerType');
 
 // Variables locales
 let currentConfig = { id: null, field: null };
-let activePromosCache = [];
+let allProducts = []; // Catálogo completo en memoria
+let activePromos = []; // Solo las promos actuales
 
 // --- HELPER COMPRESIÓN (Optimizado para Banners Grandes) ---
 const compressImage = async (file) => {
@@ -26,24 +27,19 @@ const compressImage = async (file) => {
         reader.onload = (e) => {
             img.src = e.target.result;
             img.onload = () => {
-                // Configuración Banners (Más grandes que productos)
-                const maxWidth = 1920; // Full HD
+                const maxWidth = 1920; // Full HD para banners
                 const quality = 0.85;
-                
                 let width = img.width;
                 let height = img.height;
-
                 if (width > maxWidth) {
                     height = Math.round((height * maxWidth) / width);
                     width = maxWidth;
                 }
-
                 const canvas = document.createElement('canvas');
                 canvas.width = width;
                 canvas.height = height;
                 const ctx = canvas.getContext('2d');
                 ctx.drawImage(img, 0, 0, width, height);
-
                 canvas.toBlob((blob) => {
                     if (!blob) { reject(new Error('Error compress')); return; }
                     const newName = file.name.replace(/\.[^/.]+$/, "") + ".webp";
@@ -56,99 +52,91 @@ const compressImage = async (file) => {
     });
 };
 
-// Helper de Texto
-function capitalizeFirst(str) {
-    if (!str) return "";
-    return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
-}
-
-// --- 1. CARGA INICIAL (Igual) ---
-async function loadActivePromotions() {
-    tableBody.innerHTML = `<tr><td colspan="3" class="p-20 text-center"><i class="fa-solid fa-circle-notch fa-spin text-2xl text-brand-cyan"></i><p class="text-xs text-gray-400 mt-2 font-bold uppercase">Cargando Vitrina...</p></td></tr>`;
-    if(statusBar) statusBar.classList.add('hidden');
-
+// --- 1. CARGA INICIAL (TODO EL CATÁLOGO ACTIVO) ---
+async function loadCatalog() {
+    tableBody.innerHTML = `<tr><td colspan="3" class="p-20 text-center"><i class="fa-solid fa-circle-notch fa-spin text-2xl text-brand-cyan"></i><p class="text-xs text-gray-400 mt-2 font-bold uppercase">Cargando productos...</p></td></tr>`;
+    
     try {
-        const q1 = query(collection(db, "products"), where("isHeroPromo", "==", true));
-        const q2 = query(collection(db, "products"), where("isNewLaunch", "==", true));
+        // Traemos todos los productos activos de una vez
+        const q = query(collection(db, "products"), where("status", "==", "active"));
+        const snap = await getDocs(q);
+        
+        allProducts = [];
+        snap.forEach(doc => {
+            allProducts.push({ id: doc.id, ...doc.data() });
+        });
 
-        const [snap1, snap2] = await Promise.all([getDocs(q1), getDocs(q2)]);
+        // Ordenar alfabéticamente para facilitar la búsqueda visual
+        allProducts.sort((a, b) => a.name.localeCompare(b.name));
 
-        const mergedMap = new Map();
-        snap1.forEach(doc => mergedMap.set(doc.id, { id: doc.id, ...doc.data() }));
-        snap2.forEach(doc => mergedMap.set(doc.id, { id: doc.id, ...doc.data() }));
-
-        activePromosCache = Array.from(mergedMap.values());
-        activePromosCache.sort((a, b) => a.name.localeCompare(b.name));
-
-        renderProducts(activePromosCache, "No hay promociones activas.");
+        renderActivePromos(); // Mostrar por defecto las promos activas
+        
+        // Habilitar buscador visualmente
+        searchInput.disabled = false;
+        searchInput.placeholder = "Buscar producto para activar...";
+        if(searchSpinner) searchSpinner.classList.add('hidden');
 
     } catch (e) {
         console.error(e);
-        tableBody.innerHTML = `<tr><td colspan="3" class="p-10 text-center text-red-400 font-bold">Error cargando promociones</td></tr>`;
+        tableBody.innerHTML = `<tr><td colspan="3" class="p-10 text-center text-red-400 font-bold">Error cargando catálogo. Revisa la consola.</td></tr>`;
     }
 }
 
-// --- 2. BUSCADOR (Igual) ---
-let searchTimeout = null;
-searchInput.addEventListener('input', (e) => {
-    const rawTerm = e.target.value.trim();
-    clearTimeout(searchTimeout);
-    if (rawTerm.length === 0) { window.clearSearch(); return; }
-    if(searchSpinner) searchSpinner.classList.remove('hidden');
+// --- 2. RENDERIZADO POR DEFECTO (SOLO PROMOS) ---
+function renderActivePromos() {
+    // Filtramos en memoria los que ya son promo
+    activePromos = allProducts.filter(p => p.isHeroPromo || p.isNewLaunch);
     
-    searchTimeout = setTimeout(async () => {
-        try {
-            const firstWord = rawTerm.split(' ')[0]; 
-            const termCap = capitalizeFirst(firstWord); 
-            const coll = collection(db, "products");
-            const queries = [
-                getDocs(query(coll, orderBy('name'), startAt(termCap), endAt(termCap + '\uf8ff'), limit(20))),
-                getDocs(query(coll, orderBy('brand'), startAt(termCap), endAt(termCap + '\uf8ff'), limit(20))),
-                getDocs(query(coll, orderBy('category'), startAt(termCap), endAt(termCap + '\uf8ff'), limit(20)))
-            ];
-            const snapshots = await Promise.all(queries);
-            const tempMap = new Map();
-            snapshots.forEach(snap => snap.forEach(doc => tempMap.set(doc.id, { id: doc.id, ...doc.data() })));
-            
-            const searchLower = rawTerm.toLowerCase();
-            const finalResults = Array.from(tempMap.values()).filter(p => {
-                const text = `${p.name} ${p.brand || ''} ${p.category || ''}`.toLowerCase();
-                return text.includes(searchLower);
-            });
+    if(statusBar) statusBar.classList.add('hidden');
+    renderProducts(activePromos, "No hay promociones activas. ¡Usa el buscador para agregar una!");
+}
 
-            if(searchSpinner) searchSpinner.classList.add('hidden');
-            if(statusBar) {
-                statusBar.classList.remove('hidden');
-                document.getElementById('table-status-text').textContent = `Resultados para "${rawTerm}"`;
-            }
-            renderProducts(finalResults, "No se encontraron productos.");
-        } catch (e) {
-            console.error(e);
-            if(searchSpinner) searchSpinner.classList.add('hidden');
-        }
-    }, 400); 
+// --- 3. BUSCADOR INSTANTÁNEO (MEMORIA) ---
+searchInput.addEventListener('input', (e) => {
+    const term = e.target.value.trim().toLowerCase();
+    
+    if (term.length === 0) {
+        window.clearSearch();
+        return;
+    }
+
+    // Filtro local instantáneo
+    const results = allProducts.filter(p => {
+        const text = `${p.name} ${p.brand || ''} ${p.category || ''}`.toLowerCase();
+        return text.includes(term);
+    });
+
+    if(statusBar) {
+        statusBar.classList.remove('hidden');
+        document.getElementById('table-status-text').textContent = `Resultados para "${e.target.value}" (${results.length})`;
+    }
+    
+    // Limitamos a 50 resultados para mantener el DOM ligero
+    renderProducts(results.slice(0, 50), "No se encontraron productos con ese nombre."); 
 });
 
 window.clearSearch = () => {
     searchInput.value = "";
-    if(searchSpinner) searchSpinner.classList.add('hidden');
     if(statusBar) statusBar.classList.add('hidden');
-    renderProducts(activePromosCache); 
+    renderActivePromos();
 };
 
-// --- 3. RENDERIZADO (Igual con Lazy) ---
-function renderProducts(products, emptyMsg = "No hay productos.") {
+// --- 4. RENDERIZADO TABLA ---
+function renderProducts(products, emptyMsg) {
     tableBody.innerHTML = "";
     if (products.length === 0) {
         tableBody.innerHTML = `<tr><td colspan="3" class="p-10 text-center text-gray-400 text-xs font-bold uppercase">${emptyMsg}</td></tr>`;
         return;
     }
+    
     products.forEach(p => {
         let imageSrc = p.mainImage || p.image || (p.images && p.images[0]) || 'https://placehold.co/50';
         const isHeroPromo = p.isHeroPromo || false;
         const isNewLaunch = p.isNewLaunch || false;
-        const customIconHero = p.promoBannerUrl ? `<i class="fa-solid fa-image text-[8px] ml-1" title="Banner Custom"></i>` : '';
-        const customIconLaunch = p.launchBannerUrl ? `<i class="fa-solid fa-image text-[8px] ml-1" title="Banner Custom"></i>` : '';
+        
+        // Iconos para indicar si tiene banner personalizado
+        const customIconHero = p.promoBannerUrl ? `<i class="fa-solid fa-image text-[8px] ml-1 text-brand-cyan" title="Banner Personalizado"></i>` : '';
+        const customIconLaunch = p.launchBannerUrl ? `<i class="fa-solid fa-image text-[8px] ml-1 text-brand-cyan" title="Banner Personalizado"></i>` : '';
 
         const tr = document.createElement('tr');
         tr.className = "border-b border-gray-50 hover:bg-gray-50/50 transition fade-in";
@@ -157,7 +145,7 @@ function renderProducts(products, emptyMsg = "No hay productos.") {
                 <div class="flex items-center gap-4">
                     <img src="${imageSrc}" loading="lazy" class="w-12 h-12 rounded-xl object-contain bg-gray-100 p-1 border border-gray-200">
                     <div>
-                        <p class="font-bold text-sm text-brand-black uppercase tracking-tighter">${p.name}</p>
+                        <p class="font-bold text-sm text-brand-black uppercase tracking-tighter line-clamp-1">${p.name}</p>
                         <div class="flex gap-2 mt-1">
                             <span class="text-[9px] font-black text-brand-cyan uppercase bg-cyan-50 px-2 py-0.5 rounded">${p.brand || 'Genérico'}</span>
                             <span class="text-[9px] font-bold text-gray-400 uppercase border border-gray-100 px-2 py-0.5 rounded">${p.category || 'Varios'}</span>
@@ -179,16 +167,31 @@ function renderProducts(products, emptyMsg = "No hay productos.") {
     });
 }
 
-// --- 4. MODAL Y GUARDADO (OPTIMIZADO) ---
+// --- 5. LÓGICA DE ACTUALIZACIÓN ---
 window.updateFlag = async (id, field, value) => {
-    if (value === true) openConfigModal(id, field);
-    else {
+    if (value === true) {
+        // Abrir modal para configurar (Auto o Custom)
+        openConfigModal(id, field);
+    } else {
+        // Desactivar promo directamente
         try {
             const productRef = doc(db, "products", id);
             const urlField = field === 'isHeroPromo' ? 'promoBannerUrl' : 'launchBannerUrl';
+            
+            // 1. Actualizar Firebase
             await updateDoc(productRef, { [field]: false, [urlField]: null });
-            if (searchInput.value.trim() === "") loadActivePromotions();
-            else window.clearSearch();
+            
+            // 2. Actualizar Memoria Local (Instantáneo)
+            const pIndex = allProducts.findIndex(x => x.id === id);
+            if (pIndex !== -1) {
+                allProducts[pIndex][field] = false;
+                allProducts[pIndex][urlField] = null;
+            }
+            
+            // 3. Refrescar Vista
+            if (searchInput.value.trim() === "") renderActivePromos();
+            else searchInput.dispatchEvent(new Event('input'));
+            
         } catch (e) { alert("Error: " + e.message); }
     }
 };
@@ -214,6 +217,7 @@ radioButtons.forEach(radio => {
     });
 });
 
+// Guardar configuración desde el modal
 form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const btn = form.querySelector('button');
@@ -229,14 +233,21 @@ form.addEventListener('submit', async (e) => {
             if (fileInput.files.length > 0) {
                 const file = fileInput.files[0];
                 
-                // 1. COMPRESIÓN DE BANNER
+                // Compresión
                 btn.innerHTML = '<i class="fa-solid fa-compress fa-spin"></i> Optimizando...';
                 const compressedFile = await compressImage(file);
                 
-                // 2. SUBIDA
+                // 🔥 NUEVO: Forzamos caché público por 1 año en los celulares de los clientes
+                const metadata = {
+                    cacheControl: 'public,max-age=31536000'
+                };
+
+                // Subida
                 btn.innerHTML = '<i class="fa-solid fa-cloud-arrow-up fa-spin"></i> Subiendo...';
                 const storageRef = ref(storage, `banners/${currentConfig.field}/${currentConfig.id}_${Date.now()}_${compressedFile.name}`);
-                await uploadBytes(storageRef, compressedFile);
+                
+                // Le pasamos la metadata a Firebase
+                await uploadBytes(storageRef, compressedFile, metadata);
                 bannerUrl = await getDownloadURL(storageRef);
             } else {
                 alert("⚠️ Selecciona una imagen.");
@@ -248,11 +259,20 @@ form.addEventListener('submit', async (e) => {
         const urlField = currentConfig.field === 'isHeroPromo' ? 'promoBannerUrl' : 'launchBannerUrl';
         const productRef = doc(db, "products", currentConfig.id);
         
+        // Actualizar Firebase
         await updateDoc(productRef, { [currentConfig.field]: true, [urlField]: bannerUrl || null });
+        
+        // Actualizar Memoria Local
+        const pIndex = allProducts.findIndex(x => x.id === currentConfig.id);
+        if (pIndex !== -1) {
+            allProducts[pIndex][currentConfig.field] = true;
+            allProducts[pIndex][urlField] = bannerUrl || null;
+        }
 
         closeConfigModal();
-        if (searchInput.value.trim() === "") loadActivePromotions();
-        else window.clearSearch();
+        
+        if (searchInput.value.trim() === "") renderActivePromos();
+        else searchInput.dispatchEvent(new Event('input'));
 
     } catch (e) {
         console.error(e);
@@ -262,4 +282,5 @@ form.addEventListener('submit', async (e) => {
     }
 });
 
-loadActivePromotions();
+// Start
+loadCatalog();

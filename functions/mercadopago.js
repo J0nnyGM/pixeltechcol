@@ -144,9 +144,9 @@ exports.createPreference = async (data, context) => {
                     address: { street_name: buyerInfo.address, zip_code: buyerInfo.postal }
                 },
                 back_urls: {
-                    success: "https://pixeltechcol.web.app/shop/success.html", 
-                    failure: "https://pixeltechcol.web.app/shop/success.html", 
-                    pending: "https://pixeltechcol.web.app/shop/success.html"
+                    success: "https://pixeltechcol.com/shop/success.html", 
+                    failure: "https://pixeltechcol.com/shop/success.html", 
+                    pending: "https://pixeltechcol.com/shop/success.html"
                 },
                 auto_return: "approved",
                 statement_descriptor: "PIXELTECH",

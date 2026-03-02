@@ -1,4 +1,4 @@
-import { auth, db, storage, onAuthStateChanged, doc, getDoc, addDoc, collection, query, where, getDocs, ref, uploadBytes, getDownloadURL } from "./firebase-init.js";
+import { auth, db, storage, onAuthStateChanged, doc, addDoc, collection, query, where, getDocs, ref, uploadBytes, getDownloadURL, onSnapshot } from "./firebase-init.js";
 
 const params = new URLSearchParams(window.location.search);
 const orderId = params.get('id');
@@ -65,6 +65,10 @@ let currentOrder = null;
 let activeWarranties = [];
 let selectedItemIndex = null;
 
+// Controladores para limpiar listeners si el usuario se va
+let unsubscribeOrder = null;
+let unsubscribeWarranties = null;
+
 // Listener para archivos
 if (els.inpImages) {
     els.inpImages.onchange = () => {
@@ -76,60 +80,134 @@ if (els.inpImages) {
 
 onAuthStateChanged(auth, (user) => {
     if (user) {
-        loadOrderDetailsSmart();
+        initSmartRealtimeOrder();
     } else {
+        if(unsubscribeOrder) unsubscribeOrder();
+        if(unsubscribeWarranties) unsubscribeWarranties();
         window.location.href = "/auth/login.html";
     }
 });
 
 // ==========================================================================
-// 🧠 CARGA INTELIGENTE (CACHÉ + LECTURA CONDICIONAL)
+// 🧠 SMART REAL-TIME CACHE (onSnapshot)
 // ==========================================================================
-async function loadOrderDetailsSmart() {
+async function initSmartRealtimeOrder() {
     try {
         let orderFromCache = null;
 
-        // 1. CARGAR ORDEN (Caché vs Red)
-        const cachedOrdersRaw = localStorage.getItem('pixeltech_user_orders');
-        if (cachedOrdersRaw) {
-            const ordersList = JSON.parse(cachedOrdersRaw);
-            orderFromCache = ordersList.find(o => o.id === orderId);
+        // 1. CARGA RÁPIDA (Caché Local)
+        // La caché ahora está en formato { map: {...}, lastSync: ... } gracias a profile.js
+        const cachedRaw = localStorage.getItem('pixeltech_user_orders');
+        if (cachedRaw) {
+            try {
+                const parsed = JSON.parse(cachedRaw);
+                if (parsed.map && parsed.map[orderId]) {
+                    orderFromCache = parsed.map[orderId];
+                } else if (Array.isArray(parsed)) {
+                    // Fallback por si la estructura antigua sigue viva
+                    orderFromCache = parsed.find(o => o.id === orderId);
+                }
+            } catch(e) {}
         }
 
         if (orderFromCache) {
-            console.log("⚡ [OrderDetail] Orden cargada desde caché local.");
+            console.log("⚡ [OrderDetail] Orden cargada rápido desde caché local.");
             currentOrder = orderFromCache;
+            await ensureProductsInCache(currentOrder.items);
+            renderAllOrderData(currentOrder);
         } else {
-            console.log("☁️ [OrderDetail] Descargando orden de Firebase...");
-            const snap = await getDoc(doc(db, "orders", orderId));
-            if (!snap.exists()) { window.location.href = '/profile.html'; return; }
-            currentOrder = { id: snap.id, ...snap.data() };
+            console.log("☁️ [OrderDetail] Orden no en caché, conectando a Firebase...");
+            els.itemsList.innerHTML = `<p class="text-center py-10 text-gray-400"><i class="fa-solid fa-circle-notch fa-spin"></i> Cargando detalles...</p>`;
         }
 
-        // 2. 🚀 PASO CRÍTICO: ASEGURAR QUE LOS PRODUCTOS ESTÉN EN CACHÉ
-        // Esto soluciona el problema de los "60 días por defecto".
-        // Si el producto no está en memoria, lo bajamos ahora mismo.
-        await ensureProductsInCache(currentOrder.items);
-
-        // 3. Renderizar todo con datos seguros
-        renderAllOrderData(currentOrder);
+        // 2. CONEXIÓN EN VIVO A LA ORDEN
+        if(unsubscribeOrder) unsubscribeOrder();
         
-        // 4. Cargar garantías (siempre frescas)
-        loadWarranties();
+        unsubscribeOrder = onSnapshot(doc(db, "orders", orderId), async (snap) => {
+            if (!snap.exists()) {
+                window.location.href = '/profile.html'; 
+                return;
+            }
 
-        // 5. Actualización en segundo plano si la orden está activa (Opcional)
-        const terminalStates = ['ENTREGADO', 'FINALIZADO', 'CANCELADO', 'RECHAZADO', 'ANULADO'];
-        if (!orderFromCache || !terminalStates.includes(currentOrder.status)) {
-            // Si vino de caché pero está activa, podríamos querer verificar cambios leves en background
-            // (Omitido para no gastar lecturas, ya que la lógica principal está cubierta)
-        }
+            const freshData = { id: snap.id, ...snap.data() };
+            
+            // Comparamos para no repintar en vano
+            if (!currentOrder || JSON.stringify(currentOrder) !== JSON.stringify(freshData)) {
+                console.log("🔥 [OrderDetail] Cambio detectado en la orden. Repintando...");
+                currentOrder = freshData;
+                
+                await ensureProductsInCache(currentOrder.items);
+                renderAllOrderData(currentOrder);
+                
+                // Actualizar caché sigilosamente
+                updateOrderInLocalCache(currentOrder);
+            }
+        });
+
+        // 3. CONEXIÓN EN VIVO A LAS GARANTÍAS DE ESTA ORDEN
+        listenForWarranties();
 
     } catch (e) {
-        console.error("Error al cargar orden:", e);
+        console.error("Error al inicializar orden:", e);
         if(els.itemsList) els.itemsList.innerHTML = `<p class="text-red-500 text-center">Error cargando la orden.</p>`;
     }
 }
+
+function listenForWarranties() {
+    if(unsubscribeWarranties) unsubscribeWarranties();
+
+    const qW = query(
+        collection(db, "warranties"),
+        where("orderId", "==", orderId),
+        where("userId", "==", auth.currentUser.uid)
+    );
+
+    unsubscribeWarranties = onSnapshot(qW, (snapW) => {
+        let hasChanges = false;
+        
+        if (activeWarranties.length !== snapW.docs.length) hasChanges = true;
+        
+        const freshWarranties = snapW.docs.map(d => ({ id: d.id, ...d.data() }));
+        
+        if (!hasChanges) {
+            // Comparación profunda simple si la longitud es igual
+            if (JSON.stringify(activeWarranties) !== JSON.stringify(freshWarranties)) {
+                hasChanges = true;
+            }
+        }
+
+        if (hasChanges) {
+            console.log("🛠️ [OrderDetail] Actualización en vivo de Garantías.");
+            activeWarranties = freshWarranties;
+            if(currentOrder) renderItems(currentOrder); // Repintar botones de garantía
+        }
+    });
+}
+
+function updateOrderInLocalCache(orderData) {
+    try {
+        const STORAGE_KEY = 'pixeltech_user_orders';
+        const cachedRaw = localStorage.getItem(STORAGE_KEY);
+        if (cachedRaw) {
+            const parsed = JSON.parse(cachedRaw);
+            if (parsed.map) {
+                // Formato nuevo
+                parsed.map[orderData.id] = orderData;
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
+            } else if (Array.isArray(parsed)) {
+                // Formato viejo fallback
+                const idx = parsed.findIndex(o => o.id === orderData.id);
+                if (idx > -1) parsed[idx] = orderData;
+                else parsed.push(orderData);
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
+            }
+        }
+    } catch(e) {}
+}
+
+
 // --- HELPER: DESCARGAR PRODUCTOS FALTANTES PARA LA CACHÉ ---
+// Reemplazado getDoc en bucle por promesa concurrente pura
 async function ensureProductsInCache(items) {
     const STORAGE_KEY = 'pixeltech_master_catalog';
     let rawCache = localStorage.getItem(STORAGE_KEY);
@@ -140,50 +218,27 @@ async function ensureProductsInCache(items) {
     }
 
     const uniqueItemIds = [...new Set(items.map(item => item.id))];
-    
-    const missingIds = uniqueItemIds.filter(id => {
-        // Verificamos si falta en el mapa de caché
-        return !catalogState.map[id];
-    });
+    const missingIds = uniqueItemIds.filter(id => !catalogState.map[id]);
 
+    if (missingIds.length === 0) return; // Todo en caché
 
-    items.forEach(item => {
-        // Verificamos si el producto existe en el mapa de caché
-        if (!catalogState.map[item.id]) {
-            missingIds.push(item.id);
-        }
-    });
+    console.log(`☁️ [OrderDetail] Descargando ${missingIds.length} productos faltantes (para info de garantía)...`);
 
-    if (missingIds.length === 0) return; // Todo está en caché, perfecto.
-
-    console.log(`☁️ [OrderDetail] Descargando ${missingIds.length} productos faltantes para calcular garantía...`);
-
-    // Descargar en lotes de 10 (Límite de 'in' query)
-    const batches = [];
-    while (missingIds.length) {
-        batches.push(missingIds.splice(0, 10));
-    }
-
-    // Ejecutar consultas
-    for (const batch of batches) {
-        // Nota: Importa 'documentId' en tus imports de firebase-init si no lo tienes
-        // import { ..., documentId } from "./firebase-init.js";
-        // Si no tienes documentId exportado, usa getDoc individual en paralelo:
-        
-        const promises = batch.map(pid => getDoc(doc(db, "products", pid)));
+    try {
+        const promises = missingIds.map(pid => getDoc(doc(db, "products", pid)));
         const snapshots = await Promise.all(promises);
 
         snapshots.forEach(snap => {
             if (snap.exists()) {
                 const prodData = { id: snap.id, ...snap.data() };
                 catalogState.map[snap.id] = prodData;
-                console.log(`📦 Producto cachado: ${prodData.name} (Garantía: ${JSON.stringify(prodData.warranty)})`);
             }
         });
-    }
 
-    // Guardar caché actualizada para que brands.html, catalog.html, etc. también la usen
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(catalogState));
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(catalogState));
+    } catch(e) {
+        console.error("Error bajando info de productos:", e);
+    }
 }
 
 // Función Helper para renderizar todo de una vez
@@ -194,33 +249,18 @@ function renderAllOrderData(order) {
     renderItems(order);
 }
 
-// Carga separada de garantías (Siempre frescas porque es soporte)
-async function loadWarranties() {
-    try {
-        const qW = query(
-            collection(db, "warranties"),
-            where("orderId", "==", orderId),
-            where("userId", "==", auth.currentUser.uid)
-        );
-        const snapW = await getDocs(qW);
-        activeWarranties = snapW.docs.map(d => ({ id: d.id, ...d.data() }));
-        // Re-renderizamos items para mostrar botones de garantía actualizados
-        if(currentOrder) renderItems(currentOrder);
-    } catch (e) { console.error(e); }
-}
-
 // --- 2. RENDER HEADER ---
 function renderHeaderInfo(displayId, order) {
     if(!els.id) return;
 
     els.id.textContent = `ORDEN #${displayId.slice(0, 8).toUpperCase()}`;
     
-    // Manejo de fechas seguro (caché guarda strings, firebase guarda timestamps)
+    // Manejo de fechas seguro
     let dateObj;
     if (order.createdAt?.toDate) {
         dateObj = order.createdAt.toDate();
     } else {
-        dateObj = new Date(order.createdAt); // ISO String desde caché
+        dateObj = new Date(order.createdAt);
     }
     
     els.date.textContent = "Realizado el: " + dateObj.toLocaleDateString('es-CO', { year: 'numeric', month: 'long', day: 'numeric' });
@@ -314,6 +354,9 @@ function renderHeaderInfo(displayId, order) {
                 });
             };
         }
+    } else {
+        els.guideContainer.classList.add('hidden');
+        els.guideContainer.classList.remove('flex');
     }
 
     // FACTURACIÓN
@@ -440,63 +483,48 @@ function renderPaymentInfo(order) {
         </div>`;
 }
 
-// --- 5. RENDER ITEMS (CORREGIDO: BOTÓN ACTIVO EN DESPACHADO) ---
-// --- HELPER: CALCULAR DÍAS DE GARANTÍA (CORREGIDO Y CON LOGS) ---
+// --- HELPER: CALCULAR DÍAS DE GARANTÍA ---
 function getWarrantyDaysInTotal(item) {
     let w = item.warranty || item.warrantyDays;
-    let source = "ORDER_ITEM";
 
-    // 1. Si no hay datos en el pedido, buscar en CACHÉ ACTUALIZADA
     if (w === undefined || w === null) {
         try {
             const cachedRaw = localStorage.getItem('pixeltech_master_catalog');
             if (cachedRaw) {
                 const catalog = JSON.parse(cachedRaw).map || {};
                 const cachedProduct = catalog[item.id];
-                
                 if (cachedProduct) {
-                    // Prioridad: Objeto warranty > Propiedad warrantyDays
                     const cachedW = cachedProduct.warranty !== undefined ? cachedProduct.warranty : cachedProduct.warrantyDays;
-                    
                     if (cachedW !== undefined && cachedW !== null) {
                         w = cachedW;
-                        source = "CACHE_PRODUCT";
                     }
                 }
             }
-        } catch (e) { console.warn("Error leyendo caché:", e); }
+        } catch (e) { }
     }
 
-    // Debug para ver qué está encontrando
-    // console.log(`🔍 Garantía para ${item.name}:`, w, `(Fuente: ${source})`);
-
-    // 2. Si definitivamente no hay datos -> Default 60
     if (w === undefined || w === null) return 60;
 
-    // 3. Procesamiento del valor
-    
-    // Caso A: Objeto { time: 6, unit: 'months' }
     if (typeof w === 'object' && w.time !== undefined) {
         const time = parseInt(w.time);
         if (isNaN(time)) return 60;
-        if (time === 0) return 0; // Garantía explícita de 0 días
+        if (time === 0) return 0; 
 
         const unit = (w.unit || 'months').toLowerCase();
         if (unit.includes('year') || unit.includes('año')) return time * 365;
         if (unit.includes('month') || unit.includes('mes')) return time * 30;
         if (unit.includes('week') || unit.includes('semana')) return time * 7;
-        return time; // Días
+        return time; 
     }
 
-    // Caso B: Número directo
     const directTime = parseInt(w);
     if (!isNaN(directTime)) return directTime;
 
-    return 60; // Fallback final
+    return 60; 
 }
 
 
-// --- 5. RENDER ITEMS (CORREGIDO: MANEJO DE 0 DÍAS) ---
+// --- 5. RENDER ITEMS ---
 function renderItems(order) {
     if(!els.itemsList) return;
     els.itemsList.innerHTML = "";
@@ -519,12 +547,11 @@ function renderItems(order) {
     const now = new Date();
 
     order.items.forEach((item, index) => {
-        // Obtenemos días totales (0, 60, 365, etc.)
         const totalWarrantyDays = getWarrantyDaysInTotal(item);
         
         let isExpired = false;
         let daysLeft = 0;
-        const hasWarranty = totalWarrantyDays > 0; // Bandera para saber si tiene garantía
+        const hasWarranty = totalWarrantyDays > 0; 
 
         if (isShipped && shippedDate && hasWarranty) {
             const expirationDate = new Date(shippedDate);
@@ -533,7 +560,6 @@ function renderItems(order) {
             daysLeft = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
             isExpired = daysLeft <= 0;
         } else if (!hasWarranty) {
-            // Si son 0 días, está "expirada" por defecto (no aplica)
             isExpired = true;
         }
 
@@ -543,14 +569,11 @@ function renderItems(order) {
             w.variantCapacity === (item.capacity || null)
         );
 
-        // Botón solo si: Despachado + No Expirado + Tiene Garantía (>0 días) + Cantidad disponible
         const canCreateNew = isShipped && !isExpired && hasWarranty && (itemWarranties.length < (item.quantity || 1));
 
-        // BADGES VISUALES
         let timeBadgeHTML = "";
         
         if (!hasWarranty) {
-            // CASO: 0 DÍAS
             timeBadgeHTML = `<span class="text-[9px] font-bold text-gray-400 bg-gray-100 border border-gray-200 px-2 py-0.5 rounded flex items-center gap-1 w-fit"><i class="fa-solid fa-ban"></i> Sin garantía comercial</span>`;
         } else if (!isShipped) {
             timeBadgeHTML = `<span class="text-[9px] font-bold text-gray-400 bg-gray-50 border border-gray-100 px-2 py-0.5 rounded flex items-center gap-1 w-fit"><i class="fa-regular fa-clock"></i> Garantía inicia al despachar</span>`;
@@ -565,7 +588,6 @@ function renderItems(order) {
             createBtnHTML = `<button onclick="window.openWarrantyModal(${index})" class="group flex items-center gap-2 bg-white border border-gray-200 hover:border-brand-black hover:text-brand-black text-gray-500 px-4 py-2 rounded-xl font-bold text-[9px] uppercase transition-all shadow-sm"><i class="fa-solid fa-triangle-exclamation"></i> Reportar Problema</button>`;
         }
 
-        // (Resto del código de existingCasesHTML y renderizado de tarjeta igual...)
         let existingCasesHTML = "";
         if (itemWarranties.length > 0) {
             existingCasesHTML = `<div class="flex flex-wrap gap-2 mt-2 w-full sm:justify-end">`;
@@ -609,9 +631,7 @@ function renderItems(order) {
     });
 }
 
-
-// --- MODALES Y LÓGICA DE GARANTÍA (SIN CAMBIOS) ---
-// (Mismo código de modales que ya tenías, solo exportado a window)
+// --- MODALES Y LÓGICA DE GARANTÍA ---
 window.openWarrantyModal = (index) => {
     selectedItemIndex = index;
     const item = currentOrder.items[index];
@@ -625,21 +645,28 @@ window.openStatusModal = (warrantyId) => {
     const claim = activeWarranties.find(w => w.id === warrantyId);
     if (!claim) return;
     els.stId.textContent = claim.id.slice(0,8).toUpperCase();
-    els.stDate.textContent = "Radicado: " + claim.createdAt?.toDate().toLocaleDateString('es-CO');
+    els.stDate.textContent = "Radicado: " + (claim.createdAt?.toDate ? claim.createdAt.toDate().toLocaleDateString('es-CO') : new Date(claim.createdAt).toLocaleDateString('es-CO'));
     els.stReason.textContent = `"${claim.reason}"`;
+    
     let badgeClass = "bg-blue-100 text-blue-700"; let badgeText = "En Revisión";
     if (claim.status === 'APROBADO') { badgeClass = "bg-green-100 text-green-700"; badgeText = "Aprobada"; }
     else if (claim.status === 'RECHAZADO') { badgeClass = "bg-red-100 text-red-700"; badgeText = "Rechazada"; }
     else if (claim.status === 'FINALIZADO') { badgeClass = "bg-gray-100 text-gray-700"; badgeText = "Cerrado"; }
+    
     els.stBadge.className = `inline-block px-4 py-2 rounded-full text-xs font-black uppercase tracking-widest mb-2 ${badgeClass}`;
     els.stBadge.textContent = badgeText;
+    
     if (claim.adminResponse) {
         els.stAdminBox.classList.remove('hidden');
         els.stAdminResp.textContent = claim.adminResponse;
         if (claim.technicalReportUrl && els.stPdfBtn) { els.stPdfBtn.href = claim.technicalReportUrl; els.stPdfBtn.classList.remove('hidden'); els.stPdfBtn.classList.add('flex'); }
         else if (els.stPdfBtn) { els.stPdfBtn.classList.add('hidden'); els.stPdfBtn.classList.remove('flex'); }
-        els.stResolvedDate.textContent = claim.resolvedAt ? "Fecha: " + claim.resolvedAt.toDate().toLocaleString() : "";
-    } else { els.stAdminBox.classList.add('hidden'); }
+        
+        els.stResolvedDate.textContent = claim.resolvedAt ? "Fecha: " + (claim.resolvedAt?.toDate ? claim.resolvedAt.toDate().toLocaleString() : new Date(claim.resolvedAt).toLocaleString()) : "";
+    } else { 
+        els.stAdminBox.classList.add('hidden'); 
+    }
+    
     els.statusModal.classList.remove('hidden'); els.statusModal.classList.add('flex');
 };
 
@@ -655,25 +682,13 @@ els.warrantyForm.onsubmit = async (e) => {
     const imageFiles = els.inpImages.files;
 
     try {
-        // --- VALIDACIÓN DE SERIAL FLEXIBLE ---
-        // Solo validamos estrictamente si el item tiene una lista de seriales (sns) no vacía.
         if (item.sns && Array.isArray(item.sns) && item.sns.length > 0) {
-            // Si HAY lista, el input debe coincidir con uno de ellos
             const snFound = item.sns.some(validSn => validSn.trim().toUpperCase() === snInput);
-            
             if (!snFound) {
-                // Si el input está vacío o no coincide, error.
                 throw new Error(`⛔ El Serial "${snInput}" no corresponde a este despacho. Verifica la etiqueta o caja del producto.`);
-            }
-        } else {
-            // Si NO HAY lista en la orden (despacho sin SN o antiguo), PERMITIMOS TODO.
-            // Opcional: Podrías exigir que al menos escriban algo si quieres evitar vacíos
-            if (snInput.length < 3) {
-               // throw new Error("⛔ Por favor escribe el serial del equipo (o 'N/A' si no aplica).");
             }
         }
 
-        // Validación de duplicados
         const qDup = query(
             collection(db, "warranties"), 
             where("userId", "==", auth.currentUser.uid), 
@@ -681,7 +696,6 @@ els.warrantyForm.onsubmit = async (e) => {
             where("productId", "==", item.id)
         );
         
-        // Solo verificamos duplicados si el SN no es genérico (ej: N/A) para evitar bloquear múltiples reclamos sin SN
         if (snInput.length > 3 && snInput !== "N/A") {
             const dupSnap = await getDocs(qDup);
             const activeDup = dupSnap.docs.find(d => {
@@ -691,7 +705,6 @@ els.warrantyForm.onsubmit = async (e) => {
             if (activeDup) throw new Error("⛔ Ya existe una solicitud activa para este serial.");
         }
 
-        // Subida de imágenes
         btn.innerHTML = '<i class="fa-solid fa-cloud-arrow-up fa-bounce"></i> Subiendo evidencia...';
         const evidenceUrls = [];
         if (imageFiles.length > 0) {
@@ -713,7 +726,7 @@ els.warrantyForm.onsubmit = async (e) => {
             productImage: item.mainImage || item.image || '',
             variantColor: item.color || null, 
             variantCapacity: item.capacity || null,
-            snProvided: snInput || "NO REGISTRADO", // Guardamos lo que escribió o placeholder
+            snProvided: snInput || "NO REGISTRADO", 
             reason: reason, 
             evidenceImages: evidenceUrls,
             status: 'PENDIENTE_REVISION', 
@@ -721,9 +734,9 @@ els.warrantyForm.onsubmit = async (e) => {
             shippedAtDate: currentOrder.shippedAt ? (currentOrder.shippedAt.toDate ? currentOrder.shippedAt.toDate() : new Date(currentOrder.shippedAt)) : new Date()
         });
 
+        // NOTA: No hace falta location.reload(), el onSnapshot de garantías lo actualizará al instante
         alert("✅ Solicitud enviada exitosamente.");
         window.closeWarrantyModal(); 
-        location.reload();
 
     } catch (err) { 
         console.error("Error garantía:", err); 

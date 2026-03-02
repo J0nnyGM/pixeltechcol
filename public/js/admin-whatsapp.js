@@ -107,7 +107,7 @@ const QUICK_REPLIES = [
     },
     { 
         title: "🚚 Envío Nacional", 
-        text: "Realizamos envíos a toda Colombia 🇨🇴. Si confirmas antes de las 4:00 PM sale hoy mismo.\n\n📸 Te enviamos foto del paquete y la guía de rastreo.\n💰 Costo promedio: $18.000 (varía según ubicación)." 
+        text: "Realizamos envíos a toda Colombia 🇨🇴. Si confirmas antes de las 2:30 PM sale hoy mismo.\n\n📸 Te enviamos foto del paquete y la guía de rastreo.\n💰 Costo promedio: $18.000 (varía según ubicación)." 
     },
     { 
         title: "📍 Pasar a Recoger", 
@@ -760,8 +760,12 @@ function renderQuickReplies(filter) {
 }
 
 // ==========================================================================
-// 5. CATALOGO RÁPIDO (MEJORADO)
+// 5. CATALOGO RÁPIDO (SMART REAL-TIME CACHE)
 // ==========================================================================
+
+// Variables globales para el caché en memoria
+let chatProductsCache = [];
+let unsubscribeChatProducts = null;
 
 // Utilidad para ignorar tildes y mayúsculas
 function normalizeText(text) {
@@ -774,101 +778,138 @@ els.btnProducts.onclick = () => {
     if (!els.prodPicker.classList.contains('hidden')) {
         els.prodSearch.value = ""; 
         els.prodSearch.focus();
-        loadRecentProducts(); 
+        initSmartProductList(); 
     }
 };
 els.closeProdBtn.onclick = () => els.prodPicker.classList.add('hidden');
 
-// A. Cargar Productos (Caché con TTL de 5 minutos)
-async function loadRecentProducts() {
-    els.prodList.innerHTML = `<div class="p-4 text-center"><i class="fa-solid fa-circle-notch fa-spin text-gray-400"></i></div>`;
-    
-    const CACHE_KEY = 'recent_products_cache';
-    const CACHE_TIME_KEY = 'recent_products_time';
-    const TTL = 15 * 60 * 1000; // 15 Minutos en milisegundos
+// A. Cargar Productos Inteligente (onSnapshot)
+function initSmartProductList() {
+    const STORAGE_KEY = 'pixeltech_admin_quick_catalog';
+    let lastSyncTime = 0;
+    let runtimeMap = {};
 
-    // 1. VERIFICAR CACHÉ
-    const cachedData = sessionStorage.getItem(CACHE_KEY);
-    const cachedTime = sessionStorage.getItem(CACHE_TIME_KEY);
-    const now = Date.now();
-
-    if (cachedData && cachedTime && (now - parseInt(cachedTime) < TTL)) {
-        console.log("📦 Usando caché de productos (Ahorro de lecturas)");
-        renderProductList(JSON.parse(cachedData));
-        
-        // Agregar botón manual de refresco por si acaso
-        addRefreshButton();
-        return; 
+    // 1. CARGA INICIAL INSTANTÁNEA
+    const cachedRaw = localStorage.getItem(STORAGE_KEY);
+    if (cachedRaw) {
+        try {
+            const parsed = JSON.parse(cachedRaw);
+            if (parsed.map && parsed.lastSync) {
+                runtimeMap = parsed.map;
+                lastSyncTime = parsed.lastSync;
+                
+                chatProductsCache = Object.values(runtimeMap).sort((a,b) => b.createdAt?.seconds - a.createdAt?.seconds);
+                
+                if (chatProductsCache.length > 0) {
+                    console.log("⚡ [Chat CRM] Productos cargados del caché.");
+                    renderProductList(chatProductsCache.slice(0, 20)); // Mostrar los 20 más recientes por defecto
+                }
+            }
+        } catch (e) {
+            console.warn("Caché de productos corrupto, limpiando...");
+            localStorage.removeItem(STORAGE_KEY);
+        }
     }
 
-    // 2. LEER DE FIREBASE
-    try {
-        const ref = collection(db, "products");
-        const q = query(ref, orderBy("createdAt", "desc"), limit(15)); 
-        const snap = await getDocs(q);
-        
-        const products = [];
-        snap.forEach(d => products.push(d.data()));
-        
-        // 3. GUARDAR EN CACHÉ
-        sessionStorage.setItem(CACHE_KEY, JSON.stringify(products));
-        sessionStorage.setItem(CACHE_TIME_KEY, now.toString());
-        
-        renderProductList(products);
-        addRefreshButton();
-
-    } catch(e) {
-        console.error(e);
-        els.prodList.innerHTML = `<div class="p-2 text-xs text-red-400">Error cargando lista.</div>`;
+    if (chatProductsCache.length === 0) {
+        els.prodList.innerHTML = `<div class="p-4 text-center"><i class="fa-solid fa-circle-notch fa-spin text-brand-cyan"></i></div>`;
     }
+
+    // 2. CONEXIÓN EN TIEMPO REAL (Solo Deltas)
+    if (unsubscribeChatProducts) return; // Evitar múltiples conexiones si abre y cierra el modal rápido
+
+    const colRef = collection(db, "products");
+    let q;
+
+    if (lastSyncTime === 0 || Object.keys(runtimeMap).length === 0) {
+        // Primera carga: Bajamos todo el inventario activo/agotado para tenerlo en memoria y buscar fácil
+        console.log("☁️ [Chat CRM] Descargando catálogo completo para respuestas rápidas...");
+        q = query(colRef); 
+    } else {
+        // Cargas subsecuentes: Solo pedimos lo que cambió
+        console.log("🔄 [Chat CRM] Escuchando cambios en productos...");
+        q = query(colRef, where("updatedAt", ">", new Date(lastSyncTime)));
+    }
+
+    unsubscribeChatProducts = onSnapshot(q, (snapshot) => {
+        if (snapshot.empty) return; // Todo al día
+
+        let hasChanges = false;
+
+        snapshot.docChanges().forEach(change => {
+            const data = change.doc.data();
+            const id = change.doc.id;
+
+            if (change.type === 'added' || change.type === 'modified') {
+                runtimeMap[id] = { id, ...data };
+                hasChanges = true;
+            } else if (change.type === 'removed') {
+                if (runtimeMap[id]) {
+                    delete runtimeMap[id];
+                    hasChanges = true;
+                }
+            }
+        });
+
+        if (hasChanges) {
+            console.log(`🔥 [Chat CRM] Catálogo actualizado en vivo (${snapshot.docChanges().length} cambios).`);
+            
+            chatProductsCache = Object.values(runtimeMap).sort((a, b) => {
+                const dateA = a.createdAt?.seconds || 0;
+                const dateB = b.createdAt?.seconds || 0;
+                return dateB - dateA;
+            });
+
+            // Guardar estado en memoria del navegador
+            localStorage.setItem(STORAGE_KEY, JSON.stringify({
+                map: runtimeMap,
+                lastSync: Date.now()
+            }));
+
+            // Si el usuario no está buscando nada específico, repintar la lista principal
+            if (els.prodSearch.value.trim() === "") {
+                renderProductList(chatProductsCache.slice(0, 20));
+            } else {
+                // Si está buscando, forzamos la búsqueda de nuevo con los datos frescos
+                executeSearch(els.prodSearch.value);
+            }
+        }
+    }, (error) => {
+        console.error("Error SmartSync Productos CRM:", error);
+    });
 }
 
-// Helper para agregar botón de recarga al final de la lista
-function addRefreshButton() {
-    const btnDiv = document.createElement('div');
-    btnDiv.className = "p-2 text-center border-t border-gray-50 mt-2";
-    btnDiv.innerHTML = `<button class="text-[10px] text-brand-cyan hover:underline uppercase font-bold"><i class="fa-solid fa-sync"></i> Actualizar Lista</button>`;
-    btnDiv.onclick = () => {
-        sessionStorage.removeItem('recent_products_cache'); // Borrar caché
-        loadRecentProducts(); // Recargar forzado
-    };
-    els.prodList.appendChild(btnDiv);
-}
-
-// B. Buscador (Con Debounce)
-let searchTimeout = null;
+// B. Buscador Inteligente en Memoria (0 Lecturas Extra)
 els.prodSearch.oninput = (e) => {
     const rawTerm = e.target.value;
-    
-    if (searchTimeout) clearTimeout(searchTimeout);
-    
-    searchTimeout = setTimeout(async () => {
-        if (rawTerm.trim().length === 0) {
-            loadRecentProducts();
-            return;
-        }
-        
-        els.prodList.innerHTML = `<div class="p-4 text-center"><i class="fa-solid fa-circle-notch fa-spin text-gray-400"></i></div>`;
-        
-        try {
-            const term = rawTerm.charAt(0).toUpperCase() + rawTerm.slice(1);
-            const ref = collection(db, "products");
-            const q = query(ref, orderBy('name'), startAt(term), endAt(term + '\uf8ff'), limit(10));
-            const snap = await getDocs(q);
-            const products = [];
-            snap.forEach(d => products.push(d.data()));
-            
-            if (products.length === 0) {
-                els.prodList.innerHTML = `<div class="p-4 text-center text-xs text-gray-400"><p>No encontrado. Intenta con la mayúscula inicial (Ej: Iphone).</p></div>`;
-            } else {
-                renderProductList(products);
-            }
-        } catch(e) {
-            console.error(e);
-            els.prodList.innerHTML = `<div class="p-2 text-xs text-red-400">Error búsqueda.</div>`;
-        }
-    }, 600); 
+    executeSearch(rawTerm);
 };
+
+function executeSearch(rawTerm) {
+    if (rawTerm.trim().length === 0) {
+        renderProductList(chatProductsCache.slice(0, 20));
+        return;
+    }
+    
+    // Búsqueda en memoria RAM (Extremadamente rápido)
+    const term = normalizeText(rawTerm);
+    
+    const results = chatProductsCache.filter(p => {
+        const nameMatch = normalizeText(p.name).includes(term);
+        const catMatch = normalizeText(p.category).includes(term);
+        const subMatch = normalizeText(p.subcategory).includes(term);
+        // Puedes agregar búsqueda por tags o referencias aquí si quieres
+        return nameMatch || catMatch || subMatch;
+    });
+
+    if (results.length === 0) {
+        els.prodList.innerHTML = `<div class="p-4 text-center text-xs text-gray-400"><p>No encontrado en el catálogo.</p></div>`;
+    } else {
+        // Mostramos máximo 20 resultados para no saturar el DOM
+        renderProductList(results.slice(0, 20));
+    }
+}
+
 
 // C. Renderizado de Tarjetas
 function renderProductList(products) {
@@ -883,8 +924,15 @@ function renderProductList(products) {
         const isVariable = !p.isSimple || (p.combinations && p.combinations.length > 0);
         const priceLabel = isVariable ? `<span class="text-[9px] text-gray-400 font-normal mr-1">Desde</span>` : "";
         const price = (p.price || 0).toLocaleString('es-CO');
-        const img = p.mainImage || p.image || 'https://via.placeholder.com/50?text=No+Img';
-        
+        let img = 'https://via.placeholder.com/50?text=No+Img';
+        if (p.mainImage) {
+            img = p.mainImage;
+        } else if (p.image) {
+            img = p.image;
+        } else if (p.images && p.images.length > 0) {
+            img = p.images[0]; // Toma la primera del array si existe
+        }
+                
         // Garantía
         let warrantyBadge = "";
         if (p.warranty && p.warranty.time > 0) {
@@ -893,20 +941,24 @@ function renderProductList(products) {
         }
 
         // Promo
-        const isPromo = p.name.toLowerCase().includes('promo') || p.name.toLowerCase().includes('oferta');
+        const isPromo = (p.name && p.name.toLowerCase().includes('promo')) || (p.originalPrice > p.price);
         const priceColor = isPromo ? 'text-red-500' : 'text-emerald-600';
+        
+        // Stock agotado visual
+        const isOutOfStock = (p.stock <= 0 || p.status !== 'active');
+        const stockColor = isOutOfStock ? 'text-red-500 font-bold' : 'text-gray-400';
 
         const div = document.createElement('div');
-        div.className = "flex items-start gap-3 p-2 hover:bg-slate-50 rounded-lg cursor-pointer transition border-b border-gray-50 last:border-0 group";
+        div.className = `flex items-start gap-3 p-2 rounded-lg transition border-b border-gray-50 last:border-0 group ${isOutOfStock ? 'bg-gray-50 opacity-80' : 'hover:bg-slate-50 cursor-pointer'}`;
         
         div.innerHTML = `
-            <div class="relative w-12 h-12 shrink-0">
+            <div class="relative w-12 h-12 shrink-0 ${isOutOfStock ? 'grayscale' : ''}">
                 <img src="${img}" class="w-full h-full rounded-md object-cover border border-gray-100 bg-white">
-                ${isPromo ? '<div class="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full border border-white"></div>' : ''}
+                ${isPromo && !isOutOfStock ? '<div class="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full border border-white"></div>' : ''}
             </div>
             <div class="min-w-0 flex-1">
                 <div class="flex justify-between items-start">
-                    <p class="text-[10px] font-black uppercase text-brand-black line-clamp-1 group-hover:text-brand-cyan transition">${p.name}</p>
+                    <p class="text-[10px] font-black uppercase ${isOutOfStock ? 'text-gray-500 line-through' : 'text-brand-black group-hover:text-brand-cyan transition'} line-clamp-1">${p.name}</p>
                 </div>
                 <div class="flex items-center mt-0.5">
                     ${priceLabel}
@@ -915,16 +967,22 @@ function renderProductList(products) {
                 </div>
                 <div class="flex gap-2 mt-1">
                     ${p.definedColors?.length > 0 ? `<span class="text-[8px] text-gray-400 bg-gray-100 px-1 rounded">🎨 ${p.definedColors.length} Colores</span>` : ''}
-                    <span class="text-[8px] text-gray-400 ml-auto">Stock: ${p.stock || 0}</span>
+                    <span class="text-[8px] ${stockColor} ml-auto">${isOutOfStock ? 'AGOTADO' : `Stock: ${p.stock}`}</span>
                 </div>
             </div>
         `;
-        div.onclick = () => sendProduct(p);
+        
+        if (!isOutOfStock) {
+            div.onclick = () => sendProduct(p);
+        } else {
+            div.onclick = () => alert("Este producto está agotado o inactivo, no puedes enviarlo.");
+        }
+        
         els.prodList.appendChild(div);
     });
 }
 
-// D. Enviar Producto
+// D. Enviar Producto (Se mantiene intacto)
 async function sendProduct(p) {
     if (!confirm(`¿Enviar tarjeta de ${p.name}?`)) return;
     
@@ -952,8 +1010,20 @@ async function sendProduct(p) {
     }
 
     const caption = `*${p.name}*\n💲 *Precio:* ${priceText}${featuresText}${warrantyText}`.trim();
-    const imgUrl = p.mainImage || p.image;
+    let imgUrl = "";
+    if (p.mainImage) {
+        imgUrl = p.mainImage;
+    } else if (p.image) {
+        imgUrl = p.image;
+    } else if (p.images && p.images.length > 0) {
+        imgUrl = p.images[0];
+    }
 
+    // Opcional pero recomendado: Si el producto tiene variantes de color con fotos específicas
+    if (p.variants && p.variants.length > 0 && p.variants[0].images && p.variants[0].images.length > 0) {
+        // Si no hay imagen principal, intentamos usar la de la primera variante
+        if(!imgUrl) imgUrl = p.variants[0].images[0];
+    }
     try {
         const sendFn = httpsCallable(functions, 'sendWhatsappMessage');
         await sendFn({ 
@@ -1072,21 +1142,30 @@ els.btnActions.onclick = (e) => {
     e.stopPropagation();
     els.dropdownActions.classList.toggle('hidden');
 };
-// Cierra el menú si haces clic fuera
+
 document.addEventListener('click', (e) => {
     if (!els.btnActions.contains(e.target) && !els.dropdownActions.contains(e.target)) {
         els.dropdownActions.classList.add('hidden');
     }
 });
 
-els.closeInfoBtn.onclick = () => { els.infoPanel.classList.remove('w-96'); els.infoPanel.classList.add('w-0'); };
+// 🔥 CIERRE DEL PANEL CORREGIDO
+els.closeInfoBtn.onclick = () => { 
+    els.infoPanel.classList.remove('w-96', 'border-l', 'border-gray-200', 'opacity-100'); 
+    els.infoPanel.classList.add('w-0', 'max-w-0', 'opacity-0', 'border-transparent'); 
+};
 
-// A. Ver Pedidos
+// 🔥 APERTURA DEL PANEL CORREGIDA
 els.btnActOrders.onclick = () => {
     els.dropdownActions.classList.add('hidden');
     const isClosed = els.infoPanel.classList.contains('w-0');
+    
     if (isClosed) {
-        els.infoPanel.classList.remove('w-0'); els.infoPanel.classList.add('w-96');
+        // Quitar las clases que lo ocultan
+        els.infoPanel.classList.remove('w-0', 'max-w-0', 'opacity-0', 'border-transparent'); 
+        // Agregar las clases que lo muestran
+        els.infoPanel.classList.add('w-96', 'border-l', 'border-gray-200', 'opacity-100');
+        
         if (!ordersLoadedForCurrentChat && activeChatId) {
             resetOrdersPagination(activeChatId);
             ordersLoadedForCurrentChat = true;
@@ -1231,7 +1310,17 @@ els.btnSearchOrder.onclick = async () => {
 // LISTENERS GLOBALES
 if(els.btnSend) els.btnSend.onclick = sendMessage;
 if(els.txtInput) els.txtInput.onkeypress = (e) => { if(e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }};
-if(els.backBtn) els.backBtn.onclick = () => { els.conversationPanel.classList.add('translate-x-full'); activeChatId = null; };
+
+// Reemplaza tu backBtn actual por este:
+if(els.backBtn) els.backBtn.onclick = () => { 
+    els.conversationPanel.classList.add('translate-x-full'); 
+    activeChatId = null; 
+    
+    // Forzamos el cierre del panel derecho al salir
+    els.infoPanel.classList.remove('w-96', 'border-l', 'border-gray-200', 'opacity-100'); 
+    els.infoPanel.classList.add('w-0', 'max-w-0', 'opacity-0', 'border-transparent');
+};
+
 if(els.btnLoadMore) els.btnLoadMore.onclick = () => loadOrders(false);
 if(els.inputSearchOrder) els.inputSearchOrder.onkeypress = (e) => { if(e.key === 'Enter') { e.preventDefault(); els.btnSearchOrder.click(); }};
 

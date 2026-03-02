@@ -1,4 +1,4 @@
-import { db, collection, addDoc, updateDoc, doc, getDocs, query, where, orderBy, Timestamp, runTransaction, limit, startAfter } from './firebase-init.js';
+import { db, collection, addDoc, updateDoc, doc, getDocs, query, where, orderBy, Timestamp, runTransaction, limit, startAfter, onSnapshot } from './firebase-init.js';
 import { loadAdminSidebar } from './admin-ui.js';
 
 loadAdminSidebar();
@@ -12,6 +12,11 @@ let accounts = [];
 let currentDetailEntity = null; // { id, name, type }
 let lastDetailDoc = null;
 const DETAILS_PAGE_SIZE = 10;
+
+// Listeners de Tiempo Real
+let unsubscribeOrders = null;
+let unsubscribePayables = null;
+let unsubscribeAccounts = null;
 
 // DOM Elements
 const listReceivable = document.getElementById('list-receivable');
@@ -27,7 +32,6 @@ const dtLoadMore = document.getElementById('dt-load-more');
 // Helpers
 const formatMoney = (amount) => `$${Math.round(amount).toLocaleString('es-CO')}`;
 
-// CORRECCIÓN CRÍTICA: Elimina puntos y símbolos para cálculos matemáticos
 const cleanNumber = (val) => {
     if (typeof val === 'number') return val;
     if (!val) return 0;
@@ -43,89 +47,221 @@ document.querySelectorAll('.currency-input').forEach(input => {
     });
 });
 
-// --- INICIO ---
-async function init() {
-    await loadAccounts();
-    await loadData();
-}
+// ==========================================================================
+// 🧠 SMART REAL-TIME CACHE: CARTERA Y TESORERÍA
+// ==========================================================================
 
-async function loadAccounts() {
-    try {
+const SmartCarteraSync = {
+    REC_KEY: 'pixeltech_admin_receivables_cache',
+    PAY_KEY: 'pixeltech_admin_payables_cache',
+    ACC_KEY: 'pixeltech_admin_accounts_cache',
+
+    runtimeRecMap: {},
+    runtimePayMap: {},
+    lastRecSync: 0,
+    lastPaySync: 0,
+
+    init() {
+        this.loadCaches();
+        this.listenForAccounts();
+        this.listenForReceivables();
+        this.listenForPayables();
+    },
+
+    loadCaches() {
+        // Cuentas (Caché rápido visual)
+        try {
+            const accCached = sessionStorage.getItem(this.ACC_KEY);
+            if (accCached) {
+                accounts = JSON.parse(accCached);
+                this.renderAccountsDropdown();
+            }
+        } catch(e) {}
+
+        // Cartera Clientes (Órdenes)
+        try {
+            const recCached = localStorage.getItem(this.REC_KEY);
+            if (recCached) {
+                const parsed = JSON.parse(recCached);
+                if (parsed.map && parsed.lastSync) {
+                    this.runtimeRecMap = parsed.map;
+                    this.lastRecSync = parsed.lastSync;
+                    this.calculateAndRender();
+                }
+            }
+        } catch (e) { localStorage.removeItem(this.REC_KEY); }
+
+        // Deudas Proveedores (Payables)
+        try {
+            const payCached = localStorage.getItem(this.PAY_KEY);
+            if (payCached) {
+                const parsed = JSON.parse(payCached);
+                if (parsed.map && parsed.lastSync) {
+                    this.runtimePayMap = parsed.map;
+                    this.lastPaySync = parsed.lastSync;
+                    this.calculateAndRender();
+                }
+            }
+        } catch (e) { localStorage.removeItem(this.PAY_KEY); }
+
+        if (Object.keys(this.runtimeRecMap).length === 0) {
+            listReceivable.innerHTML = `<tr><td colspan="4" class="p-10 text-center"><i class="fa-solid fa-circle-notch fa-spin text-brand-cyan"></i> Auditando clientes...</td></tr>`;
+        }
+        if (Object.keys(this.runtimePayMap).length === 0) {
+            listPayable.innerHTML = `<tr><td colspan="4" class="p-10 text-center"><i class="fa-solid fa-circle-notch fa-spin text-brand-cyan"></i> Auditando proveedores...</td></tr>`;
+        }
+    },
+
+    listenForAccounts() {
+        if (unsubscribeAccounts) unsubscribeAccounts();
         const q = query(collection(db, "accounts"), orderBy("name", "asc"));
-        const snap = await getDocs(q);
-        accountSelect.innerHTML = '<option value="">Seleccione...</option>';
-        snap.forEach(d => {
-            accounts.push({ id: d.id, ...d.data() });
-            accountSelect.innerHTML += `<option value="${d.id}">${d.data().name}</option>`;
+        unsubscribeAccounts = onSnapshot(q, (snap) => {
+            accounts = [];
+            snap.forEach(d => accounts.push({ id: d.id, ...d.data() }));
+            sessionStorage.setItem(this.ACC_KEY, JSON.stringify(accounts));
+            this.renderAccountsDropdown();
         });
-    } catch(e) { console.error(e); }
-}
+    },
 
-async function loadData() {
-    listReceivable.innerHTML = `<tr><td colspan="4" class="p-10 text-center"><i class="fa-solid fa-circle-notch fa-spin"></i> Auditando cartera...</td></tr>`;
-    listPayable.innerHTML = `<tr><td colspan="4" class="p-10 text-center"><i class="fa-solid fa-circle-notch fa-spin"></i> Auditando deudas...</td></tr>`;
+    renderAccountsDropdown() {
+        accountSelect.innerHTML = '<option value="">Seleccione...</option>';
+        accounts.forEach(acc => {
+            accountSelect.innerHTML += `<option value="${acc.id}">${acc.name}</option>`;
+        });
+    },
 
-    try {
-        // 1. CARTERA CLIENTES
-        // Descargamos TODO lo pendiente para garantizar exactitud financiera
-        const qRec = query(
-            collection(db, "orders"), 
-            where("paymentStatus", "in", ["PENDING", "PARTIAL"]),
-            orderBy("createdAt", "asc")
-        );
-        const snapRec = await getDocs(qRec);
-        
+    listenForReceivables() {
+        if (unsubscribeOrders) unsubscribeOrders();
+
+        const colRef = collection(db, "orders");
+        let q;
+
+        if (this.lastRecSync === 0 || Object.keys(this.runtimeRecMap).length === 0) {
+            console.log("☁️ [Cartera] Descargando deudas completas de clientes...");
+            q = query(colRef, where("paymentStatus", "in", ["PENDING", "PARTIAL"]));
+        } else {
+            console.log("🔄 [Cartera] Buscando actualizaciones en cobros a clientes...");
+            q = query(colRef, where("updatedAt", ">", new Date(this.lastRecSync)));
+        }
+
+        unsubscribeOrders = onSnapshot(q, (snapshot) => {
+            if (snapshot.empty) return;
+
+            let hasChanges = false;
+
+            snapshot.docChanges().forEach(change => {
+                const data = change.doc.data();
+                const id = change.doc.id;
+
+                // Si se canceló/rechazó o se pagó completamente, lo sacamos del mapa de deudas
+                const isCanceled = data.status === 'CANCELADO' || data.status === 'RECHAZADO';
+                const isPaid = data.paymentStatus === 'PAID' || cleanNumber(data.amountPaid) >= cleanNumber(data.total);
+
+                if (change.type === 'removed' || isCanceled || isPaid) {
+                    if (this.runtimeRecMap[id]) {
+                        delete this.runtimeRecMap[id];
+                        hasChanges = true;
+                    }
+                } else if (change.type === 'added' || change.type === 'modified') {
+                    // Si aún debe plata y no está cancelado, lo actualizamos/agregamos
+                    if (!data.updatedAt) data.updatedAt = data.createdAt || new Date();
+                    
+                    this.runtimeRecMap[id] = { 
+                        id, 
+                        userId: data.userId,
+                        userName: data.userName,
+                        billingInfo: data.billingInfo,
+                        shippingData: data.shippingData,
+                        total: data.total,
+                        amountPaid: data.amountPaid
+                    };
+                    hasChanges = true;
+                }
+            });
+
+            if (hasChanges) {
+                console.log(`🔥 [Cartera] ${snapshot.docChanges().length} cambios en deudas de clientes.`);
+                localStorage.setItem(this.REC_KEY, JSON.stringify({ map: this.runtimeRecMap, lastSync: Date.now() }));
+                this.calculateAndRender();
+            }
+        });
+    },
+
+    listenForPayables() {
+        if (unsubscribePayables) unsubscribePayables();
+
+        const colRef = collection(db, "payables");
+        let q;
+
+        if (this.lastPaySync === 0 || Object.keys(this.runtimePayMap).length === 0) {
+            console.log("☁️ [Cartera] Descargando deudas a proveedores...");
+            q = query(colRef, where("status", "==", "PENDING"));
+        } else {
+            console.log("🔄 [Cartera] Buscando pagos a proveedores...");
+            q = query(colRef, where("createdAt", ">", new Date(this.lastPaySync))); // Asumiendo que las creas o editas recientemente
+        }
+
+        unsubscribePayables = onSnapshot(q, (snapshot) => {
+            if (snapshot.empty) return;
+
+            let hasChanges = false;
+
+            snapshot.docChanges().forEach(change => {
+                const data = change.doc.data();
+                const id = change.doc.id;
+
+                if (change.type === 'removed' || data.status === 'PAID' || cleanNumber(data.amountPaid) >= cleanNumber(data.total)) {
+                    if (this.runtimePayMap[id]) {
+                        delete this.runtimePayMap[id];
+                        hasChanges = true;
+                    }
+                } else if (change.type === 'added' || change.type === 'modified') {
+                    this.runtimePayMap[id] = { id, ...data };
+                    hasChanges = true;
+                }
+            });
+
+            if (hasChanges) {
+                console.log(`🔥 [Cartera] ${snapshot.docChanges().length} cambios en deudas de proveedores.`);
+                localStorage.setItem(this.PAY_KEY, JSON.stringify({ map: this.runtimePayMap, lastSync: Date.now() }));
+                this.calculateAndRender();
+            }
+        });
+    },
+
+    calculateAndRender() {
+        // Agrupación de Clientes en Memoria RAM
         const clientMap = {};
         let totalRecAmount = 0;
 
-        snapRec.forEach(d => {
-            const o = d.data();
-            // Filtro de seguridad en memoria
-            if (o.status === 'CANCELADO' || o.status === 'RECHAZADO') return;
-
+        Object.values(this.runtimeRecMap).forEach(o => {
             const total = cleanNumber(o.total);
             const paid = cleanNumber(o.amountPaid);
             const balance = total - paid;
 
             if (balance > 0) {
-                // Lógica de Nombres Robusta
                 let name = o.userName;
                 if (!name && o.billingInfo) name = o.billingInfo.name;
                 if (!name && o.shippingData) name = o.shippingData.name;
-                if (!name) name = `Cliente (ID: ${d.id.slice(0,4)})`;
+                if (!name) name = `Cliente (ID: ${o.id.slice(0,4)})`;
 
                 const key = o.userId || name; 
                 
                 if (!clientMap[key]) {
-                    clientMap[key] = { 
-                        id: key,
-                        realUserId: o.userId, 
-                        name: name,
-                        count: 0,
-                        totalDebt: 0
-                    };
+                    clientMap[key] = { id: key, realUserId: o.userId, name: name, count: 0, totalDebt: 0 };
                 }
                 clientMap[key].count++;
                 clientMap[key].totalDebt += balance;
                 totalRecAmount += balance;
             }
         });
-        // Ordenar: Los que más deben primero
         groupedReceivables = Object.values(clientMap).sort((a, b) => b.totalDebt - a.totalDebt);
 
-        // 2. CUENTAS POR PAGAR
-        const qPay = query(
-            collection(db, "payables"), 
-            where("status", "==", "PENDING"),
-            orderBy("dueDate", "asc")
-        );
-        const snapPay = await getDocs(qPay);
-        
+        // Agrupación de Proveedores en Memoria RAM
         const providerMap = {};
         let totalPayAmount = 0;
 
-        snapPay.forEach(d => {
-            const p = d.data();
+        Object.values(this.runtimePayMap).forEach(p => {
             const total = cleanNumber(p.total);
             const paid = cleanNumber(p.amountPaid);
             const balance = total - paid;
@@ -142,7 +278,7 @@ async function loadData() {
         });
         groupedPayables = Object.values(providerMap).sort((a, b) => b.totalDebt - a.totalDebt);
 
-        // 3. KPIs
+        // Actualizar KPIs de la UI
         const bal = totalRecAmount - totalPayAmount;
         document.getElementById('total-receivable').textContent = formatMoney(totalRecAmount);
         document.getElementById('total-payable').textContent = formatMoney(totalPayAmount);
@@ -150,12 +286,12 @@ async function loadData() {
         document.getElementById('total-balance').className = `text-2xl font-black ${bal >= 0 ? 'text-green-400' : 'text-red-400'}`;
 
         renderTables();
-
-    } catch (e) {
-        console.error(e);
-        listReceivable.innerHTML = `<tr><td colspan="4" class="p-10 text-center text-red-400">Error: ${e.message}</td></tr>`;
     }
-}
+};
+
+// ==========================================================================
+// RENDERIZADO VISUAL
+// ==========================================================================
 
 function renderTables() {
     const term = searchInput.value.toLowerCase();
@@ -217,7 +353,10 @@ function renderTables() {
 
 searchInput.addEventListener('input', renderTables);
 
-// --- DETALLES Y PAGINACIÓN ---
+// ==========================================================================
+// DETALLES Y PAGINACIÓN DEL MODAL
+// ==========================================================================
+
 window.openDetails = (id, name, type, totalDebt) => {
     currentDetailEntity = { id, name, type, totalDebt };
     lastDetailDoc = null;
@@ -250,7 +389,6 @@ async function loadEntityDetails() {
                 limit(DETAILS_PAGE_SIZE)
             ];
             
-            // Lógica para ID vs UserName
             if (id.length > 20 && !id.includes(" ")) { 
                 constraints.unshift(where("userId", "==", id));
             } else {
@@ -292,13 +430,18 @@ async function loadEntityDetails() {
             const balance = total - paid;
             
             const date = type === 'client' ? data.createdAt : data.dueDate;
+            let dateString = '-';
+            if (date) {
+                 dateString = date.toDate ? date.toDate().toLocaleDateString() : new Date(date).toLocaleDateString();
+            }
+            
             const ref = type === 'client' ? `#${d.id.slice(0,6)}` : (data.description || "N/A");
 
             dtList.innerHTML += `
                 <tr class="border-b border-gray-50 last:border-0 hover:bg-slate-50">
                     <td class="p-3">
-                        <p class="font-bold text-brand-black text-xs">${ref}</p>
-                        <p class="text-[9px] text-gray-400">${date ? new Date(date.seconds*1000).toLocaleDateString() : '-'}</p>
+                        <p class="font-bold text-brand-black text-xs uppercase">${ref}</p>
+                        <p class="text-[9px] text-gray-400 font-bold">${dateString}</p>
                     </td>
                     <td class="p-3 text-right text-xs font-bold text-gray-400">${formatMoney(total)}</td>
                     <td class="p-3 text-right text-xs font-bold text-green-600">${formatMoney(paid)}</td>
@@ -318,7 +461,9 @@ async function loadEntityDetails() {
     }
 }
 
-// --- MODAL DE PAGO (Transaccional) ---
+// ==========================================================================
+// MODAL DE PAGO (Transaccional)
+// ==========================================================================
 
 window.openPaymentModalGlobal = () => {
     document.getElementById('pay-target-id').value = 'GLOBAL';
@@ -331,12 +476,12 @@ window.openPaymentModalGlobal = () => {
 window.openPaymentModalSingle = (docId, balance) => {
     document.getElementById('pay-target-id').value = docId;
     document.getElementById('pay-target-mode').value = 'single';
-    document.getElementById('pay-amount').value = ""; 
+    // Autocompletamos con la deuda exacta de ese documento
+    document.getElementById('pay-amount').value = formatMoney(balance); 
     document.getElementById('pay-modal-title').textContent = `Pagar Documento Específico`;
     paymentModal.classList.remove('hidden');
 };
 
-// 6. PROCESAR PAGO (OPTIMIZADO: PRE-CALCULO + PARALELO)
 paymentForm.onsubmit = async (e) => {
     e.preventDefault();
     const btn = paymentForm.querySelector('button');
@@ -353,13 +498,11 @@ paymentForm.onsubmit = async (e) => {
     if(amount <= 0) { alert("Monto inválido"); btn.disabled=false; btn.innerText = originalText; return; }
 
     try {
-        // PASO 1: Identificar documentos a afectar (SIN bloquear DB aún)
         let docsToProcess = [];
 
         if (mode === 'single') {
             docsToProcess.push({ id: targetId, ref: doc(db, type === 'client' ? 'orders' : 'payables', targetId) });
         } else {
-            // FIFO: Descargar lista ligera
             let qDocs;
             if (type === 'client') {
                 const colRef = collection(db, "orders");
@@ -374,7 +517,6 @@ paymentForm.onsubmit = async (e) => {
             
             const qSnap = await getDocs(qDocs);
             
-            // Simulación en memoria para saber qué tocar
             let moneySimulated = amount;
             for (const d of qSnap.docs) {
                 if (moneySimulated <= 0) break; 
@@ -395,11 +537,8 @@ paymentForm.onsubmit = async (e) => {
 
         if (docsToProcess.length === 0) throw "No hay deudas pendientes para aplicar el pago.";
 
-        // PASO 2: Transacción Atómica Paralela
         await runTransaction(db, async (t) => {
             const accRef = doc(db, "accounts", accId);
-            
-            // Lecturas simultáneas
             const readPromises = [t.get(accRef), ...docsToProcess.map(item => t.get(item.ref))];
             const snapshots = await Promise.all(readPromises);
 
@@ -420,18 +559,15 @@ paymentForm.onsubmit = async (e) => {
                 const total = cleanNumber(data.total);
                 const debt = total - currentPaid;
 
-                if (debt <= 0) continue; // Race condition check
+                if (debt <= 0) continue; 
 
                 if (mode === 'single' && amount > debt + 100) throw `El monto excede la deuda ($${debt.toLocaleString()})`;
 
-                let apply = 0;
-                if (mode === 'single') apply = amount;
-                else apply = Math.min(remainingMoney, debt);
-
+                let apply = mode === 'single' ? amount : Math.min(remainingMoney, debt);
                 const newPaid = currentPaid + apply;
-                const isPaid = newPaid >= total - 100; // Tolerancia decimal
+                const isPaid = newPaid >= total - 100; 
 
-                const updates = { amountPaid: newPaid, lastPaymentDate: new Date() };
+                const updates = { amountPaid: newPaid, lastPaymentDate: new Date(), updatedAt: new Date() }; // <-- updatedAt vital para el onSnapshot
                 if (type === 'client') {
                     updates.paymentStatus = isPaid ? 'PAID' : 'PARTIAL';
                 } else {
@@ -445,12 +581,10 @@ paymentForm.onsubmit = async (e) => {
                 totalApplied += apply;
             }
 
-            // Update Banco
             const currentAccBal = cleanNumber(accDoc.data().balance);
             const newAccBal = type === 'client' ? (currentAccBal + totalApplied) : (currentAccBal - totalApplied);
             t.update(accRef, { balance: newAccBal });
 
-            // Historial
             const expRef = doc(collection(db, "expenses"));
             t.set(expRef, {
                 description: type === 'client' ? `Abono Cliente: ${entityName}` : `Pago Proveedor: ${entityName}`,
@@ -472,13 +606,14 @@ paymentForm.onsubmit = async (e) => {
             const newDebt = currentDetailEntity.totalDebt - amount; 
             document.getElementById('dt-total-debt').textContent = formatMoney(newDebt > 0 ? newDebt : 0);
             lastDetailDoc = null;
-            loadEntityDetails();
+            loadEntityDetails(); // Recargar el modal interior
         }
-        loadData();
+        
+        // No necesitamos recargar las tablas globales, el onSnapshot lo hará al detectar los `updatedAt` modificados.
 
     } catch (e) {
         console.error(e);
-        alert("Error: " + e.message);
+        alert("Error: " + e.message || e);
     } finally {
         btn.disabled = false; btn.innerText = originalText;
     }
@@ -500,7 +635,7 @@ document.getElementById('create-payable-form').onsubmit = async (e) => {
         });
         alert("✅ Deuda registrada");
         window.closeModal('create-payable-modal');
-        loadData();
+        // El onSnapshot de payables agregará esta deuda al instante
     } catch (e) { alert("Error: " + e.message); }
     finally { btn.disabled = false; }
 };
@@ -516,16 +651,13 @@ window.switchTab = (tab) => {
     document.getElementById('tab-payable').classList.add('hidden');
     document.getElementById(`tab-${tab}`).classList.remove('hidden');
 };
-window.openCreatePayable = () => document.getElementById('create-payable-modal').classList.remove('hidden');
-window.closeModal = (id) => document.getElementById(id).classList.add('hidden');
 
-// Expose payment modal global
-window.openPaymentModalGlobal = () => {
-    document.getElementById('pay-target-id').value = 'GLOBAL';
-    document.getElementById('pay-target-mode').value = 'fifo';
-    document.getElementById('pay-amount').value = "";
-    document.getElementById('pay-modal-title').textContent = `Abono Global a ${currentDetailEntity.name}`;
-    paymentModal.classList.remove('hidden');
+window.openCreatePayable = () => {
+    document.getElementById('create-payable-form').reset();
+    document.getElementById('create-payable-modal').classList.remove('hidden');
 };
 
-init();
+window.closeModal = (id) => document.getElementById(id).classList.add('hidden');
+
+// Iniciar Motor
+SmartCarteraSync.init();

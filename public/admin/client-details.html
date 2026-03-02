@@ -19,7 +19,7 @@
         .tab-btn.active { border-bottom-color: #00AEC7; color: #00AEC7; }
     </style>
 </head>
-<body class="bg-slate-50 font-sans text-brand-black flex h-screen overflow-hidden selection:bg-brand-cyan selection:text-white">
+<body class="bg-slate-50 font-sans text-brand-black flex h-screen overflow-hidden selection:bg-brand-cyan selection:text-white" style="display: none;">
     
     <div id="admin-sidebar"></div>
 
@@ -262,7 +262,7 @@
             btn.classList.remove('text-gray-400', 'border-transparent');
         }
     </script>
-
+    <script type="module" src="../js/admin-guard.js"></script>
     <script type="module" src="../js/admin-ui.js"></script>
     <script type="module" src="../js/admin-client-details.js"></script>
 </body>

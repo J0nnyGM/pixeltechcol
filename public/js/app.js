@@ -1,4 +1,4 @@
-import { auth, db, onAuthStateChanged, collection, getDocs, query, where, limit, doc, getDoc, orderBy } from "./firebase-init.js";
+import { auth, db, onAuthStateChanged, collection, getDocs, query, where, limit, doc, getDoc, orderBy, onSnapshot } from "./firebase-init.js";
 import { addToCart, updateCartCount, getProductQtyInCart, removeFromCart, removeOneUnit } from "./cart.js";
 
 console.log("🚀 PixelTech Store Iniciada - Modo SmartSync Dual");
@@ -7,113 +7,103 @@ let runtimeProductsMap = {};
 let allProductsCache = []; 
 
 /* ==========================================================================
-   ⚙️ MOTOR DE SINCRONIZACIÓN INTELIGENTE (SMART SYNC DUAL)
+   ⚙️ MOTOR DE SINCRONIZACIÓN INTELIGENTE (REAL-TIME SMART CACHE)
    ========================================================================== */
 const SmartProductSync = {
     STORAGE_KEY: 'pixeltech_master_catalog',
+    isListening: false, // Evita duplicar listeners
     
-    // Iniciar el motor
     async init() {
-        // 1. Cargar lo que tengamos en memoria local (rápido)
+        // 1. Carga instantánea desde memoria local
         const localData = localStorage.getItem(this.STORAGE_KEY);
         let lastSyncTime = 0;
         
         if (localData) {
             try {
                 const parsed = JSON.parse(localData);
-                // Restauramos el mapa y el array global
                 runtimeProductsMap = parsed.map || {};
                 lastSyncTime = parsed.lastSync || 0;
-                console.log(`📂 Cargados ${Object.keys(runtimeProductsMap).length} productos de caché local.`);
+                allProductsCache = Object.values(runtimeProductsMap);
+                console.log(`📂 Cargados ${allProductsCache.length} productos de caché local instantáneo.`);
             } catch (e) {
                 console.warn("Error leyendo caché local, reiniciando...");
             }
         }
 
-        // 2. Preguntar a Firebase por CAMBIOS (Deltas) en ambos campos
-        await this.fetchUpdates(lastSyncTime);
-
-        // 3. Actualizar el Array global para los filtros
-        allProductsCache = Object.values(runtimeProductsMap);
-        
-        // 4. Guardar el estado actualizado
-        this.saveState();
-
+        // 2. Iniciar conexión en tiempo real con Firebase (Solo Deltas)
+        this.listenForUpdates(lastSyncTime);
         return true;
     },
 
-    async fetchUpdates(lastSyncTime) {
-        try {
-            const collectionRef = collection(db, "products");
+    listenForUpdates(lastSyncTime) {
+        if (this.isListening) return;
+        this.isListening = true;
 
-            // CASO 1: Primera carga (Caché vacío o corrupto)
-            if (lastSyncTime === 0) {
-                console.log("⬇️ Descargando catálogo completo por primera vez...");
-                const q = query(collectionRef, where("status", "==", "active"));
-                const snap = await getDocs(q);
-                snap.forEach(docSnap => {
-                    const data = docSnap.data();
-                    runtimeProductsMap[docSnap.id] = { id: docSnap.id, ...data };
-                });
+        const collectionRef = collection(db, "products");
+        let q;
+
+        // CASO 1: Primera carga de este usuario -> Descargar activos
+        if (lastSyncTime === 0) {
+            console.log("⬇️ Descargando catálogo y activando tiempo real...");
+            q = query(collectionRef, where("status", "==", "active"));
+        } 
+        // CASO 2: Usuario recurrente -> Escuchar SOLO lo que cambió desde su última visita
+        else {
+            console.log("🔄 Escuchando actualizaciones en tiempo real desde:", new Date(lastSyncTime).toLocaleString());
+            q = query(collectionRef, where("updatedAt", ">", new Date(lastSyncTime)));
+        }
+
+        onSnapshot(q, (snapshot) => {
+            if (snapshot.empty) {
+                if (lastSyncTime !== 0) console.log("✅ El catálogo en caché está 100% al día.");
                 return;
             }
 
-            // CASO 2: Actualización Incremental (Doble Validación)
-            console.log("🔄 Buscando actualizaciones (Producto o Promo) desde:", new Date(lastSyncTime).toLocaleString());
-            const dateQuery = new Date(lastSyncTime);
+            let hasChanges = false;
 
-            // Ejecutamos ambas consultas en paralelo para mayor velocidad
-            const [updatesSnap, promosSnap] = await Promise.all([
-                getDocs(query(collectionRef, where("updatedAt", ">", dateQuery))),
-                getDocs(query(collectionRef, where("last_updated", ">", dateQuery)))
-            ]);
+            // Analizamos exactamente qué documentos cambiaron (Ahorro extremo de recursos)
+            snapshot.docChanges().forEach(change => {
+                const data = change.doc.data();
+                const id = change.doc.id;
 
-            if (updatesSnap.empty && promosSnap.empty) {
-                console.log("✅ Todo está al día. 0 lecturas consumidas en cambios.");
-                return;
-            }
-
-            console.log(`🔥 Cambios detectados: ${updatesSnap.size} ediciones, ${promosSnap.size} promos.`);
-
-            // Función helper para procesar los snapshots y evitar duplicados
-            const processChanges = (snap) => {
-                snap.forEach(docSnap => {
-                    const data = docSnap.data();
-                    const id = docSnap.id;
-
+                if (change.type === 'added' || change.type === 'modified') {
                     if (data.status === 'active') {
-                        // Agregar o Actualizar (Sobrescribe si ya existe)
                         runtimeProductsMap[id] = { id, ...data };
+                        hasChanges = true;
                     } else {
-                        // Si cambió a inactivo/borrado, lo sacamos de nuestra caché local
+                        // Si lo marcaste como inactivo/agotado, lo sacamos del caché
                         if (runtimeProductsMap[id]) {
                             delete runtimeProductsMap[id];
-                            console.log(`🗑️ Producto eliminado de caché local: ${data.name}`);
+                            hasChanges = true;
                         }
                     }
-                });
-            };
+                } else if (change.type === 'removed') {
+                    if (runtimeProductsMap[id]) {
+                        delete runtimeProductsMap[id];
+                        hasChanges = true;
+                    }
+                }
+            });
 
-            // Procesamos ambos resultados
-            processChanges(updatesSnap);
-            processChanges(promosSnap);
-
-        } catch (e) {
-            console.error("Error en SmartSync Dual:", e);
-            // Fallback de seguridad
-            if (Object.keys(runtimeProductsMap).length === 0) {
-                const fallbackQ = query(collection(db, "products"), where("status", "==", "active"), limit(50));
-                const snap = await getDocs(fallbackQ);
-                snap.forEach(d => runtimeProductsMap[d.id] = { id: d.id, ...d.data() });
+            // Si hubo cambios, actualizamos caché y avisamos a la interfaz visual
+            if (hasChanges) {
+                console.log(`🔥 Catálogo actualizado en vivo: ${snapshot.docChanges().length} modificaciones.`);
+                allProductsCache = Object.values(runtimeProductsMap);
+                this.saveState();
+                
+                // Disparamos un evento para que las secciones se repinten con los nuevos precios/stock
+                window.dispatchEvent(new Event('catalogUpdated'));
             }
-        }
+        }, (error) => {
+            console.error("Error en SmartSync Realtime:", error);
+        });
     },
 
     saveState() {
         try {
             const state = {
                 map: runtimeProductsMap,
-                lastSync: Date.now() // Guardamos el momento exacto de esta sync
+                lastSync: Date.now() // Guardamos el momento exacto
             };
             localStorage.setItem(this.STORAGE_KEY, JSON.stringify(state));
         } catch (e) {
@@ -122,15 +112,12 @@ const SmartProductSync = {
     }
 };
 
-/**
- * --- 1. MANEJO DE USUARIO (Header) ---
- */
+// --- MANEJO DE USUARIO (Header) ---
 onAuthStateChanged(auth, async (user) => {
     const userInfo = document.getElementById("user-info-global");
     if (!userInfo) return;
 
     if (user) {
-        // Cache simple para rol de usuario
         const cachedRole = sessionStorage.getItem(`role_${user.uid}`);
         if (cachedRole) {
             renderUserButton(cachedRole === 'admin');
@@ -204,12 +191,29 @@ window.openGlobalModal = (id) => {
     const content = modal.querySelector('#global-modal-content');
     const img = p.mainImage || p.image || 'https://placehold.co/150';
 
+    // 1. Determinar selecciones iniciales (Primera opción disponible)
+    const initialColor = (p.hasVariants && p.variants?.length > 0) ? p.variants[0].color : null;
+    const initialCap = (p.hasCapacities && p.capacities?.length > 0) ? p.capacities[0].label : null;
+
+    // 2. Calcular Precio Inicial (Buscando en combinaciones)
+    let initialPrice = p.price;
+    if (p.combinations && p.combinations.length > 0) {
+        const combo = p.combinations.find(c => 
+            (c.color === initialColor || !initialColor) && 
+            (c.capacity === initialCap || !initialCap)
+        );
+        if (combo) initialPrice = combo.price;
+    } else if (initialCap && p.capacities) {
+        const capObj = p.capacities.find(c => c.label === initialCap);
+        if (capObj) initialPrice = capObj.price;
+    }
+
     let html = `
     <div class="p-6 pb-2 text-center bg-slate-50 border-b border-gray-100 relative">
         <button onclick="window.closeGlobalModal()" class="absolute top-4 right-4 w-8 h-8 flex items-center justify-center bg-white rounded-full shadow-sm text-gray-400 hover:text-brand-red transition"><i class="fa-solid fa-xmark"></i></button>
         <div class="w-24 h-24 mx-auto bg-white rounded-xl p-2 shadow-sm mb-3 flex items-center justify-center"><img src="${img}" class="max-w-full max-h-full object-contain" id="modal-product-img"></div>
         <h3 class="font-black text-sm uppercase text-brand-black leading-tight mb-1">${p.name}</h3>
-        <p class="text-lg font-black text-brand-cyan mt-2" id="modal-price-display">$${(p.price || 0).toLocaleString('es-CO')}</p>
+        <p class="text-lg font-black text-brand-cyan mt-2" id="modal-price-display">$${initialPrice.toLocaleString('es-CO')}</p>
     </div>
     <div class="p-6 overflow-y-auto no-scrollbar space-y-5" id="modal-options-container" data-id="${id}">`;
 
@@ -223,7 +227,7 @@ window.openGlobalModal = (id) => {
     if (p.hasCapacities && p.capacities?.length > 0) {
         html += `<div><p class="text-[10px] font-black text-brand-black uppercase tracking-widest mb-3">Capacidad</p><div class="flex flex-wrap justify-center gap-2">`;
         p.capacities.forEach((c, idx) => {
-            html += `<button onclick="window.selectVariantOption('modal', 'capacity', '${c.label}', this)" class="px-4 py-2 rounded-xl border-2 text-[10px] font-black uppercase transition-all var-btn-cap ${idx === 0 ? 'bg-brand-black text-white border-brand-black' : 'bg-white text-gray-400 border-gray-100 hover:border-brand-cyan hover:text-brand-cyan'}" data-val="${c.label}" data-price="${c.price}">${c.label}</button>`;
+            html += `<button onclick="window.selectVariantOption('modal', 'capacity', '${c.label}', this)" class="px-4 py-2 rounded-xl border-2 text-[10px] font-black uppercase transition-all var-btn-cap ${idx === 0 ? 'bg-brand-black text-white border-brand-black' : 'bg-white text-gray-400 border-gray-100 hover:border-brand-cyan hover:text-brand-cyan'}" data-val="${c.label}">${c.label}</button>`;
         });
         html += `</div></div>`;
     }
@@ -236,8 +240,8 @@ window.openGlobalModal = (id) => {
     requestAnimationFrame(() => { modal.classList.remove('opacity-0'); modal.classList.add('flex'); content.classList.remove('scale-95'); content.classList.add('scale-100'); });
 
     const container = document.getElementById('modal-options-container');
-    container.dataset.selColor = p.variants?.[0]?.color || "";
-    container.dataset.selCap = p.capacities?.[0]?.label || "";
+    container.dataset.selColor = initialColor || "";
+    container.dataset.selCap = initialCap || "";
 };
 
 window.closeGlobalModal = () => {
@@ -255,6 +259,23 @@ window.openCardOverlay = (id, prefix) => {
     const overlay = document.getElementById(`overlay-${uniqueId}`);
     
     if (!p || !overlay) return;
+
+    // 1. Determinar selecciones iniciales
+    const initialColor = (p.hasVariants && p.variants?.length > 0) ? p.variants[0].color : null;
+    const initialCap = (p.hasCapacities && p.capacities?.length > 0) ? p.capacities[0].label : null;
+
+    // 2. Calcular Precio Inicial
+    let initialPrice = p.price;
+    if (p.combinations && p.combinations.length > 0) {
+        const combo = p.combinations.find(c => 
+            (c.color === initialColor || !initialColor) && 
+            (c.capacity === initialCap || !initialCap)
+        );
+        if (combo) initialPrice = combo.price;
+    } else if (initialCap && p.capacities) {
+        const capObj = p.capacities.find(c => c.label === initialCap);
+        if (capObj) initialPrice = capObj.price;
+    }
 
     let html = `
     <div class="absolute inset-0 z-50 bg-white flex flex-col h-full w-full p-4" onclick="event.stopPropagation()">
@@ -296,8 +317,7 @@ window.openCardOverlay = (id, prefix) => {
             html += `
                 <button onclick="window.selectVariantOption('${uniqueId}', 'capacity', '${c.label}', this)" 
                     class="px-3 py-2 rounded-lg border-2 text-[9px] font-black uppercase transition-all var-btn-cap ${idx===0 ? 'bg-black text-white border-black' : 'bg-white text-black border-gray-200 hover:border-brand-cyan'}" 
-                    data-val="${c.label}" 
-                    data-price="${c.price}">
+                    data-val="${c.label}">
                     ${c.label}
                 </button>`;
         });
@@ -306,7 +326,11 @@ window.openCardOverlay = (id, prefix) => {
 
     html += `</div>
         
-        <div class="mt-auto shrink-0 pt-2">
+        <div class="mt-auto shrink-0 pt-2 border-t border-dashed border-gray-100">
+            <div class="flex justify-between items-center mb-2 px-1">
+                <span class="text-[9px] font-bold text-gray-400 uppercase">Total:</span>
+                <span class="text-sm font-black text-brand-black" id="overlay-price-${uniqueId}">$${initialPrice.toLocaleString('es-CO')}</span>
+            </div>
             <button onclick="window.confirmAdd('${uniqueId}')" class="w-full bg-brand-cyan text-black font-black py-3 rounded-xl uppercase text-[10px] tracking-[0.2em] hover:bg-cyan-400 transition shadow-lg active:scale-95 flex items-center justify-center gap-2">
                 <span>Agregar al Carrito</span> <i class="fa-solid fa-check"></i>
             </button>
@@ -324,8 +348,8 @@ window.openCardOverlay = (id, prefix) => {
     });
 
     const container = document.getElementById(`overlay-opts-${uniqueId}`);
-    container.dataset.selColor = p.variants?.[0]?.color || "";
-    container.dataset.selCap = p.capacities?.[0]?.label || "";
+    container.dataset.selColor = initialColor || "";
+    container.dataset.selCap = initialCap || "";
 };
 
 window.closeCardOverlay = (uniqueId) => {
@@ -342,6 +366,11 @@ window.selectVariantOption = (context, type, val, btn) => {
     const container = context === 'modal' ? document.getElementById('modal-options-container') : document.getElementById(`overlay-opts-${context}`);
     if (!container) return;
 
+    // Obtener producto para buscar precio
+    const id = container.dataset.id;
+    const p = runtimeProductsMap[id];
+
+    // 1. Actualización Visual (Clases CSS)
     if (type === 'color') {
         container.dataset.selColor = val;
         const parent = btn.parentElement;
@@ -358,13 +387,46 @@ window.selectVariantOption = (context, type, val, btn) => {
         parent.querySelectorAll('.var-btn-cap').forEach(b => {
             b.className = context === 'modal'
                 ? "px-4 py-2 rounded-xl border-2 border-gray-100 text-gray-400 text-[10px] font-black uppercase transition-all var-btn-cap hover:border-brand-cyan hover:text-brand-cyan"
-                : "px-2 py-1 rounded border border-gray-200 text-gray-500 text-[8px] font-black uppercase transition-all var-btn-cap hover:border-brand-cyan";
+                : "px-3 py-2 rounded-lg border-2 text-[9px] font-black uppercase transition-all var-btn-cap border-gray-200 text-gray-500 hover:border-brand-cyan";
         });
         btn.className = context === 'modal'
             ? "px-4 py-2 rounded-xl border-2 border-brand-black bg-brand-black text-white text-[10px] font-black uppercase transition-all var-btn-cap shadow-lg"
-            : "px-2 py-1 rounded border border-brand-black bg-brand-black text-white text-[8px] font-black uppercase transition-all var-btn-cap shadow-sm";
+            : "px-3 py-2 rounded-lg border-2 text-[9px] font-black uppercase transition-all var-btn-cap bg-black text-white border-black shadow-sm";
+    }
 
-        if (context === 'modal' && btn.dataset.price) document.getElementById('modal-price-display').textContent = `$${parseInt(btn.dataset.price).toLocaleString('es-CO')}`;
+    // 2. RECALCULAR PRECIO EN TIEMPO REAL
+    const curColor = container.dataset.selColor;
+    const curCap = container.dataset.selCap;
+    let newPrice = p.price;
+
+    if (p.combinations && p.combinations.length > 0) {
+        // Buscar combinación exacta
+        const combo = p.combinations.find(c => 
+            (c.color === curColor || !c.color) && 
+            (c.capacity === curCap || !c.capacity)
+        );
+        if (combo) newPrice = combo.price;
+    } else if (p.capacities && curCap) {
+        // Caso simple: Solo capacidades
+        const c = p.capacities.find(x => x.label === curCap);
+        if (c) newPrice = c.price;
+    }
+
+    // 3. Actualizar el DOM del precio
+    let priceEl;
+    if (context === 'modal') {
+        priceEl = document.getElementById('modal-price-display');
+    } else {
+        priceEl = document.getElementById(`overlay-price-${context}`);
+    }
+
+    if (priceEl) {
+        // Pequeña animación de cambio
+        priceEl.style.opacity = '0.5';
+        setTimeout(() => {
+            priceEl.textContent = `$${newPrice.toLocaleString('es-CO')}`;
+            priceEl.style.opacity = '1';
+        }, 150);
     }
 };
 
@@ -526,97 +588,283 @@ let promoData = [];
 let bestSellersData = []; 
 
 /* ==========================================================================
-   CARGADORES OPTIMIZADOS (USAN MEMORIA)
+   CARGADORES OPTIMIZADOS (TIEMPO REAL PARA BANNERS, CACHÉ PARA EL RESTO)
    ========================================================================== */
 
+// --- NUEVA FUNCIÓN: MOVER SLIDERS MANUALMENTE ---
+window.moveSlider = (containerId, direction) => {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    const slideClass = containerId === 'promo-slider-container' ? '.promo-slide' : '.launch-slide';
+    const slides = container.querySelectorAll(slideClass);
+    if (slides.length <= 1) return;
+
+    const currentIdx = parseInt(container.dataset.activeIdx || 0);
+    let nextIdx = currentIdx + direction;
+
+    // Lógica circular (si pasa del último vuelve al primero y viceversa)
+    if (nextIdx < 0) nextIdx = slides.length - 1;
+    if (nextIdx >= slides.length) nextIdx = 0;
+
+    slides[currentIdx].classList.remove('opacity-100', 'z-10');
+    slides[currentIdx].classList.add('opacity-0', 'z-0', 'pointer-events-none');
+
+    slides[nextIdx].classList.remove('opacity-0', 'z-0', 'pointer-events-none');
+    slides[nextIdx].classList.add('opacity-100', 'z-10');
+
+    container.dataset.activeIdx = nextIdx;
+
+    // Reiniciamos el reloj maestro para que el usuario tenga 5 segundos completos para ver la imagen
+    if (window.initMasterSliders) window.initMasterSliders();
+};
+
+
+// --- 1. BANNER SLIDER (TIEMPO REAL + CROSSFADE SUAVE + CONTROLES) ---
 function loadPromoSlider() {
     const container = document.getElementById('promo-slider-container');
     if (!container) return;
+    container.classList.add('group');
 
-    // Filtramos desde la caché local
-    let promos = allProductsCache.filter(p => p.isHeroPromo === true && p.stock > 0);
+    let currentPromos = [];
 
-    if (promos.length === 0) {
-        promos = allProductsCache.slice(0, 3);
-    }
-
-    if (promos.length === 0) {
-        container.innerHTML = `<div class="flex items-center justify-center h-full text-gray-500 text-xs font-bold uppercase">Sin promociones</div>`;
-        return;
-    }
-
-    let currentIdx = 0;
-    const renderSlide = (idx) => {
-        const p = promos[idx];
-        const isCustom = !!p.promoBannerUrl;
-        const bgImage = p.promoBannerUrl || p.mainImage || p.image || 'https://placehold.co/600x800';
-
-        if (isCustom) {
-            container.innerHTML = `
-                <div class="h-full w-full fade-in relative cursor-pointer group" onclick="location.href='/shop/product.html?id=${p.id}'">
-                    <img src="${bgImage}" class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105">
-                </div>`;
-        } else {
-            container.innerHTML = `
-                <div class="h-full w-full fade-in relative cursor-pointer" onclick="location.href='/shop/product.html?id=${p.id}'">
-                    <img src="${bgImage}" class="absolute inset-0 w-full h-full object-cover opacity-60 transition-transform duration-700 hover:scale-110">
-                    <div class="absolute inset-0 bg-gradient-to-t from-slate-950 via-transparent to-transparent"></div>
-                    <div class="relative z-10 p-8 h-full flex flex-col justify-end items-start">
-                        <span class="bg-brand-red text-white text-[8px] font-black px-3 py-1 rounded-full mb-3 uppercase tracking-widest shadow-lg shadow-red-500/20">Oferta Destacada</span>
-                        <h2 class="text-2xl font-black text-white uppercase tracking-tighter mb-2 line-clamp-2 leading-none">${p.name}</h2>
-                        <p class="text-brand-cyan font-black text-xl">$${(p.price || 0).toLocaleString('es-CO')}</p>
-                    </div>
-                </div>`;
+    const buildSliderDOM = (promosArray) => {
+        if (!promosArray || promosArray.length === 0) {
+            container.innerHTML = `<div class="flex items-center justify-center h-full text-gray-500 text-xs font-bold uppercase bg-white">PixelTech Store</div>`;
+            return;
         }
+
+        let html = '';
+        promosArray.forEach((p, idx) => {
+            const isCustom = !!p.promoBannerUrl;
+            const bgImage = p.promoBannerUrl || p.mainImage || p.image || 'https://placehold.co/600x800';
+            
+            const activeClass = idx === 0 ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none';
+            const priority = idx === 0 ? 'fetchpriority="high"' : 'loading="lazy"';
+
+            // Lógica de Precio para Banner por defecto
+            const hasDiscount = p.originalPrice && p.originalPrice > p.price;
+            let priceDisplay = `<p class="text-brand-cyan font-black text-xl md:text-2xl mt-1">$${(p.price || 0).toLocaleString('es-CO')}</p>`;
+            
+            if (hasDiscount) {
+                const disc = Math.round(((p.originalPrice - p.price) / p.originalPrice) * 100);
+                priceDisplay = `
+                    <div class="flex items-end gap-3 mt-2">
+                        <div class="flex flex-col items-start leading-none">
+                            <span class="text-gray-400 line-through text-[10px] md:text-xs font-bold mb-1">Antes $${p.originalPrice.toLocaleString('es-CO')}</span>
+                            <span class="text-brand-cyan font-black text-xl md:text-2xl">$${p.price.toLocaleString('es-CO')}</span>
+                        </div>
+                        <span class="bg-brand-red text-white text-[10px] font-black px-2 py-1 rounded-md mb-0.5 shadow-sm">-${disc}%</span>
+                    </div>`;
+            }
+
+            if (isCustom) {
+                html += `
+                    <div class="absolute inset-0 w-full h-full transition-opacity duration-1000 ease-in-out cursor-pointer bg-white promo-slide overflow-hidden ${activeClass}" onclick="location.href='/shop/product.html?id=${p.id}'" data-idx="${idx}">
+                        <img src="${bgImage}" class="w-full h-full object-fill transition-transform duration-700 group-hover:scale-105">
+                    </div>`;
+            } else {
+                html += `
+                    <div class="absolute inset-0 w-full h-full transition-opacity duration-1000 ease-in-out cursor-pointer bg-slate-900 promo-slide overflow-hidden ${activeClass}" onclick="location.href='/shop/product.html?id=${p.id}'" data-idx="${idx}">
+                        <img src="${bgImage}" ${priority} decoding="async" class="absolute inset-0 w-full h-full object-fill opacity-60 transition-transform duration-1000 group-hover:scale-110">
+                        <div class="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-900/50 to-transparent"></div>
+                        <div class="relative z-10 p-6 md:p-8 h-full flex flex-col justify-end items-center md:items-start text-center md:text-left transition-transform duration-700 group-hover:-translate-y-2">
+                            <span class="bg-brand-red text-white text-[8px] font-black px-3 py-1 rounded-full mb-3 uppercase tracking-widest shadow-lg shadow-red-500/20">Oferta Destacada</span>
+                            <h2 class="text-lg md:text-xl font-black text-white uppercase tracking-tighter line-clamp-2 leading-tight">${p.name}</h2>
+                            ${priceDisplay}
+                        </div>
+                    </div>`;
+            }
+        });
+        
+        // Agregar Flechas de Navegación
+        if (promosArray.length > 1) {
+            html += `
+                <button onclick="event.stopPropagation(); window.moveSlider('promo-slider-container', -1)" class="absolute left-2 md:left-4 top-1/2 -translate-y-1/2 z-30 w-10 h-10 flex items-center justify-center bg-black/30 hover:bg-white text-white hover:text-black rounded-full opacity-0 group-hover:opacity-100 transition-all duration-300 backdrop-blur-md border border-white/20 shadow-xl">
+                    <i class="fa-solid fa-chevron-left text-sm pr-0.5"></i>
+                </button>
+                <button onclick="event.stopPropagation(); window.moveSlider('promo-slider-container', 1)" class="absolute right-2 md:right-4 top-1/2 -translate-y-1/2 z-30 w-10 h-10 flex items-center justify-center bg-black/30 hover:bg-white text-white hover:text-black rounded-full opacity-0 group-hover:opacity-100 transition-all duration-300 backdrop-blur-md border border-white/20 shadow-xl">
+                    <i class="fa-solid fa-chevron-right text-sm pl-0.5"></i>
+                </button>
+            `;
+        }
+
+        container.innerHTML = html;
+        container.dataset.activeIdx = 0; 
     };
 
-    renderSlide(0);
-    if (promos.length > 1) {
-        setInterval(() => {
-            currentIdx = (currentIdx + 1) % promos.length;
-            renderSlide(currentIdx);
-        }, 5000);
+    const cachedPromosRaw = localStorage.getItem('pixeltech_promo_slider_cache');
+    if (cachedPromosRaw) {
+        try {
+            currentPromos = JSON.parse(cachedPromosRaw);
+            buildSliderDOM(currentPromos);
+        } catch (e) {}
     }
+
+    const q = query(collection(db, "products"), where("isHeroPromo", "==", true), where("status", "==", "active"));
+    onSnapshot(q, (snapshot) => {
+        let promos = [];
+        snapshot.forEach(doc => promos.push({id: doc.id, ...doc.data()}));
+        promos = promos.filter(p => p.stock > 0);
+
+        localStorage.setItem('pixeltech_promo_slider_cache', JSON.stringify(promos));
+
+        const currentIds = currentPromos.map(p => p.id).join(',');
+        const newIds = promos.map(p => p.id).join(',');
+
+        if (currentIds !== newIds) {
+            currentPromos = promos;
+            buildSliderDOM(currentPromos);
+        }
+    });
 }
 
+// --- 2. BANNER LANZAMIENTO (TIEMPO REAL + CACHÉ ULTRARRÁPIDO + CONTROLES) ---
 function loadNewLaunch() {
     const container = document.getElementById('new-launch-banner');
     if (!container) return;
+    container.classList.add('group');
 
-    let p = allProductsCache.find(p => p.isNewLaunch === true && p.stock > 0);
-    if (!p && allProductsCache.length > 0) p = allProductsCache[0];
+    let currentLaunches = [];
 
-    if (!p) {
-        container.innerHTML = `<div class="flex items-center justify-center h-full bg-slate-900 text-gray-600 font-bold text-xs uppercase">Próximamente</div>`;
-        return;
+    const buildLaunchDOM = (launchArray) => {
+        if (!launchArray || launchArray.length === 0) {
+            container.innerHTML = `<div class="flex items-center justify-center h-full text-gray-500 text-xs font-bold uppercase bg-slate-900">Próximamente</div>`;
+            return;
+        }
+
+        let html = '';
+        launchArray.forEach((p, idx) => {
+            const isCustom = !!p.launchBannerUrl;
+            const img = p.launchBannerUrl || p.mainImage || p.image || 'https://placehold.co/800x400';
+            
+            const activeClass = idx === 0 ? 'opacity-100 z-10' : 'opacity-0 z-0 pointer-events-none';
+            const priority = idx === 0 ? 'fetchpriority="high"' : 'loading="lazy"';
+
+            const hasDiscount = p.originalPrice && p.originalPrice > p.price;
+            let priceDisplay = `<span class="text-xl md:text-2xl font-black text-white">$${(p.price || 0).toLocaleString('es-CO')}</span>`;
+            if (hasDiscount) {
+                priceDisplay = `
+                    <div class="flex flex-col items-start leading-none">
+                        <span class="text-gray-400 line-through text-[10px] font-bold mb-1">Antes $${p.originalPrice.toLocaleString('es-CO')}</span>
+                        <span class="text-xl md:text-2xl font-black text-brand-red">$${p.price.toLocaleString('es-CO')}</span>
+                    </div>`;
+            }
+
+            if (isCustom) {
+                html += `
+                    <div class="absolute inset-0 w-full h-full transition-opacity duration-1000 ease-in-out cursor-pointer bg-white launch-slide overflow-hidden ${activeClass}" onclick="location.href='/shop/product.html?id=${p.id}'" data-idx="${idx}">
+                        <img src="${img}" class="w-full h-full object-fill transition-transform duration-700 group-hover:scale-105">
+                    </div>`;
+            } else {
+                html += `
+                    <div class="absolute inset-0 w-full h-full transition-opacity duration-1000 ease-in-out cursor-pointer bg-slate-900 launch-slide overflow-hidden ${activeClass}" onclick="location.href='/shop/product.html?id=${p.id}'" data-idx="${idx}">
+                        <img src="${img}" ${priority} decoding="async" class="absolute inset-0 w-full h-full object-fill transition duration-1000 group-hover:scale-105 opacity-80">
+                        <div class="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent"></div>
+                        <div class="absolute bottom-0 left-0 p-8 z-10 w-full text-center md:text-left transition-transform duration-700 group-hover:-translate-y-2">
+                            <p class="text-brand-cyan font-black text-[9px] uppercase tracking-[0.4em] mb-2 bg-black/50 w-fit px-2 py-1 rounded backdrop-blur-sm mx-auto md:mx-0">Novedad Exclusiva</p>
+                            <h3 class="text-lg md:text-xl font-black text-white uppercase tracking-tighter leading-tight mb-4 line-clamp-2 min-h-[2.5rem]">${p.name}</h3>
+                            <div class="flex flex-col md:flex-row items-center gap-4 md:gap-6">
+                                ${priceDisplay}
+                                <span class="bg-white text-brand-black px-6 py-3 rounded-xl font-black text-[9px] uppercase tracking-widest hover:bg-brand-cyan transition shadow-lg w-full md:w-auto text-center">Ver Detalles</span>
+                            </div>
+                        </div>
+                    </div>`;
+            }
+        });
+
+        if (launchArray.length > 1) {
+            html += `
+                <button onclick="event.stopPropagation(); window.moveSlider('new-launch-banner', -1)" class="absolute left-2 md:left-4 top-1/2 -translate-y-1/2 z-30 w-10 h-10 flex items-center justify-center bg-black/30 hover:bg-white text-white hover:text-black rounded-full opacity-0 group-hover:opacity-100 transition-all duration-300 backdrop-blur-md border border-white/20 shadow-xl">
+                    <i class="fa-solid fa-chevron-left text-sm pr-0.5"></i>
+                </button>
+                <button onclick="event.stopPropagation(); window.moveSlider('new-launch-banner', 1)" class="absolute right-2 md:right-4 top-1/2 -translate-y-1/2 z-30 w-10 h-10 flex items-center justify-center bg-black/30 hover:bg-white text-white hover:text-black rounded-full opacity-0 group-hover:opacity-100 transition-all duration-300 backdrop-blur-md border border-white/20 shadow-xl">
+                    <i class="fa-solid fa-chevron-right text-sm pl-0.5"></i>
+                </button>
+            `;
+        }
+        
+        container.innerHTML = html;
+        container.dataset.activeIdx = 0; 
+    };
+
+    const cachedLaunchRaw = localStorage.getItem('pixeltech_launch_cache');
+    if (cachedLaunchRaw) {
+        try {
+            currentLaunches = JSON.parse(cachedLaunchRaw);
+            if (!Array.isArray(currentLaunches)) currentLaunches = [currentLaunches];
+            buildLaunchDOM(currentLaunches);
+        } catch (e) {}
     }
 
-    const isCustom = !!p.launchBannerUrl;
-    const img = p.launchBannerUrl || p.mainImage || p.image || 'https://placehold.co/800x400';
+    const q = query(collection(db, "products"), where("isNewLaunch", "==", true), where("status", "==", "active"));
+    onSnapshot(q, (snapshot) => {
+        let launches = [];
+        snapshot.forEach(doc => launches.push({id: doc.id, ...doc.data()}));
+        launches = launches.filter(x => x.stock > 0);
+        
+        if (launches.length === 0) {
+            localStorage.removeItem('pixeltech_launch_cache');
+            container.innerHTML = `<div class="flex items-center justify-center h-full bg-slate-900 text-gray-600 font-bold text-xs uppercase">Próximamente</div>`;
+            return;
+        }
 
-    if (isCustom) {
-        container.innerHTML = `
-            <div class="relative h-full w-full group cursor-pointer overflow-hidden" onclick="location.href='/shop/product.html?id=${p.id}'">
-                <img src="${img}" class="w-full h-full object-cover transition duration-1000 group-hover:scale-105">
-            </div>`;
-    } else {
-        container.innerHTML = `
-            <div class="relative h-full w-full group cursor-pointer overflow-hidden" onclick="location.href='/shop/product.html?id=${p.id}'">
-                <img src="${img}" class="absolute inset-0 w-full h-full object-cover transition duration-1000 group-hover:scale-105 opacity-80">
-                <div class="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent"></div>
-                <div class="absolute bottom-0 left-0 p-8 z-10 w-full">
-                    <p class="text-brand-cyan font-black text-[9px] uppercase tracking-[0.4em] mb-2 bg-black/50 w-fit px-2 py-1 rounded backdrop-blur-sm">Novedad Exclusiva</p>
-                    <h3 class="text-2xl md:text-3xl font-black text-white uppercase tracking-tighter leading-none mb-4 line-clamp-2">${p.name}</h3>
-                    <div class="flex items-center gap-6">
-                        <span class="text-2xl font-black text-white">$${(p.price || 0).toLocaleString('es-CO')}</span>
-                        <span class="bg-white text-brand-black px-6 py-3 rounded-xl font-black text-[9px] uppercase tracking-widest hover:bg-brand-cyan transition shadow-lg">Ver Detalles</span>
-                    </div>
-                </div>
-            </div>`;
-    }
+        localStorage.setItem('pixeltech_launch_cache', JSON.stringify(launches));
+
+        const currentIds = currentLaunches.map(p => p.id).join(',');
+        const newIds = launches.map(p => p.id).join(',');
+
+        if (currentIds !== newIds) {
+            currentLaunches = launches;
+            buildLaunchDOM(currentLaunches);
+        }
+    });
 }
 
-// --- 4. HISTORIAL (CORREGIDO: PRECIO ACTUALIZADO) ---
+// --- 3. RELOJ MAESTRO (Permite ser reiniciado globalmente) ---
+window.initMasterSliders = function() {
+    if (window.masterSliderInterval) clearInterval(window.masterSliderInterval);
+    
+    window.masterSliderInterval = setInterval(() => {
+        
+        // 1. Avanzar Slider Principal
+        const promoContainer = document.getElementById('promo-slider-container');
+        if (promoContainer) {
+            const pSlides = promoContainer.querySelectorAll('.promo-slide');
+            if (pSlides.length > 1) {
+                const currentIdx = parseInt(promoContainer.dataset.activeIdx || 0);
+                const nextIdx = (currentIdx + 1) % pSlides.length;
+
+                pSlides[currentIdx].classList.remove('opacity-100', 'z-10');
+                pSlides[currentIdx].classList.add('opacity-0', 'z-0', 'pointer-events-none');
+                pSlides[nextIdx].classList.remove('opacity-0', 'z-0', 'pointer-events-none');
+                pSlides[nextIdx].classList.add('opacity-100', 'z-10');
+
+                promoContainer.dataset.activeIdx = nextIdx;
+            }
+        }
+
+        // 2. Avanzar Slider Novedades
+        const launchContainer = document.getElementById('new-launch-banner');
+        if (launchContainer) {
+            const lSlides = launchContainer.querySelectorAll('.launch-slide');
+            if (lSlides.length > 1) {
+                const currentIdx = parseInt(launchContainer.dataset.activeIdx || 0);
+                const nextIdx = (currentIdx + 1) % lSlides.length;
+
+                lSlides[currentIdx].classList.remove('opacity-100', 'z-10');
+                lSlides[currentIdx].classList.add('opacity-0', 'z-0', 'pointer-events-none');
+                lSlides[nextIdx].classList.remove('opacity-0', 'z-0', 'pointer-events-none');
+                lSlides[nextIdx].classList.add('opacity-100', 'z-10');
+
+                launchContainer.dataset.activeIdx = nextIdx;
+            }
+        }
+
+    }, 5000); 
+};
+
+
 function loadViewHistory() {
     const container = document.getElementById('view-history-list');
     const btnLeft = document.getElementById('hist-btn-left');
@@ -624,7 +872,6 @@ function loadViewHistory() {
 
     if (!container) return;
 
-    // Obtenemos la lista guardada (puede tener precios viejos)
     const history = JSON.parse(localStorage.getItem('pixeltech_view_history')) || [];
 
     if (history.length === 0) {
@@ -634,16 +881,10 @@ function loadViewHistory() {
 
     container.innerHTML = "";
     
-    // Invertimos para ver lo más reciente y limitamos a 10
     const itemsToShow = history.slice().reverse().slice(0, 10);
 
     itemsToShow.forEach(item => {
-        // 🚀 FIX CLAVE: Intentamos buscar el producto en la memoria sincronizada (runtimeProductsMap)
-        // Si existe, usamos 'p' (datos frescos con precio nuevo). 
-        // Si no existe (ej: borrado), usamos 'item' (datos viejos del historial) como fallback.
         const p = runtimeProductsMap[item.id] || item;
-
-        // Validamos que tenga imagen
         const img = p.mainImage || p.image || 'https://placehold.co/100';
         
         const hasDiscount = p.originalPrice && p.originalPrice > p.price;
@@ -709,20 +950,62 @@ function loadFeatured() {
     const grid = document.getElementById('featured-grid');
     if (!grid) return;
 
-    const storedIds = JSON.parse(sessionStorage.getItem('pixeltech_featured_ids'));
+    // CONFIGURACIÓN DE ROTACIÓN
+    const STORAGE_KEY = 'pixeltech_featured_v2'; // Clave nueva para limpiar la anterior
+    const DAYS_TO_ROTATE = 8;
+    const MS_IN_8_DAYS = DAYS_TO_ROTATE * 24 * 60 * 60 * 1000;
+
+    const now = Date.now();
+    const storedRaw = localStorage.getItem(STORAGE_KEY);
+    
     let productsToShow = [];
+    let needsRefresh = true;
 
-    if (storedIds) {
-        productsToShow = allProductsCache.filter(p => storedIds.includes(p.id));
+    // 1. Verificar si hay una lista guardada y si está vigente
+    if (storedRaw) {
+        try {
+            const storedData = JSON.parse(storedRaw);
+            const timeDiff = now - (storedData.timestamp || 0);
+
+            // Si ha pasado MENOS de 8 días y tenemos IDs
+            if (timeDiff < MS_IN_8_DAYS && storedData.ids && storedData.ids.length > 0) {
+                // Recuperar los productos basados en los IDs guardados
+                productsToShow = allProductsCache.filter(p => storedData.ids.includes(p.id));
+                
+                // Validación de seguridad: Si recuperamos al menos 4 productos (por si borraste alguno del admin)
+                // mantenemos la lista. Si hay muy pocos, mejor regeneramos.
+                if (productsToShow.length >= 4) {
+                    needsRefresh = false;
+                    console.log(`📅 Destacados vigentes. Rotación en: ${Math.round((MS_IN_8_DAYS - timeDiff) / (1000 * 60 * 60 * 24))} días.`);
+                }
+            } else {
+                console.log("⏰ Tiempo de rotación cumplido (8 días). Generando nuevos destacados...");
+            }
+        } catch (e) {
+            console.warn("Cache destacados corrupto, regenerando...");
+        }
     }
 
-    if (productsToShow.length === 0 && allProductsCache.length > 0) {
-        let pool = [...allProductsCache.filter(p => p.stock > 0)];
-        pool.sort(() => 0.5 - Math.random());
-        productsToShow = pool.slice(0, 10);
-        sessionStorage.setItem('pixeltech_featured_ids', JSON.stringify(productsToShow.map(p => p.id)));
+    // 2. Generar nueva lista si es necesario (Primera vez o pasaron 8 días)
+    if (needsRefresh) {
+        const availablePool = allProductsCache.filter(p => p.stock > 0);
+
+        if (availablePool.length > 0) {
+            let pool = [...availablePool];
+            pool.sort(() => 0.5 - Math.random()); // Barajar aleatoriamente
+            
+            productsToShow = pool.slice(0, 10); // Tomar 10 nuevos
+            
+            // Guardar IDs + Fecha actual (Timestamp)
+            const saveData = {
+                ids: productsToShow.map(p => p.id),
+                timestamp: now
+            };
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(saveData));
+        }
     }
 
+    // 3. Renderizar
     grid.innerHTML = productsToShow.map(p => createProductCard(p, "compact", "feat")).join('');
 }
 
@@ -742,13 +1025,13 @@ async function loadCategoriesBar() {
     }
 
     let html = `
-        <button onclick="window.resetBestSellers(this)" class="cat-btn active bg-brand-black text-white border border-brand-black px-6 py-3 rounded-full text-[10px] font-black uppercase tracking-widest whitespace-nowrap hover:shadow-lg transition-all transform hover:-translate-y-1">
+        <button onclick="window.resetBestSellers(this)" class="cat-btn active bg-brand-black text-white border border-brand-black px-6 py-3 rounded-full text-[10px] font-black uppercase tracking-widest whitespace-nowrap hover:shadow-lg transition-all transform hover:-translate-y-1 snap-center">
             Todas
         </button>`;
 
     categories.forEach(cat => {
         html += `
-            <button onclick="window.filterBy('${cat.name}', this)" data-cat="${cat.name}" class="cat-btn bg-white text-gray-500 border border-gray-200 px-6 py-3 rounded-full text-[10px] font-black uppercase tracking-widest whitespace-nowrap hover:border-brand-cyan hover:text-brand-cyan hover:shadow-md transition-all transform hover:-translate-y-1">
+            <button onclick="window.filterBy('${cat.name}', this)" data-cat="${cat.name}" class="cat-btn bg-white text-gray-500 border border-gray-200 px-6 py-3 rounded-full text-[10px] font-black uppercase tracking-widest whitespace-nowrap hover:border-brand-cyan hover:text-brand-cyan hover:shadow-md transition-all transform hover:-translate-y-1 snap-center">
                 ${cat.name}
             </button>`;
     });
@@ -848,10 +1131,18 @@ async function loadBrandsMarquee() {
     track.innerHTML = content + content + content + content; 
 }
 
+// 2. CORRECCIÓN EN LAS TARJETAS NORMALES
 function createProductCard(p, style = "normal", prefix = "grid") {
     const isOutOfStock = (p.maxStock !== undefined && p.maxStock <= 0) || (p.stock || 0) <= 0;
     const hasDiscount = !isOutOfStock && (p.originalPrice && p.originalPrice > p.price);
     
+    let freeThreshold = Infinity;
+    try {
+        const config = JSON.parse(sessionStorage.getItem('pixeltech_shipping_config'));
+        if (config && config.freeThreshold) freeThreshold = Number(config.freeThreshold);
+    } catch(e) {}
+    const hasFreeShipping = !isOutOfStock && freeThreshold > 0 && p.price >= freeThreshold;
+
     let actionButtons;
     if (isOutOfStock) {
         actionButtons = `
@@ -868,10 +1159,18 @@ function createProductCard(p, style = "normal", prefix = "grid") {
     else containerClasses += "border-gray-100 hover:shadow-2xl hover:border-brand-cyan/20 hover:-translate-y-1";
 
     let badge = "";
-    if (isOutOfStock) badge = `<span class="absolute top-0 right-0 bg-gray-200 text-gray-500 text-[9px] font-black px-3 py-1.5 rounded-bl-2xl z-20">SIN STOCK</span>`;
-    else if (hasDiscount) {
-        const disc = Math.round(((p.originalPrice - p.price) / p.originalPrice) * 100);
-        badge = `<div class="absolute top-0 left-0 bg-gradient-to-r from-red-600 to-pink-600 text-white text-[9px] font-black px-3 py-1.5 rounded-br-2xl z-20 shadow-md flex items-center gap-1"><i class="fa-solid fa-tags text-[8px]"></i> -${disc}%</div>`;
+    let freeBadge = "";
+
+    if (isOutOfStock) {
+        badge = `<span class="absolute top-0 right-0 bg-gray-200 text-gray-500 text-[9px] font-black px-3 py-1.5 rounded-bl-2xl z-20">SIN STOCK</span>`;
+    } else {
+        if (hasDiscount) {
+            const disc = Math.round(((p.originalPrice - p.price) / p.originalPrice) * 100);
+            badge = `<div class="absolute top-0 left-0 bg-gradient-to-r from-red-600 to-pink-600 text-white text-[9px] font-black px-3 py-1.5 rounded-br-2xl z-20 shadow-md flex items-center gap-1"><i class="fa-solid fa-tags text-[8px]"></i> -${disc}%</div>`;
+        }
+        if (hasFreeShipping) {
+            freeBadge = `<div class="absolute top-0 right-0 bg-gradient-to-l from-green-500 to-emerald-400 text-white text-[8px] font-black px-3 py-1.5 rounded-bl-2xl z-20 shadow-md flex items-center gap-1"><i class="fa-solid fa-truck-fast"></i> GRATIS</div>`;
+        }
     }
 
     let priceDisplay;
@@ -893,13 +1192,14 @@ function createProductCard(p, style = "normal", prefix = "grid") {
     return `
         <div class="${containerClasses}" onclick="${clickAction}">
             ${badge}
+            ${freeBadge}
             ${overlayHTML}
             <div class="${imgHeight} bg-slate-50/50 rounded-2xl overflow-hidden mb-3 flex items-center justify-center p-4 relative">
                 <img src="${p.mainImage || p.image || 'https://placehold.co/200'}" class="max-w-full max-h-full object-contain group-hover:scale-110 transition duration-700 relative z-10 mix-blend-multiply">
             </div>
             <div class="flex flex-col flex-grow text-center">
                 <p class="text-[8px] font-black text-gray-400 uppercase tracking-widest mb-1 truncate">${p.category || 'Tecnología'}</p>
-                <h3 class="font-bold ${titleSize} text-brand-black mb-2 line-clamp-2 uppercase leading-tight h-10 flex items-center justify-center group-hover:text-brand-cyan transition">${p.name}</h3>
+                <h3 class="font-bold ${titleSize} text-brand-black mb-2 line-clamp-2 uppercase leading-tight min-h-[2.5rem] group-hover:text-brand-cyan transition">${p.name}</h3>
                 <div class="mb-3 mt-auto">${priceDisplay}</div>
                 <div class="w-full">${actionButtons}</div>
             </div>
@@ -933,6 +1233,7 @@ function renderWeeklyHTML() {
     });
 }
 
+// 3. CORRECCIÓN EN LAS TARJETAS DE OFERTA FLASH (De tu captura)
 function renderPromosHTML() {
     const track = document.getElementById('promo-track');
     if (!track) return;
@@ -945,13 +1246,24 @@ function renderPromosHTML() {
         const actionButtons = getActionButtonsHTML(p, false, 'overlay', 'promo', true); 
         const overlayHTML = `<div id="overlay-promo-${p.id}" class="absolute inset-0 bg-white/95 backdrop-blur-sm z-30 hidden flex-col justify-center p-4 transition-all duration-300 opacity-0 transform scale-95 pointer-events-none rounded-[inherit]"></div>`;
 
+        let freeThreshold = Infinity;
+        try {
+            const config = JSON.parse(sessionStorage.getItem('pixeltech_shipping_config'));
+            if (config && config.freeThreshold) freeThreshold = Number(config.freeThreshold);
+        } catch(e) {}
+        const hasFreeShipping = freeThreshold > 0 && p.price >= freeThreshold;
+        const freeBadge = hasFreeShipping ? `<div class="absolute top-4 right-4 z-20 bg-green-500 text-white px-2 py-1 rounded-lg shadow-md text-[8px] font-black flex items-center gap-1"><i class="fa-solid fa-truck-fast"></i> GRATIS</div>` : '';
+
         return `
         <div class="w-[280px] h-[400px] bg-white rounded-[2rem] p-5 border border-red-50 shadow-sm hover:shadow-xl hover:shadow-red-500/10 transition-all group relative flex flex-col shrink-0 cursor-pointer" onclick="window.location.href='/shop/product.html?id=${p.id}'">
             ${overlayHTML}
             <div class="absolute top-4 left-4 z-20 bg-brand-red text-white w-12 h-12 flex items-center justify-center rounded-full shadow-lg shadow-red-500/30 group-hover:scale-110 transition-transform"><div class="text-center leading-none"><span class="block text-[8px] font-bold opacity-80">DTO</span><span class="block text-xs font-black">${disc}%</span></div></div>
+            ${freeBadge}
             <div class="h-44 bg-gradient-to-b from-slate-50 to-white rounded-2xl overflow-hidden mb-4 flex items-center justify-center p-4"><img src="${p.mainImage || p.image || 'https://placehold.co/150'}" class="max-w-full max-h-full object-contain group-hover:scale-110 transition duration-700 mix-blend-multiply"></div>
             <p class="text-[9px] font-black text-brand-cyan uppercase mb-1 tracking-widest text-center">OFERTA FLASH</p>
-            <h3 class="font-bold text-sm text-brand-black mb-1 line-clamp-2 uppercase group-hover:text-brand-red transition text-center leading-tight h-10 flex items-center justify-center">${p.name}</h3>
+            
+            <h3 class="font-bold text-sm text-brand-black mb-1 line-clamp-2 uppercase group-hover:text-brand-red transition text-center leading-tight min-h-[2.5rem]">${p.name}</h3>
+            
             <div class="mt-auto w-full border-t border-dashed border-gray-100 pt-4"><div class="flex justify-between items-end mb-4 px-2"><div class="text-left"><p class="text-[9px] text-gray-400 font-bold uppercase">Antes</p><p class="text-xs text-gray-400 line-through decoration-red-300">$${p.originalPrice.toLocaleString('es-CO')}</p></div><div class="text-right"><p class="text-[9px] text-brand-red font-bold uppercase">Ahora</p><p class="text-2xl font-black text-brand-black leading-none">$${p.price.toLocaleString('es-CO')}</p></div></div>${actionButtons}</div>
         </div>`;
     }).join('');
@@ -959,12 +1271,14 @@ function renderPromosHTML() {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
-    // 1. Iniciar sincronización INTELIGENTE DUAL
+    // 1. Iniciar sincronización INTELIGENTE (No bloquea la página, es asíncrono)
     await SmartProductSync.init();
 
-    // 2. Renderizar UI desde memoria (Rápido)
+    // 2. Renderizar UI desde memoria (Carga ultrarrápida inicial)
     loadPromoSlider();
     loadNewLaunch();
+    initMasterSliders(); 
+
     loadViewHistory();
     loadWeeklyChoices();
     loadPromotionsGrid();
@@ -974,4 +1288,22 @@ document.addEventListener('DOMContentLoaded', async () => {
     loadBrandsMarquee();
 
     updateCartCount();
+
+    // 3. ESCUCHA DE EVENTOS EN TIEMPO REAL
+    // Cuando el SmartCache detecte un cambio en Firebase, repintará las zonas afectadas
+    window.addEventListener('catalogUpdated', () => {
+        loadViewHistory();
+        loadWeeklyChoices();
+        loadPromotionsGrid();
+        
+        if (document.getElementById('featured-grid')) loadFeatured();
+        
+        // Repinta la categoría activa o los más vendidos
+        const activeCatBtn = document.querySelector('.cat-btn.active');
+        if (activeCatBtn && activeCatBtn.innerText !== "TODAS") {
+            if (window.filterBy) window.filterBy(activeCatBtn.dataset.cat, activeCatBtn);
+        } else {
+            loadBestSellers();
+        }
+    });
 });

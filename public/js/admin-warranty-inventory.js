@@ -1,4 +1,4 @@
-import { db, collection, getDocs, orderBy, query, doc, updateDoc, addDoc, limit, startAfter, where } from './firebase-init.js';
+import { db, collection, getDocs, orderBy, query, doc, updateDoc, addDoc, limit, startAfter, where, onSnapshot } from './firebase-init.js';
 import { loadAdminSidebar } from './admin-ui.js';
 
 loadAdminSidebar();
@@ -17,14 +17,21 @@ let lastVisible = null;
 let isLoading = false;
 const DOCS_PER_PAGE = 50;
 
-// --- 1. CARGA OPTIMIZADA ---
-async function loadInventory(isNextPage = false) {
+let unsubscribeInventoryList = null;
+let adminRmaCache = []; // Caché en RAM para buscador
+
+// ==========================================================================
+// 🧠 SMART REAL-TIME CACHE: LISTA DE RMA
+// ==========================================================================
+function startInventoryListener(isNextPage = false) {
     if (isLoading) return;
     isLoading = true;
 
     if (!isNextPage) {
         container.innerHTML = `<div class="text-center py-20"><i class="fa-solid fa-circle-notch fa-spin text-4xl text-brand-cyan/50"></i><p class="mt-2 text-xs font-bold text-gray-400">Cargando inventario...</p></div>`;
         loadMoreBtn.classList.add('hidden');
+        
+        if (unsubscribeInventoryList) unsubscribeInventoryList();
     } else {
         loadMoreBtn.querySelector('button').innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Cargando...`;
     }
@@ -33,67 +40,87 @@ async function loadInventory(isNextPage = false) {
         const refColl = collection(db, "warranty_inventory");
         let constraints = [];
 
-        // A. FILTROS DE ESTADO (Server-side filtering)
+        // A. FILTROS DE ESTADO 
         if (currentView === 'active') {
-            // Activo = Todo lo que NO está finalizado/entregado
-            // Nota: 'not-in' requiere limitar a 10 valores.
             constraints.push(where("status", "not-in", ["ENTREGADO", "FINALIZADO"]));
-            constraints.push(orderBy("status")); // 'not-in' exige ordenar por ese campo primero
+            constraints.push(orderBy("status")); 
             constraints.push(orderBy("entryDate", "desc"));
         } else {
-            // Historial = Solo lo finalizado
             constraints.push(where("status", "in", ["ENTREGADO", "FINALIZADO"]));
             constraints.push(orderBy("entryDate", "desc"));
         }
 
-        // B. PAGINACIÓN
+        // B. EJECUCIÓN HÍBRIDA (Paginación = getDocs, Página 1 = onSnapshot)
         if (isNextPage && lastVisible) {
             constraints.push(startAfter(lastVisible));
-        }
-
-        // C. LÍMITE
-        constraints.push(limit(DOCS_PER_PAGE));
-
-        const q = query(refColl, ...constraints);
-        const snapshot = await getDocs(q);
-        
-        if (!isNextPage) container.innerHTML = "";
-
-        if (snapshot.empty) {
-            if (!isNextPage) container.innerHTML = `<div class="text-center py-10 text-gray-400 text-xs font-bold uppercase">No hay registros en esta sección.</div>`;
-            loadMoreBtn.classList.add('hidden');
-            isLoading = false;
-            return;
-        }
-
-        // Guardar cursor
-        lastVisible = snapshot.docs[snapshot.docs.length - 1];
-
-        // Botón Ver Más
-        if (snapshot.docs.length === DOCS_PER_PAGE) {
-            loadMoreBtn.classList.remove('hidden');
-            loadMoreBtn.querySelector('button').innerHTML = `<i class="fa-solid fa-circle-plus"></i> Cargar siguientes 50`;
+            constraints.push(limit(DOCS_PER_PAGE));
+            
+            const q = query(refColl, ...constraints);
+            getDocs(q).then(snapshot => handleSnapshotResult(snapshot, true)).catch(e => {
+                console.error("Error Paginación RMA:", e);
+                isLoading = false;
+            });
+            
         } else {
-            loadMoreBtn.classList.add('hidden');
+            constraints.push(limit(DOCS_PER_PAGE));
+            const q = query(refColl, ...constraints);
+            
+            unsubscribeInventoryList = onSnapshot(q, (snapshot) => {
+                handleSnapshotResult(snapshot, false);
+            }, (error) => {
+                console.error("Error Live RMA:", error);
+                const msg = error.message.includes("indexes") 
+                    ? "Falta índice compuesto. Abre la consola (F12) y crea el índice." 
+                    : "Error de conexión en vivo.";
+                if(!isNextPage) container.innerHTML = `<p class="text-center text-red-400 font-bold p-10 text-xs">${msg}</p>`;
+            });
         }
-
-        // Agrupar y Renderizar
-        const items = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-        renderGroupedInventory(items, isNextPage); // Pasamos flag para saber si append o reset
 
     } catch (e) {
-        console.error(e);
-        const msg = e.message.includes("indexes") 
-            ? "Falta índice compuesto. Abre la consola (F12) y crea el índice." 
-            : "Error cargando inventario.";
-        if(!isNextPage) container.innerHTML = `<p class="text-center text-red-400 font-bold p-10 text-xs">${msg}</p>`;
-    } finally {
+        console.error("Error configurando query RMA:", e);
         isLoading = false;
     }
 }
 
+function handleSnapshotResult(snapshot, isNextPage) {
+    if (!isNextPage) {
+        container.innerHTML = "";
+        adminRmaCache = []; 
+    }
+
+    if (snapshot.empty) {
+        if (!isNextPage) container.innerHTML = `<div class="text-center py-10 text-gray-400 text-xs font-bold uppercase">No hay registros en esta sección.</div>`;
+        loadMoreBtn.classList.add('hidden');
+        isLoading = false;
+        return;
+    }
+
+    // Actualizamos lastVisible solo si NO es un docChange en vivo
+    if (snapshot.docs.length > 0 && !snapshot.metadata.hasPendingWrites) {
+        lastVisible = snapshot.docs[snapshot.docs.length - 1];
+    }
+
+    // Botón Ver Más
+    if (snapshot.docs.length === DOCS_PER_PAGE) {
+        loadMoreBtn.classList.remove('hidden');
+        loadMoreBtn.querySelector('button').innerHTML = `<i class="fa-solid fa-circle-plus"></i> Cargar siguientes 50`;
+    } else {
+        loadMoreBtn.classList.add('hidden');
+    }
+
+    // Guardar en RAM para buscador
+    const items = snapshot.docs.map(d => {
+        const data = { id: d.id, ...d.data() };
+        adminRmaCache.push(data);
+        return data;
+    });
+
+    renderGroupedInventory(items, isNextPage);
+    isLoading = false;
+}
+
 // Global para botón
-window.loadMoreInventory = () => loadInventory(true);
+window.loadMoreInventory = () => startInventoryListener(true);
 
 // --- 2. SISTEMA DE TABS ---
 window.setView = (mode) => {
@@ -105,7 +132,6 @@ window.setView = (mode) => {
     if(mode === 'active') {
         tabActive.classList.add('active');
         tabHistory.classList.remove('active');
-        // Estilos extra
         tabActive.classList.remove('text-gray-400', 'border-transparent');
         tabActive.classList.add('text-brand-cyan', 'border-brand-cyan');
         tabHistory.classList.add('text-gray-400', 'border-transparent');
@@ -113,13 +139,13 @@ window.setView = (mode) => {
     } else {
         tabActive.classList.remove('active');
         tabHistory.classList.add('active');
-        // Estilos extra
         tabHistory.classList.remove('text-gray-400', 'border-transparent');
         tabHistory.classList.add('text-brand-cyan', 'border-brand-cyan');
         tabActive.classList.add('text-gray-400', 'border-transparent');
         tabActive.classList.remove('text-brand-cyan', 'border-brand-cyan');
     }
-    loadInventory(false);
+    
+    startInventoryListener(false);
 };
 
 tabActive.onclick = () => window.setView('active');
@@ -127,12 +153,6 @@ tabHistory.onclick = () => window.setView('history');
 
 // --- 3. RENDERIZADO ---
 function renderGroupedInventory(items, isAppend) {
-    // Si es append, no borramos el contenedor, pero sí necesitamos agrupar
-    // La agrupación visual (Tarjetas por Nombre de Producto) es compleja con paginación
-    // Simplificaremos: Renderizamos tarjetas individuales o grupos *dentro del lote*.
-    // Para UX limpia en paginación, simplemente añadimos las tarjetas nuevas abajo.
-
-    // Agrupar items POR ESTE LOTE
     const groups = {};
     items.forEach(item => {
         const key = item.productName || "Desconocido";
@@ -141,7 +161,6 @@ function renderGroupedInventory(items, isAppend) {
         groups[key].count++;
     });
 
-    // Renderizar
     const htmlBuffer = Object.values(groups).map(group => {
         const unitsHTML = group.units.map(unit => {
             let badgeColor = "bg-gray-100 text-gray-600";
@@ -204,92 +223,44 @@ function renderGroupedInventory(items, isAppend) {
         `;
     }).join('');
 
-    // Insertar
     if(isAppend) {
-        // Truco: insertamos antes del botón de carga
-        // Como 'container' es el div wrapper, podemos usar insertAdjacentHTML
         container.insertAdjacentHTML('beforeend', htmlBuffer);
     } else {
         container.innerHTML = htmlBuffer;
     }
 }
 
-// --- 4. BÚSQUEDA LOCAL (EN LO DESCARGADO) ---
-// Nota: Como es inventario físico (pocas unidades usualmente), filtramos localmente lo cargado.
-// Si necesitas búsqueda global en servidor, usa el patrón de "inventory-entry.js".
+// --- 4. BÚSQUEDA LOCAL EN RAM (Cero Lecturas Extra) ---
 searchInput.addEventListener('keyup', (e) => {
-    const term = e.target.value.toLowerCase();
+    const term = e.target.value.toLowerCase().trim();
     
-    // Filtrar Tarjetas completas o Filas individuales
-    // Estrategia simple: Ocultar tarjetas que no coincidan
-    const cards = document.querySelectorAll('.group-card-searchable');
-    cards.forEach(card => {
-        const name = card.querySelector('.searchable-name').textContent.toLowerCase();
-        let matchCard = name.includes(term);
-        
-        // Si no coincide el nombre del producto, buscar en los seriales internos
-        if (!matchCard) {
-            const rows = card.querySelectorAll('.item-row-searchable');
-            let hasRowMatch = false;
-            rows.forEach(row => {
-                const sn = row.querySelector('.searchable-sn').textContent.toLowerCase();
-                if (sn.includes(term)) {
-                    row.style.display = '';
-                    hasRowMatch = true;
-                } else {
-                    row.style.display = 'none';
-                }
-            });
-            matchCard = hasRowMatch;
-            // Si el nombre sí coincidía, mostramos todas las filas
-        } else {
-            const rows = card.querySelectorAll('.item-row-searchable');
-            rows.forEach(r => r.style.display = '');
-        }
+    if (term.length === 0) {
+        // Restaurar estado limpio usando caché en RAM
+        container.innerHTML = "";
+        renderGroupedInventory(adminRmaCache, false);
+        return;
+    }
 
-        card.style.display = matchCard ? '' : 'none';
+    // Filtrar localmente
+    const results = adminRmaCache.filter(unit => {
+        const nameMatch = (unit.productName || "").toLowerCase().includes(term);
+        const snMatch = (unit.sn || "").toLowerCase().includes(term);
+        const notesMatch = (unit.notes || "").toLowerCase().includes(term);
+        return nameMatch || snMatch || notesMatch;
     });
+
+    container.innerHTML = "";
+    if (results.length === 0) {
+        container.innerHTML = `<div class="text-center py-10 text-gray-400 text-xs font-bold uppercase">No se encontraron coincidencias en esta página.</div>`;
+    } else {
+        renderGroupedInventory(results, false);
+    }
 });
 
 // --- 5. MODAL GESTIÓN Y LÓGICA DE NEGOCIO ---
-// (Misma lógica de actualización, solo necesitamos asegurar que recargue bien)
-
 window.openStatusModal = async (id) => {
-    // Buscar en DOM o recargar (mejor un getDoc rápido para asegurar datos frescos)
+    // Al abrir un detalle específico, leemos directo para asegurar datos precisos
     try {
-        const snap = await doc(db, "warranty_inventory", id); // Error: doc() returns ref, need getDoc
-        // Corrección: como ya tenemos los datos en memoria en 'allInventory' (pero ahora está paginado y no guardamos todo en array global),
-        // lo mejor es buscar el elemento en el DOM o hacer un fetch. Haremos fetch ligero.
-        
-        // Pero para no gastar lectura extra, intentamos buscar en los datos renderizados si pudiéramos.
-        // Dado que la paginación complica el estado global 'allInventory', haremos getDoc. Es seguro.
-        const docSnap = await getDocs(query(collection(db, "warranty_inventory"), where("__name__", "==", id))); 
-        // Mejor usamos getDoc con referencia directa
-        // Implementación correcta:
-        // const ref = doc(db, "warranty_inventory", id);
-        // const snap = await getDoc(ref);
-        // Pero arriba importamos getDoc... vamos a usarlo.
-    } catch(e) {} 
-    
-    // Simplificación: Guardamos datos en el botón "Gestionar" para no leer DB
-    // O mejor, pasamos solo el ID y leemos 1 vez. Es más seguro.
-    
-    currentItem = { id }; // Placeholder
-    // Leemos datos frescos
-    const ref = doc(db, "warranty_inventory", id);
-    // Nota: Necesitamos importar getDoc. Ver imports arriba.
-    // Usaremos una función auxiliar interna para evitar conflictos de imports en este bloque.
-    fetchAndShowModal(id);
-};
-
-async function fetchAndShowModal(id) {
-    try {
-        // Necesitamos importar getDoc. Asegúrate que esté en el import.
-        // Simulamos la lectura con getDocs query por ID (truco si falta getDoc)
-        // Pero mejor usar getDoc directo si está importado.
-        
-        // Como no tengo acceso fácil al objeto 'currentItem' completo desde el click,
-        // lo recupero.
         const snap = await import('./firebase-init.js').then(m => m.getDoc(m.doc(db, "warranty_inventory", id)));
         
         if (!snap.exists()) return alert("Item no encontrado");
@@ -309,7 +280,7 @@ async function fetchAndShowModal(id) {
 
         statusModal.classList.remove('hidden');
     } catch(e) { console.error(e); }
-}
+};
 
 window.closeStatusModal = () => {
     statusModal.classList.add('hidden');
@@ -329,7 +300,7 @@ window.updateStatus = async () => {
         await updateDoc(doc(db, "warranty_inventory", currentItem.id), { status: newStatus });
         alert("✅ Estado actualizado.");
         closeStatusModal();
-        loadInventory(false); // Recarga completa para reordenar
+        // NO hace falta recargar, el onSnapshot redibujará la tabla solo!
     } catch (e) { alert("Error: " + e.message); }
 };
 
@@ -373,13 +344,13 @@ window.finalizeExit = async () => {
             try {
                 const wRef = doc(db, "warranties", currentItem.warrantyId);
                 await updateDoc(wRef, { status: 'FINALIZADO', resolvedAt: new Date() });
-            } catch(e) { console.warn("No se pudo cerrar garantía padre (quizás ya cerrada)", e); }
+            } catch(e) { console.warn("No se pudo cerrar garantía padre", e); }
         }
 
         closeStatusModal();
-        loadInventory(false);
+        // El onSnapshot moverá el item mágicamente de "Activos" a "Historial"
     } catch (e) { alert("Error: " + e.message); }
 };
 
 // Start
-loadInventory(false);
+startInventoryListener(false);

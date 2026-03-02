@@ -1,4 +1,5 @@
-import { auth, db, storage, doc, getDoc, updateDoc, collection, getDocs, addDoc, query, orderBy, limit, ref, uploadBytes, getDownloadURL, writeBatch } from './firebase-init.js';import { loadAdminSidebar } from './admin-ui.js';
+import { auth, db, storage, doc, getDoc, updateDoc, collection, getDocs, addDoc, query, orderBy, limit, ref, uploadBytes, getDownloadURL, writeBatch } from './firebase-init.js';
+import { loadAdminSidebar } from './admin-ui.js';
 
 loadAdminSidebar();
 
@@ -11,15 +12,58 @@ const stockInput = document.getElementById('p-stock');
 const priceInput = document.getElementById('p-price');
 const stockLabel = document.getElementById('stock-label-type');
 
-// --- ESTADO GLOBAL ---
+// --- FORMATO DE MONEDA Y HELPER SKU ---
+const getRawPrice = () => {
+    const raw = priceInput.value.replace(/\D/g, ''); 
+    return raw ? parseInt(raw) : 0;
+};
+
+priceInput.addEventListener('input', (e) => {
+    const val = e.target.value.replace(/\D/g, '');
+    if (val) {
+        e.target.value = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(val);
+    } else {
+        e.target.value = '';
+    }
+});
+
+function lockGlobalInputs() { 
+    // SOLO BLOQUEAMOS EL STOCK GLOBAL SI HAY VARIANTES, PORQUE SE CALCULA AUTOMÁTICO DE LA TABLA
+    stockInput.readOnly = true;
+    stockInput.classList.add('bg-gray-100', 'text-gray-400', 'cursor-not-allowed');
+    stockLabel.innerHTML = "Stock Total <span class='text-xs text-brand-cyan'>(Auto)</span>";
+
+    const skuInput = document.getElementById('p-sku');
+    if(skuInput) {
+        skuInput.readOnly = true;
+        skuInput.classList.add('text-gray-300', 'cursor-not-allowed');
+        skuInput.title = "Para productos con variantes, define el SKU en la tabla de abajo.";
+    }
+}
+
+function unlockGlobalInputs() { 
+    // SI ES PRODUCTO SIMPLE, EL STOCK GLOBAL ES EDITABLE
+    stockInput.readOnly = false;
+    stockInput.classList.remove('bg-gray-100', 'text-gray-400', 'cursor-not-allowed');
+    stockLabel.innerHTML = "Stock Total <span class='text-xs text-brand-cyan'>(Editable)</span>";
+
+    const skuInput = document.getElementById('p-sku');
+    if(skuInput) {
+        skuInput.readOnly = false;
+        skuInput.classList.remove('text-gray-300', 'cursor-not-allowed');
+        skuInput.title = "";
+    }
+}
+
+// --- ESTADO ---
 let globalFiles = []; 
 let definedColors = [];
 let definedCaps = [];
 let colorImagesMap = {};
 let matrixData = {};
-let cachedCategories = []; // Caché categorías
+let cachedCategories = []; 
 
-// --- HELPER COMPRESIÓN IMÁGENES ---
+// --- COMPRESIÓN ---
 const compressImage = async (file) => {
     if (!file.type.startsWith('image/')) return file;
     return new Promise((resolve, reject) => {
@@ -62,16 +106,20 @@ async function initEdit() {
         if (!docSnap.exists()) { window.location.href = 'products.html'; return; }
 
         const p = docSnap.data();
-        
-        // Datos Básicos
+
+        // 1. Datos Básicos
+        const initialPrice = p.price || 0;
         document.getElementById('p-name').value = p.name || '';
         document.getElementById('p-sku').value = p.sku || '';
         document.getElementById('p-brand').value = p.brand || '';
-        document.getElementById('p-price').value = p.price || 0;
+        document.getElementById('p-price').value = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(initialPrice);
+        
+        // Asignar el stock inicial
         document.getElementById('p-stock').value = p.stock || 0; 
+
         document.getElementById('p-status').value = p.status || 'active';
         
-        // Categoría (Pre-poblado visual)
+        // 2. Categoría
         document.getElementById('p-category').value = p.category || '';
         let subInput = document.getElementById('p-subcategory');
         if(!subInput) {
@@ -83,7 +131,7 @@ async function initEdit() {
         subInput.value = p.subcategory || '';
         document.getElementById('cat-search').value = p.subcategory ? `${p.subcategory} (${p.category})` : p.category;
 
-        // Garantía
+        // 3. Garantía
         if(p.warranty) {
             document.getElementById('p-warranty-time').value = p.warranty.time || '';
             document.getElementById('p-warranty-unit').value = p.warranty.unit || 'months';
@@ -92,61 +140,91 @@ async function initEdit() {
         document.getElementById('product-id-display').textContent = `ID: ${productId}`;
         descriptionEditor.innerHTML = p.description || '';
 
-        // Imágenes Globales
-        if (p.images) {
+        // 4. Imágenes Globales
+        globalFiles = [];
+        if (p.images && Array.isArray(p.images) && p.images.length > 0) {
             globalFiles = p.images.map(url => ({ id: Math.random().toString(36).substr(2,9), type: 'url', content: url }));
+        } else if (p.mainImage) {
+            globalFiles.push({ id: Math.random().toString(36).substr(2,9), type: 'url', content: p.mainImage });
         }
+        renderGlobalGallery();
 
-        // Variantes
+        // 5. Variantes y Atributos (ESTRUCTURA SINCRONIZADA)
         definedColors = [];
-        colorImagesMap = {};
         definedCaps = [];
+        colorImagesMap = {};
+        matrixData = {};
 
-        if (p.variants && Array.isArray(p.variants)) {
+        // A. Cargar Definiciones
+        if (p.definedColors && Array.isArray(p.definedColors)) definedColors = p.definedColors;
+        if (p.definedCapacities && Array.isArray(p.definedCapacities)) definedCaps = p.definedCapacities;
+
+        // Fallback
+        if (definedColors.length === 0 && p.variants && Array.isArray(p.variants)) {
             p.variants.forEach(v => {
-                if (v.color && !definedColors.includes(v.color)) {
-                    definedColors.push(v.color);
-                    if (v.images && Array.isArray(v.images)) {
-                        colorImagesMap[v.color] = v.images.map(url => ({
-                            id: Math.random().toString(36).substr(2,9), type: 'url', content: url
-                        }));
-                    } else {
-                        colorImagesMap[v.color] = [];
-                    }
-                }
+                if (v.color && !definedColors.includes(v.color)) definedColors.push(v.color);
             });
-        } 
-        
-        if (p.capacities && Array.isArray(p.capacities)) {
+        }
+        // Fallback para capacidades
+        if (definedCaps.length === 0 && p.capacities && Array.isArray(p.capacities)) {
             p.capacities.forEach(c => {
-                if (c.label && !definedCaps.includes(c.label)) definedCaps.push(c.label);
+                const label = typeof c === 'object' ? c.label : c;
+                if (label && !definedCaps.includes(label)) definedCaps.push(label);
             });
         }
 
-        if(p.combinations) {
+        // B. Cargar Imágenes por Color
+        if (p.colorImages) {
+             Object.keys(p.colorImages).forEach(color => {
+                 const urls = p.colorImages[color] || [];
+                 colorImagesMap[color] = urls.map(url => ({
+                     id: Math.random().toString(36).substr(2,9), type: 'url', content: url
+                 }));
+             });
+        } else if (p.variants) {
+             p.variants.forEach(v => {
+                 if (v.color && v.images) {
+                     colorImagesMap[v.color] = v.images.map(url => ({
+                         id: Math.random().toString(36).substr(2,9), type: 'url', content: url
+                     }));
+                 }
+             });
+        }
+
+        // C. Cargar Matriz (SKU y Stock por variante)
+        if(p.combinations && Array.isArray(p.combinations)) {
             p.combinations.forEach(comb => {
                 let key = '';
                 if(comb.color && comb.capacity) key = `${comb.color}-${comb.capacity}`;
                 else if(comb.color) key = comb.color;
                 else if(comb.capacity) key = comb.capacity;
                 
-                if(key) matrixData[key] = { price: comb.price, stock: comb.stock };
+                if(key) {
+                    matrixData[key] = { 
+                        price: comb.price, 
+                        stock: comb.stock, 
+                        sku: comb.sku 
+                    };
+                }
             });
         }
 
-        renderGlobalGallery();
+        // Renderizar componentes
         renderTags();
         renderColorUploaders();
         renderMatrix();
-        loadProductHistory(); // Async, no bloquea
+        loadProductHistory(); 
 
         document.getElementById('loader-view').classList.add('hidden');
         document.getElementById('edit-view').classList.remove('hidden');
 
-    } catch (e) { console.error("Error cargando producto:", e); }
+    } catch (e) { 
+        console.error("Error cargando producto:", e); 
+        alert("Hubo un error cargando el producto. Revisa la consola.");
+    }
 }
 
-// --- 2. GESTIÓN IMÁGENES GLOBAL ---
+// --- 2. GESTIÓN IMÁGENES ---
 const pImagesInput = document.getElementById('p-images');
 if (pImagesInput) {
     pImagesInput.onchange = (e) => {
@@ -162,6 +240,10 @@ function renderGlobalGallery() {
     const container = document.getElementById('gallery-container');
     if(!container) return;
     container.innerHTML = "";
+    if (globalFiles.length === 0) {
+        container.innerHTML = `<div class="col-span-full text-center py-4 text-gray-300 text-xs italic">Sin imágenes globales</div>`;
+        return;
+    }
     globalFiles.forEach((item, index) => {
         const src = item.type === 'url' ? item.content : URL.createObjectURL(item.content);
         const div = document.createElement('div');
@@ -173,6 +255,9 @@ function renderGlobalGallery() {
                     <button type="button" onclick="moveGlobalImage(${index}, 1)" class="w-8 h-8 rounded-lg bg-white text-brand-black hover:bg-brand-cyan transition"><i class="fa-solid fa-arrow-right text-xs"></i></button>
                 </div>
                 <button type="button" onclick="removeGlobalImage('${item.id}')" class="text-[8px] font-black uppercase text-red-400 hover:text-red-200 transition">Eliminar</button>
+            </div>
+            <div class="absolute top-2 left-2 bg-brand-black/50 backdrop-blur-md text-white text-[7px] px-2 py-1 rounded-md font-bold uppercase pointer-events-none">
+                 ${index === 0 ? 'PORTADA' : index + 1}
             </div>`;
         container.appendChild(div);
     });
@@ -207,20 +292,30 @@ window.removeAttr = (type, val) => {
     renderTags(); renderMatrix(); 
 };
 
-// --- 4. IMÁGENES COLOR ---
+// --- 4. FOTOS COLOR ---
 function renderColorUploaders() {
     const container = document.getElementById('color-uploaders-container');
     const section = document.getElementById('color-images-section');
     if(definedColors.length === 0) { section.classList.add('hidden'); return; }
     section.classList.remove('hidden');
     container.innerHTML = "";
+    
     definedColors.forEach(color => {
         const div = document.createElement('div');
         div.className = "flex items-center gap-4 bg-slate-50 p-3 rounded-xl border border-gray-100";
-        let imagesHTML = (colorImagesMap[color] || []).map((item) => {
+        
+        let imagesHTML = (colorImagesMap[color] || []).map((item, idx) => {
             const src = item.type === 'url' ? item.content : URL.createObjectURL(item.content);
-            return `<div class="w-10 h-10 rounded-lg overflow-hidden border border-gray-200 bg-white"><img src="${src}" class="w-full h-full object-cover"></div>`;
+            return `
+                <div class="w-10 h-10 rounded-lg overflow-hidden border border-gray-200 bg-white relative group">
+                    <img src="${src}" class="w-full h-full object-cover">
+                    <button type="button" onclick="removeColorImage('${color}', ${idx})" 
+                        class="absolute inset-0 bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 text-white transition">
+                        <i class="fa-solid fa-xmark text-[10px]"></i>
+                    </button>
+                </div>`;
         }).join('');
+
         div.innerHTML = `
             <div class="w-24 shrink-0"><span class="text-xs font-bold text-brand-black">${color}</span></div>
             <div class="flex gap-2 flex-wrap flex-grow">${imagesHTML}</div>
@@ -230,6 +325,15 @@ function renderColorUploaders() {
         container.appendChild(div);
     });
 }
+
+// Nueva función de borrado
+window.removeColorImage = (color, index) => {
+    if (colorImagesMap[color]) {
+        colorImagesMap[color].splice(index, 1);
+        renderColorUploaders();
+    }
+};
+
 window.addColorImages = (color, files) => { 
     if(!colorImagesMap[color]) colorImagesMap[color] = [];
     Array.from(files).forEach(file => {
@@ -238,38 +342,70 @@ window.addColorImages = (color, files) => {
     renderColorUploaders(); 
 };
 
-// --- 5. MATRIZ (OPTIMIZADA) ---
+// --- 5. MATRIZ ---
 function renderMatrix() {
     const tbody = document.getElementById('matrix-tbody');
+    const globalSku = document.getElementById('p-sku').value.trim().toUpperCase();
     tbody.innerHTML = "";
+    
     if(definedColors.length === 0 && definedCaps.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="3" class="p-8 text-center text-gray-300 text-xs">Producto Simple (Sin variantes)</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="4" class="p-8 text-center text-gray-300 text-xs">Producto Simple (Sin variantes)</td></tr>`;
+        unlockGlobalInputs(); // <-- DESBLOQUEA EL INPUT GLOBAL DE STOCK
         recalcTotalStock();
         return;
     }
 
+    lockGlobalInputs(); // <-- BLOQUEA EL INPUT GLOBAL, SE CALCULARÁ DE LA MATRIZ
+
     let rows = [];
-    if(definedColors.length > 0 && definedCaps.length > 0) definedColors.forEach(c => definedCaps.forEach(k => rows.push({ key: `${c}-${k}`, label: `${c} + ${k}` })));
-    else if(definedColors.length > 0) definedColors.forEach(c => rows.push({ key: c, label: c }));
-    else if(definedCaps.length > 0) definedCaps.forEach(k => rows.push({ key: k, label: k }));
+    if(definedColors.length > 0 && definedCaps.length > 0) definedColors.forEach(c => definedCaps.forEach(k => rows.push({ key: `${c}-${k}`, label: `${c} + ${k}`, color: c, cap: k })));
+    else if(definedColors.length > 0) definedColors.forEach(c => rows.push({ key: c, label: c, color: c, cap: '' }));
+    else if(definedCaps.length > 0) definedCaps.forEach(k => rows.push({ key: k, label: k, color: '', cap: k }));
 
     rows.forEach(row => {
-        const prev = matrixData[row.key] || { price: Number(priceInput.value) || 0, stock: 0 };
+        const defaultSku = `${globalSku}-${row.color ? row.color.substring(0,3) : ''}-${row.cap ? row.cap : ''}`.replace(/-+$/, '').toUpperCase();
+        
+        const prev = matrixData[row.key] || { 
+            price: getRawPrice(), 
+            stock: 0,
+            sku: defaultSku 
+        };
         matrixData[row.key] = prev;
+
         const tr = document.createElement('tr');
         tr.className = "border-b border-gray-50 hover:bg-slate-50 transition";
         tr.innerHTML = `
             <td class="p-4"><span class="font-black text-brand-black text-xs">${row.label}</span></td>
+            <td class="p-4">
+                <input type="text" value="${prev.sku || ''}" 
+                onchange="updateMatrixData('${row.key}', 'sku', this.value)" 
+                class="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs font-bold text-gray-500 outline-none focus:border-brand-cyan focus:text-brand-black uppercase">
+            </td>
             <td class="p-4"><input type="number" value="${prev.price}" onchange="updateMatrixData('${row.key}', 'price', this.value)" class="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs font-bold text-brand-cyan outline-none focus:border-brand-cyan"></td>
-            <td class="p-4"><input type="number" value="${prev.stock}" readonly class="w-full bg-gray-100 border border-gray-200 rounded-lg p-2 text-xs font-bold text-gray-500 cursor-not-allowed outline-none"></td>`;
+            
+            <td class="p-4">
+                <input type="number" value="${prev.stock}" 
+                onchange="updateMatrixData('${row.key}', 'stock', this.value)" 
+                class="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs font-bold text-brand-black outline-none focus:border-brand-cyan">
+            </td>`;
         tbody.appendChild(tr);
     });
     recalcTotalStock();
 }
+
 window.updateMatrixData = (key, field, val) => { 
     if(!matrixData[key]) matrixData[key]={}; 
-    if (field === 'price') matrixData[key][field] = Number(val); 
+    if (field === 'sku') {
+        matrixData[key][field] = val.toUpperCase();
+    } else {
+        matrixData[key][field] = Number(val);
+    }
+    // Si editamos el stock de la matriz, recalcúlar el total
+    if (field === 'stock') {
+        recalcTotalStock();
+    }
 };
+
 function recalcTotalStock() {
     let total = 0;
     if (definedColors.length > 0 || definedCaps.length > 0) {
@@ -277,12 +413,13 @@ function recalcTotalStock() {
         if(definedColors.length > 0 && definedCaps.length > 0) definedColors.forEach(c => definedCaps.forEach(k => activeKeys.push(`${c}-${k}`)));
         else if(definedColors.length > 0) definedColors.forEach(c => activeKeys.push(c));
         else if(definedCaps.length > 0) definedCaps.forEach(k => activeKeys.push(k));
+        
         activeKeys.forEach(k => total += (matrixData[k]?.stock || 0));
         stockInput.value = total;
     }
 }
 
-// --- 6. BUSCADOR CATEGORÍAS (OPTIMIZADO CON CACHÉ) ---
+// --- CATEGORÍAS ---
 const catSearchInput = document.getElementById('cat-search');
 const catResults = document.getElementById('cat-results');
 const pCategoryHidden = document.getElementById('p-category');
@@ -351,14 +488,13 @@ if (catSearchInput) {
     });
 }
 
-// --- 7. GUARDAR ACTUALIZACIÓN (BLINDADA CON BATCH) ---
+// --- GUARDAR ACTUALIZACIÓN ---
 form.onsubmit = async (e) => {
     e.preventDefault();
     btnUpdate.disabled = true; 
     btnUpdate.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i> ACTUALIZANDO...';
 
     try {
-// A. PROCESAR IMÁGENES GLOBALES
         const newGlobalFiles = globalFiles.filter(i => i.type === 'file');
         const oldGlobalUrls = globalFiles.filter(i => i.type === 'url').map(i => i.content);
 
@@ -375,7 +511,6 @@ form.onsubmit = async (e) => {
             else return uploadedGlobal[uploadCursor++];
         });
 
-        // B. PROCESAR IMÁGENES COLOR
         const colorUrlsMap = {};
         const colorUploadPromises = [];
 
@@ -405,9 +540,14 @@ form.onsubmit = async (e) => {
         }
         await Promise.all(colorUploadPromises);
 
-// C. PREPARAR DATOS
-        const variants = definedColors.map(color => ({ color: color, images: colorUrlsMap[color] || [] }));
+        // PREPARAR DATOS 
+        const variants = definedColors.map(color => ({ 
+            color: color, 
+            images: colorUrlsMap[color] || [] 
+        }));
+
         const capacities = definedCaps.map(cap => ({ label: cap, price: 0 }));
+
         const combinations = [];
         let minPrice = Infinity;
         const activeKeys = [];
@@ -427,15 +567,20 @@ form.onsubmit = async (e) => {
                 if(cIdx >= 0 && data?.price) capacities[cIdx].price = data.price;
             }
 
+            const rowSku = data?.sku || `${document.getElementById('p-sku').value}-${color?color.substring(0,3):''}-${cap?cap:''}`.toUpperCase();
+
             combinations.push({
-                color: color, capacity: cap, price: data?.price || 0, stock: data?.stock || 0,
-                sku: `${document.getElementById('p-sku').value}-${color?color.substring(0,3):''}-${cap?cap:''}`.toUpperCase()
+                color: color, 
+                capacity: cap, 
+                price: data?.price || 0, 
+                stock: data?.stock || 0,
+                sku: rowSku 
             });
             if((data?.price || 0) < minPrice) minPrice = data?.price;
         });
 
         const isSimple = combinations.length === 0;
-        const finalPrice = isSimple ? Number(priceInput.value) : minPrice;
+        const finalPrice = isSimple ? getRawPrice() : minPrice;
         const finalStock = isSimple ? Number(stockInput.value) : combinations.reduce((a, b) => a + b.stock, 0);
 
         const updateData = {
@@ -455,34 +600,30 @@ form.onsubmit = async (e) => {
             },
             isSimple: isSimple,
             combinations: combinations,
+            
             hasVariants: definedColors.length > 0,
             hasCapacities: definedCaps.length > 0,
             variants: variants, 
-            capacities: capacities,
+            capacities: capacities, 
+            definedColors: definedColors, 
+            definedCapacities: definedCaps, 
             images: finalGlobalUrls,
             colorImages: colorUrlsMap,
-            mainImage: finalGlobalUrls[0] || (variants.length > 0 && variants[0].images.length > 0 ? variants[0].images[0] : '')
+            mainImage: finalGlobalUrls[0] || (Object.values(colorUrlsMap)[0] ? Object.values(colorUrlsMap)[0][0] : '')
         };
 
-        // --- D. ESCRITURA ATÓMICA (BATCH) ---
-        // Aquí está la optimización final de seguridad
         const batch = writeBatch(db);
-
-        // 1. Referencia al producto
         const productRef = doc(db, "products", productId);
         batch.update(productRef, updateData);
 
-        // 2. Referencia al historial (Hay que crear la referencia manualmente para batch)
         const historyRef = doc(collection(db, "products", productId, "history"));
         batch.set(historyRef, {
             adminEmail: auth.currentUser.email,
-            action: `Edición General`,
+            action: `Edición de Producto/Stock`,
             timestamp: new Date()
         });
 
-        // 3. Ejecutar todo junto
         await batch.commit();
-
         alert("✅ Producto actualizado correctamente.");
         window.location.href = "products.html";
 

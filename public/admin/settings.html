@@ -15,7 +15,7 @@
     </style>
 </head>
 
-<body class="bg-slate-50 font-sans text-brand-black antialiased">
+<body class="bg-slate-50 font-sans text-brand-black antialiased" style="display: none;">
 
     <div class="flex h-screen overflow-hidden">
         
@@ -102,5 +102,6 @@
             if (!user) window.location.href = '/auth/login.html';
         });
     </script>
+    <script type="module" src="../js/admin-guard.js"></script>
 </body>
 </html>

@@ -21,7 +21,7 @@
     </style>
 </head>
 
-<body class="bg-slate-50 font-sans text-brand-black flex h-screen overflow-hidden selection:bg-brand-cyan selection:text-white">
+<body class="bg-slate-50 font-sans text-brand-black flex h-screen overflow-hidden selection:bg-brand-cyan selection:text-white" style="display: none;">
 
     <div id="admin-sidebar"></div>
 
@@ -182,7 +182,7 @@
     </div>
 
 <script type="module">
-        import { db, collection, getDocs, getDoc, addDoc, updateDoc, doc, deleteDoc, orderBy, query, where, limit, startAfter } from '../js/firebase-init.js';
+        import { db, collection, getDocs, getDoc, addDoc, updateDoc, doc, deleteDoc, orderBy, query, limit, startAfter, onSnapshot } from '../js/firebase-init.js';
         import { loadAdminSidebar } from '../js/admin-ui.js';
 
         loadAdminSidebar();
@@ -199,143 +199,151 @@
         const loadMorePurchasesBtn = document.getElementById('load-more-purchases');
 
         // Estado Global
-        let lastSupplierDoc = null;
         let lastPurchaseDoc = null;
-        let isSuppliersLoading = false;
         let isPurchasesLoading = false;
         const DOCS_PER_PAGE = 50;
 
-        // Caché para Búsqueda (Optimización Suprema)
-        let supplierIndexCache = null; // Se llenará solo si el usuario busca
+        // Caché Real-time para Proveedores
+        let adminSuppliersCache = []; 
+        let unsubscribeSuppliers = null;
 
         // ====================================================================
-        // 1. CARGA PAGINADA (Vista Inicial Barata)
+        // 1. SMART REAL-TIME CACHE: PROVEEDORES
         // ====================================================================
-        async function fetchSuppliers(isNextPage = false) {
-            // Si el usuario está buscando, no usamos la carga paginada, sino el render del buscador
-            if (searchInput.value.trim() !== '') return;
+        function initSmartSuppliersList() {
+            const STORAGE_KEY = 'pixeltech_admin_suppliers_cache';
+            let lastSyncTime = 0;
+            let runtimeMap = {};
 
-            if (isSuppliersLoading) return;
-            isSuppliersLoading = true;
-
-            if (!isNextPage) {
-                loading.classList.remove('hidden');
-                tableBody.innerHTML = "";
-                loadMoreSuppliersBtn.classList.add('hidden');
-            } else {
-                loadMoreSuppliersBtn.querySelector('button').innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Cargando...`;
+            // A. Carga Instantánea del Caché
+            const cachedRaw = localStorage.getItem(STORAGE_KEY);
+            if (cachedRaw) {
+                try {
+                    const parsed = JSON.parse(cachedRaw);
+                    if (parsed.map && parsed.lastSync) {
+                        runtimeMap = parsed.map;
+                        lastSyncTime = parsed.lastSync;
+                        
+                        updateSuppliersArray(runtimeMap);
+                        if (adminSuppliersCache.length > 0) {
+                            renderSuppliersFromMemory();
+                        }
+                    }
+                } catch (e) {
+                    localStorage.removeItem(STORAGE_KEY);
+                }
             }
 
-            try {
-                const coll = collection(db, "suppliers");
-                let q = query(coll, orderBy("name", "asc"), limit(DOCS_PER_PAGE));
+            if (adminSuppliersCache.length === 0) {
+                loading.classList.remove('hidden');
+            }
 
-                if (isNextPage && lastSupplierDoc) {
-                    q = query(q, startAfter(lastSupplierDoc));
-                }
+            // B. Conexión a Firebase (Solo Deltas)
+            if (unsubscribeSuppliers) unsubscribeSuppliers();
 
-                const snap = await getDocs(q);
-                
-                if (!isNextPage) loading.classList.add('hidden');
+            const colRef = collection(db, "suppliers");
+            let q;
 
-                if (snap.empty) {
-                    if (!isNextPage) tableBody.innerHTML = `<tr><td colspan="6" class="p-12 text-center opacity-50"><i class="fa-solid fa-folder-open text-4xl mb-4 text-gray-300"></i><p class="font-bold text-gray-400">No hay proveedores registrados.</p></td></tr>`;
-                    loadMoreSuppliersBtn.classList.add('hidden');
-                    isSuppliersLoading = false;
+            if (lastSyncTime === 0 || Object.keys(runtimeMap).length === 0) {
+                // Primera vez, nos traemos todo el directorio (suelen ser < 100 docs, es muy barato)
+                q = query(colRef); 
+            } else {
+                // Solo traemos los que fueron editados recientemente
+                q = query(colRef, where("updatedAt", ">", new Date(lastSyncTime)));
+            }
+
+            unsubscribeSuppliers = onSnapshot(q, (snapshot) => {
+                if (snapshot.empty) {
+                    loading.classList.add('hidden');
+                    if(adminSuppliersCache.length === 0) {
+                        tableBody.innerHTML = `<tr><td colspan="6" class="p-12 text-center opacity-50"><i class="fa-solid fa-folder-open text-4xl mb-4 text-gray-300"></i><p class="font-bold text-gray-400">No hay proveedores registrados.</p></td></tr>`;
+                    }
                     return;
                 }
 
-                lastSupplierDoc = snap.docs[snap.docs.length - 1];
+                let hasChanges = false;
 
-                if (snap.docs.length === DOCS_PER_PAGE) {
-                    loadMoreSuppliersBtn.classList.remove('hidden');
-                    loadMoreSuppliersBtn.querySelector('button').innerHTML = `<i class="fa-solid fa-circle-plus"></i> Cargar siguientes 50`;
-                } else {
-                    loadMoreSuppliersBtn.classList.add('hidden');
+                snapshot.docChanges().forEach(change => {
+                    const data = change.doc.data();
+                    const id = change.doc.id;
+                    
+                    // Aseguramos campo de búsqueda limpio en memoria
+                    data.searchStr = `${data.name} ${data.nit || ''} ${data.contactName || ''}`.toLowerCase();
+                    if (!data.updatedAt) data.updatedAt = data.createdAt || new Date();
+
+                    if (change.type === 'added' || change.type === 'modified') {
+                        runtimeMap[id] = { id, ...data };
+                        hasChanges = true;
+                    } else if (change.type === 'removed') {
+                        if (runtimeMap[id]) {
+                            delete runtimeMap[id];
+                            hasChanges = true;
+                        }
+                    }
+                });
+
+                if (hasChanges) {
+                    updateSuppliersArray(runtimeMap);
+                    
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+                        map: runtimeMap,
+                        lastSync: Date.now()
+                    }));
+
+                    renderSuppliersFromMemory();
+                    loading.classList.add('hidden');
                 }
-
-                snap.forEach(d => renderSupplierRow({ id: d.id, ...d.data() }));
-
-            } catch (e) { 
-                console.error(e);
-                if(!isNextPage) tableBody.innerHTML = `<tr><td colspan="6" class="p-8 text-center text-red-400 font-bold">Error de conexión</td></tr>`;
-                loading.classList.add('hidden');
-            } finally {
-                isSuppliersLoading = false;
-            }
+            });
         }
 
-        window.loadMoreSuppliers = () => fetchSuppliers(true);
-
-        // ====================================================================
-        // 2. BUSCADOR INTELIGENTE (CACHÉ LOCAL)
-        // Descarga todo 1 vez, busca 1000 veces gratis. Encuentra subcadenas.
-        // ====================================================================
-        
-        async function ensureSupplierIndex() {
-            if (supplierIndexCache) return true; // Ya tenemos datos
-
-            // Intentar sesión (si recargó página)
-            const stored = sessionStorage.getItem('pixeltech_supplier_index');
-            if(stored) {
-                supplierIndexCache = JSON.parse(stored);
-                return true;
-            }
-
-            // Descargar Directorio (Solo ID, Nombre, NIT, Contacto, Info básica)
-            // Aunque sean 500 docs, es liviano y vale la pena por la UX de búsqueda
-            try {
-                loading.classList.remove('hidden'); // Feedback visual
-                const q = query(collection(db, "suppliers"), orderBy("name", "asc"));
-                const snap = await getDocs(q);
-                
-                supplierIndexCache = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-                
-                // Guardar en sesión
-                try { sessionStorage.setItem('pixeltech_supplier_index', JSON.stringify(supplierIndexCache)); } catch(e){}
-                
-                loading.classList.add('hidden');
-                return true;
-            } catch(e) {
-                console.error("Error indexando proveedores:", e);
-                loading.classList.add('hidden');
-                return false;
-            }
+        function updateSuppliersArray(map) {
+            // Ordenamos alfabéticamente por nombre
+            adminSuppliersCache = Object.values(map).sort((a, b) => a.name.localeCompare(b.name));
         }
 
-        searchInput.addEventListener('input', async (e) => {
-            const term = e.target.value.toLowerCase().trim();
-
-            // 1. Si borra todo, volver a la vista paginada normal
-            if (term.length === 0) {
-                lastSupplierDoc = null;
-                fetchSuppliers(false);
+        function renderSuppliersFromMemory() {
+            // Si el usuario está buscando algo, no interrumpimos su vista
+            if (searchInput.value.trim() !== '') {
+                executeSearch(searchInput.value.trim());
                 return;
             }
 
-            // 2. Asegurar que tenemos el índice (Lazy Load)
-            if (!supplierIndexCache) {
-                tableBody.innerHTML = `<tr><td colspan="6" class="p-8 text-center text-gray-400"><i class="fa-solid fa-circle-notch fa-spin"></i> Cargando directorio para búsqueda...</td></tr>`;
-                await ensureSupplierIndex();
-            }
-
-            // 3. Filtrar en Memoria (Súper rápido y encuentra "Exito" en "Vidrios Exito")
-            const filtered = supplierIndexCache.filter(s => {
-                const text = `${s.name} ${s.nit || ''} ${s.contactName || ''}`.toLowerCase();
-                return text.includes(term);
-            });
-
-            // 4. Renderizar Resultados
             tableBody.innerHTML = "";
-            loadMoreSuppliersBtn.classList.add('hidden'); // Ocultar paginación en búsqueda
+            loadMoreSuppliersBtn.classList.add('hidden'); // Como tenemos todo en RAM, no hace falta paginar si son pocos
 
-            if (filtered.length === 0) {
-                tableBody.innerHTML = `<tr><td colspan="6" class="p-12 text-center opacity-50"><p class="font-bold text-gray-400">No encontrado.</p></td></tr>`;
-            } else {
-                // Limitamos visualmente a 50 para no congelar el navegador si la búsqueda es muy amplia
-                filtered.slice(0, 50).forEach(s => renderSupplierRow(s));
+            if (adminSuppliersCache.length === 0) {
+                tableBody.innerHTML = `<tr><td colspan="6" class="p-12 text-center opacity-50"><i class="fa-solid fa-folder-open text-4xl mb-4 text-gray-300"></i><p class="font-bold text-gray-400">No hay proveedores registrados.</p></td></tr>`;
+                return;
             }
+
+            adminSuppliersCache.forEach(s => renderSupplierRow(s));
+        }
+
+        // ====================================================================
+        // 2. BUSCADOR INTELIGENTE EN RAM (0 LECTURAS)
+        // ====================================================================
+        searchInput.addEventListener('input', (e) => {
+            const term = e.target.value.trim();
+            executeSearch(term);
         });
+
+        function executeSearch(term) {
+            const lowerTerm = term.toLowerCase();
+
+            if (lowerTerm.length === 0) {
+                renderSuppliersFromMemory();
+                return;
+            }
+
+            const filtered = adminSuppliersCache.filter(s => s.searchStr && s.searchStr.includes(lowerTerm));
+
+            tableBody.innerHTML = "";
+            if (filtered.length === 0) {
+                tableBody.innerHTML = `<tr><td colspan="6" class="p-12 text-center opacity-50"><p class="font-bold text-gray-400">No encontrado en el directorio.</p></td></tr>`;
+            } else {
+                filtered.forEach(s => renderSupplierRow(s));
+            }
+        }
 
         // ====================================================================
         // 3. RENDERIZADO FILA
@@ -390,6 +398,7 @@
 
         // ====================================================================
         // 4. CARGA OPTIMIZADA DE COMPRAS (HISTORIAL)
+        // Esta vista sigue usando paginación porque pueden ser miles de registros
         // ====================================================================
         async function fetchPurchases(isNextPage = false) {
             if (isPurchasesLoading) return;
@@ -408,7 +417,7 @@
                 let q = query(coll, orderBy("createdAt", "desc"), limit(DOCS_PER_PAGE));
 
                 if (isNextPage && lastPurchaseDoc) {
-                    q = query(q, startAfter(lastPurchaseDoc));
+                    q = query(coll, orderBy("createdAt", "desc"), startAfter(lastPurchaseDoc), limit(DOCS_PER_PAGE));
                 }
 
                 const snap = await getDocs(q);
@@ -483,14 +492,13 @@
                 document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
                 document.getElementById(`section-${tabId}`).classList.remove('hidden');
                 
-                // Ocultar buscador en Historial, mostrar en Directorio
                 const searchContainer = document.getElementById('search-container');
                 if (tabId === 'purchases') {
                     searchContainer.classList.add('hidden');
                     if(purchasesTable.children.length === 0) fetchPurchases();
                 } else {
                     searchContainer.classList.remove('hidden');
-                    if(tableBody.children.length === 0) fetchSuppliers();
+                    // Como el directorio está en vivo por onSnapshot, ya está renderizado
                 }
             };
         });
@@ -504,21 +512,18 @@
             document.getElementById('modal-title').innerHTML = id ? `Editar <span class="text-brand-cyan">Aliado</span>` : `Nuevo <span class="text-brand-cyan">Aliado</span>`;
             
             if (id) {
-                // Para editar leemos el doc específico. 1 lectura.
-                try {
-                    const snap = await getDoc(doc(db, "suppliers", id));
-                    if(snap.exists()){
-                        const s = snap.data();
-                        document.getElementById('s-name').value = s.name;
-                        document.getElementById('s-nit').value = s.nit;
-                        document.getElementById('s-contact').value = s.contactName || "";
-                        document.getElementById('s-phone').value = s.phone;
-                        document.getElementById('s-email').value = s.email || "";
-                        document.getElementById('s-bank').value = s.bankName || "";
-                        document.getElementById('s-acc-num').value = s.accNum || "";
-                        document.getElementById('s-acc-type').value = s.accType || "Ahorros";
-                    }
-                } catch(e) { console.error(e); }
+                // Leemos del caché en RAM (0 lecturas, instantáneo)
+                const s = adminSuppliersCache.find(supp => supp.id === id);
+                if (s) {
+                    document.getElementById('s-name').value = s.name;
+                    document.getElementById('s-nit').value = s.nit || "";
+                    document.getElementById('s-contact').value = s.contactName || "";
+                    document.getElementById('s-phone').value = s.phone;
+                    document.getElementById('s-email').value = s.email || "";
+                    document.getElementById('s-bank').value = s.bankName || "";
+                    document.getElementById('s-acc-num').value = s.accNum || "";
+                    document.getElementById('s-acc-type').value = s.accType || "Ahorros";
+                }
             }
             supplierModal.classList.remove('hidden');
         };
@@ -555,13 +560,7 @@
                     });
                 }
                 closeModal();
-                
-                // Limpiar caché y recargar lista
-                sessionStorage.removeItem('pixeltech_supplier_index');
-                supplierIndexCache = null;
-                lastSupplierDoc = null;
-                fetchSuppliers(false);
-
+                // El onSnapshot se encargará de actualizar la tabla y el caché automáticamente
             } catch (err) {
                 alert("Error: " + err.message);
             } finally {
@@ -574,10 +573,7 @@
             if(confirm("¿Eliminar este aliado?")) { 
                 try {
                     await deleteDoc(doc(db, "suppliers", id)); 
-                    sessionStorage.removeItem('pixeltech_supplier_index');
-                    supplierIndexCache = null;
-                    lastSupplierDoc = null;
-                    fetchSuppliers(false); 
+                    // El onSnapshot lo quitará de la vista y del caché automáticamente
                 } catch(e) { alert("Error: " + e.message); }
             } 
         };
@@ -585,7 +581,8 @@
         window.closeModal = () => { supplierModal.classList.add('hidden'); };
 
         // Init
-        fetchSuppliers();
+        initSmartSuppliersList();
     </script>
+    <script type="module" src="../js/admin-guard.js"></script>
 </body>
 </html>

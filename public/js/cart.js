@@ -1,5 +1,10 @@
+import { db, doc, onSnapshot } from "./firebase-init.js";
+
 // Clave para guardar en el navegador
 const CART_KEY = 'pixeltech_cart';
+
+// --- CONTROLADORES DE TIEMPO REAL ---
+let cartUnsubscribers = {}; // Guarda las conexiones activas por ID de producto
 
 // --- 1. OBTENER CARRITO ---
 export function getCart() {
@@ -10,16 +15,17 @@ export function getCart() {
 // --- 2. GUARDAR CARRITO (Interna) ---
 function saveCart(cart) {
     localStorage.setItem(CART_KEY, JSON.stringify(cart));
-    // Disparar eventos para actualizar UI global
     window.dispatchEvent(new Event('cartUpdated')); 
     updateCartCount();
+    
+    // 🔥 Cada vez que el carrito cambia, ajustamos los vigilantes en tiempo real
+    startCartSync(); 
 }
 
 // --- 3. AGREGAR ITEM (VALIDANDO STOCK) ---
 export function addToCart(product) {
     const cart = getCart();
     
-    // Normalizamos valores
     const pColor = product.color || null;
     const pCapacity = product.capacity || null;
     const maxStock = product.maxStock || 999; 
@@ -31,13 +37,11 @@ export function addToCart(product) {
 
     if (existingItem) {
         newQty += existingItem.quantity;
-        // VALIDACIÓN DE STOCK
         if (newQty > maxStock) {
             return { success: false, message: `Solo hay ${maxStock} unidades disponibles.` };
         }
         existingItem.quantity = newQty;
     } else {
-        // VALIDACIÓN DE STOCK
         if (newQty > maxStock) {
             return { success: false, message: `Solo hay ${maxStock} unidades disponibles.` };
         }
@@ -85,7 +89,7 @@ export function updateQuantity(cartId, newQty) {
     return { success: false, message: "Producto no encontrado" };
 }
 
-// --- 5. ELIMINAR ITEM (Por ID de carrito - Variante específica) ---
+// --- 5. ELIMINAR ITEM (Por ID de carrito) ---
 export function removeFromCart(cartId) {
     let cart = getCart();
     cart = cart.filter(item => item.cartId !== cartId);
@@ -93,13 +97,8 @@ export function removeFromCart(cartId) {
 }
 
 // --- 6. ELIMINAR UNA UNIDAD (Por ID de Producto - Genérico) ---
-// Esta es la función que faltaba y causaba el error en app.js
 export function removeOneUnit(productId) {
     let cart = getCart();
-    
-    // Buscamos el índice del producto. 
-    // Nota: Si hay variantes, esto eliminará una unidad de la primera variante que encuentre.
-    // Es el comportamiento estándar para botones genéricos en tarjetas de grid.
     const index = cart.findIndex(item => item.id === productId);
     
     if (index !== -1) {
@@ -116,9 +115,8 @@ export function removeOneUnit(productId) {
 export function getCartTotal() {
     const cart = getCart();
     return cart.reduce((total, item) => {
-        // Si maxStock está definido y es 0, es un producto agotado: No sumar
         if (item.maxStock !== undefined && item.maxStock <= 0) {
-            return total;
+            return total; // No sumar productos agotados
         }
         return total + (item.price * item.quantity);
     }, 0);
@@ -144,3 +142,105 @@ export function getProductQtyInCart(productId) {
         .filter(item => item.id === productId)
         .reduce((sum, item) => sum + (item.quantity || 0), 0);
 }
+
+
+// ==========================================================================
+// 🧠 MOTOR DE SINCRONIZACIÓN EN TIEMPO REAL DEL CARRITO (ONSNAPSHOT)
+// ==========================================================================
+
+export function startCartSync() {
+    const cart = getCart();
+    // Extraer solo los IDs base de los productos (sin importar las variantes)
+    const productIdsInCart = [...new Set(cart.map(i => i.id))];
+    
+    // 1. LIMPIEZA: Apagar escuchas de productos que ya no están en el carrito
+    Object.keys(cartUnsubscribers).forEach(id => {
+        if (!productIdsInCart.includes(id)) {
+            cartUnsubscribers[id](); // Apaga el onSnapshot
+            delete cartUnsubscribers[id];
+        }
+    });
+    
+    // 2. INICIAR: Encender escuchas para los productos que están en el carrito
+    productIdsInCart.forEach(productId => {
+        if (!cartUnsubscribers[productId]) {
+            cartUnsubscribers[productId] = onSnapshot(doc(db, "products", productId), (snap) => {
+                if (snap.exists()) {
+                    updateCartItemsFromCloud(productId, snap.data());
+                } else {
+                    // Si el producto fue borrado de Firebase, marcar stock 0
+                    updateCartItemsFromCloud(productId, { stock: 0, status: 'inactive' });
+                }
+            }, (error) => {
+                console.error(`Error vigilando producto ${productId}:`, error);
+            });
+        }
+    });
+}
+
+// Helper: Procesa la info que llega de la nube y ajusta el carrito si es necesario
+function updateCartItemsFromCloud(productId, pData) {
+    let cart = getCart();
+    let hasChanges = false;
+    
+    cart.forEach(item => {
+        if (item.id === productId) {
+            let newPrice = pData.price || 0;
+            let newStock = pData.stock || 0;
+            const isInactive = pData.status !== 'active';
+            
+            // Si el producto fue desactivado o borrado, forzamos stock a 0
+            if (isInactive) {
+                newStock = 0;
+            } 
+            // Si tiene combinaciones, buscamos el stock y precio exacto de su variante
+            else if (pData.combinations && pData.combinations.length > 0) {
+                const combo = pData.combinations.find(c => 
+                    (c.color === item.color || (!c.color && !item.color)) &&
+                    (c.capacity === item.capacity || (!c.capacity && !item.capacity))
+                );
+                if (combo) {
+                    newPrice = combo.price;
+                    newStock = combo.stock;
+                } else {
+                    newStock = 0; // Esa variante específica ya no existe
+                }
+            } 
+            // Si solo tiene capacidades simples
+            else if (item.capacity && pData.capacities) {
+                const cap = pData.capacities.find(c => c.label === item.capacity);
+                if (cap) {
+                    newPrice = cap.price;
+                }
+            }
+
+            // Detectamos si el precio, el stock o el nombre cambiaron
+            if (item.price !== newPrice || item.maxStock !== newStock || item.name !== pData.name) {
+                item.price = newPrice;
+                item.maxStock = newStock;
+                item.name = pData.name || item.name;
+                item.originalPrice = pData.originalPrice || 0;
+                
+                // Si el nuevo stock máximo es menor a lo que el cliente quería, ajustamos su cantidad
+                if (newStock > 0 && item.quantity > newStock) {
+                    item.quantity = newStock;
+                }
+
+                hasChanges = true;
+            }
+        }
+    });
+    
+    // Solo si detectó un cambio real, guarda silenciosamente y avisa a la UI
+    if (hasChanges) {
+        console.log(`🛒 [Cart Sync] El producto ${productId} cambió de precio o stock en vivo.`);
+        localStorage.setItem(CART_KEY, JSON.stringify(cart));
+        window.dispatchEvent(new Event('cartUpdated')); 
+        updateCartCount();
+    }
+}
+
+// Iniciar vigilancia apenas se cargue el archivo por primera vez
+document.addEventListener('DOMContentLoaded', () => {
+    startCartSync();
+});

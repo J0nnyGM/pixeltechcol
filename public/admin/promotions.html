@@ -16,7 +16,7 @@
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
     </style>
 </head>
-<body class="bg-slate-50 font-sans text-brand-black flex h-screen overflow-hidden">
+<body class="bg-slate-50 font-sans text-brand-black flex h-screen overflow-hidden" style="display: none;">
     <div id="admin-sidebar" class="md:flex-shrink-0"></div>
 
     <main class="flex-grow overflow-y-auto custom-scroll p-4 md:p-8">
@@ -104,7 +104,7 @@
 
                 <div id="custom-file-container" class="hidden pl-8">
                     <input type="file" id="banner-file" accept="image/*" class="block w-full text-xs text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-[10px] file:font-black file:uppercase file:bg-brand-cyan/10 file:text-brand-cyan hover:file:bg-brand-cyan/20 cursor-pointer">
-                    <p class="text-[9px] text-gray-400 mt-2 italic">Sugerencia: 1920x600px (Lanzamiento) / 800x600px (Slider).</p>
+                    <p class="text-[9px] text-gray-400 mt-2 italic">Sugerencia: 1080x1350px o 4:5 (slider) / 1080x1080px o 1:1 (Lanzamiento).</p>
                 </div>
 
                 <div class="pt-4">
@@ -117,5 +117,6 @@
     </div>
 
     <script type="module" src="../js/admin-promotions.js"></script>
+    <script type="module" src="../js/admin-guard.js"></script>
 </body>
 </html>
