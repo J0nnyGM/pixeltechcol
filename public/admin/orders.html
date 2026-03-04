@@ -495,71 +495,62 @@
                 });
             },
 
-listenForUpdates() {
+            listenForUpdates() {
                 if (this.unsubscribe) this.unsubscribe();
 
                 const ordersRef = collection(db, "orders");
-                let q;
-
-                if (this.lastSyncTime === 0 || Object.keys(this.runtimeMap).length === 0) {
-                    console.log("☁️ [Orders] Descarga inicial del pool de pedidos...");
-                    q = query(ordersRef, orderBy("createdAt", "desc"), limit(150));
-                } else {
-                    console.log("🔄 [Orders] Buscando cambios desde:", new Date(this.lastSyncTime).toLocaleString());
-                    q = query(ordersRef, where("updatedAt", ">", new Date(this.lastSyncTime)));
-                }
+                
+                console.log("☁️ [Orders] Estableciendo conexión en vivo (Fuente de Verdad)...");
+                const q = query(ordersRef, orderBy("createdAt", "desc"), limit(150));
 
                 this.unsubscribe = onSnapshot(q, (snapshot) => {
+                    // 1. Si no hay nada en Firebase, limpiamos TODO
                     if (snapshot.empty) {
-                        if (this.lastSyncTime !== 0) console.log("✅ [Orders] Caché al día.");
-                        if (adminOrdersCache.length === 0) {
-                            document.getElementById('orders-table-body').innerHTML = `<tr><td colspan="7" class="p-10 text-center text-xs text-brand-black font-bold uppercase">No se encontraron pedidos.</td></tr>`;
-                        }
+                        this.runtimeMap = {};
+                        adminOrdersCache = [];
+                        localStorage.removeItem(this.STORAGE_KEY);
+                        document.getElementById('orders-table-body').innerHTML = `<tr><td colspan="7" class="p-10 text-center text-xs text-brand-black font-bold uppercase">No se encontraron pedidos.</td></tr>`;
                         return;
                     }
 
-                    let hasChanges = false;
+                    // 🚨 MAGIA ANTI-FANTASMAS: En lugar de buscar "cambios", 
+                    // reconstruimos el mapa desde cero con la foto EXACTA del servidor.
+                    const freshMap = {};
+                    
+                    snapshot.docs.forEach(docSnap => {
+                        const data = docSnap.data();
+                        const id = docSnap.id;
 
-                    snapshot.docChanges().forEach(change => {
-                        const data = change.doc.data();
-                        const id = change.doc.id;
-
+                        // Normalizar fechas para evitar errores de guardado
                         if (!data.updatedAt) data.updatedAt = data.createdAt;
-
-                        // Normalizar fechas
                         if (data.createdAt?.toDate) data.createdAt = data.createdAt.toDate().toISOString();
                         if (data.updatedAt?.toDate) data.updatedAt = data.updatedAt.toDate().toISOString();
 
-                        if (change.type === 'added' || change.type === 'modified') {
-                            this.runtimeMap[id] = { id, ...data };
-                            hasChanges = true;
-                        } else if (change.type === 'removed') {
-                            if (this.runtimeMap[id]) {
-                                delete this.runtimeMap[id];
-                                hasChanges = true;
-                            }
-                        }
+                        freshMap[id] = { id, ...data };
                     });
 
-                    // Si hubo algún cambio (por ti o por otro usuario)
-                    if (hasChanges) {
-                        console.log(`🔥 [Orders] Cambios detectados: ${snapshot.docChanges().length} actualizados.`);
-                        this.updateGlobalArray();
+                    // 2. Reemplazamos la memoria RAM local con los datos frescos
+                    this.runtimeMap = freshMap;
+                    this.updateGlobalArray();
 
-                        localStorage.setItem(this.STORAGE_KEY, JSON.stringify({
-                            map: this.runtimeMap,
-                            lastSync: Date.now()
-                        }));
+                    // 3. Sobreescribimos el caché para que el próximo inicio sea rápido y sin basura
+                    localStorage.setItem(this.STORAGE_KEY, JSON.stringify({
+                        map: this.runtimeMap,
+                        lastSync: Date.now()
+                    }));
+                    this.lastSyncTime = Date.now();
 
-                        // FORZAMOS LA LIMPIEZA Y REPINTADO
-                        const searchVal = document.getElementById('search-input').value.trim();
-                        if (searchVal.length === 0) {
-                            renderOrdersFromMemory(); 
-                        } else {
-                            // Si el usuario estaba buscando algo, forzamos que se vuelva a filtrar con la data fresca
-                            document.getElementById('search-input').dispatchEvent(new Event('input'));
-                        }
+                    console.log(`🔥 [Orders] Sincronización perfecta: ${adminOrdersCache.length} pedidos al día.`);
+
+                    // 4. Forzamos el repintado de la tabla al instante
+                    const searchVal = document.getElementById('search-input').value.trim();
+                    if (searchVal.length === 0) {
+                        renderOrdersFromMemory(); 
+                    } else {
+                        // Si estaba buscando algo, re-filtramos usando la data nueva
+                        document.getElementById('search-input').dispatchEvent(new Event('input'));
                     }
+
                 }, (error) => {
                     console.error("Error Live Orders:", error);
                 });

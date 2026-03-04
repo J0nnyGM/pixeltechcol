@@ -150,6 +150,11 @@ function updateSubmitButtonText() {
         btn.innerHTML = `Pagar con ADDI <i class="fa-solid fa-arrow-right"></i>`;
         btn.classList.add('bg-[#00D6D6]', 'text-white');
     }
+    // NUEVO: Botón de Sistecrédito
+    else if (selectedPaymentMethod === 'SISTECREDITO') {
+        btn.innerHTML = `Pagar con Sistecrédito <i class="fa-solid fa-arrow-right"></i>`;
+        btn.classList.add('bg-[#00B34A]', 'text-white');
+    }
 }
 
 // ==========================================================================
@@ -563,6 +568,80 @@ els.btnSubmit.addEventListener('click', async (e) => {
         } catch (error) {
             console.error("❌ Error ADDI:", error);
             alert("Error ADDI: " + (error.message || "Desconocido"));
+            els.btnSubmit.disabled = false;
+            els.btnSubmit.innerHTML = btnHtml;
+        }
+    }
+    // =====================================
+    // LÓGICA PARA SISTECRÉDITO
+    // =====================================
+    else if (selectedPaymentMethod === 'SISTECREDITO') {
+        if (!auth.currentUser) return window.location.href = '/auth/login.html';
+        
+        // Validaciones idénticas a las que requiere la pasarela
+        if (!els.idNumber.value || els.idNumber.value.length < 5) return alert("⚠️ Se requiere Documento válido para Sistecrédito.");
+        if (!els.phone.value || els.phone.value.length < 10) return alert("⚠️ Se requiere Celular válido para Sistecrédito.");
+
+        const btnHtml = els.btnSubmit.innerHTML;
+        els.btnSubmit.disabled = true;
+        els.btnSubmit.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Conectando a Sistecrédito...`;
+
+        try {
+            const token = await auth.currentUser.getIdToken(true);
+            // Llamamos a la función que acabamos de crear en el backend
+            const createSistecredito = httpsCallable(functions, 'createSistecreditoCheckout');
+            
+            const deptName = els.deptSelect.options[els.deptSelect.selectedIndex]?.dataset.name || "";
+            const fullShippingData = {
+                name: els.name.value,
+                phone: els.phone.value,
+                department: deptName,
+                city: els.citySelect.value,
+                address: els.address.value,
+                postalCode: els.postal.value,
+                notes: els.notes.value || ""
+            };
+
+            // Autoguardado del perfil
+            await saveUserProfileUpdates(shouldSaveAddress, isFirstAddress, deptName);
+
+            const payloadCompleto = {
+                userToken: String(token),
+                shippingCost: Number(currentShippingCost),
+                items: cart.map(i => ({ id: i.id, quantity: i.quantity, color: i.color || "", capacity: i.capacity || "" })),
+                extraData: {
+                    userName: els.name.value,
+                    clientDoc: els.idNumber.value, 
+                    phone: els.phone.value,        
+                    needsInvoice: els.checkInvoice.checked, 
+                    billingData: billData, 
+                    shippingData: fullShippingData, 
+                    source: 'TIENDA_WEB' 
+                },
+                buyerInfo: {
+                    name: els.name.value,
+                    email: auth.currentUser.email,
+                    phone: els.phone.value,
+                    address: els.address.value,
+                    document: els.idNumber.value 
+                }
+            };
+
+            // Ejecutamos la petición
+            const response = await createSistecredito(payloadCompleto);
+            const { initPoint } = response.data;
+            
+            if (initPoint) {
+                // Guardamos en localstorage por si cancelan y regresan
+                localStorage.setItem('pending_order_data', JSON.stringify({ items: cart, method: 'SISTECREDITO' }));
+                window.location.href = initPoint; // Redirigimos a la experiencia de Sistecrédito
+            } else {
+                throw new Error("No se recibió link de pago.");
+            }
+
+        } catch (error) {
+            console.error("❌ Error Sistecrédito:", error);
+            alert("Error conectando con Sistecrédito: " + (error.message || "Intenta nuevamente."));
             els.btnSubmit.disabled = false;
             els.btnSubmit.innerHTML = btnHtml;
         }

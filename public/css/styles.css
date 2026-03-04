@@ -1893,6 +1893,9 @@
   .border-l-yellow-400 {
     border-left-color: var(--color-yellow-400);
   }
+  .bg-\[\#00B34A\] {
+    background-color: #00B34A;
+  }
   .bg-\[\#00D6D6\] {
     background-color: #00D6D6;
   }
@@ -4060,6 +4063,11 @@
       scale: 1.01;
     }
   }
+  .peer-checked\:border-\[\#00B34A\] {
+    &:is(:where(.peer):checked ~ *) {
+      border-color: #00B34A;
+    }
+  }
   .peer-checked\:border-\[\#00D6D6\] {
     &:is(:where(.peer):checked ~ *) {
       border-color: #00D6D6;
@@ -4103,6 +4111,14 @@
       background-color: var(--color-gray-50);
     }
   }
+  .peer-checked\:bg-green-50\/10 {
+    &:is(:where(.peer):checked ~ *) {
+      background-color: color-mix(in srgb, oklch(98.2% 0.018 155.826) 10%, transparent);
+      @supports (color: color-mix(in lab, red, red)) {
+        background-color: color-mix(in oklab, var(--color-green-50) 10%, transparent);
+      }
+    }
+  }
   .peer-checked\:bg-indigo-600 {
     &:is(:where(.peer):checked ~ *) {
       background-color: var(--color-indigo-600);
@@ -4127,6 +4143,14 @@
     &:is(:where(.peer):checked ~ *) {
       --tw-shadow: 0 20px 25px -5px var(--tw-shadow-color, rgb(0 0 0 / 0.1)), 0 8px 10px -6px var(--tw-shadow-color, rgb(0 0 0 / 0.1));
       box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
+    }
+  }
+  .peer-checked\:shadow-\[\#00B34A\]\/10 {
+    &:is(:where(.peer):checked ~ *) {
+      --tw-shadow-color: color-mix(in srgb, #00B34A 10%, transparent);
+      @supports (color: color-mix(in lab, red, red)) {
+        --tw-shadow-color: color-mix(in oklab, color-mix(in oklab, #00B34A 10%, transparent) var(--tw-shadow-alpha), transparent);
+      }
     }
   }
   .peer-checked\:shadow-\[\#00D6D6\]\/10 {
@@ -4449,6 +4473,13 @@
         --tw-scale-y: 110%;
         --tw-scale-z: 110%;
         scale: var(--tw-scale-x) var(--tw-scale-y);
+      }
+    }
+  }
+  .hover\:border-\[\#00B34A\]\/50 {
+    &:hover {
+      @media (hover: hover) {
+        border-color: color-mix(in oklab, #00B34A 50%, transparent);
       }
     }
   }
@@ -6316,6 +6347,13 @@
       align-items: flex-end;
     }
   }
+  .peer-checked\:\[\&_\.radio-circle\]\:border-\[\#00B34A\] {
+    &:is(:where(.peer):checked ~ *) {
+      & .radio-circle {
+        border-color: #00B34A;
+      }
+    }
+  }
   .peer-checked\:\[\&_\.radio-circle\]\:border-\[\#00D6D6\] {
     &:is(:where(.peer):checked ~ *) {
       & .radio-circle {
@@ -6341,6 +6379,13 @@
     &:is(:where(.peer):checked ~ *) {
       & .radio-circle {
         border-color: var(--color-gray-600);
+      }
+    }
+  }
+  .peer-checked\:\[\&_\.radio-circle\]\:bg-\[\#00B34A\] {
+    &:is(:where(.peer):checked ~ *) {
+      & .radio-circle {
+        background-color: #00B34A;
       }
     }
   }

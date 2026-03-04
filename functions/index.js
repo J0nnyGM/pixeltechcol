@@ -15,6 +15,7 @@ const mpModule = require('./mercadopago');
 const schedulerModule = require('./scheduler');
 const codModule = require('./cod');
 const addiModule = require('./addi');
+const sistecreditoModule = require('./sistecredito'); // <--- 1. NUEVO: Importar módulo SC
 const emailModule = require('./emails'); 
 const whatsappModule = require('./whatsapp');
 const syncModule = require('./sync');
@@ -33,6 +34,10 @@ exports.createCODOrder = functions.https.onCall(codModule.createCODOrder);
 // ADDI
 exports.createAddiCheckout = functions.https.onCall(addiModule.createAddiCheckout);
 exports.addiWebhook = functions.https.onRequest(addiModule.webhook);
+
+// Sistecrédito (NUEVO)
+exports.createSistecreditoCheckout = functions.https.onCall(sistecreditoModule.createSistecreditoCheckout);
+exports.sistecreditoWebhook = functions.https.onRequest(sistecreditoModule.webhook);
 
 // Notificaciones por Correo
 exports.sendOrderConfirmation = emailModule.sendOrderConfirmation;
