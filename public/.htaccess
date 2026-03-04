@@ -4,77 +4,42 @@
 ErrorDocument 404 /404.html
 
 # ----------------------------------------------------------------------
-# 1.1 REDIRECCIONES 301 (LIMPIEZA DE RASTRO Y NUEVAS RUTAS)
-# ----------------------------------------------------------------------
-<IfModule mod_rewrite.c>
-    RewriteEngine On
-
-    # 1. Redirigir variaciones del catálogo viejo a la nueva ruta
-    RewriteRule ^catalogo\.html$ /shop/catalog.html [R=301,L]
-    RewriteRule ^catalog\.html$ /shop/catalog.html [R=301,L]
-
-    # 2. Atrapa CUALQUIER etiqueta de producto (ej: /etiqueta-producto/pulsera/) y la envía al catálogo nuevo
-    RewriteRule ^etiqueta-producto/?(.*)$ /shop/catalog.html [R=301,L]
-
-    # 3. Atrapa CUALQUIER categoría vieja de WooCommerce y la envía al catálogo nuevo
-    RewriteRule ^categoria-producto/?(.*)$ /shop/catalog.html [R=301,L]
-
-    # 4. Atrapa la tienda vieja y productos sueltos y los envía al inicio
-    RewriteRule ^tienda/?(.*)$ / [R=301,L]
-    RewriteRule ^producto/?(.*)$ / [R=301,L]
-
-    # 5. Atrapa la página antigua de /faqs/ y la envía al inicio
-    RewriteRule ^faqs/?(.*)$ / [R=301,L]
-
-    # 6. Atrapa el resto de rutas basura o privadas de WooCommerce
-    RewriteRule ^carrito/?(.*)$ / [R=301,L]
-    RewriteRule ^finalizar-compra/?(.*)$ / [R=301,L]
-    RewriteRule ^mi-cuenta/?(.*)$ / [R=301,L]
-    RewriteRule ^wp-content/?(.*)$ / [R=301,L]
-</IfModule>
-
-# ----------------------------------------------------------------------
-    # FORZAR HTTPS Y WWW (Evita contenido duplicado en Google)
-    # ----------------------------------------------------------------------
-    RewriteCond %{HTTPS} off [OR]
-    RewriteCond %{HTTP_HOST} !^www\. [NC]
-    RewriteRule ^(.*)$ https://www.pixeltechcol.com/$1 [L,R=301]
-    
-    # Quitar /index.html de la URL de inicio
-    RewriteCond %{THE_REQUEST} ^[A-Z]{3,9}\ /index\.html\ HTTP/
-    RewriteRule ^index\.html$ https://www.pixeltechcol.com/ [R=301,L]
-
-# ----------------------------------------------------------------------
-# 1.5 REESCRITURA DE SITEMAP Y GOOGLE FEED (Firebase Functions Proxy)
-# ----------------------------------------------------------------------
-<IfModule mod_rewrite.c>
-    RewriteEngine On
-    
-    # Enviar sitemap.xml a serve_sitemap.php
-    RewriteRule ^sitemap\.xml$ serve_sitemap.php [L]
-    
-    # Enviar google-feed.xml a serve_feed.php
-    RewriteRule ^google-feed\.xml$ serve_feed.php [L]
-</IfModule>
-
-# ----------------------------------------------------------------------
-# 2. ENRUTAMIENTO MODERNO (HTTPS Y URLs LIMPIAS)
+# 2. MOTOR DE REESCRITURA (RUTAS, DOMINIOS Y SEGURIDAD)
 # ----------------------------------------------------------------------
 <IfModule mod_rewrite.c>
     RewriteEngine On
     RewriteBase /
 
-    # A. Forzar HTTPS siempre (Redirección 301 permanente)
-    RewriteCond %{HTTPS} off
-    RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+    # A. Forzar HTTPS siempre y asegurar "www" (Evita contenido duplicado en Google)
+    RewriteCond %{HTTPS} off [OR]
+    RewriteCond %{HTTP_HOST} !^www\. [NC]
+    RewriteRule ^(.*)$ https://www.pixeltechcol.com/$1 [L,R=301]
+    
+    # B. Quitar /index.html de la URL de inicio (SEO)
+    RewriteCond %{THE_REQUEST} ^[A-Z]{3,9}\ /index\.html\ HTTP/
+    RewriteRule ^index\.html$ / [R=301,L]
 
-    # B. Ocultar extensión .html en la barra de direcciones
-    # Si la petición no es un archivo o directorio existente...
+    # C. REESCRITURA DE SITEMAP Y GOOGLE FEED (Firebase Functions Proxy)
+    RewriteRule ^sitemap\.xml$ serve_sitemap.php [L]
+    RewriteRule ^google-feed\.xml$ serve_feed.php [L]
+
+    # D. REDIRECCIONES 301 (LIMPIEZA DE RASTRO DE WOOCOMMERCE)
+    RewriteRule ^catalogo\.html$ /shop/catalog.html [R=301,L]
+    RewriteRule ^catalog\.html$ /shop/catalog.html [R=301,L]
+    RewriteRule ^etiqueta-producto/?(.*)$ /shop/catalog.html [R=301,L]
+    RewriteRule ^categoria-producto/?(.*)$ /shop/catalog.html [R=301,L]
+    RewriteRule ^tienda/?(.*)$ / [R=301,L]
+    RewriteRule ^producto/?(.*)$ / [R=301,L]
+    RewriteRule ^faqs/?(.*)$ / [R=301,L]
+    RewriteRule ^carrito/?(.*)$ / [R=301,L]
+    RewriteRule ^finalizar-compra/?(.*)$ / [R=301,L]
+    RewriteRule ^mi-cuenta/?(.*)$ / [R=301,L]
+    RewriteRule ^wp-content/?(.*)$ / [R=301,L]
+
+    # E. Ocultar extensión .html en la barra de direcciones (Nuevas URLs Limpias)
     RewriteCond %{REQUEST_FILENAME} !-f
     RewriteCond %{REQUEST_FILENAME} !-d
-    # Y si existe el archivo añadiéndole .html al final...
     RewriteCond %{REQUEST_FILENAME}.html -f
-    # Entonces sírvelo de forma transparente
     RewriteRule ^([^\.]+)$ $1.html [NC,L]
 </IfModule>
 
@@ -134,10 +99,9 @@ ErrorDocument 404 /404.html
 </IfModule>
 
 # ----------------------------------------------------------------------
-# 5. MANEJADOR DE PHP DE CPANEL (Mantenido por compatibilidad)
+# 5. MANEJADOR DE PHP DE CPANEL
 # ----------------------------------------------------------------------
 # php -- BEGIN cPanel-generated handler, do not edit
-# Set the “ea-php74” package as the default “PHP” programming language.
 <IfModule mime_module>
   AddHandler application/x-httpd-ea-php74___lsphp .php .php7 .phtml
 </IfModule>

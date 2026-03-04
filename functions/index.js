@@ -54,4 +54,4 @@ exports.touchProductTimestamp = syncModule.touchProductTimestamp;
 // Google Merchant Center (Feed XML)
 exports.generateProductFeed = merchantModule.generateProductFeed; // <--- 2. NUEVO: Exportar función
 
-exports.sitemap = sitemapModule.generateSitemap;
+exports.sitemap = sitemapModule.sitemap;

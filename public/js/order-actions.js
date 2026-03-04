@@ -153,7 +153,7 @@ export async function viewOrderDetail(orderId) {
             }
         }
 
-        // 7. Items (Sin cambios en tu lógica)
+        // 7. Items (CON VALIDACIÓN DE SERIALES Y AUTO-TAB DE PISTOLA)
         const isLocked = ['DESPACHADO', 'ENTREGADO', 'CANCELADO', 'RECHAZADO', 'DEVUELTO', 'DEVOLUCION_PARCIAL'].includes(o.status);
         const itemsList = getEl('modal-items-list-responsive');
         
@@ -167,10 +167,74 @@ export async function viewOrderDetail(orderId) {
                         ? 'bg-gray-100 text-gray-500 cursor-not-allowed border-gray-200' 
                         : 'bg-white text-brand-black border-gray-200 focus:border-brand-cyan focus:ring-1 focus:ring-brand-cyan/20';
                     
-                    snInputs += `<div class="relative mb-2"><i class="fa-solid fa-barcode absolute left-3 top-3 text-brand-black text-xs"></i><input type="text" placeholder="${isLocked ? (val || 'No registrado') : 'Escanea Serial'}" value="${val}" data-item-index="${idx}" data-unit-index="${i}" class="sn-input w-full rounded-xl py-2 pl-8 pr-3 text-xs font-mono font-bold outline-none transition-all uppercase border ${lockClass}" ${isLocked ? 'readonly' : ''}></div>`;
+                    snInputs += `
+                    <div class="relative mb-2">
+                        <i class="fa-solid fa-barcode absolute left-3 top-3 text-brand-black text-xs"></i>
+                        <input type="text" 
+                               placeholder="${isLocked ? (val || 'No registrado') : 'Escanea Serial'}" 
+                               value="${val}" 
+                               data-item-index="${idx}" 
+                               data-unit-index="${i}" 
+                               class="sn-input w-full rounded-xl py-2 pl-8 pr-3 text-xs font-mono font-bold outline-none transition-all uppercase border ${lockClass}" 
+                               ${isLocked ? 'readonly' : ''}>
+                    </div>`;
                 }
                 return `<div class="p-6 border-b border-gray-100 last:border-0 flex flex-col md:flex-row gap-6 items-start"><div class="w-16 h-16 rounded-xl bg-white border border-gray-100 p-2 shrink-0 flex items-center justify-center"><img src="${img}" class="max-w-full max-h-full object-contain"></div><div class="flex-grow w-full"><div class="flex justify-between mb-2"><h5 class="font-black text-xs uppercase text-brand-black">${item.name || item.title}</h5><span class="text-xs font-black text-brand-cyan">x${item.quantity}</span></div><div class="flex gap-2 mb-4">${item.color ? `<span class="text-[8px] font-black uppercase bg-slate-100 px-2 py-1 rounded text-brand-black border border-gray-200">${item.color}</span>` : ''}</div><div class="bg-slate-100/50 p-3 rounded-xl border border-dashed border-gray-200"><p class="text-[8px] font-black text-brand-black uppercase tracking-widest mb-2">Seriales</p><div class="grid grid-cols-1 sm:grid-cols-2 gap-2">${snInputs}</div></div></div></div>`;
             }).join('');
+
+            // --- MAGIA PARA LA PISTOLA Y VALIDACIÓN ---
+            if (!isLocked) {
+                // Pequeño timeout para asegurar que el HTML ya se inyectó
+                setTimeout(() => {
+                    const allInputs = Array.from(document.querySelectorAll('.sn-input'));
+                    
+                    allInputs.forEach((input, currentIndex) => {
+                        
+                        // 1. Evento para validar duplicados cuando sale del input (blur) o cambia (change)
+                        input.addEventListener('change', function(e) {
+                            const val = this.value.trim().toUpperCase();
+                            if (!val) return; // Si está vacío, no pasa nada
+
+                            // Buscar si este mismo serial ya está escrito en otro input de esta orden
+                            const isDuplicate = allInputs.some(otherInput => {
+                                return otherInput !== this && otherInput.value.trim().toUpperCase() === val;
+                            });
+
+                            if (isDuplicate) {
+                                alert(`⚠️ ERROR: El serial "${val}" ya fue escaneado en esta orden. Por favor revisa.`);
+                                this.value = ""; // Borramos el texto duplicado
+                                this.focus();    // Le devolvemos el foco para que lo intente de nuevo
+                                this.classList.add('border-red-500', 'bg-red-50');
+                                setTimeout(() => this.classList.remove('border-red-500', 'bg-red-50'), 2000);
+                            }
+                        });
+
+                        // 2. Evento para la Pistola (Keydown: Atrapar el Enter)
+                        input.addEventListener('keydown', function(e) {
+                            if (e.key === 'Enter') {
+                                e.preventDefault(); // Evitamos que envíe un formulario fantasma
+                                
+                                // Disparamos manualmente el 'change' para validar el duplicado YA mismo
+                                this.dispatchEvent(new Event('change'));
+
+                                // Si después de validar sigue teniendo texto (no fue borrado por duplicado)
+                                if (this.value.trim() !== "") {
+                                    const nextInput = allInputs[currentIndex + 1];
+                                    if (nextInput) {
+                                        nextInput.focus(); // Saltamos al siguiente cuadro automáticamente
+                                    } else {
+                                        // Si era el último, enfocamos el botón de guardar
+                                        const btnSave = getEl('btn-save-alistado');
+                                        if(btnSave && !btnSave.classList.contains('hidden')) {
+                                            btnSave.focus();
+                                        }
+                                    }
+                                }
+                            }
+                        });
+                    });
+                }, 100); // 100ms de espera
+            }
         }
 
         // 8. Totales (CORREGIDO Y BLINDADO)

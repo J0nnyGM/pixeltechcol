@@ -254,12 +254,15 @@ exports.createAddiCheckout = async (data, context) => {
 // ==========================================
 // 2. WEBHOOK (Igual que antes)
 // ==========================================
+// ==========================================
+// 2. WEBHOOK (BLINDADO CONTRA DUPLICADOS)
+// ==========================================
 exports.webhook = async (req, res) => {
     return cors(req, res, async () => {
         const db = admin.firestore();
         try {
             const body = req.body;
-            console.log("🔔 Webhook:", JSON.stringify(body));
+            console.log("🔔 Webhook ADDI:", JSON.stringify(body));
 
             const orderId = body.orderId;
             const status = body.status;
@@ -273,7 +276,12 @@ exports.webhook = async (req, res) => {
                     const docSnap = await t.get(orderRef);
                     if (!docSnap.exists) return;
                     const oData = docSnap.data();
-                    if (oData.status === 'PAGADO') return;
+                    
+                    // 🚨 CORRECCIÓN CRÍTICA 1: Validar por el estado financiero, no por el logístico.
+                    if (oData.paymentStatus === 'PAID' || oData.status === 'PAGADO') {
+                        console.log(`⚠️ Webhook duplicado ignorado. La orden ${orderId} ya estaba pagada.`);
+                        return;
+                    }
 
                     const prodReads = [];
                     if (!oData.isStockDeducted) {
@@ -325,14 +333,19 @@ exports.webhook = async (req, res) => {
 
                     for (const p of prodReads) t.update(p.ref, { stock: p.stock, combinations: p.combos });
 
+                    // 🚨 CORRECCIÓN CRÍTICA 2: Verificamos que la remisión no exista antes de crearla
                     const remRef = db.collection('remissions').doc(orderId);
-                    t.set(remRef, {
-                        orderId, source: 'WEBHOOK_ADDI', items: oData.items,
-                        clientName: oData.userName, clientPhone: oData.phone, clientDoc: oData.clientDoc,
-                        clientAddress: `${oData.shippingData?.address}, ${oData.shippingData?.city}`,
-                        total: oData.total, status: 'PENDIENTE_ALISTAMIENTO', type: 'VENTA_WEB',
-                        createdAt: admin.firestore.FieldValue.serverTimestamp()
-                    });
+                    const remSnap = await t.get(remRef);
+                    
+                    if (!remSnap.exists) {
+                        t.set(remRef, {
+                            orderId, source: 'WEBHOOK_ADDI', items: oData.items,
+                            clientName: oData.userName, clientPhone: oData.phone, clientDoc: oData.clientDoc,
+                            clientAddress: `${oData.shippingData?.address}, ${oData.shippingData?.city}`,
+                            total: oData.total, status: 'PENDIENTE_ALISTAMIENTO', type: 'VENTA_WEB',
+                            createdAt: admin.firestore.FieldValue.serverTimestamp()
+                        });
+                    }
 
                     t.update(orderRef, {
                         status: 'PAGADO',
@@ -342,13 +355,17 @@ exports.webhook = async (req, res) => {
                         isStockDeducted: true
                     });
                 });
-                console.log("✅ ADDI Approved");
+                console.log("✅ ADDI Approved Procesado Correctamente");
             } else if (status === 'REJECTED' || status === 'DECLINED' || status === 'ABANDONED') {
-                await orderRef.update({
-                    status: 'RECHAZADO',
-                    statusDetail: status
-                });
-                console.log("❌ Orden Rechazada");
+                // Solo rechazamos si no ha sido pagada previamente
+                const docCheck = await orderRef.get();
+                if (docCheck.exists && docCheck.data().paymentStatus !== 'PAID') {
+                    await orderRef.update({
+                        status: 'RECHAZADO',
+                        statusDetail: status
+                    });
+                    console.log("❌ Orden Rechazada por ADDI");
+                }
             }
             res.status(200).send("OK");
         } catch (e) {

@@ -495,27 +495,23 @@
                 });
             },
 
-            listenForUpdates() {
+listenForUpdates() {
                 if (this.unsubscribe) this.unsubscribe();
 
                 const ordersRef = collection(db, "orders");
                 let q;
 
                 if (this.lastSyncTime === 0 || Object.keys(this.runtimeMap).length === 0) {
-                    // Si no hay caché, bajamos los últimos 150 pedidos para tener buena base operativa
                     console.log("☁️ [Orders] Descarga inicial del pool de pedidos...");
                     q = query(ordersRef, orderBy("createdAt", "desc"), limit(150));
                 } else {
-                    // 🚀 LA MAGIA DEL AHORRO: Si hay caché, SOLO pedimos lo que cambió desde la última vez
                     console.log("🔄 [Orders] Buscando cambios desde:", new Date(this.lastSyncTime).toLocaleString());
                     q = query(ordersRef, where("updatedAt", ">", new Date(this.lastSyncTime)));
                 }
 
                 this.unsubscribe = onSnapshot(q, (snapshot) => {
                     if (snapshot.empty) {
-                        if (this.lastSyncTime !== 0) console.log("✅ [Orders] Caché al día. (1 lectura de validación)");
-
-                        // Si la tabla está vacía y no hay caché, mostrar mensaje de vacío
+                        if (this.lastSyncTime !== 0) console.log("✅ [Orders] Caché al día.");
                         if (adminOrdersCache.length === 0) {
                             document.getElementById('orders-table-body').innerHTML = `<tr><td colspan="7" class="p-10 text-center text-xs text-brand-black font-bold uppercase">No se encontraron pedidos.</td></tr>`;
                         }
@@ -528,10 +524,9 @@
                         const data = change.doc.data();
                         const id = change.doc.id;
 
-                        // Asegurarnos de tener un campo updatedAt para el futuro
                         if (!data.updatedAt) data.updatedAt = data.createdAt;
 
-                        // Normalizar fechas para JSON
+                        // Normalizar fechas
                         if (data.createdAt?.toDate) data.createdAt = data.createdAt.toDate().toISOString();
                         if (data.updatedAt?.toDate) data.updatedAt = data.updatedAt.toDate().toISOString();
 
@@ -546,37 +541,41 @@
                         }
                     });
 
+                    // Si hubo algún cambio (por ti o por otro usuario)
                     if (hasChanges) {
-                        console.log(`🔥 [Orders] Cambios en vivo procesados: ${snapshot.docChanges().length} documentos.`);
-
+                        console.log(`🔥 [Orders] Cambios detectados: ${snapshot.docChanges().length} actualizados.`);
                         this.updateGlobalArray();
 
-                        // Guardar en memoria del navegador
                         localStorage.setItem(this.STORAGE_KEY, JSON.stringify({
                             map: this.runtimeMap,
                             lastSync: Date.now()
                         }));
 
-                        // Repintar UI actual
-                        renderOrdersFromMemory();
+                        // FORZAMOS LA LIMPIEZA Y REPINTADO
+                        const searchVal = document.getElementById('search-input').value.trim();
+                        if (searchVal.length === 0) {
+                            renderOrdersFromMemory(); 
+                        } else {
+                            // Si el usuario estaba buscando algo, forzamos que se vuelva a filtrar con la data fresca
+                            document.getElementById('search-input').dispatchEvent(new Event('input'));
+                        }
                     }
                 }, (error) => {
                     console.error("Error Live Orders:", error);
-                    if (adminOrdersCache.length === 0) {
-                        document.getElementById('orders-table-body').innerHTML = `<tr><td colspan="7" class="text-center text-red-500 py-4">Error de conexión.</td></tr>`;
-                    }
                 });
             }
         };
 
         // --- FILTRADO Y RENDERIZADO EN MEMORIA RAM (CERO LECTURAS) ---
-        function renderOrdersFromMemory() {
+function renderOrdersFromMemory() {
             const tableBody = document.getElementById('orders-table-body');
             if (!tableBody) return;
+            
+            // 🚨 LIMPIEZA OBLIGATORIA AQUÍ ANTES DEL RENDER
+            tableBody.innerHTML = "";
 
             let filtered = [];
 
-            // Filtrar localmente en el Array
             if (currentFilter === 'ACTIONABLE') {
                 filtered = adminOrdersCache.filter(o => ["PAGADO", "PENDIENTE", "ALISTADO"].includes(o.status));
             } else if (currentFilter === 'WAITING') {
@@ -591,14 +590,12 @@
                 filtered = [...adminOrdersCache];
             }
 
-            tableBody.innerHTML = "";
-
             if (filtered.length === 0) {
                 tableBody.innerHTML = `<tr><td colspan="7" class="p-10 text-center text-xs text-brand-black font-bold uppercase">No hay pedidos en esta sección.</td></tr>`;
                 return;
             }
 
-            // Lógica de separación de prioridades (Hoy vs Mañana)
+            // Lógica de separación de prioridades
             if (currentFilter === 'ACTIONABLE') {
                 const cutoffTimeStr = globalConfig.cutoffTime || "14:00";
                 const now = new Date();
@@ -625,10 +622,10 @@
                     tomorrowOrders.forEach(o => renderRow(o));
                 }
             } else {
-                // En otros tabs, pintar normal
                 filtered.forEach(o => renderRow(o));
             }
         }
+        
 
         // --- BUSCADOR INSTANTÁNEO EN RAM ---
         const searchInput = document.getElementById('search-input');

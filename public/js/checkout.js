@@ -434,8 +434,19 @@ els.btnSubmit.addEventListener('click', async (e) => {
         };
     }
     
+    // NUEVO: Lógica de Autoguardado Inteligente
+    // Si el usuario no tiene ninguna dirección guardada previamente, forzamos que esta se guarde y sea la Default
+    const userAddresses = userProfileData?.addresses || [];
+    let shouldSaveAddress = els.saveAddrCheck.checked;
+    let isFirstAddress = false;
+
+    if (userAddresses.length === 0) {
+        shouldSaveAddress = true;
+        isFirstAddress = true; // Bandera para marcarla como predeterminada más adelante
+    }
+
     if (selectedPaymentMethod === 'MANUAL' || selectedPaymentMethod === 'COD') {
-        await processCODOrder(billData);
+        await processCODOrder(billData, shouldSaveAddress, isFirstAddress);
     } 
     else if (selectedPaymentMethod === 'ONLINE') {
         if (!auth.currentUser) return window.location.href = '/auth/login.html';
@@ -456,6 +467,9 @@ els.btnSubmit.addEventListener('click', async (e) => {
                 postalCode: els.postal.value,
                 notes: els.notes.value || ""
             };
+
+            // Guardado automático del perfil antes de ir a MercadoPago
+            await saveUserProfileUpdates(shouldSaveAddress, isFirstAddress, deptName);
 
             const payloadCompleto = {
                 userToken: String(token),
@@ -515,6 +529,9 @@ els.btnSubmit.addEventListener('click', async (e) => {
                 notes: els.notes.value || ""
             };
 
+            // Guardado automático del perfil antes de ir a ADDI
+            await saveUserProfileUpdates(shouldSaveAddress, isFirstAddress, deptName);
+
             const payloadCompleto = {
                 userToken: String(token),
                 shippingCost: Number(currentShippingCost),
@@ -553,7 +570,7 @@ els.btnSubmit.addEventListener('click', async (e) => {
 });
 
 // --- 6. PROCESAMIENTO CONTRA ENTREGA O MANUAL ---
-async function processCODOrder(billData) {
+async function processCODOrder(billData, shouldSaveAddress, isFirstAddress) {
     const btnHtml = els.btnSubmit.innerHTML;
     els.btnSubmit.disabled = true;
     els.btnSubmit.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Confirmando...`;
@@ -576,7 +593,6 @@ async function processCODOrder(billData) {
             userToken: String(userToken),
             items: cart.map(i => ({ id: i.id, quantity: i.quantity, color: i.color || "", capacity: i.capacity || "" })),
             shippingCost: currentShippingCost,
-            // Agregamos el método elegido para que el backend lo diferencie si es Manual o COD real
             paymentMethod: selectedPaymentMethod, 
             extraData: {
                 userName: els.name.value,
@@ -589,23 +605,12 @@ async function processCODOrder(billData) {
             }
         };
 
+        // Guardado automático del perfil antes de crear la orden
+        await saveUserProfileUpdates(shouldSaveAddress, isFirstAddress, deptName);
+
         const createCOD = httpsCallable(functions, 'createCODOrder');
         const response = await createCOD(payload);
         const { orderId } = response.data;
-
-        if (els.saveAddrCheck.checked) {
-            const newAddr = {
-                alias: `Envío ${new Date().toLocaleDateString()}`,
-                address: els.address.value,
-                dept: deptName,
-                city: els.citySelect.value,
-                zip: els.postal.value,
-                notes: els.notes.value,
-                isDefault: false
-            };
-            // Esto dispara automáticamente el onSnapshot de usuario y actualiza su caché local
-            updateDoc(doc(db, "users", currentUser.uid), { addresses: arrayUnion(newAddr) }).catch(console.warn);
-        }
 
         localStorage.removeItem('pixeltech_cart');
         updateCartCount();
@@ -616,6 +621,55 @@ async function processCODOrder(billData) {
         alert("Error: " + (error.message || error));
         els.btnSubmit.disabled = false;
         els.btnSubmit.innerHTML = btnHtml;
+    }
+}
+
+// --- NUEVA FUNCIÓN: ACTUALIZAR PERFIL Y DIRECCIONES ---
+async function saveUserProfileUpdates(shouldSaveAddress, isFirstAddress, deptName) {
+    if (!currentUser) return;
+    
+    try {
+        let updates = {};
+        let needsUpdate = false;
+
+        // 1. Completar datos faltantes en el perfil del usuario
+        if (!userProfileData.name || userProfileData.name !== els.name.value) {
+            updates.name = els.name.value;
+            needsUpdate = true;
+        }
+        if (!userProfileData.phone || userProfileData.phone !== els.phone.value) {
+            updates.phone = els.phone.value;
+            needsUpdate = true;
+        }
+        if (!userProfileData.document || userProfileData.document !== els.idNumber.value) {
+            updates.document = els.idNumber.value;
+            needsUpdate = true;
+        }
+
+        // 2. Guardar o inyectar la nueva dirección si corresponde
+        if (shouldSaveAddress) {
+            const newAddr = {
+                alias: isFirstAddress ? "Mi Casa" : `Envío ${new Date().toLocaleDateString()}`,
+                address: els.address.value,
+                dept: deptName,
+                city: els.citySelect.value,
+                zip: els.postal.value,
+                notes: els.notes.value,
+                isDefault: isFirstAddress // Si es la primera, se vuelve predeterminada forzosamente
+            };
+            
+            updates.addresses = arrayUnion(newAddr);
+            needsUpdate = true;
+        }
+
+        if (needsUpdate) {
+            const userRef = doc(db, "users", currentUser.uid);
+            await updateDoc(userRef, updates);
+            console.log("✅ Perfil de usuario actualizado/completado automáticamente.");
+        }
+    } catch (error) {
+        console.warn("⚠️ Error guardando perfil en background:", error);
+        // No bloqueamos la compra si falla el autoguardado
     }
 }
 

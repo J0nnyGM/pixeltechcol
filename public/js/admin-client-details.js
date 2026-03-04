@@ -6,6 +6,10 @@ loadAdminSidebar();
 const params = new URLSearchParams(window.location.search);
 const clientId = params.get('id');
 
+let clientLoadedSerials = [];
+let lastSerialOrderDoc = null;
+const SERIALS_PAGE_SIZE = 15; // Límite de órdenes a leer por página (Ahorro de dinero)
+
 if (!clientId) window.location.href = 'clients.html';
 
 // REFERENCIAS DOM
@@ -65,7 +69,12 @@ document.querySelectorAll('.currency-input').forEach(input => {
 
 // --- 1. INIT ---
 async function init() {
-    await Promise.all([loadDepartmentsAPI(), loadClientData(), loadAccounts()]);
+    await Promise.all([
+        loadDepartmentsAPI(), 
+        loadClientData(), 
+        loadAccounts(),
+        loadClientSerials() // <-- NUEVA LLAMADA
+    ]);
 }
 
 // --- 2. CARGAR METADATA ---
@@ -422,5 +431,163 @@ els.btnUpdate.onclick = async () => {
     } catch(e) { alert("Error: " + e.message); }
     finally { els.btnUpdate.disabled = false; els.btnUpdate.textContent = "Guardar Cambios"; }
 };
+
+// ==========================================
+// 5. CARGAR SERIALES PARA GARANTÍA
+// ==========================================
+async function loadClientSerials(isNextPage = false) {
+    const container = document.getElementById('client-sn-list');
+    const loadMoreBtn = document.getElementById('load-more-serials-container');
+
+    if (!isNextPage) {
+        container.innerHTML = '<div class="col-span-full text-center text-gray-400 py-10"><i class="fa-solid fa-circle-notch fa-spin text-brand-cyan text-2xl mb-2"></i><p class="text-xs font-bold uppercase tracking-widest">Descargando seriales...</p></div>';
+        clientLoadedSerials = [];
+        lastSerialOrderDoc = null;
+    } else {
+        const btn = loadMoreBtn.querySelector('button');
+        btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Cargando...';
+    }
+
+    try {
+        let q = query(
+            collection(db, "orders"),
+            where("userId", "==", clientId),
+            orderBy("createdAt", "desc"),
+            limit(SERIALS_PAGE_SIZE)
+        );
+
+        if (isNextPage && lastSerialOrderDoc) {
+            q = query(q, startAfter(lastSerialOrderDoc));
+        }
+
+        const snap = await getDocs(q);
+
+        if (!isNextPage) container.innerHTML = "";
+
+        if (snap.empty) {
+            if (!isNextPage) {
+                container.innerHTML = `
+                    <div class="col-span-full text-center bg-white border border-gray-100 rounded-[2rem] py-12 shadow-sm">
+                        <i class="fa-solid fa-barcode text-4xl text-gray-200 mb-3"></i>
+                        <p class="text-[10px] text-gray-400 font-black uppercase tracking-widest">No hay seriales registrados</p>
+                        <p class="text-xs text-gray-400 font-bold mt-1">No se encontraron registros en el historial de este cliente.</p>
+                    </div>`;
+            }
+            if (loadMoreBtn) loadMoreBtn.classList.add('hidden');
+            return;
+        }
+
+        // Guardamos el cursor para la próxima página
+        lastSerialOrderDoc = snap.docs[snap.docs.length - 1];
+
+        // Lógica de mostrar/ocultar el botón
+        if (loadMoreBtn) {
+            if (snap.docs.length === SERIALS_PAGE_SIZE) {
+                loadMoreBtn.classList.remove('hidden');
+                loadMoreBtn.querySelector('button').innerHTML = '<i class="fa-solid fa-circle-plus"></i> Cargar historial anterior';
+            } else {
+                loadMoreBtn.classList.add('hidden');
+            }
+        }
+
+        let newSerialsFound = [];
+
+        // Extraer seriales del bloque actual
+        snap.forEach(doc => {
+            const o = doc.data();
+            if (o.status === 'CANCELADO' || o.status === 'RECHAZADO') return;
+
+            if (o.items && Array.isArray(o.items)) {
+                o.items.forEach(item => {
+                    if (item.sns && Array.isArray(item.sns)) {
+                        item.sns.forEach(sn => {
+                            if (sn && sn.trim() !== '') {
+                                newSerialsFound.push({
+                                    sn: sn.trim().toUpperCase(),
+                                    productName: item.name || 'Producto',
+                                    orderId: doc.id,
+                                    date: o.createdAt?.toDate()
+                                });
+                            }
+                        });
+                    }
+                });
+            }
+        });
+
+        // Sumamos los nuevos a la memoria RAM global
+        clientLoadedSerials = [...clientLoadedSerials, ...newSerialsFound];
+        
+        // Renderizamos
+        renderSerials(clientLoadedSerials);
+
+        // Si el usuario estaba buscando algo mientras cargaba más, forzamos el filtro
+        document.getElementById('search-serial-input').dispatchEvent(new Event('input'));
+
+    } catch (e) {
+        console.error("Error cargando seriales:", e);
+        if (!isNextPage) container.innerHTML = '<div class="col-span-full text-center text-red-500 py-8 font-bold text-xs uppercase tracking-widest">Error al cargar datos.</div>';
+    }
+}
+
+// Dibuja las tarjetas basado en el array que le pasen (completo o filtrado)
+function renderSerials(serialsArray) {
+    const container = document.getElementById('client-sn-list');
+    
+    if (serialsArray.length === 0) {
+        container.innerHTML = '<div class="col-span-full text-center text-gray-400 py-6 font-bold text-xs uppercase tracking-widest">No se encontraron coincidencias en los datos cargados.</div>';
+        return;
+    }
+
+    container.innerHTML = serialsArray.map(s => {
+        const dateStr = s.date ? s.date.toLocaleDateString('es-CO') : '--';
+        return `
+            <div class="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm hover:shadow-lg transition-all relative group overflow-hidden fade-in">
+                <div class="absolute top-0 left-0 w-1 h-full bg-brand-cyan group-hover:w-2 transition-all"></div>
+                <div class="flex justify-between items-start mb-3 pl-2">
+                    <p class="text-[9px] font-black text-gray-400 uppercase tracking-widest"><i class="fa-solid fa-tag text-brand-cyan mr-1"></i> Serial Registrado</p>
+                    <button onclick="window.openOrderModal('${s.orderId}')" class="text-[9px] font-black bg-slate-50 hover:bg-brand-black hover:text-white text-gray-500 px-2 py-1 rounded border border-gray-200 transition-colors cursor-pointer" title="Ver Orden Completa">
+                        #${s.orderId.slice(0,6)}
+                    </button>
+                </div>
+                <div class="pl-2">
+                    <p class="font-mono text-xl md:text-2xl font-black text-brand-black tracking-tight mb-1 select-all" title="Haz doble clic para copiar">${s.sn}</p>
+                    <p class="text-xs font-bold text-gray-600 line-clamp-2 leading-tight" title="${s.productName}">${s.productName}</p>
+                </div>
+                <div class="mt-4 pt-4 border-t border-gray-100 pl-2">
+                    <p class="text-[9px] font-bold text-gray-400 uppercase tracking-widest"><i class="fa-regular fa-calendar text-gray-300 mr-1"></i> Fecha: <span class="text-brand-black">${dateStr}</span></p>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+// ==========================================
+// LISTENER DEL BUSCADOR INTELIGENTE
+// ==========================================
+const serialSearchInput = document.getElementById('search-serial-input');
+if (serialSearchInput) {
+    serialSearchInput.addEventListener('input', (e) => {
+        const val = e.target.value.trim().toLowerCase();
+        
+        // Si borra la búsqueda, mostrar todos los cargados en memoria
+        if (!val) {
+            renderSerials(clientLoadedSerials);
+            return;
+        }
+
+        // Filtrar en memoria RAM sin consultar a Firebase
+        const filtered = clientLoadedSerials.filter(s => {
+            return s.sn.toLowerCase().includes(val) || 
+                   s.productName.toLowerCase().includes(val) || 
+                   s.orderId.toLowerCase().includes(val);
+        });
+
+        renderSerials(filtered);
+    });
+}
+
+// Exportar al window para que el botón de HTML lo detecte
+window.loadMoreSerials = () => loadClientSerials(true);
 
 init();

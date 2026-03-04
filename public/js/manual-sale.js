@@ -1,35 +1,47 @@
-import { db, collection, doc, runTransaction, addDoc, setDoc, getDocs, query, orderBy } from './firebase-init.js';
+import { db, collection, doc, runTransaction, addDoc, setDoc, getDocs, query, orderBy, where } from './firebase-init.js';
 import { adjustStock } from './inventory-core.js';
 
-// --- HTML DEL MODAL (PLANTILLA) ---
+// --- HTML DEL MODAL (PLANTILLA MEJORADA) ---
 const MODAL_HTML = `
-<div id="manual-modal" class="fixed inset-0 z-[80] hidden flex items-center justify-center p-4">
-    <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-md" id="btn-close-overlay"></div>
-    <div class="relative bg-white w-full max-w-4xl rounded-[2.5rem] shadow-2xl flex flex-col max-h-[90vh] overflow-hidden">
-        <div class="p-8 border-b border-gray-100 flex justify-between items-center bg-slate-50/50 shrink-0">
-            <h3 class="text-2xl font-black tracking-tighter uppercase text-brand-black">Nueva <span class="text-brand-cyan">Venta Directa</span></h3>
-            <button class="w-10 h-10 rounded-full bg-white border border-gray-200 text-gray-400 hover:bg-brand-red hover:text-white transition flex items-center justify-center" id="btn-close-x"><i class="fa-solid fa-xmark"></i></button>
+<div id="manual-modal" class="fixed inset-0 z-[80] hidden flex items-center justify-center p-4 sm:p-6">
+    <div class="absolute inset-0 bg-slate-900/70 backdrop-blur-sm" id="btn-close-overlay"></div>
+    <div class="relative bg-white w-full max-w-5xl rounded-[2.5rem] shadow-2xl flex flex-col max-h-[95vh] overflow-hidden">
+        
+        <div class="px-8 py-6 border-b border-gray-100 flex justify-between items-center bg-slate-50/80 shrink-0">
+            <div>
+                <h3 class="text-2xl font-black tracking-tighter uppercase text-brand-black leading-none">Nueva <span class="text-brand-cyan">Venta Directa</span></h3>
+                <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1">Módulo de facturación manual</p>
+            </div>
+            <button class="w-10 h-10 rounded-full bg-white border border-gray-200 text-gray-400 hover:bg-brand-red hover:border-brand-red hover:text-white transition-colors flex items-center justify-center shadow-sm" id="btn-close-x"><i class="fa-solid fa-xmark"></i></button>
         </div>
         
         <div class="p-8 overflow-y-auto space-y-8 custom-scroll bg-white flex-1">
+            
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div class="relative group">
-                    <label class="text-[9px] font-black uppercase text-brand-black tracking-widest mb-2 block">Buscar Cliente (Opcional)</label>
-                    <input type="text" id="m-cust-search" autocomplete="off" placeholder="Escribe el nombre o teléfono..." class="w-full bg-slate-50 border border-gray-100 p-4 rounded-2xl text-sm font-bold outline-none focus:border-brand-cyan focus:bg-white transition-colors text-brand-black shadow-sm">
+                    <label class="text-[9px] font-black uppercase text-gray-400 tracking-widest mb-2 block">Buscar Cliente (Opcional)</label>
+                    <div class="relative">
+                        <i class="fa-solid fa-user absolute left-4 top-1/2 -translate-y-1/2 text-gray-300"></i>
+                        <input type="text" id="m-cust-search" autocomplete="off" placeholder="Nombre o teléfono..." class="w-full bg-slate-50 border border-gray-100 py-4 pl-11 pr-4 rounded-2xl text-sm font-bold outline-none focus:border-brand-cyan focus:bg-white transition-colors text-brand-black shadow-sm">
+                    </div>
                     <div id="m-cust-results" class="absolute z-50 w-full mt-2 bg-white border border-gray-100 rounded-2xl shadow-xl hidden max-h-48 overflow-y-auto p-2 custom-scroll"></div>
                 </div>
                 <div>
-                    <label class="text-[9px] font-black uppercase text-brand-black tracking-widest mb-2 block">Contacto / Teléfono</label>
-                    <input type="text" id="m-cust-phone" placeholder="Número del cliente" class="w-full bg-slate-50 border border-gray-100 p-4 rounded-2xl text-sm font-bold outline-none focus:border-brand-cyan transition-colors text-brand-black">
+                    <label class="text-[9px] font-black uppercase text-gray-400 tracking-widest mb-2 block">Contacto / Teléfono</label>
+                    <div class="relative">
+                        <i class="fa-solid fa-phone absolute left-4 top-1/2 -translate-y-1/2 text-gray-300"></i>
+                        <input type="text" id="m-cust-phone" placeholder="Número del cliente" class="w-full bg-slate-50 border border-gray-100 py-4 pl-11 pr-4 rounded-2xl text-sm font-bold outline-none focus:border-brand-cyan focus:bg-white transition-colors text-brand-black shadow-sm">
+                    </div>
                 </div>
             </div>
 
-            <div class="bg-gray-50 p-6 rounded-[2rem] border border-gray-100 space-y-4 relative group">
-                <div class="absolute -top-3 left-6 bg-white px-2 text-[9px] font-black uppercase text-brand-cyan tracking-widest">Datos de Entrega</div>
+            <div class="bg-slate-50 p-6 rounded-[2rem] border border-gray-100 space-y-5 relative">
+                <div class="absolute -top-3 left-6 bg-brand-cyan text-brand-black px-3 py-1 rounded-md text-[9px] font-black uppercase tracking-widest shadow-sm">
+                    Datos de Entrega
+                </div>
                 
-                <div class="grid grid-cols-1 gap-4">
-                    <label class="text-[9px] font-black uppercase text-brand-black tracking-widest block">Tipo de Entrega</label>
-                    <select id="m-shipping-mode" class="w-full bg-white border border-gray-200 p-4 rounded-2xl text-xs font-bold outline-none focus:border-brand-cyan appearance-none cursor-pointer text-brand-black">
+                <div class="grid grid-cols-1 gap-4 pt-2">
+                    <select id="m-shipping-mode" class="w-full bg-white border border-gray-200 p-4 rounded-2xl text-xs font-bold outline-none focus:border-brand-cyan appearance-none cursor-pointer text-brand-black shadow-sm">
                         <option value="pickup">📍 Recogida en Local / Contraentrega</option>
                         <option value="new" selected>🚚 Nueva Dirección Nacional</option>
                         <option value="saved" disabled id="opt-saved-addr">🏠 Dirección Guardada (Seleccione Cliente)</option>
@@ -37,62 +49,87 @@ const MODAL_HTML = `
                 </div>
 
                 <div id="container-saved-addr" class="hidden animate-in fade-in slide-in-from-top-2">
-                    <select id="m-saved-addr-select" class="w-full bg-white border border-gray-200 p-4 rounded-2xl text-xs font-bold outline-none focus:border-brand-cyan appearance-none cursor-pointer text-brand-black">
+                    <select id="m-saved-addr-select" class="w-full bg-white border border-gray-200 p-4 rounded-2xl text-xs font-bold outline-none focus:border-brand-cyan appearance-none cursor-pointer text-brand-black shadow-sm">
                         <option value="">Seleccione...</option>
                     </select>
                 </div>
 
-                <div id="container-new-addr" class="animate-in fade-in slide-in-from-top-2">
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-4">
+                <div id="container-new-addr" class="animate-in fade-in slide-in-from-top-2 space-y-4">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                            <label class="text-[9px] font-black uppercase text-brand-black tracking-widest mb-2 block">Departamento</label>
-                            <select id="m-dept-manual" class="w-full bg-white border border-gray-200 p-4 rounded-2xl text-xs font-bold outline-none focus:border-brand-cyan appearance-none cursor-pointer text-brand-black"><option value="">Seleccionar...</option></select>
+                            <label class="text-[9px] font-black uppercase text-gray-400 tracking-widest mb-2 block ml-1">Departamento</label>
+                            <select id="m-dept-manual" class="w-full bg-white border border-gray-200 p-4 rounded-2xl text-xs font-bold outline-none focus:border-brand-cyan appearance-none cursor-pointer text-brand-black shadow-sm"><option value="">Seleccionar...</option></select>
                         </div>
                         <div>
-                            <label class="text-[9px] font-black uppercase text-brand-black tracking-widest mb-2 block">Ciudad</label>
-                            <select id="m-city-manual" class="w-full bg-white border border-gray-200 p-4 rounded-2xl text-xs font-bold outline-none focus:border-brand-cyan appearance-none cursor-pointer text-brand-black" disabled><option value="">Seleccione Depto primero</option></select>
+                            <label class="text-[9px] font-black uppercase text-gray-400 tracking-widest mb-2 block ml-1">Ciudad</label>
+                            <select id="m-city-manual" class="w-full bg-white border border-gray-200 p-4 rounded-2xl text-xs font-bold outline-none focus:border-brand-cyan appearance-none cursor-pointer text-brand-black shadow-sm" disabled><option value="">Seleccione Depto primero</option></select>
                         </div>
                     </div>
                     <div>
-                        <label class="text-[9px] font-black uppercase text-brand-black tracking-widest mb-2 block">Dirección Exacta</label>
-                        <input type="text" id="m-address-manual" placeholder="Ej: Calle 123 # 45 - 67, Barrio..." class="w-full bg-white border border-gray-200 p-4 rounded-2xl text-sm font-bold outline-none focus:border-brand-cyan text-brand-black">
+                        <label class="text-[9px] font-black uppercase text-gray-400 tracking-widest mb-2 block ml-1">Dirección Exacta</label>
+                        <input type="text" id="m-address-manual" placeholder="Ej: Calle 123 # 45 - 67, Barrio..." class="w-full bg-white border border-gray-200 p-4 rounded-2xl text-sm font-bold outline-none focus:border-brand-cyan text-brand-black shadow-sm">
                     </div>
                 </div>
             </div>
 
-            <div class="bg-brand-cyan/5 border border-brand-cyan/10 p-4 rounded-2xl flex items-center justify-between">
-                <div class="flex items-center gap-3"><div class="w-10 h-10 rounded-full bg-brand-cyan text-white flex items-center justify-center text-sm shadow-sm"><i class="fa-solid fa-file-invoice"></i></div><p class="text-xs font-black uppercase text-brand-black">¿Factura Electrónica?</p></div>
-                <label class="relative inline-flex items-center cursor-pointer"><input type="checkbox" id="m-requires-invoice" class="sr-only peer"><div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand-cyan"></div></label>
-            </div>
-
             <div class="space-y-4">
-                <div class="flex justify-between items-center border-b border-gray-100 pb-2">
-                    <h4 class="text-[10px] font-black text-brand-black uppercase tracking-widest">Productos</h4>
-                    <button id="btn-add-item-row" class="text-brand-cyan hover:text-brand-black text-[10px] font-black uppercase tracking-widest transition flex items-center gap-2 bg-cyan-50 px-3 py-1.5 rounded-lg"><i class="fa-solid fa-circle-plus text-sm"></i> Añadir Línea</button>
+                <div class="flex justify-between items-end border-b border-gray-100 pb-3">
+                    <div>
+                        <h4 class="text-xs font-black text-brand-black uppercase tracking-widest">Productos</h4>
+                        <p class="text-[9px] text-gray-400 font-bold uppercase mt-0.5">Añade los items a vender</p>
+                    </div>
+                    <button id="btn-add-item-row" class="text-brand-cyan hover:text-white hover:bg-brand-cyan bg-cyan-50 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-colors flex items-center gap-2 border border-brand-cyan/20">
+                        <i class="fa-solid fa-circle-plus text-sm"></i> Añadir Línea
+                    </button>
                 </div>
-                <div id="manual-items-container" class="space-y-4"></div>
+                <div id="manual-items-container" class="space-y-3"></div>
             </div>
 
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-gray-100">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4">
                 <div>
-                    <label class="text-[9px] font-black uppercase text-brand-black tracking-widest mb-2 block">Método de Pago</label>
-                    <div class="relative"><select id="m-payment-account" class="w-full bg-slate-50 border border-gray-200 p-4 rounded-2xl text-sm font-bold outline-none focus:border-green-500 transition-all appearance-none cursor-pointer text-brand-black shadow-sm"><option value="credit">⏳ Cartera (Pendiente por Cobrar)</option></select><i class="fa-solid fa-chevron-down absolute right-4 top-1/2 -translate-y-1/2 text-brand-black pointer-events-none"></i></div>
+                    <label class="text-[9px] font-black uppercase text-gray-400 tracking-widest mb-2 block ml-1">Método de Pago</label>
+                    <div class="relative">
+                        <select id="m-payment-account" class="w-full bg-slate-50 border border-gray-200 p-4 rounded-2xl text-sm font-bold outline-none focus:border-green-500 transition-all appearance-none cursor-pointer text-brand-black shadow-sm">
+                            <option value="credit">⏳ Cartera (Pendiente por Cobrar)</option>
+                        </select>
+                        <i class="fa-solid fa-chevron-down absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"></i>
+                    </div>
+                </div>
+                
+                <div class="bg-brand-cyan/5 border border-brand-cyan/20 p-4 rounded-2xl flex items-center justify-between shadow-sm mt-[22px]">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-full bg-white text-brand-cyan flex items-center justify-center text-sm shadow-sm border border-brand-cyan/20">
+                            <i class="fa-solid fa-file-invoice"></i>
+                        </div>
+                        <p class="text-[10px] font-black uppercase tracking-widest text-brand-black">¿Factura Electrónica?</p>
+                    </div>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" id="m-requires-invoice" class="sr-only peer">
+                        <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand-cyan"></div>
+                    </label>
                 </div>
             </div>
         </div>
         
-        <div class="p-8 border-t border-gray-100 bg-slate-50 grid grid-cols-1 md:grid-cols-3 gap-6 items-end shrink-0">
-             <div>
-                <label class="text-[9px] font-black uppercase text-brand-black tracking-widest mb-2 block">Costo de Envío Adicional</label>
-                <input type="text" id="m-shipping-cost" value="$ 0" class="currency-input w-full bg-white border border-gray-200 p-4 rounded-2xl text-lg font-black outline-none focus:border-brand-cyan text-brand-black text-right shadow-sm">
+        <div class="p-6 md:p-8 border-t border-gray-100 bg-white grid grid-cols-1 md:grid-cols-12 gap-6 items-center shrink-0 rounded-b-[2.5rem]">
+             <div class="md:col-span-4">
+                <label class="text-[9px] font-black uppercase text-gray-400 tracking-widest mb-2 block ml-1">Costo de Envío Extra</label>
+                <div class="relative">
+                    <i class="fa-solid fa-truck-fast absolute left-4 top-1/2 -translate-y-1/2 text-gray-300"></i>
+                    <input type="text" id="m-shipping-cost" value="$ 0" class="currency-input w-full bg-slate-50 border border-gray-100 py-4 pl-11 pr-4 rounded-2xl text-sm font-black outline-none focus:border-brand-cyan text-brand-black transition-colors shadow-inner">
+                </div>
             </div>
-            <div class="text-right md:col-span-1">
-                <p class="text-[9px] font-black text-brand-black uppercase tracking-widest">Total de la Venta</p>
-                <h4 id="manual-total-display" class="text-4xl font-black text-brand-black tracking-tighter leading-none">$0</h4>
+            
+            <div class="md:col-span-4 text-center md:text-right flex flex-col justify-center">
+                <p class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Total de la Venta</p>
+                <h4 id="manual-total-display" class="text-4xl md:text-5xl font-black text-brand-black tracking-tighter leading-none">$ 0</h4>
             </div>
-            <button id="btn-save-manual" class="bg-brand-black text-white font-black px-10 py-5 rounded-2xl shadow-xl uppercase text-xs tracking-widest hover:bg-brand-cyan hover:text-brand-black transition-all duration-300 transform active:scale-95 h-full flex items-center justify-center gap-2">
-                <i class="fa-solid fa-check-double"></i> Generar Venta
-            </button>
+            
+            <div class="md:col-span-4 h-full">
+                <button id="btn-save-manual" class="w-full h-full min-h-[60px] bg-brand-black text-white font-black px-6 py-4 rounded-2xl shadow-xl shadow-brand-black/20 uppercase text-xs tracking-widest hover:bg-brand-cyan hover:text-brand-black hover:shadow-brand-cyan/30 transition-all duration-300 transform active:scale-95 flex items-center justify-center gap-3">
+                    <i class="fa-solid fa-check-double text-lg"></i> <span class="mt-0.5">Generar Venta</span>
+                </button>
+            </div>
         </div>
     </div>
 </div>
@@ -128,12 +165,11 @@ export function initManualSale(onSuccess) {
     onSuccessCallback = onSuccess;
 }
 
-// --- OPEN MODAL (Inteligente) ---
+// --- OPEN MODAL ---
 export async function openManualSaleModal() {
     const modal = document.getElementById('manual-modal');
     const container = document.getElementById('manual-items-container');
     
-    // Resetear formulario
     selectedUserId = null;
     currentUserAddresses = [];
     document.getElementById('m-cust-search').value = "";
@@ -145,11 +181,10 @@ export async function openManualSaleModal() {
     document.getElementById('m-address-manual').value = "";
     container.innerHTML = "";
 
-    // Cargas Paralelas y uso de Caché Global
     await Promise.all([
         loadPaymentAccounts(), 
         loadManualDepartments(), 
-        loadCaches() // <- Magia 0 lecturas
+        loadCaches()
     ]);
     
     addManualItemRow();
@@ -158,31 +193,24 @@ export async function openManualSaleModal() {
     modal.classList.remove('hidden');
 }
 
-// --- 1. LÓGICA DE CACHÉ INTELIGENTE (0 LECTURAS) ---
+// --- LÓGICA DE CACHÉ INTELIGENTE ---
 async function loadCaches() {
-    // A. Productos: Intentamos leer la llave maestra central
     try {
         const prodCacheStr = localStorage.getItem('pixeltech_admin_master_inventory');
         if (prodCacheStr) {
             const parsed = JSON.parse(prodCacheStr);
             if (parsed.map) {
                 manualProductsCache = Object.values(parsed.map).filter(p => p.status === 'active');
-                console.log(`⚡ [Venta Manual] ${manualProductsCache.length} productos cargados de la RAM central.`);
             }
         }
         
-        // Si por alguna razón está vacío (el admin borró el caché)
         if (manualProductsCache.length === 0) {
-            console.warn("☁️ [Venta Manual] Caché de productos vacío, forzando descarga...");
             const snap = await getDocs(query(collection(db, "products"), where("status", "==", "active")));
             manualProductsCache = snap.docs.map(d => ({ id: d.id, ...d.data() }));
         }
     } catch(e) { console.error("Error cacheando productos:", e); }
 
-    // B. Clientes: Intentamos leer la llave que debió crearse si el admin visitó clients.html
     try {
-        const clientCacheStr = sessionStorage.getItem('pixeltech_admin_clients_cache'); // Asegurarnos de usar la misma si existe
-        // Como clients no usa localStorage persistente, lo leemos en background de Firebase 1 sola vez por recarga
         if (manualClientsCache.length === 0) {
             const cSnap = await getDocs(collection(db, "users"));
             manualClientsCache = cSnap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -221,32 +249,41 @@ function setupEventListeners() {
     };
 }
 
-
-// --- LÓGICA FILAS Y PRODUCTOS ---
+// --- LÓGICA FILAS Y PRODUCTOS (CON ALINEACIÓN Y Z-INDEX CORREGIDO) ---
 function addManualItemRow() {
     const div = document.createElement('div');
-    div.className = "item-row-container bg-slate-50 p-4 rounded-2xl border border-gray-100 shadow-sm space-y-3 animate-in fade-in slide-in-from-top-2";
+    // 1. Agregamos 'relative' y 'focus-within:z-[60]' a la fila completa
+    div.className = "item-row-container relative focus-within:z-[60] bg-slate-50/50 p-4 rounded-2xl border border-gray-100 shadow-sm animate-in fade-in slide-in-from-top-2";
     div.innerHTML = `
-        <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end relative">
-            <div class="md:col-span-4 relative">
-                <label class="text-[8px] font-black text-brand-black uppercase mb-1 block">Producto</label>
+        <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-start relative focus-within:z-[60]">
+            
+            <div class="md:col-span-4 relative focus-within:z-[70]">
+                <label class="text-[8px] font-black text-gray-400 uppercase tracking-widest mb-2 block ml-1">Producto</label>
                 <div class="relative">
-                    <input type="text" autocomplete="off" placeholder="Buscar por nombre o SKU..." class="p-search w-full bg-white border border-gray-200 rounded-xl p-3 text-xs font-bold outline-none focus:border-brand-cyan text-brand-black pr-8">
-                    <i class="fa-solid fa-magnifying-glass absolute right-3 top-1/2 -translate-y-1/2 text-gray-300 text-xs pointer-events-none"></i>
+                    <input type="text" autocomplete="off" placeholder="Buscar por nombre o SKU..." class="p-search w-full bg-white border border-gray-200 rounded-xl py-3 px-4 text-xs font-bold outline-none focus:border-brand-cyan text-brand-black pr-8 shadow-sm relative z-10">
+                    <i class="fa-solid fa-magnifying-glass absolute right-3 top-1/2 -translate-y-1/2 text-gray-300 text-xs pointer-events-none z-20"></i>
                 </div>
-                <div class="p-results absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-2xl hidden max-h-48 overflow-y-auto custom-scroll"></div>
+                <div class="p-results absolute top-full left-0 z-[100] w-full mt-2 bg-white border border-gray-200 rounded-xl shadow-2xl hidden max-h-56 overflow-y-auto custom-scroll"></div>
             </div>
+            
             <div class="md:col-span-3 flex gap-2 p-variants-container"></div>
+            
              <div class="md:col-span-3">
-                <label class="text-[8px] font-black text-brand-black uppercase mb-1 block">Precio Unit. (Editable)</label>
-                <input type="text" class="p-price-display currency-input w-full bg-white border border-gray-200 rounded-xl p-3 text-xs font-bold text-center outline-none focus:border-brand-cyan text-brand-black shadow-sm">
+                <label class="text-[8px] font-black text-gray-400 uppercase tracking-widest mb-2 block text-center">Precio Unitario</label>
+                <input type="text" class="p-price-display currency-input w-full bg-white border border-gray-200 rounded-xl py-3 px-2 text-xs font-bold text-center outline-none focus:border-brand-cyan text-brand-black shadow-sm">
             </div>
-            <div class="md:col-span-2 flex items-center gap-2">
-                <div class="w-full">
-                    <label class="text-[8px] font-black text-brand-black uppercase mb-1 block text-center">Cant.</label>
-                    <input type="number" value="1" min="1" class="p-qty w-full bg-white border border-gray-200 rounded-xl p-3 text-xs font-black text-center outline-none focus:border-brand-cyan text-brand-black shadow-sm">
+            
+            <div class="md:col-span-2 flex items-start gap-2">
+                <div class="w-full relative pb-4">
+                    <label class="text-[8px] font-black text-gray-400 uppercase tracking-widest mb-2 block text-center">Cant.</label>
+                    <input type="number" value="1" min="1" class="p-qty w-full bg-white border border-gray-200 rounded-xl py-3 px-1 text-sm font-black text-center outline-none focus:border-brand-cyan text-brand-black shadow-sm">
+                    <p class="text-[8px] font-black text-center mt-1 stock-display text-gray-400 absolute bottom-0 left-0 w-full">---</p>
                 </div>
-                <button class="mb-0.5 w-10 h-10 rounded-xl bg-white border border-gray-200 text-gray-400 hover:bg-brand-red hover:text-white transition flex items-center justify-center shrink-0 btn-remove-row shadow-sm"><i class="fa-solid fa-trash-can text-xs"></i></button>
+                <div class="pt-[22px] shrink-0">
+                    <button class="w-11 h-11 rounded-xl bg-white border border-gray-200 text-gray-400 hover:bg-brand-red hover:border-brand-red hover:text-white transition-colors flex items-center justify-center btn-remove-row shadow-sm">
+                        <i class="fa-solid fa-trash-can text-sm"></i>
+                    </button>
+                </div>
             </div>
         </div>
         <input type="hidden" class="p-id"><input type="hidden" class="p-img"><input type="hidden" class="p-max-stock">`;
@@ -258,12 +295,11 @@ function addManualItemRow() {
     
     const qtyInput = div.querySelector('.p-qty');
     qtyInput.onchange = () => {
-        // Validación en tiempo real del stock
-        const max = parseInt(div.querySelector('.p-max-stock').value) || 999;
+        const max = parseInt(div.querySelector('.p-max-stock').value) || 0;
         const current = parseInt(qtyInput.value) || 1;
         if (current > max) {
-            alert(`⚠️ Solo hay ${max} unidades disponibles en inventario.`);
-            qtyInput.value = max;
+            alert(`⚠️ Solo quedan ${max} unidades disponibles de esta variante.`);
+            qtyInput.value = max > 0 ? max : 1;
         }
         if (current < 1) qtyInput.value = 1;
         calculateManualTotal();
@@ -286,7 +322,6 @@ function setupProductSearch(row) {
             return; 
         }
         
-        // Búsqueda instantánea en RAM (0 lecturas)
         const filtered = manualProductsCache.filter(p => {
             const searchStr = p.searchStr || normalizeText(`${p.name} ${p.sku || ''}`);
             return searchStr.includes(term);
@@ -295,7 +330,6 @@ function setupProductSearch(row) {
         if (filtered.length === 0) {
             resultsDiv.innerHTML = `<div class="p-3 text-[10px] text-gray-400 text-center uppercase font-bold">No encontrado</div>`;
         } else {
-            // Mostrar máximo 15 para no saturar
             filtered.slice(0, 15).forEach(p => {
                 const isOutOfStock = p.stock <= 0;
                 const d = document.createElement('div');
@@ -304,27 +338,31 @@ function setupProductSearch(row) {
                 d.innerHTML = `
                     <div class="flex-1 min-w-0 pr-2">
                         <p class="text-[10px] font-black uppercase text-brand-black line-clamp-1 ${isOutOfStock ? 'line-through text-gray-400' : ''}">${p.name}</p>
-                        <p class="text-[9px] font-bold text-gray-400">SKU: ${p.sku || '--'} | Stock: <span class="${isOutOfStock ? 'text-red-500' : 'text-brand-cyan'}">${p.stock || 0}</span></p>
+                        <p class="text-[9px] font-bold text-gray-400 mt-0.5">SKU: ${p.sku || '--'} | Stock: <span class="${isOutOfStock ? 'text-red-500' : 'text-brand-cyan'}">${p.stock || 0}</span></p>
                     </div>
                     <div class="text-right shrink-0">
                         <p class="text-[10px] font-black text-brand-black">${formatCurrency(p.price)}</p>
                     </div>
                 `;
 
+                // --- CAMBIO CLAVE: Usamos onmousedown y e.preventDefault() ---
                 if (!isOutOfStock) {
-                    d.onclick = () => {
+                    d.onmousedown = (e) => {
+                        e.preventDefault(); // ¡Magia! Evita que el z-index colapse
                         searchInput.value = p.name;
                         row.querySelector('.p-id').value = p.id;
                         row.querySelector('.p-price-display').value = formatCurrency(p.price);
                         row.querySelector('.p-img').value = p.mainImage || p.image || (p.images ? p.images[0] : '');
-                        row.querySelector('.p-max-stock').value = p.stock; // Guardamos el límite
                         
                         resultsDiv.classList.add('hidden');
                         renderVariants(row, p);
                         calculateManualTotal();
                     };
                 } else {
-                    d.onclick = () => alert("Producto agotado, no se puede vender.");
+                    d.onmousedown = (e) => {
+                        e.preventDefault();
+                        alert("Este producto está completamente agotado.");
+                    };
                 }
                 resultsDiv.appendChild(d);
             });
@@ -332,12 +370,56 @@ function setupProductSearch(row) {
         resultsDiv.classList.remove('hidden');
     });
 
-    // Cerrar resultados si hace clic fuera
     document.addEventListener('click', (e) => {
         if (!searchInput.contains(e.target) && !resultsDiv.contains(e.target)) {
             resultsDiv.classList.add('hidden');
         }
     });
+}
+
+function updateRowStock(row, product) {
+    let currentStock = parseInt(product.stock) || 0;
+    
+    const colorSel = row.querySelector('.p-color');
+    const capSel = row.querySelector('.p-capacity');
+    
+    const selectedColor = colorSel ? colorSel.value : null;
+    const selectedCap = capSel ? capSel.value : null;
+
+    if (product.combinations && product.combinations.length > 0) {
+        if (selectedColor || selectedCap) {
+            const combo = product.combinations.find(c => {
+                const matchColor = selectedColor ? c.color === selectedColor : true;
+                const matchCap = selectedCap ? c.capacity === selectedCap : true;
+                return matchColor && matchCap;
+            });
+            
+            if (combo) {
+                currentStock = parseInt(combo.stock) || 0;
+            } else {
+                currentStock = 0; 
+            }
+        }
+    }
+
+    row.querySelector('.p-max-stock').value = currentStock;
+    
+    const display = row.querySelector('.stock-display');
+    if (display) {
+        if (currentStock > 0) {
+            display.innerHTML = `Disp: <span class="text-brand-cyan">${currentStock}</span>`;
+        } else {
+            display.innerHTML = `<span class="text-red-500">Agotado</span>`;
+        }
+    }
+
+    const qtyInput = row.querySelector('.p-qty');
+    let currentQty = parseInt(qtyInput.value) || 1;
+    
+    if (currentStock > 0 && currentQty > currentStock) {
+        qtyInput.value = currentStock;
+        calculateManualTotal();
+    }
 }
 
 function renderVariants(row, product) {
@@ -356,18 +438,18 @@ function renderVariants(row, product) {
 
     if (colors.length > 0) {
         const wrap = document.createElement('div'); wrap.className = "flex-1";
-        wrap.innerHTML = `<label class="text-[8px] font-black text-brand-black uppercase mb-1 block">Color</label>`;
-        const sel = document.createElement('select'); sel.className = "p-color w-full bg-white border border-gray-200 rounded-xl p-3 text-xs font-bold outline-none text-brand-black cursor-pointer";
+        wrap.innerHTML = `<label class="text-[8px] font-black text-gray-400 uppercase tracking-widest mb-2 block text-center">Color</label>`;
+        const sel = document.createElement('select'); sel.className = "p-color w-full bg-white border border-gray-200 rounded-xl py-3 px-2 text-xs font-bold outline-none text-brand-black cursor-pointer shadow-sm text-center appearance-none";
         sel.innerHTML = `<option value="">--</option>` + colors.map(c => `<option value="${c}">${c}</option>`).join('');
+        sel.onchange = () => updateRowStock(row, product);
         wrap.appendChild(sel); container.appendChild(wrap);
     }
     
     if (caps.length > 0) {
         const wrap = document.createElement('div'); wrap.className = "flex-1";
-        wrap.innerHTML = `<label class="text-[8px] font-black text-brand-black uppercase mb-1 block">Capacidad</label>`;
-        const sel = document.createElement('select'); sel.className = "p-capacity w-full bg-white border border-gray-200 rounded-xl p-3 text-xs font-bold outline-none text-brand-black cursor-pointer";
+        wrap.innerHTML = `<label class="text-[8px] font-black text-gray-400 uppercase tracking-widest mb-2 block text-center">Capacidad</label>`;
+        const sel = document.createElement('select'); sel.className = "p-capacity w-full bg-white border border-gray-200 rounded-xl py-3 px-2 text-xs font-bold outline-none text-brand-black cursor-pointer shadow-sm text-center appearance-none";
         sel.innerHTML = `<option value="">--</option>` + caps.map(c => {
-            // Buscamos si tiene precio específico en array viejo (capacities) o nuevo (combinations)
             let cPrice = product.price;
             if (product.capacities) {
                 const capObj = product.capacities.find(x => x.label === c);
@@ -381,10 +463,13 @@ function renderVariants(row, product) {
             if(opt && opt.dataset.price) {
                 row.querySelector('.p-price-display').value = formatCurrency(parseFloat(opt.dataset.price));
             }
+            updateRowStock(row, product);
             calculateManualTotal();
         };
         wrap.appendChild(sel); container.appendChild(wrap);
     }
+
+    updateRowStock(row, product);
 }
 
 function calculateManualTotal() {
@@ -415,7 +500,6 @@ async function setupCustomerSearch() {
         results.innerHTML = "";
         if (term.length < 2) { results.classList.add('hidden'); return; }
         
-        // Filtro instantáneo en RAM
         const filtered = manualClientsCache.filter(u => {
             const nameMatch = normalizeText(u.name || "").includes(term);
             const phoneMatch = (u.phone || "").includes(term);
@@ -435,7 +519,9 @@ async function setupCustomerSearch() {
                     </div>
                     <i class="fa-solid fa-arrow-right text-brand-cyan text-[10px]"></i>
                 `;
-                div.onclick = () => {
+                // --- CAMBIO CLAVE AQUÍ TAMBIÉN ---
+                div.onmousedown = (e) => {
+                    e.preventDefault(); // Evita el colapso del z-index
                     search.value = u.name;
                     phone.value = u.phone || "";
                     selectedUserId = u.id;
@@ -493,11 +579,16 @@ async function saveOrder() {
     const custName = document.getElementById('m-cust-search').value.trim();
     const custPhone = document.getElementById('m-cust-phone').value.trim();
     const items = [];
+    let hasStockError = false;
     
     document.querySelectorAll('.item-row-container').forEach(row => {
         const id = row.querySelector('.p-id').value;
         const qty = parseInt(row.querySelector('.p-qty').value);
+        const maxStock = parseInt(row.querySelector('.p-max-stock').value) || 0;
+        
         if(id && qty > 0) {
+            if (qty > maxStock) hasStockError = true;
+            
             items.push({
                 id,
                 name: row.querySelector('.p-search').value,
@@ -510,6 +601,7 @@ async function saveOrder() {
         }
     });
 
+    if (hasStockError) return alert("🚨 Uno de los productos excede el stock disponible. Por favor, revisa las cantidades.");
     if (!custName || items.length === 0) return alert("🚨 Faltan datos (Cliente o Productos).");
 
     const shippingMode = document.getElementById('m-shipping-mode').value;
@@ -533,7 +625,7 @@ async function saveOrder() {
     }
 
     const originalText = btn.innerHTML;
-    btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Guardando Venta...';
+    btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Guardando...';
 
     const shippingCost = parseCurrency(document.getElementById('m-shipping-cost').value);
     
@@ -542,15 +634,12 @@ async function saveOrder() {
         const total = subtotal + shippingCost;
         const accountId = document.getElementById('m-payment-account').value;
 
-        // Validaciones Finales
         if (total <= 0) throw new Error("El total de la venta no puede ser cero.");
 
-        // 1. Deducir Stock (Inventory Core)
         for (const item of items) { 
             await adjustStock(item.id, -(item.quantity), item.color, item.capacity); 
         }
 
-        // 2. Lógica Financiera
         let paymentStatus = 'PENDING';
         let paymentMethodName = 'Crédito / Cartera';
         let amountPaid = 0;
@@ -567,7 +656,6 @@ async function saveOrder() {
              amountPaid = total;
         }
 
-        // 3. Crear Orden
         const orderData = {
             userId: selectedUserId || "DIRECTA", 
             userName: custName, 
@@ -576,7 +664,7 @@ async function saveOrder() {
             total, 
             subtotal, 
             shippingCost,
-            status: 'PENDIENTE', // Pasa a la pestaña "Por Atender" del centro logístico
+            status: 'PENDIENTE', 
             source: 'MANUAL',
             requiresInvoice: document.getElementById('m-requires-invoice').checked,
             paymentStatus, 
@@ -590,7 +678,6 @@ async function saveOrder() {
 
         const orderRef = await addDoc(collection(db, "orders"), orderData);
         
-        // Usar setDoc para forzar que la remisión comparta el MISMO ID de la orden
         await setDoc(doc(db, "remissions", orderRef.id), { 
             ...orderData, 
             orderId: orderRef.id, 

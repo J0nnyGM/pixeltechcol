@@ -76,3 +76,51 @@ export {
     endBefore,
     documentId                                                                                                 
 };
+
+// ==========================================
+// 🧹 KILL SWITCH: LIMPIEZA DE CACHÉ GLOBAL
+// ==========================================
+export async function checkCacheVersion(db) {
+    try {
+        // Leemos la versión actual desde Firebase (1 sola lectura muy barata)
+        const configRef = doc(db, "config", "system");
+        const snap = await getDoc(configRef);
+        
+        if (snap.exists()) {
+            const serverVersion = snap.data().cacheVersion || 1;
+            const localVersion = parseInt(localStorage.getItem('pixeltech_cache_version') || '0');
+
+            // Si el servidor tiene una versión mayor, detonamos la bomba 💣
+            if (serverVersion > localVersion) {
+                console.warn(`🔄 Nueva versión detectada (v${serverVersion}). Limpiando caché...`);
+
+                // 1. Borramos SOLO las llaves de nuestro caché para no borrar sesiones de Firebase Auth
+                Object.keys(localStorage).forEach(key => {
+                    if (key.includes('pixeltech_')) {
+                        localStorage.removeItem(key);
+                    }
+                });
+                
+                Object.keys(sessionStorage).forEach(key => {
+                    if (key.includes('pixeltech_')) {
+                        sessionStorage.removeItem(key);
+                    }
+                });
+
+                // 2. Guardamos la nueva versión para no crear un bucle infinito
+                localStorage.setItem('pixeltech_cache_version', serverVersion.toString());
+
+                // 3. Forzamos la recarga de la página (Hard Reload)
+                window.location.reload(true);
+            }
+        }
+    } catch (error) {
+        console.error("Error comprobando versión de caché:", error);
+    }
+}
+
+  // Ejecutar automáticamente a los 2 segundos de abrir la página (para no frenar la carga principal)
+  setTimeout(() => {
+    // Asume que 'db' es tu variable global exportada de Firestore
+    checkCacheVersion(db); 
+}, 2000);

@@ -885,11 +885,15 @@
             document.getElementById('edit-id').value = acc.id;
             document.getElementById('acc-name').value = acc.name;
             document.getElementById('acc-type').value = acc.type;
+            
+            // --- CAMBIO: Desbloqueamos el input del saldo ---
             const balInput = document.getElementById('acc-balance');
             balInput.value = Math.floor(acc.balance);
-            balInput.disabled = true;
-            balInput.classList.add('bg-gray-200', 'text-gray-500');
-            document.getElementById('lbl-balance').textContent = "Saldo Actual (No editable)";
+            balInput.disabled = false; // Ahora se puede editar
+            balInput.classList.remove('bg-gray-200', 'text-gray-500');
+            balInput.classList.add('bg-slate-50');
+            document.getElementById('lbl-balance').textContent = "Saldo Actual *"; // Cambiamos el título
+            
             document.getElementById('acc-exempt').checked = acc.isExempt || false;
             document.getElementById('acc-gateway-link').value = acc.gatewayLink || "";
             
@@ -920,16 +924,19 @@
             const id = document.getElementById('edit-id').value;
             const type = document.getElementById('acc-type').value;
             
+            // --- CAMBIO: Siempre tomamos el saldo del input ---
+            const newBalance = Math.floor(Number(document.getElementById('acc-balance').value));
+
             const data = {
                 name: document.getElementById('acc-name').value,
                 type: type,
+                balance: newBalance, // Guardamos el saldo ya sea nuevo o editado
                 updatedAt: Timestamp.now(),
                 isExempt: document.getElementById('acc-exempt').checked,
                 gatewayLink: document.getElementById('acc-gateway-link').value
             };
 
             if (!id) {
-                data.balance = Math.floor(Number(document.getElementById('acc-balance').value));
                 data.createdAt = Timestamp.now();
             }
 
@@ -947,10 +954,30 @@
             }
 
             try {
-                if(id) await updateDoc(doc(db, "accounts", id), data);
-                else await addDoc(collection(db, "accounts"), data);
+                if(id) {
+                    // Si estamos editando, revisamos si el saldo cambió para dejar un registro en el historial
+                    const oldAcc = accounts.find(a => a.id === id);
+                    const difference = newBalance - (oldAcc.balance || 0);
+
+                    await updateDoc(doc(db, "accounts", id), data);
+
+                    // Dejar huella del ajuste en tesorería
+                    if (difference !== 0) {
+                        await addDoc(collection(db, "expenses"), {
+                            description: difference > 0 ? "Ajuste Manual de Saldo (Suma)" : "Ajuste Manual de Saldo (Resta)",
+                            category: "Ajuste de Tesorería",
+                            type: difference > 0 ? 'INCOME' : 'EXPENSE',
+                            amount: Math.abs(difference),
+                            paymentMethod: data.name,
+                            date: Timestamp.now(),
+                            createdAt: Timestamp.now()
+                        });
+                    }
+                } else {
+                    await addDoc(collection(db, "accounts"), data);
+                }
+                
                 window.closeModal('account-modal');
-                // No necesitamos forzar renderAccountsGrid, el onSnapshot ya detectó el cambio
             } catch (err) { alert(err.message); }
             finally { btn.disabled = false; btn.innerText = "Guardar Cuenta"; }
         };

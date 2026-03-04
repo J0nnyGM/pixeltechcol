@@ -321,27 +321,22 @@
         }
 
 // --- DASHBOARD DATA (OPTIMIZADO Y CORREGIDO) ---
-        async function fetchDashboardData() {
+async function fetchDashboardData() {
             try {
-                // A. DEFINICIÓN DE CONSULTAS (Queries)
                 const qIncome = query(collection(db, "orders"), where("status", "in", ["PAGADO", "DESPACHADO", "ENTREGADO"]));
                 const qPacking = query(collection(db, "orders"), where("status", "in", ["PAGADO", "PENDIENTE"]));
-                
-                // Quitamos el 'not-in' por limitación de Firebase. Filtraremos los cancelados en memoria.
                 const qReceivable = query(collection(db, "orders"), where("paymentStatus", "in", ["PENDING", "PARTIAL"]));
                 const qPayable = query(collection(db, "payables"), where("status", "==", "PENDING"));
-                
                 const qOrdersTable = query(collection(db, "orders"), where("status", "in", ["PAGADO", "PENDIENTE", "ALISTADO"]), orderBy("createdAt", "desc"), limit(100));
                 
                 const accountsRef = collection(db, "accounts");
                 const configRef = doc(db, "config", "shipping");
 
-                // B. EJECUCIÓN PARALELA MÁXIMA
                 const [
                     incomeSnap,      
                     packingSnap,     
-                    receivableSnap,  // Usamos getDocs para poder restar los abonos parciales matemáticamente
-                    payableSnap,     // Usamos getDocs para poder restar los abonos parciales matemáticamente
+                    receivableSnap,  
+                    payableSnap,     
                     accountsSnap,    
                     ordersSnap,      
                     configSnap       
@@ -355,7 +350,7 @@
                     getDoc(configRef)
                 ]);
 
-                // C. RENDERIZADO DE KPIs
+                // KPIs
                 const totalIncome = incomeSnap.data().totalRevenue || 0;
                 safeSetText('stat-sales', `$${totalIncome.toLocaleString('es-CO')}`);
 
@@ -365,11 +360,9 @@
 
                 safeSetText('stat-packing', packingSnap.data().count);
 
-                // CÁLCULO DE CARTERA EXACTO (Ignorando cancelados y restando abonos)
                 let totalReceivable = 0;
                 receivableSnap.forEach(d => {
                     const data = d.data();
-                    // Filtramos los cancelados y rechazados aquí en memoria
                     if (data.status !== 'CANCELADO' && data.status !== 'RECHAZADO') {
                         let pending = (Number(data.total) || 0) - (Number(data.amountPaid) || 0) - (Number(data.refundedAmount) || 0);
                         if (pending > 0) totalReceivable += pending;
@@ -377,7 +370,6 @@
                 });
                 safeSetText('stat-receivable', `$${totalReceivable.toLocaleString('es-CO')}`);
 
-                // CÁLCULO DE DEUDAS A PROVEEDORES EXACTO
                 let totalPayable = 0;
                 payableSnap.forEach(d => {
                     const data = d.data();
@@ -386,16 +378,15 @@
                 });
                 safeSetText('stat-payable', `$${totalPayable.toLocaleString('es-CO')}`);
 
-                // D. RENDERIZADO DE TABLA VIVA
+                // 🚨 LIMPIAR LA TABLA ANTES DE PINTAR PARA EVITAR BRUSQUEDAD
                 if (!tableBody) return;
-                
+                tableBody.innerHTML = "";
+
                 const cutoffTimeStr = configSnap.exists() ? (configSnap.data().cutoffTime || "14:00") : "14:00";
                 const now = new Date();
                 const [hours, minutes] = cutoffTimeStr.split(':').map(Number);
                 const cutoffDateToday = new Date(now);
                 cutoffDateToday.setHours(hours, minutes, 0, 0);
-
-                tableBody.innerHTML = "";
 
                 if (ordersSnap.empty) {
                     tableBody.innerHTML = `<tr><td colspan="7" class="p-10 text-center text-xs text-brand-black font-bold uppercase">¡Todo al día! No hay pedidos pendientes.</td></tr>`;
@@ -419,12 +410,12 @@
                 });
 
                 if (todayOrders.length > 0) {
-                    tableBody.innerHTML += `<tr class="bg-green-50/50 border-b border-green-100"><td colspan="7" class="py-4 px-8"><div class="flex items-center gap-3 text-green-700"><div class="p-1.5 bg-green-100 rounded-lg"><i class="fa-solid fa-truck-fast text-xs"></i></div><span class="text-[10px] font-black uppercase tracking-widest">Prioridad: Despachar Hoy (Antes de ${cutoffTimeStr})</span></div></td></tr>`;
+                    tableBody.innerHTML += `<tr class="bg-green-50/50 border-b border-green-100 fade-in"><td colspan="7" class="py-4 px-8"><div class="flex items-center gap-3 text-green-700"><div class="p-1.5 bg-green-100 rounded-lg"><i class="fa-solid fa-truck-fast text-xs"></i></div><span class="text-[10px] font-black uppercase tracking-widest">Prioridad: Despachar Hoy (Antes de ${cutoffTimeStr})</span></div></td></tr>`;
                     todayOrders.forEach(o => renderRow(o));
                 }
 
                 if (tomorrowOrders.length > 0) {
-                    tableBody.innerHTML += `<tr class="bg-blue-50/50 border-b border-blue-100"><td colspan="7" class="py-4 px-8"><div class="flex items-center gap-3 text-blue-700"><div class="p-1.5 bg-blue-100 rounded-lg"><i class="fa-solid fa-clock text-xs"></i></div><span class="text-[10px] font-black uppercase tracking-widest">Despachar Mañana (Después de ${cutoffTimeStr})</span></div></td></tr>`;
+                    tableBody.innerHTML += `<tr class="bg-blue-50/50 border-b border-blue-100 fade-in"><td colspan="7" class="py-4 px-8"><div class="flex items-center gap-3 text-blue-700"><div class="p-1.5 bg-blue-100 rounded-lg"><i class="fa-solid fa-clock text-xs"></i></div><span class="text-[10px] font-black uppercase tracking-widest">Despachar Mañana (Después de ${cutoffTimeStr})</span></div></td></tr>`;
                     tomorrowOrders.forEach(o => renderRow(o));
                 }
 
