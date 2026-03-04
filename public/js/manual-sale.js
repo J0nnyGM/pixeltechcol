@@ -640,6 +640,7 @@ async function saveOrder() {
             await adjustStock(item.id, -(item.quantity), item.color, item.capacity); 
         }
 
+        // 2. Lógica Financiera
         let paymentStatus = 'PENDING';
         let paymentMethodName = 'Crédito / Cartera';
         let amountPaid = 0;
@@ -649,9 +650,26 @@ async function saveOrder() {
                  const ref = doc(db, "accounts", accountId);
                  const d = await t.get(ref);
                  if(!d.exists()) throw new Error("La cuenta seleccionada ya no existe.");
+                 
+                 // 1. Actualizamos el saldo de la cuenta
                  t.update(ref, { balance: (d.data().balance || 0) + total });
                  paymentMethodName = d.data().name;
              });
+             
+             // 2. CREAMOS EL REGISTRO DE INGRESO EN LA COLECCIÓN EXPENSES
+             // Esto se hace fuera de la transacción de la cuenta para no mezclar referencias cruzadas, 
+             // pero garantizando que se registre correctamente.
+             await addDoc(collection(db, "expenses"), {
+                 amount: total,
+                 category: "Ingreso Ventas Manual",
+                 description: `Cobro Inmediato - Venta a ${custName || 'Cliente'}`,
+                 paymentMethod: paymentMethodName,
+                 supplierName: custName || "Cliente Directo",
+                 date: new Date(),
+                 createdAt: new Date(),
+                 type: 'INCOME'
+             });
+
              paymentStatus = 'PAID';
              amountPaid = total;
         }
