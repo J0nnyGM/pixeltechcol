@@ -147,54 +147,84 @@
         </div>
     </main>
 
-    <div id="order-modal" class="fixed inset-0 z-[70] hidden flex items-center justify-center p-4">
-        <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-md transition-opacity" onclick="document.getElementById('order-modal').classList.add('hidden')"></div>
+<div id="order-modal" class="fixed inset-0 z-[70] hidden flex items-center justify-center p-4">
+        <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-md transition-opacity"
+            onclick="document.getElementById('order-modal').classList.add('hidden')"></div>
         <div class="relative bg-white w-full max-w-5xl rounded-[2.5rem] shadow-2xl flex flex-col max-h-[90vh] overflow-hidden animate-fadeIn">
-            <div class="p-8 border-b border-gray-50 flex justify-between items-center bg-slate-50/50">
+            <div class="p-8 border-b border-gray-50 flex justify-between items-center bg-slate-50/50 shrink-0">
                 <div class="flex items-center gap-6">
                     <div id="modal-source-icon" class="w-16 h-16 bg-white rounded-2xl flex items-center justify-center text-2xl shadow-sm border border-gray-100"></div>
                     <div>
                         <div class="flex items-center gap-3">
                             <h3 class="text-3xl font-black tracking-tighter uppercase text-brand-black" id="modal-order-id">#ORDEN</h3>
-                            <span id="modal-order-status-badge" class="px-3 py-1 rounded-full text-[10px] font-black uppercase border">Cargando...</span>
+                            <span id="modal-order-status-badge">...</span>
                         </div>
-                        <p id="modal-order-date" class="text-[10px] font-bold text-brand-black uppercase tracking-widest mt-1">...</p>
+                        <p id="modal-order-date" class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1">...</p>
                     </div>
                 </div>
                 <button class="w-10 h-10 rounded-full bg-white border border-gray-200 text-brand-black hover:bg-brand-red hover:text-white transition flex items-center justify-center" onclick="document.getElementById('order-modal').classList.add('hidden')"><i class="fa-solid fa-xmark"></i></button>
             </div>
-            <div class="p-8 overflow-y-auto custom-scroll space-y-8 bg-white">
+            
+            <div class="p-8 overflow-y-auto custom-scroll space-y-8 bg-white flex-grow">
                 <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     <div class="lg:col-span-1 space-y-6">
+                        
+                        <div id="modal-payment-info" class="hidden bg-white border border-gray-100 p-6 rounded-[2rem] shadow-sm animate-fadeIn"></div>
+
                         <div class="bg-white border border-gray-100 p-6 rounded-[2rem] shadow-sm">
                             <h4 class="text-[9px] font-black uppercase tracking-[0.2em] text-brand-black mb-4 flex items-center gap-2"><i class="fa-solid fa-user-tag text-brand-cyan"></i> Cliente</h4>
                             <p id="modal-client-name" class="font-black text-brand-black uppercase text-sm mb-1">...</p>
-                            <p id="modal-client-doc" class="text-[10px] font-bold text-brand-black uppercase mb-1">...</p>
+                            <p id="modal-client-doc" class="text-[10px] font-bold text-gray-500 uppercase mb-1">...</p>
                             <p id="modal-client-contact" class="text-xs text-brand-black font-bold break-all">...</p>
                         </div>
+                        
                         <div class="bg-white border border-gray-100 p-6 rounded-[2rem] shadow-sm">
-                            <h4 class="text-[9px] font-black uppercase tracking-[0.2em] text-brand-black mb-4 flex items-center gap-2"><i class="fa-solid fa-map-location-dot text-brand-cyan"></i> Dirección de Entrega</h4>
+                            <h4 class="text-[9px] font-black uppercase tracking-[0.2em] text-brand-black mb-4 flex items-center gap-2"><i class="fa-solid fa-map-location-dot text-brand-cyan"></i> Envío</h4>
                             <p id="modal-delivery-address" class="text-xs font-bold text-brand-black mb-1">...</p>
-                            <p id="modal-delivery-city" class="text-[10px] text-brand-black font-black uppercase">...</p>
-                            <div id="modal-order-notes" class="mt-4 p-4 bg-yellow-50 rounded-xl text-[10px] text-yellow-700 font-bold border border-yellow-100 hidden"><i class="fa-regular fa-note-sticky mr-1"></i> <span id="note-text"></span></div>
+                            <p id="modal-delivery-city" class="text-[10px] text-gray-500 font-black uppercase">...</p>
+                            
+                            <div id="modal-tracking-info" class="mt-4 p-4 bg-brand-cyan/5 rounded-xl border border-brand-cyan/20 hidden animate-fadeIn">
+                                <p class="text-[9px] font-black text-brand-cyan uppercase tracking-widest mb-1">Datos de Despacho</p>
+                                <p class="text-xs font-bold text-brand-black uppercase"><i class="fa-solid fa-truck-fast mr-1 text-gray-400"></i> <span id="modal-carrier"></span></p>
+                                <p class="text-[10px] font-mono font-bold text-gray-500 mt-1">Guía: <span id="modal-tracking-number" class="select-all text-brand-black"></span></p>
+                            </div>
+
+                            <div id="modal-order-notes" class="mt-4 p-4 bg-yellow-50 rounded-xl text-[10px] text-yellow-900 font-bold border border-yellow-100 hidden"><i class="fa-regular fa-note-sticky mr-1"></i> <span id="note-text"></span></div>
                         </div>
+
                         <div id="modal-billing-section" class="hidden bg-brand-cyan/5 border border-brand-cyan/10 p-6 rounded-[2rem]">
                             <h4 class="text-[9px] font-black uppercase tracking-[0.2em] text-brand-cyan mb-4 flex items-center gap-2"><i class="fa-solid fa-file-invoice-dollar"></i> Facturación</h4>
-                            <div class="space-y-3"><div><p class="text-[8px] font-black text-gray-400 uppercase">Razón Social</p><p id="bill-modal-name" class="text-xs font-bold text-brand-black">--</p></div><div><p class="text-[8px] font-black text-gray-400 uppercase">NIT / RUT</p><p id="bill-modal-id" class="text-xs font-bold text-brand-black">--</p></div><div><p class="text-[8px] font-black text-gray-400 uppercase">Correo</p><p id="bill-modal-email" class="text-xs font-bold text-brand-black break-all">--</p></div></div>
+                            <div class="space-y-2 text-xs font-bold text-brand-black">
+                                <p id="bill-modal-name">--</p>
+                                <p id="bill-modal-id">--</p>
+                                <p id="bill-modal-email" class="break-all text-[10px]">--</p>
+                            </div>
                         </div>
                     </div>
+                    
                     <div class="lg:col-span-2">
-                         <h4 class="text-[9px] font-black uppercase tracking-[0.2em] text-brand-black mb-4 flex items-center gap-2"><i class="fa-solid fa-boxes-packing text-brand-cyan"></i> Picking List & Seriales</h4>
+                        <h4 class="text-[9px] font-black uppercase tracking-[0.2em] text-brand-black mb-4 flex items-center gap-2"><i class="fa-solid fa-boxes-packing text-brand-cyan"></i> Picking List & Seriales</h4>
                         <div class="bg-slate-50 rounded-[2rem] border border-gray-100 overflow-hidden" id="modal-items-list-responsive"></div>
                     </div>
                 </div>
             </div>
-            <div class="p-8 bg-slate-50 border-t border-gray-100 flex flex-col md:flex-row justify-between items-center gap-6">
+            
+            <div class="p-8 bg-slate-50 border-t border-gray-100 flex flex-col md:flex-row justify-between items-center gap-6 shrink-0">
                 <div class="flex gap-10 text-right md:text-left">
-                    <div><p class="text-[9px] font-black text-brand-black uppercase tracking-widest">Subtotal</p><p id="modal-order-subtotal" class="text-sm font-bold text-brand-black">---</p></div>
-                    <div><p class="text-[9px] font-black text-brand-cyan uppercase tracking-widest">Envío</p><p id="modal-order-shipping" class="text-sm font-bold text-brand-cyan">---</p></div>
-                    <div class="pl-8 border-l border-gray-200"><p class="text-[9px] font-black text-brand-black uppercase tracking-widest">Total Neto</p><h4 id="modal-order-total" class="text-3xl font-black text-brand-black leading-none">---</h4></div>
+                    <div>
+                        <p class="text-[9px] font-black text-gray-400 uppercase tracking-widest">Subtotal</p>
+                        <p id="modal-order-subtotal" class="text-sm font-bold text-brand-black">---</p>
+                    </div>
+                    <div>
+                        <p class="text-[9px] font-black text-brand-cyan uppercase tracking-widest">Envío</p>
+                        <p id="modal-order-shipping" class="text-sm font-bold text-brand-cyan">---</p>
+                    </div>
+                    <div id="modal-total-container" class="pl-8 border-l border-gray-200 min-w-[150px] text-right">
+                        <p class="text-[9px] font-black text-brand-black uppercase tracking-widest">Total Neto</p>
+                        <h4 id="modal-order-total" class="text-3xl font-black text-brand-black leading-none">---</h4>
+                    </div>
                 </div>
+                
                 <div class="flex items-center gap-4 w-full md:w-auto justify-end">
                     <div id="modal-footer-msg" class="text-xs font-bold uppercase tracking-widest hidden"></div>
                     <div id="modal-footer-actions" class="flex gap-3 w-full md:w-auto hidden">
@@ -262,22 +292,18 @@
             const ordersRef = collection(db, "orders");
             const payablesRef = collection(db, "payables");
 
-            // 1. VIGILANTE DE ÓRDENES (Dispara el recálculo general si algo cambia)
-            // Solo necesitamos saber si *algo* cambió, no traer todos los datos, por eso limitamos la query visual.
-            // Para el dashboard, vigilamos las ordenes más recientes.
+            // 1. VIGILANTE DE ÓRDENES
             const qRecentOrders = query(ordersRef, orderBy("createdAt", "desc"), limit(100));
 
             unsubscribeOrders = onSnapshot(qRecentOrders, (snap) => {
                 let hasChanges = false;
                 
                 snap.docChanges().forEach(change => {
-                    // Si hay órdenes nuevas, modificadas (cambió de estado) o eliminadas
                     if (['added', 'modified', 'removed'].includes(change.type)) {
                         hasChanges = true;
                     }
                 });
 
-                // En la primera carga siempre renderizamos, luego solo si hay cambios.
                 if (isFirstLoad || hasChanges) {
                     if(!isFirstLoad) console.log("🔥 [Admin] Nueva orden o cambio detectado. Recalculando Dashboard...");
                     fetchDashboardData();
@@ -294,35 +320,19 @@
             });
         }
 
-        // --- DASHBOARD DATA (OPTIMIZADO: Agregaciones Reales) ---
+// --- DASHBOARD DATA (OPTIMIZADO Y CORREGIDO) ---
         async function fetchDashboardData() {
             try {
                 // A. DEFINICIÓN DE CONSULTAS (Queries)
-                
-                // 1. VENTAS TOTALES (Suma en servidor)
                 const qIncome = query(collection(db, "orders"), where("status", "in", ["PAGADO", "DESPACHADO", "ENTREGADO"]));
-                
-                // 2. PEDIDOS POR ALISTAR (Conteo en servidor)
                 const qPacking = query(collection(db, "orders"), where("status", "in", ["PAGADO", "PENDIENTE"]));
                 
-                // 3. CARTERA / POR COBRAR (Suma en servidor)
-                const qReceivable = query(
-                    collection(db, "orders"), 
-                    where("paymentStatus", "==", "PENDING"),
-                    where("status", "not-in", ["CANCELADO", "RECHAZADO"]) 
-                );
-
-                // 4. DEUDA PROVEEDORES (Suma en servidor)
+                // Quitamos el 'not-in' por limitación de Firebase. Filtraremos los cancelados en memoria.
+                const qReceivable = query(collection(db, "orders"), where("paymentStatus", "in", ["PENDING", "PARTIAL"]));
                 const qPayable = query(collection(db, "payables"), where("status", "==", "PENDING"));
-
-                // 5. TABLA VISUAL (Limitada a 100)
-                const qOrdersTable = query(
-                    collection(db, "orders"), 
-                    where("status", "in", ["PAGADO", "PENDIENTE", "ALISTADO"]), 
-                    orderBy("createdAt", "desc"), 
-                    limit(100) 
-                );
-
+                
+                const qOrdersTable = query(collection(db, "orders"), where("status", "in", ["PAGADO", "PENDIENTE", "ALISTADO"]), orderBy("createdAt", "desc"), limit(100));
+                
                 const accountsRef = collection(db, "accounts");
                 const configRef = doc(db, "config", "shipping");
 
@@ -330,23 +340,22 @@
                 const [
                     incomeSnap,      
                     packingSnap,     
-                    receivableSnap,  
-                    payableSnap,     
+                    receivableSnap,  // Usamos getDocs para poder restar los abonos parciales matemáticamente
+                    payableSnap,     // Usamos getDocs para poder restar los abonos parciales matemáticamente
                     accountsSnap,    
                     ordersSnap,      
                     configSnap       
                 ] = await Promise.all([
                     getAggregateFromServer(qIncome, { totalRevenue: sum('total') }),
                     getCountFromServer(qPacking),
-                    getAggregateFromServer(qReceivable, { totalDebt: sum('total') }),
-                    getAggregateFromServer(qPayable, { totalPayable: sum('amount') }),
+                    getDocs(qReceivable),
+                    getDocs(qPayable),
                     getDocs(accountsRef),
                     getDocs(qOrdersTable),
                     getDoc(configRef)
                 ]);
 
                 // C. RENDERIZADO DE KPIs
-
                 const totalIncome = incomeSnap.data().totalRevenue || 0;
                 safeSetText('stat-sales', `$${totalIncome.toLocaleString('es-CO')}`);
 
@@ -356,10 +365,25 @@
 
                 safeSetText('stat-packing', packingSnap.data().count);
 
-                const totalReceivable = receivableSnap.data().totalDebt || 0;
+                // CÁLCULO DE CARTERA EXACTO (Ignorando cancelados y restando abonos)
+                let totalReceivable = 0;
+                receivableSnap.forEach(d => {
+                    const data = d.data();
+                    // Filtramos los cancelados y rechazados aquí en memoria
+                    if (data.status !== 'CANCELADO' && data.status !== 'RECHAZADO') {
+                        let pending = (Number(data.total) || 0) - (Number(data.amountPaid) || 0) - (Number(data.refundedAmount) || 0);
+                        if (pending > 0) totalReceivable += pending;
+                    }
+                });
                 safeSetText('stat-receivable', `$${totalReceivable.toLocaleString('es-CO')}`);
 
-                const totalPayable = payableSnap.data().totalPayable || 0;
+                // CÁLCULO DE DEUDAS A PROVEEDORES EXACTO
+                let totalPayable = 0;
+                payableSnap.forEach(d => {
+                    const data = d.data();
+                    let pending = (Number(data.total) || 0) - (Number(data.amountPaid) || 0);
+                    if (pending > 0) totalPayable += pending;
+                });
                 safeSetText('stat-payable', `$${totalPayable.toLocaleString('es-CO')}`);
 
                 // D. RENDERIZADO DE TABLA VIVA
@@ -411,53 +435,102 @@
             }
         }
 
+        // --- RENDER DE FILA VISUAL (CON LÓGICA DE PAGO ESTRICTA COMO EN ORDERS.HTML) ---
         function renderRow(o) {
             const isTienda = o.source === 'TIENDA' || o.source === 'TIENDA_WEB';
-            let sClass = 'bg-gray-100 text-gray-500', sText = o.status;
-            if (o.status === 'PENDIENTE') { sClass = 'bg-yellow-100 text-yellow-700 border-yellow-200'; sText = 'Por Atender'; }
-            if (o.status === 'ALISTADO') { sClass = 'bg-blue-100 text-blue-700 border-blue-200'; sText = 'Alistado'; }
-            if (o.status === 'PAGADO') { sClass = 'bg-red-100 text-red-600 border-red-200 animate-pulse'; sText = 'PAGADO (URGENTE)'; }
+            let sClass = 'bg-gray-100 text-gray-500 border-gray-200', sText = o.status;
             
+            if (o.status === 'PENDIENTE') { sClass = 'bg-yellow-100 text-yellow-700 border-yellow-200'; sText = 'Por Atender'; }
+            else if (o.status === 'ALISTADO') { sClass = 'bg-blue-100 text-blue-700 border-blue-200'; sText = 'Alistado'; }
+            else if (o.status === 'PAGADO') { sClass = 'bg-red-100 text-red-600 border-red-200 animate-pulse'; sText = 'PAGADO (URGENTE)'; }
+            else if (o.status === 'DESPACHADO') { sClass = 'bg-green-100 text-green-700 border-green-200'; sText = 'Despachado'; }
+            else if (o.status === 'ENTREGADO') { sClass = 'bg-emerald-100 text-emerald-700 border-emerald-200'; sText = 'Entregado'; }
+            else if (['CANCELADO', 'RECHAZADO'].includes(o.status)) { sClass = 'bg-red-50 text-red-400 border-red-100'; sText = o.status; }
+            else if (o.status === 'DEVUELTO') { sClass = 'bg-purple-100 text-purple-700 border-purple-200'; sText = 'Devuelto'; }
+            else if (o.status === 'DEVOLUCION_PARCIAL') { sClass = 'bg-orange-100 text-orange-700 border-orange-200'; sText = 'Dev. Parcial'; }
+
+            // 1. Cálculos Financieros Estrictos
+            const total = Number(o.total) || 0;
+            const paid = Number(o.amountPaid) || 0;
+            const refunded = Number(o.refundedAmount) || 0;
+            
+            let pendingBalance = total - paid - refunded;
+            if (pendingBalance < 0) pendingBalance = 0; 
+
+            // 2. Determinar si está pagado al 100%
+            const isFullyPaid = o.paymentStatus === 'PAID' || o.status === 'PAGADO' || pendingBalance === 0;
+
             let pBadge = `<span class="text-[9px] font-black uppercase text-red-500 bg-red-50 px-2 py-1 rounded border border-red-100">Cartera</span>`;
-            if (o.status === 'PAGADO' || o.paymentStatus === 'PAID') {
+            if (isFullyPaid) {
                 pBadge = `<span class="text-[9px] font-black uppercase text-green-600 bg-green-50 px-2 py-1 rounded border border-green-100"><i class="fa-solid fa-check"></i> Pagado</span>`;
             }
 
-            const dateStr = o.createdAt?.toDate ? o.createdAt.toDate().toLocaleDateString('es-CO', {day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit'}) : '--';
-
+            const dateObj = new Date(o.createdAt);
+            const dateStr = !isNaN(dateObj) ? dateObj.toLocaleDateString('es-CO', {day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit'}) : '--';
+            
             const invoiceBtn = o.requiresInvoice 
                 ? `<span class="w-9 h-9 rounded-xl bg-blue-50 text-blue-500 border border-blue-100 flex items-center justify-center cursor-default" title="Factura Solicitada"><i class="fa-solid fa-check text-xs"></i></span>`
                 : `<button onclick="window.requestInvoice('${o.id}')" title="Solicitar Factura" class="w-9 h-9 rounded-xl bg-white border border-blue-200 text-blue-500 hover:bg-blue-500 hover:text-white transition shadow-sm flex items-center justify-center"><i class="fa-solid fa-file-invoice-dollar text-xs"></i></button>`;
 
+            // Lógica del Botón Pagar 
+            let payActionBtn = '';
+            const isFinished = ['CANCELADO', 'RECHAZADO'].includes(o.status);
+            
+            if (pendingBalance > 0 && !isFinished && !isFullyPaid) {
+                payActionBtn = `
+                    <button onclick="window.openPaymentModal('${o.id}', ${pendingBalance})" 
+                            title="Registrar Pago Manual" 
+                            class="w-9 h-9 rounded-xl bg-green-50 border border-green-200 text-green-600 hover:bg-green-500 hover:text-white transition shadow-sm flex items-center justify-center">
+                        <i class="fa-solid fa-hand-holding-dollar text-xs"></i>
+                    </button>
+                `;
+            }
+
+            // Visualización Precio Neto
+            const netTotal = total - refunded;
+            let priceHtml = `<span class="font-black text-brand-black text-sm">$${total.toLocaleString('es-CO')}</span>`;
+            if (refunded > 0) {
+                priceHtml = `
+                    <div class="flex flex-col items-end leading-tight">
+                        <span class="text-[9px] text-gray-400 line-through decoration-red-300">$${total.toLocaleString('es-CO')}</span>
+                        <span class="text-sm font-black text-brand-black">$${netTotal.toLocaleString('es-CO')}</span>
+                        <span class="text-[8px] font-bold text-red-500 bg-red-50 px-1.5 py-0.5 rounded border border-red-100 mt-0.5">
+                            Dev: -$${refunded.toLocaleString('es-CO')}
+                        </span>
+                    </div>
+                `;
+            }
+
             tableBody.innerHTML += `
-                <tr class="hover:bg-slate-50 transition border-b border-gray-50 group">
+                <tr class="hover:bg-slate-50 transition border-b border-gray-50 group fade-in">
                     <td class="px-8 py-6">
                         <div class="font-mono text-[10px] text-brand-black uppercase font-bold">#${o.id.slice(0, 8)}</div>
                         <div class="text-[9px] font-bold text-brand-black mt-1">${dateStr}</div>
                     </td>
                     <td class="px-8 py-6">
-                        <div class="font-black text-brand-black uppercase text-xs">${o.userName || 'Cliente'}</div>
-                        <div class="text-[9px] text-brand-black font-bold">${o.phone || ''}</div>
+                        <div class="font-black text-brand-black uppercase text-xs">${o.buyerInfo?.name || o.userName || 'Cliente'}</div>
+                        <div class="text-[9px] text-brand-black font-bold">${o.buyerInfo?.phone || o.phone || ''}</div>
                     </td>
                     <td class="px-8 py-6 text-center">
                         <span class="text-[8px] font-black px-2 py-0.5 rounded shadow-sm ${isTienda ? 'bg-brand-cyan text-brand-black' : 'bg-brand-black text-white'}">${isTienda ? 'WEB' : 'MANUAL'}</span>
                     </td>
                     <td class="px-8 py-6 text-center">${pBadge}</td>
                     <td class="px-8 py-6 text-center">
-                        <span class="${sClass} px-3 py-1 rounded-full text-[9px] font-black uppercase border shadow-sm block w-fit mx-auto">${sText}</span>
+                        <span class="${sClass} px-3 py-1 rounded-full text-[9px] font-black uppercase border shadow-sm block w-fit mx-auto whitespace-nowrap">${sText}</span>
                     </td>
-                    <td class="px-8 py-6 text-right font-black text-brand-black text-sm">$${(o.total || 0).toLocaleString('es-CO')}</td>
+                    <td class="px-8 py-6 text-right align-middle">${priceHtml}</td>
                     <td class="px-8 py-6 text-center">
                         <div class="flex items-center justify-center gap-2">
                             <button onclick="window.viewOrderDetail('${o.id}')" title="Ver Detalle" class="w-9 h-9 rounded-xl bg-white border border-gray-200 text-brand-black hover:bg-brand-black hover:text-white transition shadow-sm flex items-center justify-center"><i class="fa-solid fa-eye text-xs"></i></button>
                             <button onclick="window.printRemission('${o.id}')" title="Imprimir Recibo" class="w-9 h-9 rounded-xl bg-white border border-red-200 text-red-500 hover:bg-red-500 hover:text-white transition shadow-sm flex items-center justify-center"><i class="fa-solid fa-file-pdf text-xs"></i></button>
+                            ${payActionBtn}
                             ${invoiceBtn}
                         </div>
                     </td>
                 </tr>`;
         }
     </script>
-    
+
     <script type="module" src="../js/admin-guard.js"></script>
 </body>
 </html>

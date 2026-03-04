@@ -35,7 +35,8 @@ exports.createCODOrder = async (data, context) => {
     try {
         // IDs generados fuera de la transacción para usarlos en escrituras
         const newOrderRef = db.collection('orders').doc();
-        const remissionRef = db.collection('remissions').doc();
+        // Enlazamos la remisión al ID exacto de la orden
+        const remissionRef = db.collection('remissions').doc(newOrderRef.id);
         
         let orderDataToSave = {};
         let remissionDataToSave = {};

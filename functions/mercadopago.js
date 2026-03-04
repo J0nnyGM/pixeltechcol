@@ -283,7 +283,7 @@ exports.webhook = async (req, res) => {
                 }
                 
                 // 4. CREAR REMISIÓN
-                const remRef = db.collection('remissions').doc();
+                const remRef = db.collection('remissions').doc(orderId);
                 t.set(remRef, {
                     orderId, source: 'WEBHOOK_MP', items: oData.items,
                     clientName: oData.userName, clientPhone: oData.phone, clientDoc: oData.clientDoc,

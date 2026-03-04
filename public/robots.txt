@@ -8,6 +8,7 @@ Disallow: /shop/cart.html
 Disallow: /shop/checkout.html
 Disallow: /shop/success.html
 Disallow: /auth/
+Disallow: /antiguo/
 
-# Indicar dónde está el sitemap
+# Indicar donde está el sitemap
 Sitemap: https://pixeltechcol.com/sitemap.xml

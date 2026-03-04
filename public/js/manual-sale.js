@@ -1,4 +1,4 @@
-import { db, collection, doc, runTransaction, addDoc, getDocs, query, orderBy } from './firebase-init.js';
+import { db, collection, doc, runTransaction, addDoc, setDoc, getDocs, query, orderBy } from './firebase-init.js';
 import { adjustStock } from './inventory-core.js';
 
 // --- HTML DEL MODAL (PLANTILLA) ---
@@ -590,8 +590,8 @@ async function saveOrder() {
 
         const orderRef = await addDoc(collection(db, "orders"), orderData);
         
-        // Crear remisión espejo para logística
-        await addDoc(collection(db, "remissions"), { 
+        // Usar setDoc para forzar que la remisión comparta el MISMO ID de la orden
+        await setDoc(doc(db, "remissions", orderRef.id), { 
             ...orderData, 
             orderId: orderRef.id, 
             status: 'PENDIENTE_ALISTAMIENTO', 

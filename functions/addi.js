@@ -325,7 +325,7 @@ exports.webhook = async (req, res) => {
 
                     for (const p of prodReads) t.update(p.ref, { stock: p.stock, combinations: p.combos });
 
-                    const remRef = db.collection('remissions').doc();
+                    const remRef = db.collection('remissions').doc(orderId);
                     t.set(remRef, {
                         orderId, source: 'WEBHOOK_ADDI', items: oData.items,
                         clientName: oData.userName, clientPhone: oData.phone, clientDoc: oData.clientDoc,

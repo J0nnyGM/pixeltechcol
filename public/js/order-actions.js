@@ -110,12 +110,24 @@ export async function viewOrderDetail(orderId) {
         safeSetText('modal-client-doc', o.clientDoc || '---');
         safeSetText('modal-client-contact', o.phone || o.userEmail || '');
 
-        // 5. Dirección y Notas
+        // 5. Dirección, Notas y RASTREO
         const addr = o.shippingData?.address || o.address || 'Retiro en Tienda / Local';
         const city = o.shippingData?.city || o.city || 'Bogotá';
         const dept = o.shippingData?.department || "";
         safeSetText('modal-delivery-address', addr);
         safeSetText('modal-delivery-city', `${city}${dept ? ', ' + dept : ''}`);
+
+        // --- NUEVO: Mostrar Rastreo si está despachado ---
+        const trackingContainer = getEl('modal-tracking-info');
+        if (trackingContainer) {
+            if (o.shippingCarrier && o.shippingTracking) {
+                safeSetText('modal-carrier', o.shippingCarrier);
+                safeSetText('modal-tracking-number', o.shippingTracking);
+                trackingContainer.classList.remove('hidden');
+            } else {
+                trackingContainer.classList.add('hidden');
+            }
+        }
 
         const notesEl = getEl('modal-order-notes');
         if(notesEl) {
