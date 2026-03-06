@@ -8,12 +8,13 @@ ErrorDocument 404 /404.html
 # ----------------------------------------------------------------------
 <IfModule mod_rewrite.c>
     RewriteEngine On
-    RewriteBase /
+    RewriteBase
 
-    # A. Forzar HTTPS siempre y asegurar "www" (Evita contenido duplicado en Google)
+    # A. Forzar HTTPS siempre y QUITAR "www" (Evita contenido duplicado en Google)
     RewriteCond %{HTTPS} off [OR]
-    RewriteCond %{HTTP_HOST} !^www\. [NC]
-    RewriteRule ^(.*)$ https://www.pixeltechcol.com/$1 [L,R=301]
+    RewriteCond %{HTTP_HOST} ^www\. [NC]
+    RewriteRule ^(.*)$ https://pixeltechcol.com/$1 [L,R=301]
+    
     
     # B. Quitar /index.html de la URL de inicio (SEO)
     RewriteCond %{THE_REQUEST} ^[A-Z]{3,9}\ /index\.html\ HTTP/

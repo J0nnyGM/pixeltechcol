@@ -252,10 +252,7 @@ exports.createAddiCheckout = async (data, context) => {
 };
 
 // ==========================================
-// 2. WEBHOOK (Igual que antes)
-// ==========================================
-// ==========================================
-// 2. WEBHOOK (BLINDADO CONTRA DUPLICADOS)
+// 2. WEBHOOK (BLINDADO CONTRA DUPLICADOS Y ORDENADO)
 // ==========================================
 exports.webhook = async (req, res) => {
     return cors(req, res, async () => {
@@ -270,24 +267,31 @@ exports.webhook = async (req, res) => {
             if (!orderId) return res.status(400).send("Missing Order ID");
 
             const orderRef = db.collection('orders').doc(orderId);
+            const remRef = db.collection('remissions').doc(orderId);
 
             if (status === 'APPROVED' || status === 'COMPLETED') {
                 await db.runTransaction(async (t) => {
+                    
+                    // ==========================================
+                    // FASE 1: SOLO LECTURAS (t.get)
+                    // ==========================================
+                    
+                    // 1. Leer Orden
                     const docSnap = await t.get(orderRef);
                     if (!docSnap.exists) return;
                     const oData = docSnap.data();
                     
-                    // 🚨 CORRECCIÓN CRÍTICA 1: Validar por el estado financiero, no por el logístico.
                     if (oData.paymentStatus === 'PAID' || oData.status === 'PAGADO') {
                         console.log(`⚠️ Webhook duplicado ignorado. La orden ${orderId} ya estaba pagada.`);
                         return;
                     }
 
+                    // 2. Leer Inventario
                     const prodReads = [];
                     if (!oData.isStockDeducted) {
                         for (const i of oData.items) {
                             const pRef = db.collection('products').doc(i.id);
-                            const pDoc = await t.get(pRef);
+                            const pDoc = await t.get(pRef); // LECTURA
                             if (pDoc.exists) {
                                 const pData = pDoc.data();
                                 let newS = (pData.stock || 0) - (i.quantity || 1);
@@ -306,13 +310,22 @@ exports.webhook = async (req, res) => {
                         }
                     }
 
-                    const accQ = await t.get(db.collection('accounts').where('gatewayLink', '==', 'ADDI').limit(1));
+                    // 3. Leer Cuentas (Tesorería)
+                    const accQ = await t.get(db.collection('accounts').where('gatewayLink', '==', 'ADDI').limit(1)); // LECTURA
                     let accDoc = (!accQ.empty) ? accQ.docs[0] : null;
                     if (!accDoc) {
-                        const defQ = await t.get(db.collection('accounts').where('isDefaultOnline', '==', true).limit(1));
+                        const defQ = await t.get(db.collection('accounts').where('isDefaultOnline', '==', true).limit(1)); // LECTURA
                         if (!defQ.empty) accDoc = defQ.docs[0];
                     }
 
+                    // 4. Leer Remisión (MovidO AQUÍ ARRIBA)
+                    const remSnap = await t.get(remRef); // LECTURA FINAL
+
+                    // ==========================================
+                    // FASE 2: SOLO ESCRITURAS (t.set, t.update)
+                    // ==========================================
+
+                    // A. Escribir Tesorería
                     let accId = null, accName = 'ADDI';
                     if (accDoc) {
                         accId = accDoc.id;
@@ -331,12 +344,12 @@ exports.webhook = async (req, res) => {
                         });
                     }
 
-                    for (const p of prodReads) t.update(p.ref, { stock: p.stock, combinations: p.combos });
+                    // B. Escribir Inventario
+                    for (const p of prodReads) {
+                        t.update(p.ref, { stock: p.stock, combinations: p.combos });
+                    }
 
-                    // 🚨 CORRECCIÓN CRÍTICA 2: Verificamos que la remisión no exista antes de crearla
-                    const remRef = db.collection('remissions').doc(orderId);
-                    const remSnap = await t.get(remRef);
-                    
+                    // C. Escribir Remisión
                     if (!remSnap.exists) {
                         t.set(remRef, {
                             orderId, source: 'WEBHOOK_ADDI', items: oData.items,
@@ -347,6 +360,7 @@ exports.webhook = async (req, res) => {
                         });
                     }
 
+                    // D. Actualizar Orden a PAGADO
                     t.update(orderRef, {
                         status: 'PAGADO',
                         paymentStatus: 'PAID',
@@ -355,9 +369,10 @@ exports.webhook = async (req, res) => {
                         isStockDeducted: true
                     });
                 });
+                
                 console.log("✅ ADDI Approved Procesado Correctamente");
+                
             } else if (status === 'REJECTED' || status === 'DECLINED' || status === 'ABANDONED') {
-                // Solo rechazamos si no ha sido pagada previamente
                 const docCheck = await orderRef.get();
                 if (docCheck.exists && docCheck.data().paymentStatus !== 'PAID') {
                     await orderRef.update({

@@ -167,7 +167,7 @@ exports.createSistecreditoCheckout = async (data, context) => {
 };
 
 // ==========================================
-// 2. WEBHOOK DE SISTECRÉDITO
+// 2. WEBHOOK DE SISTECRÉDITO (CORREGIDO Y ORDENADO)
 // ==========================================
 exports.webhook = async (req, res) => {
     return cors(req, res, async () => {
@@ -183,9 +183,14 @@ exports.webhook = async (req, res) => {
             if (!orderId) return res.status(400).send("Missing Invoice ID");
 
             const orderRef = db.collection('orders').doc(orderId);
+            const remRef = db.collection('remissions').doc(orderId);
 
             if (status === 'Approved') { 
                 await db.runTransaction(async (t) => {
+                    
+                    // ==========================================
+                    // FASE 1: SOLO LECTURAS (t.get)
+                    // ==========================================
                     const docSnap = await t.get(orderRef);
                     if (!docSnap.exists) return;
                     const oData = docSnap.data();
@@ -221,12 +226,17 @@ exports.webhook = async (req, res) => {
 
                     const accQ = await t.get(db.collection('accounts').where('gatewayLink', '==', 'SISTECREDITO').limit(1));
                     let accDoc = (!accQ.empty) ? accQ.docs[0] : null;
-                    
                     if (!accDoc) {
                         const defQ = await t.get(db.collection('accounts').where('isDefaultOnline', '==', true).limit(1));
                         if (!defQ.empty) accDoc = defQ.docs[0];
                     }
 
+                    // LEEMOS LA REMISIÓN AQUÍ ARRIBA ANTES DE ESCRIBIR
+                    const remSnap = await t.get(remRef); 
+
+                    // ==========================================
+                    // FASE 2: SOLO ESCRITURAS (t.set, t.update)
+                    // ==========================================
                     let accId = null, accName = 'SISTECREDITO';
                     if (accDoc) {
                         accId = accDoc.id;
@@ -247,9 +257,6 @@ exports.webhook = async (req, res) => {
 
                     for (const p of prodReads) t.update(p.ref, { stock: p.stock, combinations: p.combos });
 
-                    const remRef = db.collection('remissions').doc(orderId);
-                    const remSnap = await t.get(remRef);
-                    
                     if (!remSnap.exists) {
                         t.set(remRef, {
                             orderId, source: 'WEBHOOK_SISTECREDITO', items: oData.items,

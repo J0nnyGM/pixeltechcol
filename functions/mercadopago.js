@@ -198,18 +198,23 @@ exports.webhook = async (req, res) => {
         const orderId = paymentData.external_reference;
 
         if (!orderId) return res.status(200).send("OK");
+        
         const orderRef = db.collection('orders').doc(orderId);
+        const remRef = db.collection('remissions').doc(orderId);
 
         // --- A. PAGO APROBADO ---
         if (status === 'approved') {
             await db.runTransaction(async (t) => {
+                
+                // ==========================================
+                // FASE 1: LECTURAS (t.get)
+                // ==========================================
                 const docSnap = await t.get(orderRef);
-                // Si la orden no existe o ya está pagada, salimos
-                if (!docSnap.exists || docSnap.data().status === 'PAGADO') return;
+                if (!docSnap.exists || docSnap.data().status === 'PAGADO' || docSnap.data().paymentStatus === 'PAID') return;
                 
                 const oData = docSnap.data();
 
-                // 1. DESCONTAR INVENTARIO
+                // Leer Inventario
                 const prodReads = [];
                 if(!oData.isStockDeducted) {
                     for(const i of oData.items) {
@@ -220,33 +225,26 @@ exports.webhook = async (req, res) => {
                             let newS = (pData.stock||0) - (i.quantity||1);
                             let newC = pData.combinations || [];
                             
-                            // Lógica de Variantes
                             if (i.color || i.capacity) {
                                 if (newC.length > 0) {
                                     const idx = newC.findIndex(c => 
                                         (c.color === i.color || (!c.color && !i.color)) &&
                                         (c.capacity === i.capacity || (!c.capacity && !i.capacity))
                                     );
-                                    if (idx >= 0) {
-                                        // Restar stock de la combinación
-                                        newC[idx].stock = Math.max(0, newC[idx].stock - i.quantity);
-                                    }
+                                    if (idx >= 0) newC[idx].stock = Math.max(0, newC[idx].stock - i.quantity);
                                 }
                             }
-                            // Guardamos la actualización pendiente
                             prodReads.push({ ref: pRef, stock: Math.max(0, newS), combos: newC });
                         }
                     }
                 }
 
-                // 2. TESORERÍA (Buscar cuenta configurada como MERCADOPAGO)
+                // Leer Tesorería
                 const accQ = await t.get(db.collection('accounts').where('gatewayLink', '==', 'MERCADOPAGO').limit(1));
                 let accDoc = null;
-                
                 if(!accQ.empty) {
                     accDoc = accQ.docs[0];
                 } else {
-                    // Fallback: Buscar por nombre o Default Online
                     const nameQ = await t.get(db.collection('accounts').where('name', '==', 'MercadoPago').limit(1));
                     if(!nameQ.empty) accDoc = nameQ.docs[0];
                     else {
@@ -255,12 +253,16 @@ exports.webhook = async (req, res) => {
                     }
                 }
 
+                // Leer Remisión (BLINDAJE AGREGADO)
+                const remSnap = await t.get(remRef);
+
+                // ==========================================
+                // FASE 2: ESCRITURAS (t.set, t.update)
+                // ==========================================
                 let accId = null, accName = 'MercadoPago';
                 if(accDoc) {
-                    // Actualizar Saldo
                     t.update(accDoc.ref, { balance: (Number(accDoc.data().balance)||0) + (Number(oData.total)||0) });
                     
-                    // Crear registro en Historial
                     const incRef = db.collection('expenses').doc();
                     t.set(incRef, {
                         amount: Number(oData.total), 
@@ -277,22 +279,21 @@ exports.webhook = async (req, res) => {
                     accName = accDoc.data().name;
                 }
 
-                // 3. EJECUTAR ESCRITURAS (Inventario)
                 for(const p of prodReads) {
                     t.update(p.ref, { stock: p.stock, combinations: p.combos });
                 }
                 
-                // 4. CREAR REMISIÓN
-                const remRef = db.collection('remissions').doc(orderId);
-                t.set(remRef, {
-                    orderId, source: 'WEBHOOK_MP', items: oData.items,
-                    clientName: oData.userName, clientPhone: oData.phone, clientDoc: oData.clientDoc,
-                    clientAddress: `${oData.shippingData?.address}, ${oData.shippingData?.city}`,
-                    total: oData.total, status: 'PENDIENTE_ALISTAMIENTO', type: 'VENTA_WEB',
-                    createdAt: admin.firestore.FieldValue.serverTimestamp()
-                });
+                // Escribir Remisión blindada
+                if (!remSnap.exists) {
+                    t.set(remRef, {
+                        orderId, source: 'WEBHOOK_MP', items: oData.items,
+                        clientName: oData.userName, clientPhone: oData.phone, clientDoc: oData.clientDoc,
+                        clientAddress: `${oData.shippingData?.address}, ${oData.shippingData?.city}`,
+                        total: oData.total, status: 'PENDIENTE_ALISTAMIENTO', type: 'VENTA_WEB',
+                        createdAt: admin.firestore.FieldValue.serverTimestamp()
+                    });
+                }
 
-                // 5. ACTUALIZAR ORDEN A PAGADO
                 t.update(orderRef, {
                     status: 'PAGADO', 
                     paymentStatus: 'PAID', 
@@ -308,13 +309,16 @@ exports.webhook = async (req, res) => {
         
         // --- B. PAGO RECHAZADO / CANCELADO ---
         else if (status === 'rejected' || status === 'cancelled') {
-            await orderRef.update({
-                status: 'RECHAZADO', 
-                paymentId, 
-                statusDetail: paymentData.status_detail,
-                updatedAt: admin.firestore.FieldValue.serverTimestamp()
-            });
-            console.log("❌ MP Order Rejected:", orderId);
+            const docCheck = await orderRef.get();
+            if (docCheck.exists && docCheck.data().paymentStatus !== 'PAID') {
+                await orderRef.update({
+                    status: 'RECHAZADO', 
+                    paymentId, 
+                    statusDetail: paymentData.status_detail,
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+                console.log("❌ MP Order Rejected:", orderId);
+            }
         }
         
         res.status(200).send("OK");
