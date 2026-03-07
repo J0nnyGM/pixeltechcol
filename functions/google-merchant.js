@@ -2,7 +2,7 @@
 const { onRequest } = require("firebase-functions/v2/https");
 const admin = require("firebase-admin");
 
-const DOMAIN = "https://pixeltechcol.com/"; 
+const DOMAIN = "https://pixeltechcol.com"; 
 
 function escapeXml(unsafe) {
     if (!unsafe) return "";

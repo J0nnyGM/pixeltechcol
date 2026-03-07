@@ -833,7 +833,7 @@ export function loadGlobalFooter() {
                                 <p class="text-[9px] text-gray-500 mt-0.5">PixelTech Col SAS</p> </div>
                         </div>
 
-                        <a href="mailto:soporte@pixeltech.com.co" class="flex items-center gap-3 group">
+                        <a href="mailto:soporte@pixeltech.com" class="flex items-center gap-3 group">
                             <div class="w-8 h-8 rounded-xl bg-white/5 flex items-center justify-center shrink-0 group-hover:bg-brand-cyan/20 transition"><i class="fa-solid fa-envelope text-brand-cyan text-xs"></i></div>
                             <div>
                                 <p class="text-[10px] font-black uppercase text-gray-300 group-hover:text-white transition">Email</p>
