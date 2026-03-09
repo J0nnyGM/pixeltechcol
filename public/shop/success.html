@@ -124,7 +124,7 @@
 
     <script type="module">
         import { loadGlobalHeader, loadGlobalFooter } from '../js/global-components.js';
-        import { db, doc, onSnapshot } from '../js/firebase-init.js';
+        import { db, doc, onSnapshot, auth, onAuthStateChanged } from '../js/firebase-init.js';
         import { updateCartCount } from '../js/cart.js';
 
         loadGlobalHeader();
@@ -134,7 +134,18 @@
         const mainContent = document.getElementById('main-content');
         const loadingText = document.getElementById('loading-text');
 
-        async function init() {
+        // Escuchar el estado de autenticación ANTES de consultar la orden
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                init(user.uid);
+            } else {
+                // Si no está logueado, lo mandamos al login guardando la url para que regrese
+                sessionStorage.setItem('redirect_after_login', window.location.pathname + window.location.search);
+                window.location.href = '/auth/login.html';
+            }
+        });
+
+        async function init(currentUserId) {
             try {
                 const params = new URLSearchParams(window.location.search);
                 const orderId = params.get('external_reference') || params.get('order');
@@ -147,8 +158,16 @@
                 const unsubscribe = onSnapshot(doc(db, "orders", orderId), (docSnap) => {
                     if (docSnap.exists()) {
                         const data = docSnap.data();
-                        const status = data.status;
                         
+                        // 🔒 VALIDACIÓN DE SEGURIDAD CRÍTICA
+                        // Verificar que el usuario viendo la página sea el dueño de la orden
+                        if (data.userId !== currentUserId) {
+                            alert("No tienes permiso para ver esta orden.");
+                            window.location.href = '/profile.html';
+                            return;
+                        }
+
+                        const status = data.status;
                         loadingText.textContent = `Estado: ${status}...`;
 
                         if (status === 'PAGADO' || status === 'PENDIENTE' || (status === 'PENDIENTE_PAGO' && mpStatus === 'approved')) {
@@ -333,8 +352,6 @@
         function triggerConfetti() {
             confetti({ particleCount: 150, spread: 80, origin: { y: 0.7 }, colors: ['#00AEC7', '#111827', '#ffffff'] });
         }
-
-        init();
     </script>
 </body>
 </html>
