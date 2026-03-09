@@ -1,4 +1,4 @@
-const CACHE_NAME = 'pixeltech-shell-v4.3';
+const CACHE_NAME = 'pixeltech-shell-v4.4';
 
 // Archivos vitales para que la app arranque sin internet
 const urlsToCache = [
