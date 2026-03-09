@@ -49,8 +49,9 @@ export function addToCart(product) {
             cartId: uniqueCartId,
             id: product.id,
             name: product.name,
-            price: product.price,
-            originalPrice: product.originalPrice || 0,
+            // Aseguramos que los precios siempre se guarden como enteros limpios
+            price: Math.round(Number(product.price)) || 0,
+            originalPrice: Math.round(Number(product.originalPrice)) || 0,
             image: product.mainImage || product.image || 'https://placehold.co/100',
             color: pColor,       
             capacity: pCapacity, 
