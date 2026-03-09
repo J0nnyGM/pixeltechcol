@@ -391,6 +391,7 @@ function updatePriceDisplay() {
         }
     }
     renderAddiWidget(price);
+    injectProductSchema(p);
 }
 
 function renderAddiWidget(price) {
@@ -435,12 +436,18 @@ function updateGallery() {
 
 function renderOptions(p) {
     els.optionsContainer.innerHTML = "";
+    
+    // --- NUEVO: Variable para detectar si hay opciones ---
+    let hasOptions = false; 
+
     // Colores
     if (p.hasVariants && p.variants?.length > 0) {
+        hasOptions = true; // Sí hay colores
         const colorDiv = document.createElement('div');
-        colorDiv.innerHTML = `<label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3">Color</label>`;
+        colorDiv.innerHTML = `<label class="block text-[8px] font-black text-gray-400 uppercase tracking-widest mb-2 text-center md:text-left">Color</label>`;
         const btnContainer = document.createElement('div');
-        btnContainer.className = "flex flex-wrap gap-3";
+        btnContainer.className = "flex flex-wrap gap-3 justify-center md:justify-start";
+        
         p.variants.forEach((v) => {
             const isSelected = state.selectedColor === v.color;
             let isOut = p.hasCapacities ? !p.combinations.some(c => c.color === v.color && c.stock > 0) : getStockForVariant(p, v.color, null) <= 0;
@@ -466,12 +473,15 @@ function renderOptions(p) {
         });
         colorDiv.appendChild(btnContainer); els.optionsContainer.appendChild(colorDiv);
     }
+
     // Capacidades
     if (p.hasCapacities && p.capacities?.length > 0) {
+        hasOptions = true; // Sí hay capacidades
         const capDiv = document.createElement('div');
-        capDiv.innerHTML = `<label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3">Capacidad</label>`;
+        capDiv.innerHTML = `<label class="block text-[8px] font-black text-gray-400 uppercase tracking-widest mb-2 text-center md:text-left">Capacidad</label>`;
         const btnContainer = document.createElement('div');
-        btnContainer.className = "flex flex-wrap gap-3";
+        btnContainer.className = "flex flex-wrap gap-3 justify-center md:justify-start";
+        
         p.capacities.forEach((c) => {
             const isSelected = state.selectedCapacity === c.label;
             const isOut = state.selectedColor ? getStockForVariant(p, state.selectedColor, c.label) <= 0 : false; 
@@ -496,6 +506,13 @@ function renderOptions(p) {
             btnContainer.appendChild(btn);
         });
         capDiv.appendChild(btnContainer); els.optionsContainer.appendChild(capDiv);
+    }
+
+    // --- NUEVO: Controlar la visibilidad de la caja completa ---
+    if (hasOptions) {
+        els.optionsContainer.classList.remove('hidden');
+    } else {
+        els.optionsContainer.classList.add('hidden');
     }
 }
 
@@ -534,25 +551,51 @@ window.changeQty = (d) => {
     i.value = v;
 };
 
-// 🔥 FUNCIÓN ACTUALIZADA PARA GOOGLE MERCHANT 🔥
+// 🔥 FUNCIÓN ACTUALIZADA Y ESTRICTA PARA GOOGLE MERCHANT 🔥
 function injectProductSchema(p) {
     const oldSchema = document.getElementById('json-ld-product');
     if (oldSchema) oldSchema.remove();
     
-    const isGlobalInStock = (p.stock && p.stock > 0);
-    const globalAvailability = isGlobalInStock ? "https://schema.org/InStock" : "https://schema.org/OutOfStock";
-    const currentUrl = window.location.href.split('?')[0] + `?id=${p.id}`; 
+    const currentUrl = window.location.href; 
+    
+    // Usar SIEMPRE el precio y stock EXACTO que el cliente está viendo en su pantalla en este milisegundo
+    const exactDisplayedPrice = state.currentPrice || p.price;
+    const exactDisplayedStock = state.currentStock || p.stock || 0;
+    const availability = exactDisplayedStock > 0 ? "https://schema.org/InStock" : "https://schema.org/OutOfStock";
+
+    // Si tiene variantes seleccionadas, agregar ese texto al nombre oculto de Google
+    let schemaProductName = p.name;
+    if (state.selectedColor || state.selectedCapacity) {
+        schemaProductName = `${p.name} ${state.selectedCapacity || ''} ${state.selectedColor ? '- ' + state.selectedColor : ''}`.trim();
+    }
 
     const schemaData = {
         "@context": "https://schema.org/",
         "@type": "Product",
-        "name": p.name,
-        "image": [p.mainImage || p.image, ...(p.images || [])].filter(Boolean),
+        "name": schemaProductName,
+        "image": [state.currentImage || p.mainImage || p.image].filter(Boolean),
         "description": p.description ? p.description.replace(/<[^>]*>?/gm, '') : `Compra ${p.name} en PixelTech.`,
         "sku": p.sku || p.id,
         "productID": p.id,
         "brand": { "@type": "Brand", "name": p.brand || "Genérico" },
+        "offers": {
+            "@type": "Offer",
+            "url": currentUrl,
+            "priceCurrency": "COP",
+            "price": exactDisplayedPrice,
+            "availability": availability,
+            "itemCondition": "https://schema.org/NewCondition",
+            "inventoryLevel": {
+                "@type": "QuantitativeValue",
+                "value": exactDisplayedStock
+            }
+        }
     };
+
+    // Agregar fecha de fin de promoción solo si el precio actual es menor al original
+    if (p.originalPrice && p.originalPrice > exactDisplayedPrice) {
+         schemaData.offers.priceValidUntil = p.promoEndsAt ? new Date(p.promoEndsAt.seconds * 1000).toISOString() : new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString();
+    }
 
     if (p.sku) {
         const cleanSku = p.sku.replace(/\s|-/g, '');
@@ -561,62 +604,6 @@ function injectProductSchema(p) {
         } else {
             schemaData.mpn = p.sku; 
         }
-    }
-
-    if (p.isSimple || !p.combinations || p.combinations.length === 0) {
-        schemaData.offers = {
-            "@type": "Offer",
-            "url": currentUrl,
-            "priceCurrency": "COP",
-            "price": p.price,
-            "availability": globalAvailability,
-            "itemCondition": "https://schema.org/NewCondition",
-            "inventoryLevel": {
-                "@type": "QuantitativeValue",
-                "value": Math.max(0, p.stock || 0)
-            }
-        };
-        
-        if (p.originalPrice && p.originalPrice > p.price) {
-             schemaData.offers.priceValidUntil = p.promoEndsAt ? new Date(p.promoEndsAt.seconds * 1000).toISOString() : new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString();
-        }
-    } else {
-        schemaData.offers = {
-            "@type": "AggregateOffer",
-            "lowPrice": Math.min(...p.combinations.map(c => c.price)),
-            "highPrice": Math.max(...p.combinations.map(c => c.price)),
-            "priceCurrency": "COP",
-            "offerCount": p.combinations.length,
-            "offers": p.combinations.map(combo => {
-                const comboUrl = `${currentUrl}${combo.color ? '&color=' + encodeURIComponent(combo.color) : ''}`;
-                const comboStock = Math.max(0, combo.stock || 0);
-                const comboAvailability = comboStock > 0 ? "https://schema.org/InStock" : "https://schema.org/OutOfStock";
-                
-                let offer = {
-                    "@type": "Offer",
-                    "url": comboUrl,
-                    "priceCurrency": "COP",
-                    "price": combo.price,
-                    "availability": comboAvailability,
-                    "itemCondition": "https://schema.org/NewCondition",
-                    "inventoryLevel": {
-                        "@type": "QuantitativeValue",
-                        "value": comboStock
-                    },
-                    "sku": combo.sku || `${p.id}_${combo.color || 'x'}_${combo.capacity || 'y'}`.replace(/\s+/g, '')
-                };
-                
-                if (combo.color || combo.capacity) {
-                    offer.itemOffered = {
-                        "@type": "Product",
-                        "name": `${p.name} ${combo.capacity || ''} ${combo.color ? '- ' + combo.color : ''}`.trim()
-                    };
-                    if (combo.color) offer.itemOffered.color = combo.color;
-                }
-                
-                return offer;
-            })
-        };
     }
 
     const script = document.createElement('script');

@@ -803,15 +803,18 @@ export function loadGlobalFooter() {
                         <li><a href="/shop/catalog.html" class="hover:text-white transition text-brand-cyan">Catálogo</a></li>
                         <li><a href="/shop/catalog.html?mode=promos" class="hover:text-white transition">Ofertas Especiales</a></li>
                         <li><a href="/profile.html" class="hover:text-white transition">Mi Cuenta</a></li>
+                        <li><a href="/contact.html" class="hover:text-brand-cyan text-white transition">Contacto y Soporte</a></li>
                     </ul>
                 </div>
                 
                 <div>
                     <h4 class="font-black text-[10px] uppercase tracking-[0.3em] text-brand-cyan mb-6">Legal y Ayuda</h4>
                     <ul class="space-y-4 text-[10px] font-bold uppercase tracking-widest text-gray-400">
-                        <li><a href="/policies/warranty.html" class="hover:text-white transition">Políticas de Garantía</a></li>
-                        <li><a href="/policies/shipping.html" class="hover:text-white transition">Envíos y Devoluciones</a></li>
+                        <li><a href="/policies/warranty.html" class="hover:text-white transition">Garantías</a></li>
+                        <li><a href="/policies/shipping.html" class="hover:text-white transition">Política de Envíos</a></li>
+                        <li><a href="/policies/refunds.html" class="hover:text-white transition">Política de Reembolsos</a></li> 
                         <li><a href="/policies/terms.html" class="hover:text-white transition">Términos y Condiciones</a></li>
+                        <li><a href="/policies/privacy.html" class="hover:text-white transition">Política de Privacidad</a></li>
                     </ul>
                 </div>
                 
@@ -855,13 +858,23 @@ export function loadGlobalFooter() {
                 </button>
             </div>
             
-            <div class="border-t border-white/5 pt-8 flex flex-col md:flex-row justify-between items-center gap-6">
-                <p class="text-[9px] font-black uppercase tracking-[0.4em] text-gray-600">© 2026 PIXELTECH COL SAS. Todos los derechos reservados.</p>
-                <div class="flex gap-4 grayscale opacity-30">
-                    <i class="fa-brands fa-cc-visa text-2xl text-white" title="Visa"></i>
-                    <i class="fa-brands fa-cc-mastercard text-2xl text-white" title="Mastercard"></i>
-                    <i class="fa-solid fa-money-bill-wave text-2xl text-white" title="Efectivo"></i>
+            <div class="border-t border-white/10 pt-10 flex flex-col items-center gap-6 text-center">
+                <div class="flex flex-col items-center gap-4">
+                    <p class="text-[10px] font-black uppercase tracking-[0.2em] text-brand-cyan flex items-center gap-2">
+                        <i class="fa-solid fa-lock text-green-500"></i> Pagos 100% Seguros y Certificados
+                    </p>
+                    <div class="flex flex-wrap justify-center gap-3">
+                        <span class="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest border border-white/20 bg-white/5 px-3 py-2 rounded-xl text-white"><i class="fa-solid fa-shield-halved text-blue-500 text-lg"></i> MercadoPago</span>
+                        <span class="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest border border-white/20 bg-white/5 px-3 py-2 rounded-xl text-white"><i class="fa-solid fa-hand-holding-dollar text-[#00D6D6] text-lg"></i> ADDI</span>
+                        <span class="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest border border-white/20 bg-white/5 px-3 py-2 rounded-xl text-white"><i class="fa-solid fa-money-check-dollar text-emerald-500 text-lg"></i> Sistecrédito</span>
+                    </div>
+                    <div class="flex gap-4 text-gray-500 text-2xl mt-2">
+                        <i class="fa-brands fa-cc-visa"></i>
+                        <i class="fa-brands fa-cc-mastercard"></i>
+                        <i class="fa-brands fa-cc-amex"></i>
+                    </div>
                 </div>
+                <p class="text-[9px] font-black uppercase tracking-[0.4em] text-gray-600 mt-4">© 2026 PIXELTECH COL SAS. Todos los derechos reservados.</p>
             </div>
         </div>
     </footer>`;
