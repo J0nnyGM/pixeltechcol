@@ -869,11 +869,10 @@ if (payForm) {
                 const isFullyPaid = newAmountPaid >= ((oData.total || 0) - (oData.refundedAmount || 0));
                 
                 // Determinar el nuevo estado
-                let nextStatus = oData.status; // Por defecto mantenemos el estado actual
+                let nextStatus = oData.status; 
                 
-                // Solo si el estado era 'PENDIENTE' y se pagó completo, pasamos a 'PAGADO'.
-                // Si estaba en 'DEVOLUCION_PARCIAL', 'DESPACHADO', etc., NO LO CAMBIAMOS.
-                if (isFullyPaid && oData.status === 'PENDIENTE') {
+                // Si se paga completo y estaba PENDIENTE o CANCELADO, lo pasamos a PAGADO
+                if (isFullyPaid && ['PENDIENTE', 'PENDIENTE_PAGO', 'CANCELADO'].includes(oData.status)) {
                     nextStatus = 'PAGADO';
                 }
 
@@ -881,7 +880,8 @@ if (payForm) {
                     status: nextStatus,
                     paymentStatus: isFullyPaid ? 'PAID' : 'PARTIAL',
                     amountPaid: newAmountPaid, 
-                    paymentMethod: 'MANUAL', 
+                    // Conservamos el método original (ADDI/SC) si existía, si no, es MANUAL
+                    paymentMethod: oData.paymentMethod || 'MANUAL', 
                     paymentAccountId: accId,
                     paymentDate: serverTimestamp()
                 });
