@@ -151,35 +151,35 @@ exports.cleanupOldOrders = async (event) => {
 };
 
 /**
- * NUEVO: CANCELAR ÓRDENES ABANDONADAS (CADA 15 MINUTOS)
- * Busca órdenes 'PENDIENTE_PAGO' creadas hace más de 30 minutos y las cancela.
+ * CANCELAR ÓRDENES ABANDONADAS (CADA 30 MINUTOS)
+ * Busca órdenes 'PENDIENTE_PAGO' creadas hace más de 4 horas y las cancela.
  */
 exports.cancelAbandonedPayments = onSchedule({
-    schedule: "every 15 minutes", 
+    schedule: "every 30 minutes", // Optimizado para ahorrar costos en Cloud
     timeZone: "America/Bogota"
 }, async (event) => {
     const db = admin.firestore();
     
-    // Calculamos el tiempo límite: Ahora menos 35 minutos (damos 5 min de gracia sobre los 30 de MP)
+    // Calculamos el tiempo límite: Ahora menos 4 horas
     const timeout = new Date();
-    timeout.setMinutes(timeout.getMinutes() - 35);
+    timeout.setHours(timeout.getHours() - 4); // <-- CAMBIO CLAVE (4 Horas)
     const timeoutTimestamp = admin.firestore.Timestamp.fromDate(timeout);
 
     console.log("⏰ Buscando órdenes abandonadas anteriores a:", timeout.toISOString());
 
     try {
-        // Buscamos órdenes PENDIENTE_PAGO de MercadoPago o ADDI viejas
+        // Buscamos órdenes PENDIENTE_PAGO de MercadoPago, ADDI o SC viejas
         const snapshot = await db.collection('orders')
             .where('status', '==', 'PENDIENTE_PAGO')
             .where('createdAt', '<=', timeoutTimestamp)
             .get();
 
         if (snapshot.empty) {
-            console.log("✅ No hay órdenes abandonadas para cancelar.");
+            console.log("✅ No hay órdenes abandonadas (mayores a 4 horas) para cancelar.");
             return;
         }
 
-        console.log(`⚠️ Encontradas ${snapshot.size} órdenes abandonadas.`);
+        console.log(`⚠️ Encontradas ${snapshot.size} órdenes abandonadas (más de 4 horas).`);
 
         const batch = db.batch();
         let count = 0;
@@ -187,14 +187,13 @@ exports.cancelAbandonedPayments = onSchedule({
         snapshot.docs.forEach((doc) => {
             const orderData = doc.data();
             
-            // Solo cancelamos si NO es contraentrega (Contraentrega nace PENDIENTE, no PENDIENTE_PAGO)
-            // Y aseguramos que no se haya pagado en el último segundo
+            // Solo cancelamos si NO es contraentrega y aseguramos que no se haya pagado
             if (orderData.paymentStatus !== 'PAID') {
                 batch.update(doc.ref, {
                     status: 'CANCELADO',
                     statusDetail: 'expired_by_system',
                     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-                    notes: (orderData.notes || "") + " [Sistema: Cancelado por inactividad de pago]"
+                    notes: (orderData.notes || "") + " [Sistema: Cancelado por inactividad de pago mayor a 4h]"
                 });
                 count++;
             }

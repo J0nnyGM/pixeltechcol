@@ -252,50 +252,57 @@ exports.createAddiCheckout = async (data, context) => {
 };
 
 // ==========================================
-// 2. WEBHOOK (BLINDADO CONTRA DUPLICADOS Y ORDENADO)
+// 2. WEBHOOK DE SISTECRÉDITO (BLINDADO Y SEGURO)
 // ==========================================
 exports.webhook = async (req, res) => {
     return cors(req, res, async () => {
         const db = admin.firestore();
         try {
             const body = req.body;
-            console.log("🔔 Webhook ADDI:", JSON.stringify(body));
+            console.log("🔔 Webhook Sistecrédito:", JSON.stringify(body));
 
-            const orderId = body.orderId;
-            const status = body.status;
+            const txData = body.data || body; 
+            
+            // 🔥 CORRECCIÓN CRÍTICA: Extraer soportando Mayúsculas y Minúsculas
+            const orderId = txData.Invoice || txData.invoice; 
+            const rawStatus = txData.TransactionStatus || txData.transactionStatus || ""; 
+            const status = rawStatus.toUpperCase(); // Estandarizamos a MAYÚSCULAS
+            const paymentId = txData._id || txData.id || 'SISTECREDITO';
 
-            if (!orderId) return res.status(400).send("Missing Order ID");
+            if (!orderId) {
+                console.error("❌ Faltan datos: Invoice ID");
+                return res.status(400).send("Missing Invoice ID");
+            }
 
             const orderRef = db.collection('orders').doc(orderId);
             const remRef = db.collection('remissions').doc(orderId);
 
-            if (status === 'APPROVED' || status === 'COMPLETED') {
+            // Evaluamos en mayúsculas, igual que en ADDI
+            if (status === 'APPROVED') { 
                 await db.runTransaction(async (t) => {
                     
                     // ==========================================
                     // FASE 1: SOLO LECTURAS (t.get)
                     // ==========================================
-                    
-                    // 1. Leer Orden
                     const docSnap = await t.get(orderRef);
                     if (!docSnap.exists) return;
                     const oData = docSnap.data();
                     
                     if (oData.paymentStatus === 'PAID' || oData.status === 'PAGADO') {
-                        console.log(`⚠️ Webhook duplicado ignorado. La orden ${orderId} ya estaba pagada.`);
+                        console.log(`⚠️ Webhook duplicado ignorado. Orden ${orderId} ya pagada.`);
                         return;
                     }
 
-                    // 2. Leer Inventario
                     const prodReads = [];
                     if (!oData.isStockDeducted) {
                         for (const i of oData.items) {
                             const pRef = db.collection('products').doc(i.id);
-                            const pDoc = await t.get(pRef); // LECTURA
+                            const pDoc = await t.get(pRef);
                             if (pDoc.exists) {
                                 const pData = pDoc.data();
                                 let newS = (pData.stock || 0) - (i.quantity || 1);
                                 let newC = pData.combinations || [];
+                                
                                 if (i.color || i.capacity) {
                                     if (newC.length > 0) {
                                         const idx = newC.findIndex(c =>
@@ -310,23 +317,20 @@ exports.webhook = async (req, res) => {
                         }
                     }
 
-                    // 3. Leer Cuentas (Tesorería)
-                    const accQ = await t.get(db.collection('accounts').where('gatewayLink', '==', 'ADDI').limit(1)); // LECTURA
+                    const accQ = await t.get(db.collection('accounts').where('gatewayLink', '==', 'SISTECREDITO').limit(1));
                     let accDoc = (!accQ.empty) ? accQ.docs[0] : null;
                     if (!accDoc) {
-                        const defQ = await t.get(db.collection('accounts').where('isDefaultOnline', '==', true).limit(1)); // LECTURA
+                        const defQ = await t.get(db.collection('accounts').where('isDefaultOnline', '==', true).limit(1));
                         if (!defQ.empty) accDoc = defQ.docs[0];
                     }
 
-                    // 4. Leer Remisión (MovidO AQUÍ ARRIBA)
-                    const remSnap = await t.get(remRef); // LECTURA FINAL
+                    // LEEMOS LA REMISIÓN
+                    const remSnap = await t.get(remRef); 
 
                     // ==========================================
                     // FASE 2: SOLO ESCRITURAS (t.set, t.update)
                     // ==========================================
-
-                    // A. Escribir Tesorería
-                    let accId = null, accName = 'ADDI';
+                    let accId = null, accName = 'SISTECREDITO';
                     if (accDoc) {
                         accId = accDoc.id;
                         accName = accDoc.data().name;
@@ -336,7 +340,7 @@ exports.webhook = async (req, res) => {
                         t.set(incRef, {
                             amount: Number(oData.total),
                             category: "Ingreso Ventas Online",
-                            description: `Venta ADDI #${orderId.slice(0, 8)}`,
+                            description: `Venta Sistecrédito #${orderId.slice(0, 8)}`,
                             paymentMethod: accName,
                             date: admin.firestore.FieldValue.serverTimestamp(),
                             createdAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -344,15 +348,11 @@ exports.webhook = async (req, res) => {
                         });
                     }
 
-                    // B. Escribir Inventario
-                    for (const p of prodReads) {
-                        t.update(p.ref, { stock: p.stock, combinations: p.combos });
-                    }
+                    for (const p of prodReads) t.update(p.ref, { stock: p.stock, combinations: p.combos });
 
-                    // C. Escribir Remisión
                     if (!remSnap.exists) {
                         t.set(remRef, {
-                            orderId, source: 'WEBHOOK_ADDI', items: oData.items,
+                            orderId, source: 'WEBHOOK_SISTECREDITO', items: oData.items,
                             clientName: oData.userName, clientPhone: oData.phone, clientDoc: oData.clientDoc,
                             clientAddress: `${oData.shippingData?.address}, ${oData.shippingData?.city}`,
                             total: oData.total, status: 'PENDIENTE_ALISTAMIENTO', type: 'VENTA_WEB',
@@ -360,31 +360,30 @@ exports.webhook = async (req, res) => {
                         });
                     }
 
-                    // D. Actualizar Orden a PAGADO
                     t.update(orderRef, {
-                        status: 'PAGADO',
-                        paymentStatus: 'PAID',
-                        paymentId: body.applicationId || 'ADDI',
-                        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                        status: 'PAGADO', 
+                        paymentStatus: 'PAID', 
+                        paymentId: paymentId, // Usamos la variable limpia que creamos arriba
+                        updatedAt: admin.firestore.FieldValue.serverTimestamp(), 
                         isStockDeducted: true
                     });
                 });
-                
-                console.log("✅ ADDI Approved Procesado Correctamente");
-                
-            } else if (status === 'REJECTED' || status === 'DECLINED' || status === 'ABANDONED') {
+                console.log(`✅ Sistecrédito: Orden ${orderId} procesada idéntico a ADDI.`);
+
+            // Evaluamos rechazos también en mayúsculas
+            } else if (status === 'REJECTED' || status === 'CANCELLED' || status === 'FAILED') { 
                 const docCheck = await orderRef.get();
                 if (docCheck.exists && docCheck.data().paymentStatus !== 'PAID') {
-                    await orderRef.update({
-                        status: 'RECHAZADO',
-                        statusDetail: status
+                    await orderRef.update({ 
+                        status: 'RECHAZADO', 
+                        statusDetail: rawStatus 
                     });
-                    console.log("❌ Orden Rechazada por ADDI");
+                    console.log(`❌ Orden ${orderId} Rechazada/Cancelada por Sistecrédito`);
                 }
             }
             res.status(200).send("OK");
         } catch (e) {
-            console.error("Webhook Error:", e);
+            console.error("❌ Webhook SC Error:", e);
             res.status(500).send("Error");
         }
     });

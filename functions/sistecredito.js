@@ -176,11 +176,18 @@ exports.webhook = async (req, res) => {
             const body = req.body;
             console.log("🔔 Webhook Sistecrédito:", JSON.stringify(body));
 
-            const txData = body.data || body; 
-            const orderId = txData.invoice; 
-            const status = txData.transactionStatus; 
+            // SISTECRÉDITO en producción manda el JSON plano en el body
+            // La "I" de Invoice y la "T" de TransactionStatus van en Mayúscula
+            const orderId = body.Invoice || body.invoice; 
+            const status = body.TransactionStatus || body.transactionStatus || body.status; 
+            
+            // Extraer el ID real de la transacción de SC para el recibo
+            const paymentId = body._id || body.id || 'SISTECREDITO';
 
-            if (!orderId) return res.status(400).send("Missing Invoice ID");
+            if (!orderId) {
+                console.error("❌ No se encontró Invoice ID en el webhook");
+                return res.status(400).send("Missing Invoice ID");
+            }
 
             const orderRef = db.collection('orders').doc(orderId);
             const remRef = db.collection('remissions').doc(orderId);
@@ -270,12 +277,12 @@ exports.webhook = async (req, res) => {
                     t.update(orderRef, {
                         status: 'PAGADO', 
                         paymentStatus: 'PAID', 
-                        paymentId: txData._id || 'SISTECREDITO', 
+                        paymentId: paymentId, // Usamos el ID seguro que extrajimos arriba
                         updatedAt: admin.firestore.FieldValue.serverTimestamp(), 
                         isStockDeducted: true
                     });
                 });
-                console.log("✅ Sistecrédito Approved Procesado Idéntico a ADDI");
+                console.log(`✅ Sistecrédito: Orden ${orderId} Pagada Exitosamente.`);
 
             } else if (status === 'Rejected' || status === 'Cancelled' || status === 'Failed') { 
                 const docCheck = await orderRef.get();
