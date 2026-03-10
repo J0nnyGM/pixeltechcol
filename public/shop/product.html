@@ -1,6 +1,5 @@
 <!DOCTYPE html>
 <html lang="es">
-
 <head>
     <link rel="manifest" href="/manifest.json">
     <meta name="theme-color" content="#00AEC7">
@@ -9,21 +8,23 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Cargando Producto... | PixelTech</title>
 
+    <link rel="canonical" href="https://pixeltechcol.com/product.html" />
+
     <link rel="preload" href="../css/styles.css?v=1.1" as="style">
     <link rel="stylesheet" href="../css/styles.css?v=1.1">
 
     <link rel="preconnect" href="https://s3.amazonaws.com" crossorigin>
     <link rel="preconnect" href="https://cdn.addi.com" crossorigin>
+    <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
 
-    <style>
-        @font-face { font-family: 'FontAwesome'; font-display: swap; }
-        @font-face { font-family: 'Inter'; font-display: swap; }
-    </style>
-    
-    <link rel="canonical" href="https://pixeltechcol.com/product.html" />
     <link rel="preload" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
     <noscript><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"></noscript>
+
     <style>
+        /* 4. FORZAR CARGA DE FUENTES SIN BLOQUEO */
+        @font-face { font-family: 'FontAwesome'; font-display: swap; }
+        @font-face { font-family: 'Inter'; font-display: swap; }
+        
         input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
         input[type=number] { -moz-appearance: textfield; }
         .thumb-active { border-color: #00AEC7 !important; border-width: 2px !important; opacity: 1 !important; }
