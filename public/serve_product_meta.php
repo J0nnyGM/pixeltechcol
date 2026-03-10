@@ -41,22 +41,39 @@ if ($http_code == 200 && $response) {
         // --- 1. Extraer Nombre ---
         $name = isset($fields['name']['stringValue']) ? $fields['name']['stringValue'] : 'Producto';
         
-        // --- 2. EXTRAER PRECIO (LÓGICA BLINDADA) ---
+        // --- 2. EXTRAER PRECIO (LÓGICA BLINDADA Y PROFUNDA) ---
         $price = 0;
         
-        // A. Buscar precio principal
+        // A. Intentar buscar el precio principal en el documento raíz
         if (isset($fields['price'])) {
             if (isset($fields['price']['integerValue'])) {
                 $price = floatval($fields['price']['integerValue']);
             } elseif (isset($fields['price']['doubleValue'])) {
                 $price = floatval($fields['price']['doubleValue']);
             } elseif (isset($fields['price']['stringValue'])) {
-                // Si se guardó como texto con puntos, los limpiamos
                 $price = floatval(preg_replace('/[^0-9]/', '', $fields['price']['stringValue']));
             }
         }
         
-        // B. Si el precio es 0 (Productos variables), buscar en "capacities"
+        // B. Si el precio raíz es 0, buscar el precio MÁS BARATO en la matriz "combinations"
+        if ($price == 0 && isset($fields['combinations']['arrayValue']['values'])) {
+            $min_price = 0;
+            foreach ($fields['combinations']['arrayValue']['values'] as $combo) {
+                $p = 0;
+                if (isset($combo['mapValue']['fields']['price']['integerValue'])) {
+                    $p = floatval($combo['mapValue']['fields']['price']['integerValue']);
+                } elseif (isset($combo['mapValue']['fields']['price']['doubleValue'])) {
+                    $p = floatval($combo['mapValue']['fields']['price']['doubleValue']);
+                }
+                
+                if ($min_price == 0 || ($p > 0 && $p < $min_price)) {
+                    $min_price = $p;
+                }
+            }
+            if ($min_price > 0) $price = $min_price;
+        }
+
+        // C. Si sigue en 0, buscar en la matriz "capacities"
         if ($price == 0 && isset($fields['capacities']['arrayValue']['values'])) {
             $min_price = 0;
             foreach ($fields['capacities']['arrayValue']['values'] as $cap) {
@@ -67,14 +84,29 @@ if ($http_code == 200 && $response) {
                     $p = floatval($cap['mapValue']['fields']['price']['doubleValue']);
                 }
                 
-                // Guardamos el precio más barato que encontremos
                 if ($min_price == 0 || ($p > 0 && $p < $min_price)) {
                     $min_price = $p;
                 }
             }
-            if ($min_price > 0) {
-                $price = $min_price;
+            if ($min_price > 0) $price = $min_price;
+        }
+        
+        // D. Si sigue en 0, buscar en "variants" (colores)
+        if ($price == 0 && isset($fields['variants']['arrayValue']['values'])) {
+            $min_price = 0;
+            foreach ($fields['variants']['arrayValue']['values'] as $var) {
+                $p = 0;
+                if (isset($var['mapValue']['fields']['price']['integerValue'])) {
+                    $p = floatval($var['mapValue']['fields']['price']['integerValue']);
+                } elseif (isset($var['mapValue']['fields']['price']['doubleValue'])) {
+                    $p = floatval($var['mapValue']['fields']['price']['doubleValue']);
+                }
+                
+                if ($min_price == 0 || ($p > 0 && $p < $min_price)) {
+                    $min_price = $p;
+                }
             }
+            if ($min_price > 0) $price = $min_price;
         }
 
         // Formatear a pesos colombianos (Ej: 1500000 -> 1.500.000)
@@ -86,13 +118,15 @@ if ($http_code == 200 && $response) {
             $image = $fields['mainImage']['stringValue'];
         } elseif (isset($fields['image']['stringValue'])) {
             $image = $fields['image']['stringValue'];
+        } elseif (isset($fields['images']['arrayValue']['values'][0]['stringValue'])) {
+            // Si no hay mainImage, intentar sacar la primera del array 'images'
+            $image = $fields['images']['arrayValue']['values'][0]['stringValue'];
         }
         
         // --- 4. Extraer Descripción ---
         $desc = "Compra $name al mejor precio en PixelTech Colombia. Envíos a todo el país y crédito ADDI.";
         if (isset($fields['description']['stringValue'])) {
             $clean_desc = strip_tags($fields['description']['stringValue']); 
-            // Limpiamos saltos de línea para SEO
             $clean_desc = trim(preg_replace('/\s\s+/', ' ', $clean_desc)); 
             $desc = mb_substr($clean_desc, 0, 150) . "..."; 
         }
@@ -121,7 +155,7 @@ if ($http_code == 200 && $response) {
         // 6. Inyectar en el HTML
         $html = preg_replace('/<title>.*?<\/title>/is', $meta_tags, $html);
         
-        // Opcional: Inyectamos datos JS para que la página sea aún más rápida
+        // Inyectamos datos JS para evitar el parpadeo en la carga de la página
         $preloadedData = json_encode([
             'id' => $product_id,
             'name' => $name,
