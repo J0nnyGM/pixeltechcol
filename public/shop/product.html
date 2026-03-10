@@ -2,8 +2,6 @@
 <html lang="es">
 
 <head>
-    <link rel="preconnect" href="https://kit.fontawesome.com" crossorigin>
-    <link rel="preconnect" href="https://ka-f.fontawesome.com" crossorigin>
     <link rel="manifest" href="/manifest.json">
     <meta name="theme-color" content="#00AEC7">
     <link rel="apple-touch-icon" href="/img/icons/icon-192x192.png">
@@ -12,7 +10,8 @@
     <title>Cargando Producto... | PixelTech</title>
     <link rel="stylesheet" href="../css/styles.css?v=1.1">
     <link rel="canonical" href="https://pixeltechcol.com/product.html" />
-    <script defer src="https://kit.fontawesome.com/0d623ded97.js" crossorigin="anonymous"></script>
+    <link rel="preload" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
+    <noscript><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"></noscript>
     <style>
         input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
         input[type=number] { -moz-appearance: textfield; }
@@ -71,7 +70,7 @@
                 
                 <div class="order-1 md:order-2 flex-grow bg-white rounded-[2rem] md:rounded-[2.5rem] border border-gray-100 p-4 md:p-10 flex items-center justify-center relative aspect-square md:aspect-auto md:min-h-[500px] shadow-sm overflow-hidden group">
                     <span id="p-discount-tag" class="absolute top-4 right-4 md:top-8 md:right-8 bg-brand-red text-white text-[10px] font-black px-3 py-1 md:px-4 md:py-1.5 rounded-full z-10 shadow-lg hidden">DTO</span>
-                    <img id="p-main-image" src="" fetchpriority="high" decoding="sync" alt="Producto" class="w-full h-full object-contain fade-in transition-transform duration-700 group-hover:scale-105">
+                    <img id="p-main-image" src="" width="500" height="500" fetchpriority="high" decoding="sync" alt="Producto" class="w-full h-full object-contain fade-in transition-transform duration-700 group-hover:scale-105">
                 </div>
             </div>
 

@@ -85,6 +85,17 @@ export async function initProductDetail() {
 
     if (!productId) { window.location.href = '/index.html'; return; }
 
+    // 🔥 TRUCO DE VELOCIDAD EXTREMA (Hydration): 
+    // Usamos los datos que el PHP ya nos mandó para pintar la pantalla ANTES de que cargue Firebase
+    if (window.__PRELOADED_PRODUCT__) {
+        const p_load = window.__PRELOADED_PRODUCT__;
+        els.name.textContent = p_load.name;
+        els.price.textContent = `$${p_load.price.toLocaleString('es-CO')}`;
+        els.mainImg.src = p_load.mainImage;
+        els.loader.classList.add('hidden');
+        els.content.classList.remove('hidden');
+    }
+
     // 1. CARGA INICIAL RÁPIDA (Desde caché si existe)
     let p = getProductFromCache(productId);
     
@@ -256,7 +267,7 @@ els.relatedGrid.innerHTML = related.slice(0, 8).map(p => {
             <div class="w-[70vw] sm:w-[calc(50%-8px)] lg:w-[calc(25%-12px)] shrink-0 bg-white rounded-[1.5rem] md:rounded-[2rem] p-3 md:p-4 border border-gray-100 shadow-sm hover:border-brand-cyan/30 hover:shadow-md transition-all cursor-pointer group relative snap-start" onclick="window.location.href='/shop/product.html?id=${p.id}'">
                 ${discountBadge}
                 <div class="h-32 md:h-36 mb-3 md:mb-4 flex items-center justify-center p-3 bg-slate-50 rounded-[1.2rem] md:rounded-[1.5rem] group-hover:bg-cyan-50/30 transition-colors">
-                    <img src="${miniaturaImg}" onerror="this.onerror=null; this.src='${originalImg}';" class="max-w-full max-h-full object-contain group-hover:scale-110 transition duration-500 mix-blend-multiply" loading="lazy" alt="${p.name}">
+                    <img src="${miniaturaImg}" width="224" height="224" onerror="this.onerror=null; this.src='${originalImg}';" class="max-w-full max-h-full object-contain group-hover:scale-110 transition duration-500 mix-blend-multiply" loading="lazy" alt="${p.name}">
                 </div>
                 <div class="px-1 md:px-2">
                     <p class="text-[8px] md:text-[9px] font-bold text-gray-400 uppercase tracking-widest truncate mb-1">${p.category}</p>
@@ -541,8 +552,11 @@ function updateGallery() {
 
         const isActive = state.currentImage === src;
         
-        // Dejamos que las clases CSS originales controlen el tamaño perfectamente
         img.className = `min-w-[80px] w-20 md:w-full h-20 object-contain bg-white border rounded-xl cursor-pointer transition-all duration-200 shrink-0 snap-center ${isActive ? 'thumb-active' : 'thumb-inactive'}`;
+        
+        // Atributos obligatorios para Google PageSpeed
+        img.width = 80;
+        img.height = 80;
         
         img.onmouseenter = activateImage; 
         img.onclick = activateImage;      
