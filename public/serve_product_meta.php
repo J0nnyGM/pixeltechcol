@@ -18,36 +18,69 @@ if (empty($product_id) || !file_exists($real_html_path)) {
 $html = file_get_contents($real_html_path);
 
 // 4. API REST de Firebase + Tu API Key
-$api_key = "AIzaSyALwLCRjRaWUE5yy5-TBjjxKehguNhb0GU"; // Tu API Key extraída de firebase-init.js
+$api_key = "AIzaSyALwLCRjRaWUE5yy5-TBjjxKehguNhb0GU"; 
 $api_url = "https://firestore.googleapis.com/v1/projects/pixeltechcol/databases/(default)/documents/products/" . urlencode($product_id) . "?key=" . $api_key;
 
-// 5. Usamos cURL en lugar de file_get_contents para saltar bloqueos de cPanel
+// 5. Petición cURL segura
 $ch = curl_init();
 curl_setopt($ch, CURLOPT_URL, $api_url);
 curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
-curl_setopt($ch, CURLOPT_TIMEOUT, 2); // 2 segundos máximo
+curl_setopt($ch, CURLOPT_TIMEOUT, 2); 
 curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
 $response = curl_exec($ch);
 $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
 curl_close($ch);
 
-// 6. Si Firebase respondió correctamente, procesamos los datos
+// 6. Procesamos los datos si Firebase respondió bien
 if ($http_code == 200 && $response) {
     $data = json_decode($response, true);
     
     if (isset($data['fields'])) {
         $fields = $data['fields'];
         
+        // --- 1. Extraer Nombre ---
         $name = isset($fields['name']['stringValue']) ? $fields['name']['stringValue'] : 'Producto';
         
+        // --- 2. EXTRAER PRECIO (LÓGICA BLINDADA) ---
         $price = 0;
-        if (isset($fields['price']['integerValue'])) {
-            $price = $fields['price']['integerValue'];
-        } elseif (isset($fields['price']['doubleValue'])) {
-            $price = $fields['price']['doubleValue'];
+        
+        // A. Buscar precio principal
+        if (isset($fields['price'])) {
+            if (isset($fields['price']['integerValue'])) {
+                $price = floatval($fields['price']['integerValue']);
+            } elseif (isset($fields['price']['doubleValue'])) {
+                $price = floatval($fields['price']['doubleValue']);
+            } elseif (isset($fields['price']['stringValue'])) {
+                // Si se guardó como texto con puntos, los limpiamos
+                $price = floatval(preg_replace('/[^0-9]/', '', $fields['price']['stringValue']));
+            }
         }
+        
+        // B. Si el precio es 0 (Productos variables), buscar en "capacities"
+        if ($price == 0 && isset($fields['capacities']['arrayValue']['values'])) {
+            $min_price = 0;
+            foreach ($fields['capacities']['arrayValue']['values'] as $cap) {
+                $p = 0;
+                if (isset($cap['mapValue']['fields']['price']['integerValue'])) {
+                    $p = floatval($cap['mapValue']['fields']['price']['integerValue']);
+                } elseif (isset($cap['mapValue']['fields']['price']['doubleValue'])) {
+                    $p = floatval($cap['mapValue']['fields']['price']['doubleValue']);
+                }
+                
+                // Guardamos el precio más barato que encontremos
+                if ($min_price == 0 || ($p > 0 && $p < $min_price)) {
+                    $min_price = $p;
+                }
+            }
+            if ($min_price > 0) {
+                $price = $min_price;
+            }
+        }
+
+        // Formatear a pesos colombianos (Ej: 1500000 -> 1.500.000)
         $price_formatted = number_format($price, 0, ',', '.');
         
+        // --- 3. Extraer Imagen ---
         $image = "https://pixeltechcol.com/img/logo.webp";
         if (isset($fields['mainImage']['stringValue'])) {
             $image = $fields['mainImage']['stringValue'];
@@ -55,16 +88,19 @@ if ($http_code == 200 && $response) {
             $image = $fields['image']['stringValue'];
         }
         
+        // --- 4. Extraer Descripción ---
         $desc = "Compra $name al mejor precio en PixelTech Colombia. Envíos a todo el país y crédito ADDI.";
         if (isset($fields['description']['stringValue'])) {
             $clean_desc = strip_tags($fields['description']['stringValue']); 
+            // Limpiamos saltos de línea para SEO
+            $clean_desc = trim(preg_replace('/\s\s+/', ' ', $clean_desc)); 
             $desc = mb_substr($clean_desc, 0, 150) . "..."; 
         }
         
         $productUrl = "https://pixeltechcol.com/shop/product.html?id=" . urlencode($product_id);
         $title = "$" . $price_formatted . " - " . $name . " | PixelTech";
 
-        // --- Construir Meta Etiquetas Dinámicas ---
+        // --- 5. Construir Meta Etiquetas Dinámicas ---
         $meta_tags = "
     <title>$title</title>
     <meta name=\"description\" content=\"$desc\">
@@ -80,12 +116,12 @@ if ($http_code == 200 && $response) {
     <meta name=\"twitter:title\" content=\"$title\">
     <meta name=\"twitter:description\" content=\"$desc\">
     <meta name=\"twitter:image\" content=\"$image\">
-    ";
+        ";
 
-        // Reemplazamos cualquier etiqueta <title> existente en tu HTML por nuestros Metas usando RegEx
+        // 6. Inyectar en el HTML
         $html = preg_replace('/<title>.*?<\/title>/is', $meta_tags, $html);
         
-        // Inyectamos datos para acelerar la carga visual del cliente
+        // Opcional: Inyectamos datos JS para que la página sea aún más rápida
         $preloadedData = json_encode([
             'id' => $product_id,
             'name' => $name,
@@ -96,6 +132,6 @@ if ($http_code == 200 && $response) {
     }
 }
 
-// 7. Entregamos la página final
+// 7. Imprimir la página final
 echo $html;
 ?>
