@@ -1142,26 +1142,57 @@ async function loadBrandsMarquee() {
     const track = document.getElementById('brands-track');
     if (!track) return;
 
-    let brands = JSON.parse(localStorage.getItem('pixeltech_brands')) || [];
+    let brands = [];
+    const STORAGE_KEY = 'pixeltech_brands';
 
+    // 1. Leer del caché con seguridad
+    const cachedRaw = localStorage.getItem(STORAGE_KEY);
+    if (cachedRaw) {
+        try {
+            const parsedData = JSON.parse(cachedRaw);
+            // PASO CLAVE: Validar que sea un Array
+            if (Array.isArray(parsedData)) {
+                brands = parsedData;
+            } else {
+                console.warn("Caché de marcas con formato incorrecto. Limpiando...");
+                localStorage.removeItem(STORAGE_KEY);
+            }
+        } catch (e) { 
+            console.warn("Cache marcas corrupto"); 
+            localStorage.removeItem(STORAGE_KEY);
+        }
+    }
+
+    // 2. Si no hay caché válido, descargar de Firebase
     if (brands.length === 0) {
         try {
             const q = query(collection(db, "brands"), orderBy("name", "asc"));
             const snap = await getDocs(q);
             snap.forEach(d => brands.push(d.data()));
-            localStorage.setItem('pixeltech_brands', JSON.stringify(brands));
-        } catch (e) { console.error("Brands Error:", e); }
+            
+            // Guardar en caché solo si se descargaron marcas
+            if (brands.length > 0) {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(brands));
+            }
+        } catch (e) { 
+            console.error("Brands Error:", e); 
+        }
     }
 
+    // Si después de todo no hay marcas, salimos
     if (brands.length === 0) return;
 
+    // 3. Renderizar el carrusel
     const createBrandCard = (b) => `
         <a href="/shop/search.html?brand=${encodeURIComponent(b.name)}" class="block w-32 h-20 bg-white border border-gray-100 rounded-2xl flex items-center justify-center p-4 hover:border-brand-cyan hover:shadow-xl hover:scale-110 transition-all duration-300 shrink-0">
             <img src="${b.image || 'https://placehold.co/100'}" class="max-w-full max-h-full object-contain" alt="${b.name}">
         </a>
     `;
 
+    // Como ahora estamos 100% seguros de que 'brands' es un Array, .map() funcionará siempre
     const content = brands.map(createBrandCard).join('');
+    
+    // Duplicamos el contenido para el efecto visual infinito
     track.innerHTML = content + content + content + content; 
 }
 

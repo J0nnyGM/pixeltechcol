@@ -4,7 +4,7 @@ const grid = document.getElementById('brands-grid');
 
 // Variables de estado
 let brandsData = [];
-const STORAGE_KEY = 'pixeltech_brands';
+const STORAGE_KEY = 'pixeltech_brands_smart';
 let isListening = false; // Evita abrir múltiples canales de WebSockets
 
 // ==========================================================================

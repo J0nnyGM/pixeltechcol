@@ -11,7 +11,7 @@ const btnViewAllSub = document.getElementById('btn-view-all-sub');
 let categoriesData = [];
 
 // Claves de almacenamiento
-const STORAGE_KEY = 'pixeltech_categories';
+const STORAGE_KEY = 'pixeltech_categories_smart';
 let isListening = false; // Evita múltiples conexiones simultáneas
 
 // ==========================================================================
