@@ -650,30 +650,32 @@ async function initHeaderLogic() {
         syncAllCategories();
     }, 2500);
 
-    onAuthStateChanged(auth, async (user) => {
-        const container = document.getElementById('user-info-desktop');
-        const mobileProfile = document.getElementById('mobile-profile-link');
-        if (user) {
-            if (container) {
-                let role = sessionStorage.getItem('pixeltech_user_role');
-                if(!role) {
-                    // Carga perezosa del rol para no bloquear el header
-                    getDoc(doc(db, "users", user.uid)).then(userSnap => {
-                        role = (userSnap.exists() && userSnap.data().role === 'admin') ? 'admin' : 'user';
-                        sessionStorage.setItem('pixeltech_user_role', role);
+    // 🔥 TRUCO SEO: Retrasamos la verificación de sesión para no bloquear el renderizado inicial
+    setTimeout(() => {
+        onAuthStateChanged(auth, async (user) => {
+            const container = document.getElementById('user-info-desktop');
+            const mobileProfile = document.getElementById('mobile-profile-link');
+            if (user) {
+                if (container) {
+                    let role = sessionStorage.getItem('pixeltech_user_role');
+                    if(!role) {
+                        getDoc(doc(db, "users", user.uid)).then(userSnap => {
+                            role = (userSnap.exists() && userSnap.data().role === 'admin') ? 'admin' : 'user';
+                            sessionStorage.setItem('pixeltech_user_role', role);
+                            renderUserLink(role, container, mobileProfile);
+                        });
+                    } else {
                         renderUserLink(role, container, mobileProfile);
-                    });
-                } else {
-                    renderUserLink(role, container, mobileProfile);
+                    }
                 }
+            } else {
+                if (container) {
+                    container.innerHTML = `<a href="/auth/login.html" class="flex flex-col items-center gap-1 group w-14"><div class="w-12 h-12 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center group-hover:bg-brand-cyan transition duration-300 shadow-lg"><i class="fa-regular fa-user text-xl text-white group-hover:text-brand-black"></i></div><span class="text-[8px] font-black uppercase tracking-widest text-gray-500 group-hover:text-brand-cyan text-center">Ingresar</span></a>`;
+                }
+                if (mobileProfile) mobileProfile.href = "/auth/login.html";
             }
-        } else {
-            if (container) {
-                container.innerHTML = `<a href="/auth/login.html" class="flex flex-col items-center gap-1 group w-14"><div class="w-12 h-12 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center group-hover:bg-brand-cyan transition duration-300 shadow-lg"><i class="fa-regular fa-user text-xl text-white group-hover:text-brand-black"></i></div><span class="text-[8px] font-black uppercase tracking-widest text-gray-500 group-hover:text-brand-cyan text-center">Ingresar</span></a>`;
-            }
-            if (mobileProfile) mobileProfile.href = "/auth/login.html";
-        }
-    });
+        });
+    }, 2500); // 2500ms de retraso
 
     function renderUserLink(role, container, mobileProfile) {
         const isAdmin = role === 'admin';
