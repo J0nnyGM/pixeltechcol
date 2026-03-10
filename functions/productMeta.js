@@ -1,6 +1,17 @@
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 
+// Función auxiliar para convertir cualquier formato raro de Firebase a un número real
+function parsePrice(val) {
+    if (val === undefined || val === null) return 0;
+    if (typeof val === 'number') return val;
+    if (typeof val === 'string') {
+        const cleaned = val.replace(/[^0-9]/g, '');
+        return Number(cleaned) || 0;
+    }
+    return 0;
+}
+
 exports.renderProductMeta = async (req, res) => {
     const id = req.query.id;
     if (!id) return res.status(400).send("Falta el ID del producto");
@@ -14,18 +25,55 @@ exports.renderProductMeta = async (req, res) => {
 
         const p = docSnap.data();
         
-        // Preparar la información limpia
-        const title = `${p.name} | PixelTech Colombia`;
-        // Limpiamos etiquetas HTML de la descripción
-        const cleanDesc = p.description ? p.description.replace(/<[^>]*>?/gm, '').substring(0, 150) + "..." : `Compra ${p.name} al mejor precio. Envíos a toda Colombia.`;
-        const image = p.mainImage || (p.images && p.images.length > 0 ? p.images[0] : "https://pixeltechcol.com/img/logo.webp");
+        // --- 1. LÓGICA DE PRECIO INTELIGENTE ---
+        let price = parsePrice(p.price);
+
+        // Si el precio base es 0, buscamos el más barato dentro de las opciones
+        if (price === 0) {
+            let allPrices = [];
+            
+            if (p.combinations && Array.isArray(p.combinations)) {
+                allPrices.push(...p.combinations.map(c => parsePrice(c.price)));
+            }
+            if (p.capacities && Array.isArray(p.capacities)) {
+                allPrices.push(...p.capacities.map(c => parsePrice(c.price)));
+            }
+            if (p.variants && Array.isArray(p.variants)) {
+                allPrices.push(...p.variants.map(v => parsePrice(v.price)));
+            }
+
+            // Filtramos los mayores a 0 y tomamos el mínimo
+            const validPrices = allPrices.filter(v => v > 0);
+            if (validPrices.length > 0) {
+                price = Math.min(...validPrices);
+            }
+        }
+
+        const priceFormatted = price.toLocaleString('es-CO');
         
-        const priceFormatted = (p.price || 0).toLocaleString('es-CO');
-        const finalTitle = `$${priceFormatted} - ${p.name}`; // El precio saldrá en el título de WhatsApp
+        // --- 2. PREPARAR TEXTOS ---
+        const finalTitle = `$${priceFormatted} - ${p.name} | PixelTech`;
+        let cleanDesc = `Compra ${p.name} al mejor precio en PixelTech Colombia. Envíos a todo el país.`;
+        
+        if (p.description) {
+            cleanDesc = p.description.replace(/<[^>]*>?/gm, ''); // Quita HTML
+            cleanDesc = cleanDesc.replace(/\s\s+/g, ' ').trim(); // Quita saltos de línea
+            cleanDesc = cleanDesc.substring(0, 150) + "...";
+        }
+        
+        // --- 3. EXTRAER IMAGEN ---
+        let image = "https://pixeltechcol.com/img/logo.webp";
+        if (p.mainImage) {
+            image = p.mainImage;
+        } else if (p.image) {
+            image = p.image;
+        } else if (p.images && p.images.length > 0) {
+            image = p.images[0];
+        }
         
         const productUrl = `https://pixeltechcol.com/shop/product.html?id=${id}`;
 
-        // Generar HTML con Meta Tags (Open Graph)
+        // --- 4. GENERAR HTML (OPEN GRAPH) ---
         const html = `<!DOCTYPE html>
         <html lang="es">
         <head>
@@ -52,7 +100,6 @@ exports.renderProductMeta = async (req, res) => {
         </body>
         </html>`;
 
-        // Cacheamos la respuesta por 24 horas para que sea súper rápido
         res.set('Cache-Control', 'public, max-age=3600, s-maxage=86400');
         res.status(200).send(html);
 
