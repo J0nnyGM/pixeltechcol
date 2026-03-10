@@ -122,3 +122,4 @@ ErrorDocument 404 /404.html
     
     # D. Ejecutar internamente el script PHP (Sin cambiar la URL en la barra)
     RewriteRule ^(.*)$ serve_product_meta.php?id=%1 [L]
+    
