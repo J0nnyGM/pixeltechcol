@@ -20,16 +20,17 @@
     <link rel="preconnect" href="https://s3.amazonaws.com" crossorigin>
     <link rel="preconnect" href="https://cdn.addi.com" crossorigin>
     <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
-    
     <link rel="preconnect" href="https://pixeltechcol.firebaseapp.com" crossorigin>
+    <link rel="preconnect" href="https://apis.google.com" crossorigin>
     <link rel="preconnect" href="https://www.googleapis.com" crossorigin>
     <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
+    <link rel="preconnect" href="https://firebasestorage.googleapis.com" crossorigin>
 
     <link rel="preload" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
     <noscript><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"></noscript>
 
     <style>
-        /* 4. FORZAR SWAP EN FUENTES EXTERNAS (FontAwesome y Addi) */
+        /* 🔥 5. FORZAR SWAP EN FUENTES EXTERNAS (Evita FOIT / Texto invisible) */
         @font-face { 
             font-family: 'Font Awesome 6 Free'; font-style: normal; font-weight: 900; font-display: swap; 
             src: url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/webfonts/fa-solid-900.woff2') format('woff2'); 
@@ -47,6 +48,7 @@
             src: url('https://s3.amazonaws.com/widgets.addi.com/inter/Inter-Regular.ttf') format('truetype'); 
         }
         
+        /* Estilos de la UI */
         input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
         input[type=number] { -moz-appearance: textfield; }
         .thumb-active { border-color: #00AEC7 !important; border-width: 2px !important; opacity: 1 !important; }
@@ -65,14 +67,13 @@
             transform: translateY(120%); 
             transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
             will-change: transform;
-            z-index: 60; /* Bajamos el z-index para que no tape los modales/menús */
+            z-index: 60;
             visibility: hidden;
         }
         .sticky-bar.visible { 
             transform: translateY(0); 
             visibility: visible;
         }
-        /* Ajuste dinámico de espacio inferior respetando el área segura de iOS/Android */
         @media (max-width: 1024px) {
             body { padding-bottom: calc(100px + env(safe-area-inset-bottom)); } 
         }
@@ -95,7 +96,7 @@
         <span id="breadcrumb-name" class="text-brand-black">Producto</span>
     </nav>
 
-<main class="container mx-auto px-4 md:px-6 py-4 md:py-8">
+    <main class="container mx-auto px-4 md:px-6 py-4 md:py-8">
         
         <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12">
 
@@ -184,7 +185,6 @@
             </div>
             
             <div class="relative flex items-center group/related">
-                
                 <button onclick="let g = document.getElementById('related-grid'); g.scrollBy({left: -(g.clientWidth / 1.5), behavior: 'smooth'})" 
                     class="absolute left-0 z-20 w-10 h-10 bg-white border border-gray-100 rounded-full shadow-lg flex items-center justify-center text-brand-black hover:text-brand-cyan hover:border-brand-cyan transition-all opacity-0 group-hover/related:opacity-100 disabled:opacity-0 -translate-x-2 md:-translate-x-4 hidden md:flex">
                     <i class="fa-solid fa-chevron-left text-sm"></i>
@@ -197,7 +197,6 @@
                     class="absolute right-0 z-20 w-10 h-10 bg-white border border-gray-100 rounded-full shadow-lg flex items-center justify-center text-brand-black hover:text-brand-cyan hover:border-brand-cyan transition-all opacity-0 group-hover/related:opacity-100 disabled:opacity-0 translate-x-2 md:translate-x-4 hidden md:flex">
                     <i class="fa-solid fa-chevron-right text-sm"></i>
                 </button>
-
             </div>
         </section>
 
@@ -226,14 +225,34 @@
         loadGlobalFooter(); 
     </script>
 
+    <script>
+        // Esto se ejecuta de inmediato, sin importar si Firebase cargó o no.
+        document.addEventListener('DOMContentLoaded', () => {
+            if (window.__PRELOADED_PRODUCT__) {
+                const p_load = window.__PRELOADED_PRODUCT__;
+                
+                const img = document.getElementById('p-main-image');
+                if (img) img.src = p_load.mainImage;
+                
+                const name = document.getElementById('p-name');
+                if (name) name.textContent = p_load.name;
+                
+                const price = document.getElementById('p-price');
+                if (price) price.textContent = '$' + p_load.price.toLocaleString('es-CO');
+                
+                const loader = document.getElementById('p-loader');
+                if (loader) loader.classList.add('hidden');
+                
+                const content = document.getElementById('p-content');
+                if (content) content.classList.remove('hidden');
+            }
+        });
+    </script>
+
     <script type="module">
         import { initProductDetail } from '../js/product-detail.js?v=1.1';
-        
-        // 🔥 TRUCO LCP: Esperamos 1.5 segundos antes de arrancar la lógica del producto.
-        // Esto le da vía libre al navegador para que descargue y muestre la foto principal SIN interrupciones.
-        setTimeout(() => {
-            initProductDetail();
-        }, 1500);
+        initProductDetail();
     </script>
+
 </body>
 </html>
