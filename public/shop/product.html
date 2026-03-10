@@ -8,6 +8,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Cargando Producto... | PixelTech</title>
 
+    <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js">
+    <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js">
+    <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js">
+
     <link rel="canonical" href="https://pixeltechcol.com/product.html" />
 
     <link rel="preload" href="../css/styles.css?v=1.1" as="style">
@@ -21,9 +25,23 @@
     <noscript><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"></noscript>
 
     <style>
-        /* 4. FORZAR CARGA DE FUENTES SIN BLOQUEO */
-        @font-face { font-family: 'FontAwesome'; font-display: swap; }
-        @font-face { font-family: 'Inter'; font-display: swap; }
+        /* 4. FORZAR SWAP EN FUENTES EXTERNAS (FontAwesome y Addi) */
+        @font-face { 
+            font-family: 'Font Awesome 6 Free'; font-style: normal; font-weight: 900; font-display: swap; 
+            src: url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/webfonts/fa-solid-900.woff2') format('woff2'); 
+        }
+        @font-face { 
+            font-family: 'Font Awesome 6 Free'; font-style: normal; font-weight: 400; font-display: swap; 
+            src: url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/webfonts/fa-regular-400.woff2') format('woff2'); 
+        }
+        @font-face { 
+            font-family: 'Font Awesome 6 Brands'; font-style: normal; font-weight: 400; font-display: swap; 
+            src: url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/webfonts/fa-brands-400.woff2') format('woff2'); 
+        }
+        @font-face { 
+            font-family: 'Inter'; font-style: normal; font-weight: 400; font-display: swap; 
+            src: url('https://s3.amazonaws.com/widgets.addi.com/inter/Inter-Regular.ttf') format('truetype'); 
+        }
         
         input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
         input[type=number] { -moz-appearance: textfield; }
