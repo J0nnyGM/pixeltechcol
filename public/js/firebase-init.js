@@ -78,11 +78,11 @@ export {
 };
 
 // ==========================================
-// 🧹 KILL SWITCH: LIMPIEZA DE CACHÉ GLOBAL
+// 🧹 KILL SWITCH: LIMPIEZA DE CACHÉ GLOBAL Y PWA
 // ==========================================
 export async function checkCacheVersion(db) {
     try {
-        // Leemos la versión actual desde Firebase (1 sola lectura muy barata)
+        // Leemos la versión actual desde Firebase
         const configRef = doc(db, "config", "system");
         const snap = await getDoc(configRef);
         
@@ -92,9 +92,9 @@ export async function checkCacheVersion(db) {
 
             // Si el servidor tiene una versión mayor, detonamos la bomba 💣
             if (serverVersion > localVersion) {
-                console.warn(`🔄 Nueva versión detectada (v${serverVersion}). Limpiando caché...`);
+                console.warn(`🔄 Nueva versión detectada (v${serverVersion}). Limpiando TODO el caché (Datos, Estilos y PWA)...`);
 
-                // 1. Borramos SOLO las llaves de nuestro caché para no borrar sesiones de Firebase Auth
+                // 1. Borramos Datos Locales (Carrito, Sesiones de usuario, etc.)
                 Object.keys(localStorage).forEach(key => {
                     if (key.includes('pixeltech_')) {
                         localStorage.removeItem(key);
@@ -107,10 +107,26 @@ export async function checkCacheVersion(db) {
                     }
                 });
 
-                // 2. Guardamos la nueva versión para no crear un bucle infinito
+                // 2. DESTUIR EL CACHÉ DEL SERVICE WORKER (Estilos, HTML, Imágenes viejas)
+                if ('caches' in window) {
+                    const cacheNames = await caches.keys();
+                    await Promise.all(cacheNames.map(name => caches.delete(name)));
+                    console.log("🧹 Bóveda de archivos (Service Worker Cache) eliminada.");
+                }
+
+                // 3. DESREGISTRAR EL SERVICE WORKER ACTUAL (Para matar la PWA vieja)
+                if ('serviceWorker' in navigator) {
+                    const registrations = await navigator.serviceWorker.getRegistrations();
+                    for (let registration of registrations) {
+                        await registration.unregister();
+                    }
+                    console.log("🔌 Service Worker antiguo desregistrado.");
+                }
+
+                // 4. Guardamos la nueva versión para no crear un bucle infinito
                 localStorage.setItem('pixeltech_cache_version', serverVersion.toString());
 
-                // 3. Forzamos la recarga de la página (Hard Reload)
+                // 5. Forzamos la recarga profunda de la página desde el servidor (Bypassing cache)
                 window.location.reload(true);
             }
         }
@@ -119,8 +135,7 @@ export async function checkCacheVersion(db) {
     }
 }
 
-  // Ejecutar automáticamente a los 2 segundos de abrir la página (para no frenar la carga principal)
-  setTimeout(() => {
-    // Asume que 'db' es tu variable global exportada de Firestore
+// Ejecutar automáticamente a los 2 segundos de abrir la página
+setTimeout(() => {
     checkCacheVersion(db); 
 }, 2000);
