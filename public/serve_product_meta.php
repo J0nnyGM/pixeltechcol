@@ -102,32 +102,47 @@ if ($http_code == 200 && $response) {
         }
 
         // 6. Construir Meta Etiquetas Dinámicas
-        $meta_tags = "
-    <title>$title</title>
-    <meta name=\"description\" content=\"$desc\">
-    
-    <meta property=\"og:type\" content=\"product\">
-    <meta property=\"og:url\" content=\"$productUrl\">
-    <meta property=\"og:title\" content=\"$title\">
-    <meta property=\"og:description\" content=\"$desc\">
-    <meta property=\"og:image\" content=\"$image\">
-    <meta property=\"og:site_name\" content=\"PixelTech Col\">
-    
-    <meta name=\"twitter:card\" content=\"summary_large_image\">
-    <meta name=\"twitter:title\" content=\"$title\">
-    <meta name=\"twitter:description\" content=\"$desc\">
-    <meta name=\"twitter:image\" content=\"$image\">
-    ";
+                $meta_tags = "
+            <title>$title</title>
+            <meta name=\"description\" content=\"$desc\">
+            
+            <meta property=\"og:type\" content=\"product\">
+            <meta property=\"og:url\" content=\"$productUrl\">
+            <meta property=\"og:title\" content=\"$title\">
+            <meta property=\"og:description\" content=\"$desc\">
+            <meta property=\"og:image\" content=\"$image\">
+            <meta property=\"og:site_name\" content=\"PixelTech Col\">
+            
+            <meta name=\"twitter:card\" content=\"summary_large_image\">
+            <meta name=\"twitter:title\" content=\"$title\">
+            <meta name=\"twitter:description\" content=\"$desc\">
+            <meta name=\"twitter:image\" content=\"$image\">
+            ";
 
-        // 7. Inyectar en el HTML
-        $html = preg_replace('/<title>.*?<\/title>/is', $meta_tags, $html);
-    }
-} else {
-    // Si Firebase vuelve a bloquear la IP, inyectamos un mensaje oculto para saber qué código de error arrojó.
-    $error_msg = "";
-    $html = str_replace('</head>', $error_msg . "\n</head>", $html);
-}
+                // 🔥 CORRECCIÓN: Escapamos el signo de dólar para que PHP no lo confunda con un comando ($1)
+                $safe_meta_tags = str_replace('$', '\\$', $meta_tags);
 
-// 8. Imprimir la página final
-echo $html;
-?>
+                // 7. Inyectar en el HTML
+                $html = preg_replace('/<title>.*?<\/title>/is', $safe_meta_tags, $html);
+                
+                // Inyectamos JSON para acelerar tu JS
+                $preloadedData = json_encode([
+                    'id' => $product_id,
+                    'name' => $name,
+                    'price' => $price,
+                    'mainImage' => $image
+                ]);
+                
+                // Aquí también protegemos el JSON por si acaso
+                $safe_preloadedData = str_replace('$', '\\$', $preloadedData);
+                $html = str_replace('</head>', "\n<script>window.__PRELOADED_PRODUCT__ = $safe_preloadedData;</script>\n</head>", $html);
+            }
+        } else {
+            // Si Firebase vuelve a bloquear la IP, inyectamos un mensaje oculto para saber qué código de error arrojó.
+            $error_msg = "";
+            $html = str_replace('</head>', $error_msg . "\n</head>", $html);
+        }
+
+        // 8. Imprimir la página final
+        echo $html;
+        ?>
