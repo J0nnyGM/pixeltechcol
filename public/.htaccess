@@ -109,17 +109,17 @@ ErrorDocument 404 /404.html
 # php -- END cPanel-generated handler, do not edit
 
 # ----------------------------------------------------------------------
-    # 6. SEO & SOCIAL SHARING (INTERCEPTAR BOTS DE WHATSAPP / FB)
-    # ----------------------------------------------------------------------
-    # A. Detectar si el visitante es un bot
-    RewriteCond %{HTTP_USER_AGENT} (whatsapp|facebookexternalhit|twitterbot|pinterest|linkedinbot|telegrambot|viber|skypeuri|slackbot) [NC]
+# 6. SEO & INYECCIÓN DINÁMICA (PARA TODOS: HUMANOS Y BOTS)
+# ----------------------------------------------------------------------
+<IfModule mod_rewrite.c>
+    RewriteEngine On
     
-    # B. Verificar que intentan leer el detalle de un producto
+    # A. Verificar que intentan leer el detalle de un producto
     RewriteCond %{REQUEST_URI} ^/shop/product\.html$ [NC]
     
-    # C. Capturar el ID del producto de la URL (?id=xxxx)
+    # B. Capturar el ID del producto de la URL (?id=xxxx)
     RewriteCond %{QUERY_STRING} id=([a-zA-Z0-9_-]+)
     
-    # D. Ejecutar internamente el script PHP (Sin cambiar la URL en la barra)
+    # C. Ejecutar internamente el script PHP para TODO el tráfico
     RewriteRule ^(.*)$ serve_product_meta.php?id=%1 [L]
-    
+</IfModule>
