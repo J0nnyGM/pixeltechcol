@@ -98,8 +98,7 @@ export function loadGlobalHeader() {
                 <a href="/" class="flex items-center group shrink-0 mx-auto lg:mx-0">
                     <div class="relative flex items-center">
                         <div class="absolute inset-0 bg-brand-cyan/15 blur-2xl rounded-full group-hover:bg-brand-cyan/30 transition-all duration-500"></div>
-                        <img src="/img/logo.webp" alt="PixelTech" 
-                            class="h-12 md:h-16 lg:h-20 w-auto object-contain relative z-10 drop-shadow-[0_0_15px_rgba(0,229,255,0.2)]">
+                        <img src="/img/logo.webp" alt="PixelTech" width="160" height="64" class="h-12 md:h-16 lg:h-20 w-auto object-contain relative z-10 drop-shadow-[0_0_15px_rgba(0,229,255,0.2)]">
                     </div>
                 </a>
 
@@ -183,7 +182,7 @@ export function loadGlobalHeader() {
         <div id="mobile-menu-overlay" class="absolute inset-0 bg-black/60 backdrop-blur-sm opacity-0 transition-opacity duration-300"></div>
         <div class="relative w-[85%] max-w-sm h-full bg-white flex flex-col shadow-2xl">
             <div class="p-6 bg-brand-black flex justify-between items-center shrink-0">
-                <img src="/img/logo.webp" class="h-10 w-auto" alt="PixelTech">
+                <img src="/img/logo.webp" alt="PixelTech" width="120" height="40" class="h-10 w-auto opacity-90">
                 <button id="mobile-drawer-close" class="w-8 h-8 rounded-full bg-white/10 text-white flex items-center justify-center hover:bg-brand-cyan hover:text-black transition">
                     <i class="fa-solid fa-xmark"></i>
                 </button>

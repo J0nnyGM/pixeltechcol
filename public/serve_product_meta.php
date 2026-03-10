@@ -113,7 +113,9 @@ if ($http_code == 200 && $response) {
             $title = $name . " | PixelTech";
         }
 
+        // --- 5. Construir Meta Etiquetas Dinámicas ---
         $meta_tags = "
+    <link rel=\"preload\" as=\"image\" href=\"$image\" fetchpriority=\"high\">
     <title>$title</title>
     <meta name=\"description\" content=\"$desc\">
     <meta property=\"og:type\" content=\"product\">
