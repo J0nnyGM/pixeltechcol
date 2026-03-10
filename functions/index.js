@@ -21,6 +21,7 @@ const whatsappModule = require('./whatsapp');
 const syncModule = require('./sync');
 const merchantModule = require('./google-merchant'); // <--- 1. NUEVO: Importar módulo
 const sitemapModule = require('./sitemap');
+const productMetaModule = require('./productMeta');
 
 // --- 3. EXPORTAR FUNCIONES ---
 
@@ -60,3 +61,5 @@ exports.touchProductTimestamp = syncModule.touchProductTimestamp;
 exports.generateProductFeed = merchantModule.generateProductFeed; // <--- 2. NUEVO: Exportar función
 
 exports.sitemap = sitemapModule.sitemap;
+
+exports.renderProductMeta = functions.https.onRequest(productMetaModule.renderProductMeta);

@@ -107,3 +107,18 @@ ErrorDocument 404 /404.html
   AddHandler application/x-httpd-ea-php74___lsphp .php .php7 .phtml
 </IfModule>
 # php -- END cPanel-generated handler, do not edit
+
+# ----------------------------------------------------------------------
+    # 6. SEO & SOCIAL SHARING (INTERCEPTAR BOTS DE WHATSAPP / FB)
+    # ----------------------------------------------------------------------
+    # A. Detectar si el visitante es un bot
+    RewriteCond %{HTTP_USER_AGENT} (whatsapp|facebookexternalhit|twitterbot|pinterest|linkedinbot|telegrambot|viber|skypeuri|slackbot) [NC]
+    
+    # B. Verificar que intentan leer el detalle de un producto
+    RewriteCond %{REQUEST_URI} ^/shop/product\.html$ [NC]
+    
+    # C. Capturar el ID del producto de la URL (?id=xxxx)
+    RewriteCond %{QUERY_STRING} id=([a-zA-Z0-9_-]+)
+    
+    # D. Ejecutar internamente el script PHP (Sin cambiar la URL en la barra)
+    RewriteRule ^(.*)$ serve_product_meta.php?id=%1 [L]
