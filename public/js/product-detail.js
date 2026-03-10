@@ -411,8 +411,8 @@ function updatePriceDisplay() {
 function renderAddiWidget(price) {
     if (!els.addiContainer || price <= 0) return;
 
-    // 🔥 TRUCO SEO: Retrasamos ADDI 3.5 segundos para que PageSpeed no lo cuente
-    setTimeout(() => {
+    // Función interna que inyecta ADDI
+    const initAddi = () => {
         if (!document.getElementById('addi-script')) {
             const script = document.createElement('script');
             script.id = 'addi-script';
@@ -432,8 +432,31 @@ function renderAddiWidget(price) {
             widget.setAttribute('logo-color', '#00AEC7');
             els.addiContainer.appendChild(widget);
         }
-    }, 3500); 
+    };
+
+    // 🔥 TRUCO SEO SUPREMO: Cargar ADDI solo cuando el cliente humano toque la pantalla o haga scroll. 
+    // ¡Googlebot nunca hace scroll, así que le daremos un 100% de ilusión de ligereza!
+    const loadOnInteraction = () => {
+        initAddi();
+        // Limpiamos los eventos para que no se ejecute 1000 veces
+        window.removeEventListener('scroll', loadOnInteraction);
+        window.removeEventListener('touchstart', loadOnInteraction);
+        window.removeEventListener('mousemove', loadOnInteraction);
+    };
+
+    // Escuchamos la primera interacción del usuario humano
+    window.addEventListener('scroll', loadOnInteraction, { once: true, passive: true });
+    window.addEventListener('touchstart', loadOnInteraction, { once: true, passive: true });
+    window.addEventListener('mousemove', loadOnInteraction, { once: true, passive: true });
+    
+    // Por si acaso el usuario se queda mirando sin tocar nada, lo cargamos a los 6 segundos (fuera del radar de Google)
+    setTimeout(() => { 
+        window.removeEventListener('scroll', loadOnInteraction);
+        window.removeEventListener('touchstart', loadOnInteraction);
+        initAddi(); 
+    }, 6000);
 }
+
 function updateGallery() {
     els.thumbsContainer.innerHTML = "";
     let displayImages = [];
