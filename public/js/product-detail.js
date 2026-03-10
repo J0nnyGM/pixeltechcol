@@ -401,9 +401,21 @@ function updatePriceDisplay() {
 
 function renderAddiWidget(price) {
     if (!els.addiContainer || price <= 0) return;
+
+    // 1. Inyectar el script de Addi solo cuando se necesite
+    if (!document.getElementById('addi-script')) {
+        const script = document.createElement('script');
+        script.id = 'addi-script';
+        script.src = "https://s3.amazonaws.com/widgets.addi.com/bundle.min.js";
+        script.defer = true; // No bloquea la pantalla
+        document.body.appendChild(script);
+    }
+
+    // 2. Renderizar el Widget
     let existingWidget = els.addiContainer.querySelector('addi-widget');
-    if (existingWidget) existingWidget.setAttribute('price', price);
-    else {
+    if (existingWidget) {
+        existingWidget.setAttribute('price', price);
+    } else {
         const widget = document.createElement('addi-widget');
         widget.setAttribute('price', price);
         widget.setAttribute('ally-slug', 'pixeltechcolombia-ecommerce');

@@ -29,15 +29,51 @@
     
     <link rel="stylesheet" href="css/styles.css">
 
-    <script async src="https://www.googletagmanager.com/gtag/js?id=G-TU_ID_AQUI"></script>
     <script>
-    window.dataLayer = window.dataLayer || [];
-    function gtag(){dataLayer.push(arguments);}
-    gtag('js', new Date());
-    gtag('config', 'G-TU_ID_AQUI');
+        document.addEventListener('DOMContentLoaded', function() {
+            setTimeout(function() {
+                // 1. Cargar Google Analytics
+                var gtagScript = document.createElement('script');
+                gtagScript.src = "https://www.googletagmanager.com/gtag/js?id=G-0HP0VNV5F5"; // Asegúrate de poner tu ID real
+                gtagScript.async = true;
+                document.head.appendChild(gtagScript);
+
+                window.dataLayer = window.dataLayer || [];
+                function gtag(){dataLayer.push(arguments);}
+                window.gtag = gtag; // Hacemos gtag global para que otros scripts lo puedan usar
+                gtag('js', new Date());
+                gtag('config', 'G-0HP0VNV5F5');
+
+                // 2. Si tienes LogRocket, agrégalo aquí de forma similar
+                /*
+                var lrScript = document.createElement('script');
+                lrScript.src = "https://cdn.lr-in.com/logger-1.min.js";
+                lrScript.async = true;
+                lrScript.onload = function() {
+                    LogRocket.init('tu_id/tu_app');
+                };
+                document.head.appendChild(lrScript);
+                */
+                
+                // 3. Si tienes Facebook Pixel, agrégalo aquí
+                /*
+                !function(f,b,e,v,n,t,s)
+                {if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+                n.callMethod.apply(n,arguments):n.queue.push(arguments)};
+                if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
+                n.queue=[];t=b.createElement(e);t.async=!0;
+                t.src=v;s=b.getElementsByTagName(e)[0];
+                s.parentNode.insertBefore(t,s)}(window, document,'script',
+                'https://connect.facebook.net/en_US/fbevents.js');
+                fbq('init', 'TU_ID_DE_PIXEL');
+                fbq('track', 'PageView');
+                */
+
+            }, 4000); // 4000ms = 4 segundos. Googlebot termina de evaluar antes de esto.
+        });
     </script>
 
-    <script src="https://kit.fontawesome.com/0d623ded97.js" crossorigin="anonymous"></script>
+    <script defer src="https://kit.fontawesome.com/0d623ded97.js" crossorigin="anonymous"></script>
     <style>
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
