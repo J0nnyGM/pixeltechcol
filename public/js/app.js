@@ -938,8 +938,37 @@ function loadWeeklyChoices() {
 }
 
 function loadPromotionsGrid() {
+    const track = document.getElementById('promo-track');
+    if (!track) return;
+
+    // 1. Mostrar Skeletons (Estado de Carga) si aún no hay productos en caché
+    if (allProductsCache.length === 0) {
+        const skeletonHTML = `
+        <div class="w-[280px] h-[400px] bg-white rounded-[2rem] p-5 border border-gray-100 shadow-sm shrink-0 animate-pulse flex flex-col">
+            <div class="w-12 h-12 bg-gray-200 rounded-full mb-4"></div>
+            <div class="h-44 bg-gray-100 rounded-2xl mb-4 w-full"></div>
+            <div class="h-3 bg-gray-200 rounded w-1/2 mx-auto mb-3"></div>
+            <div class="h-5 bg-gray-200 rounded w-3/4 mx-auto mb-4"></div>
+            <div class="mt-auto border-t border-dashed border-gray-100 pt-4 flex justify-between">
+                <div class="w-1/3 h-8 bg-gray-100 rounded"></div>
+                <div class="w-1/2 h-8 bg-gray-200 rounded"></div>
+            </div>
+        </div>`;
+        // Pintamos 4 Skeletons para llenar el carrusel
+        track.innerHTML = skeletonHTML + skeletonHTML + skeletonHTML + skeletonHTML;
+        return; // Salimos de la función y esperamos a que el evento 'catalogUpdated' nos vuelva a llamar
+    }
+
+    // 2. Procesar Promociones reales
     const validPromos = allProductsCache.filter(p => p.stock > 0 && p.originalPrice > p.price);
     
+    if (validPromos.length === 0) {
+        // Si ya cargó el catálogo pero no hay ofertas, ocultamos la sección completa
+        track.parentElement.parentElement.style.display = 'none'; 
+        return;
+    }
+
+    // Ordenar aleatoriamente y tomar 15
     validPromos.sort(() => 0.5 - Math.random());
     promoData = validPromos.slice(0, 15);
     
@@ -1237,11 +1266,8 @@ function renderWeeklyHTML() {
 function renderPromosHTML() {
     const track = document.getElementById('promo-track');
     if (!track) return;
-    track.innerHTML = "";
-    const validPromos = promoData.filter(p => (p.stock > 0) && (p.originalPrice > p.price));
-    if(validPromos.length === 0) { track.parentElement.style.display = 'none'; return; }
-
-    const cardsHTML = validPromos.map(p => {
+    
+    const cardsHTML = promoData.map(p => {
         const disc = Math.round(((p.originalPrice - p.price) / p.originalPrice) * 100);
         const actionButtons = getActionButtonsHTML(p, false, 'overlay', 'promo', true); 
         const overlayHTML = `<div id="overlay-promo-${p.id}" class="absolute inset-0 bg-white/95 backdrop-blur-sm z-30 hidden flex-col justify-center p-4 transition-all duration-300 opacity-0 transform scale-95 pointer-events-none rounded-[inherit]"></div>`;
@@ -1259,15 +1285,31 @@ function renderPromosHTML() {
             ${overlayHTML}
             <div class="absolute top-4 left-4 z-20 bg-brand-red text-white w-12 h-12 flex items-center justify-center rounded-full shadow-lg shadow-red-500/30 group-hover:scale-110 transition-transform"><div class="text-center leading-none"><span class="block text-[8px] font-bold opacity-80">DTO</span><span class="block text-xs font-black">${disc}%</span></div></div>
             ${freeBadge}
-            <div class="h-44 bg-gradient-to-b from-slate-50 to-white rounded-2xl overflow-hidden mb-4 flex items-center justify-center p-4"><img src="${p.mainImage || p.image || 'https://placehold.co/150'}" class="max-w-full max-h-full object-contain group-hover:scale-110 transition duration-700 mix-blend-multiply"></div>
+            <div class="h-44 bg-gradient-to-b from-slate-50 to-white rounded-2xl overflow-hidden mb-4 flex items-center justify-center p-4">
+                <img src="${p.mainImage || p.image || '/img/logo-placeholder.webp'}" loading="lazy" decoding="async" class="max-w-full max-h-full object-contain group-hover:scale-110 transition duration-700 mix-blend-multiply">
+            </div>
             <p class="text-[9px] font-black text-brand-cyan uppercase mb-1 tracking-widest text-center">OFERTA FLASH</p>
             
             <h3 class="font-bold text-sm text-brand-black mb-1 line-clamp-2 uppercase group-hover:text-brand-red transition text-center leading-tight min-h-[2.5rem]">${p.name}</h3>
             
-            <div class="mt-auto w-full border-t border-dashed border-gray-100 pt-4"><div class="flex justify-between items-end mb-4 px-2"><div class="text-left"><p class="text-[9px] text-gray-400 font-bold uppercase">Antes</p><p class="text-xs text-gray-400 line-through decoration-red-300">$${p.originalPrice.toLocaleString('es-CO')}</p></div><div class="text-right"><p class="text-[9px] text-brand-red font-bold uppercase">Ahora</p><p class="text-2xl font-black text-brand-black leading-none">$${p.price.toLocaleString('es-CO')}</p></div></div>${actionButtons}</div>
+            <div class="mt-auto w-full border-t border-dashed border-gray-100 pt-4">
+                <div class="flex justify-between items-end mb-4 px-2">
+                    <div class="text-left">
+                        <p class="text-[9px] text-gray-400 font-bold uppercase">Antes</p>
+                        <p class="text-xs text-gray-400 line-through decoration-red-300">$${p.originalPrice.toLocaleString('es-CO')}</p>
+                    </div>
+                    <div class="text-right">
+                        <p class="text-[9px] text-brand-red font-bold uppercase">Ahora</p>
+                        <p class="text-2xl font-black text-brand-black leading-none">$${p.price.toLocaleString('es-CO')}</p>
+                    </div>
+                </div>
+                ${actionButtons}
+            </div>
         </div>`;
     }).join('');
-    track.innerHTML = cardsHTML + (validPromos.length > 3 ? cardsHTML : '');
+    
+    // Duplicamos el HTML para que el carrusel infinito (marquee) funcione sin saltos
+    track.innerHTML = cardsHTML + (promoData.length > 2 ? cardsHTML : '');
 }
 
 document.addEventListener('DOMContentLoaded', async () => {

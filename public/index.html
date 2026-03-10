@@ -9,6 +9,9 @@
     <link rel="preconnect" href="https://www.googletagmanager.com">
     <link rel="dns-prefetch" href="https://firebasestorage.googleapis.com">
 
+    <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+    <link rel="dns-prefetch" href="https://www.gstatic.com">
+
     <link rel="apple-touch-startup-image" href="/img/icons/icon-512x512.png">
     <link rel="manifest" href="/manifest.json">
     <meta name="theme-color" content="#00AEC7">
@@ -60,6 +63,33 @@
             mask-image: linear-gradient(to right, transparent, black 5%, black 95%, transparent);
         }
     </style>
+
+    <script>
+        try {
+            // Buscamos si hay banners guardados en la memoria local
+            const cachedPromosRaw = localStorage.getItem('pixeltech_promo_slider_cache');
+            if (cachedPromosRaw) {
+                const promos = JSON.parse(cachedPromosRaw);
+                if (promos && promos.length > 0) {
+                    // Obtenemos la URL de la primera imagen del carrusel
+                    const firstPromo = promos[0];
+                    const imgUrl = firstPromo.promoBannerUrl || firstPromo.mainImage || firstPromo.image;
+                    
+                    if (imgUrl) {
+                        // Creamos la etiqueta <link rel="preload"> en tiempo real
+                        const preloadLink = document.createElement("link");
+                        preloadLink.href = imgUrl;
+                        preloadLink.rel = "preload";
+                        preloadLink.as = "image";
+                        preloadLink.setAttribute("fetchpriority", "high"); // Le da máxima prioridad al navegador
+                        document.head.appendChild(preloadLink);
+                    }
+                }
+            }
+        } catch (error) {
+            // Silenciamos cualquier error para no bloquear la carga
+        }
+    </script>
 </head>
 
 <body class="bg-white font-sans text-brand-black antialiased flex flex-col min-h-screen">
