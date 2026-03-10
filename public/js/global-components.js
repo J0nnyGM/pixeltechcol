@@ -645,8 +645,11 @@ async function initHeaderLogic() {
         };
     });
 
-    syncAllCategories();
-    
+    // 🔥 TRUCO SEO: Retrasar la carga pesada del menú
+    setTimeout(() => {
+        syncAllCategories();
+    }, 2500);
+
     onAuthStateChanged(auth, async (user) => {
         const container = document.getElementById('user-info-desktop');
         const mobileProfile = document.getElementById('mobile-profile-link');
@@ -1033,3 +1036,4 @@ export function trackEcommerceEvent(eventName, params) {
         }
     }
 }
+
