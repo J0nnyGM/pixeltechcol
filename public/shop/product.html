@@ -150,7 +150,21 @@
                 </div>
             </div>
             
-            <div id="related-grid" class="flex lg:grid lg:grid-cols-4 gap-4 overflow-x-auto no-scrollbar snap-x snap-mandatory px-2 md:px-4 pb-4">
+            <div class="relative flex items-center group/related">
+                
+                <button onclick="let g = document.getElementById('related-grid'); g.scrollBy({left: -(g.clientWidth / 1.5), behavior: 'smooth'})" 
+                    class="absolute left-0 z-20 w-10 h-10 bg-white border border-gray-100 rounded-full shadow-lg flex items-center justify-center text-brand-black hover:text-brand-cyan hover:border-brand-cyan transition-all opacity-0 group-hover/related:opacity-100 disabled:opacity-0 -translate-x-2 md:-translate-x-4 hidden md:flex">
+                    <i class="fa-solid fa-chevron-left text-sm"></i>
+                </button>
+
+                <div id="related-grid" class="flex flex-row gap-4 overflow-x-auto no-scrollbar snap-x snap-mandatory px-2 md:px-4 pb-8 w-full scroll-smooth">
+                </div>
+
+                <button onclick="let g = document.getElementById('related-grid'); g.scrollBy({left: (g.clientWidth / 1.5), behavior: 'smooth'})" 
+                    class="absolute right-0 z-20 w-10 h-10 bg-white border border-gray-100 rounded-full shadow-lg flex items-center justify-center text-brand-black hover:text-brand-cyan hover:border-brand-cyan transition-all opacity-0 group-hover/related:opacity-100 disabled:opacity-0 translate-x-2 md:translate-x-4 hidden md:flex">
+                    <i class="fa-solid fa-chevron-right text-sm"></i>
+                </button>
+
             </div>
         </section>
 

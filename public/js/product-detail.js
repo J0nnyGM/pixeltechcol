@@ -245,34 +245,63 @@ async function loadRelatedProductsOptimized(category, currentId) {
     related.sort(() => 0.5 - Math.random());
     
     els.relatedSection.classList.remove('hidden');
-    els.relatedGrid.innerHTML = related.slice(0, 8).map(p => {
+els.relatedGrid.innerHTML = related.slice(0, 8).map(p => {
         const price = p.price.toLocaleString('es-CO');
-
         const originalImg = p.mainImage || (p.images && p.images.length > 0 ? p.images[0] : 'https://placehold.co/150');
         const miniaturaImg = getResizedImageUrl(originalImg);
-
         const hasDiscount = p.originalPrice && p.originalPrice > p.price;
         const discountBadge = hasDiscount ? `<span class="absolute top-3 left-3 bg-brand-red text-white text-[8px] font-black px-2 py-1 rounded shadow-sm z-10">OFERTA</span>` : '';
 
         return `
-            <div class="min-w-[260px] lg:min-w-0 bg-white rounded-[2rem] p-4 border border-gray-100 shadow-sm hover:border-brand-cyan/30 hover:shadow-md transition-all cursor-pointer group relative snap-center" onclick="window.location.href='/shop/product.html?id=${p.id}'">
+            <div class="w-[70vw] sm:w-[calc(50%-8px)] lg:w-[calc(25%-12px)] shrink-0 bg-white rounded-[1.5rem] md:rounded-[2rem] p-3 md:p-4 border border-gray-100 shadow-sm hover:border-brand-cyan/30 hover:shadow-md transition-all cursor-pointer group relative snap-start" onclick="window.location.href='/shop/product.html?id=${p.id}'">
                 ${discountBadge}
-                <div class="h-40 mb-4 flex items-center justify-center p-4 bg-slate-50 rounded-[1.5rem] group-hover:bg-cyan-50/30 transition-colors">
-                    <img src="${miniaturaImg}" onerror="this.onerror=null; this.src='${originalImg}';" width="224" height="224" class="max-w-full max-h-full object-contain group-hover:scale-110 transition duration-500 mix-blend-multiply" loading="lazy" alt="${p.name}">
+                <div class="h-32 md:h-36 mb-3 md:mb-4 flex items-center justify-center p-3 bg-slate-50 rounded-[1.2rem] md:rounded-[1.5rem] group-hover:bg-cyan-50/30 transition-colors">
+                    <img src="${miniaturaImg}" onerror="this.onerror=null; this.src='${originalImg}';" class="max-w-full max-h-full object-contain group-hover:scale-110 transition duration-500 mix-blend-multiply" loading="lazy" alt="${p.name}">
                 </div>
-                <div class="px-2">
-                    <p class="text-[9px] font-bold text-gray-400 uppercase tracking-widest truncate mb-1">${p.category}</p>
-                    <h4 class="text-sm font-black text-brand-black uppercase leading-tight line-clamp-2 h-10 mb-3 group-hover:text-brand-cyan transition">${p.name}</h4>
-                    <div class="flex justify-between items-end border-t border-gray-50 pt-3">
+                <div class="px-1 md:px-2">
+                    <p class="text-[8px] md:text-[9px] font-bold text-gray-400 uppercase tracking-widest truncate mb-1">${p.category}</p>
+                    <h4 class="text-[11px] md:text-xs font-black text-brand-black uppercase leading-tight line-clamp-2 h-8 mb-2 group-hover:text-brand-cyan transition">${p.name}</h4>
+                    <div class="flex justify-between items-end border-t border-gray-50 pt-2 md:pt-3">
                         <div class="flex flex-col">
-                            ${hasDiscount ? `<span class="text-[10px] text-gray-300 line-through mb-0.5">$${p.originalPrice.toLocaleString('es-CO')}</span>` : ''}
-                            <span class="text-lg font-black ${hasDiscount ? 'text-brand-red' : 'text-brand-black'} tracking-tight">$${price}</span>
+                            ${hasDiscount ? `<span class="text-[8px] md:text-[9px] text-gray-300 line-through mb-0.5">$${p.originalPrice.toLocaleString('es-CO')}</span>` : ''}
+                            <span class="text-sm md:text-base font-black ${hasDiscount ? 'text-brand-red' : 'text-brand-black'} tracking-tight">$${price}</span>
                         </div>
-                        <button class="w-10 h-10 rounded-full bg-brand-black text-white flex items-center justify-center hover:bg-brand-cyan hover:scale-110 transition shadow-lg shadow-black/10"><i class="fa-solid fa-plus text-xs"></i></button>
+                        <button class="w-7 h-7 md:w-8 md:h-8 rounded-full bg-brand-black text-white flex items-center justify-center hover:bg-brand-cyan hover:scale-110 transition shadow-lg shadow-black/10"><i class="fa-solid fa-plus text-[10px]"></i></button>
                     </div>
                 </div>
             </div>`;
     }).join('');
+
+    // 🔥 NUEVO: LÓGICA DE AUTO-SCROLL (CARRUSEL INFINITO) 🔥
+    const grid = els.relatedGrid;
+    let autoScrollInterval;
+
+    const startAutoScroll = () => {
+        autoScrollInterval = setInterval(() => {
+            if (!grid) return;
+            const maxScrollLeft = grid.scrollWidth - grid.clientWidth;
+            
+            // Si llegó al final, regresa suavemente al inicio (Loop)
+            if (grid.scrollLeft >= maxScrollLeft - 10) {
+                grid.scrollTo({ left: 0, behavior: 'smooth' });
+            } else {
+                // Se mueve hacia la derecha el equivalente a 1 tarjeta + su espacio
+                const cardWidth = grid.querySelector('div').offsetWidth + 16; 
+                grid.scrollBy({ left: cardWidth, behavior: 'smooth' });
+            }
+        }, 3500); // 3500ms = Se mueve cada 3.5 segundos
+    };
+
+    const stopAutoScroll = () => clearInterval(autoScrollInterval);
+
+    // Arrancamos el motor
+    startAutoScroll();
+
+    // Pausamos el motor si el cliente quiere mirar o tocar un producto
+    grid.addEventListener('mouseenter', stopAutoScroll);
+    grid.addEventListener('mouseleave', startAutoScroll);
+    grid.addEventListener('touchstart', stopAutoScroll, { passive: true });
+    grid.addEventListener('touchend', startAutoScroll, { passive: true });
 }
 
 function initStickyBar() {
@@ -512,9 +541,8 @@ function updateGallery() {
 
         const isActive = state.currentImage === src;
         
+        // Dejamos que las clases CSS originales controlen el tamaño perfectamente
         img.className = `min-w-[80px] w-20 md:w-full h-20 object-contain bg-white border rounded-xl cursor-pointer transition-all duration-200 shrink-0 snap-center ${isActive ? 'thumb-active' : 'thumb-inactive'}`;
-        img.width = 80;
-        img.height = 80;
         
         img.onmouseenter = activateImage; 
         img.onclick = activateImage;      
