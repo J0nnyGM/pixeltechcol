@@ -188,7 +188,7 @@ function getBeautifulEmailTemplate(type, order, orderId) {
                                 </div>
 
                                 <div style="text-align: center; margin-top: 40px;">
-                                    <a href="https://pixeltechcol.firebaseapp.com/shop/order-detail.html?id=${orderId}" 
+                                    <a href="https://pixeltechcol.com/shop/order-detail.html?id=${orderId}" 
                                        style="display: inline-block; background-color: ${darkColor}; color: #ffffff; padding: 15px 30px; border-radius: 50px; text-decoration: none; font-size: 12px; font-weight: 900; text-transform: uppercase; letter-spacing: 1px;">
                                        Ver Detalles en la Web
                                     </a>

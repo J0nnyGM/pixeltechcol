@@ -20,6 +20,10 @@
     <link rel="preconnect" href="https://s3.amazonaws.com" crossorigin>
     <link rel="preconnect" href="https://cdn.addi.com" crossorigin>
     <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+    
+    <link rel="preconnect" href="https://pixeltechcol.firebaseapp.com" crossorigin>
+    <link rel="preconnect" href="https://www.googleapis.com" crossorigin>
+    <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
 
     <link rel="preload" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
     <noscript><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"></noscript>
@@ -224,7 +228,12 @@
 
     <script type="module">
         import { initProductDetail } from '../js/product-detail.js?v=1.1';
-        initProductDetail();
+        
+        // 🔥 TRUCO LCP: Esperamos 1.5 segundos antes de arrancar la lógica del producto.
+        // Esto le da vía libre al navegador para que descargue y muestre la foto principal SIN interrupciones.
+        setTimeout(() => {
+            initProductDetail();
+        }, 1500);
     </script>
 </body>
 </html>
