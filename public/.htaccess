@@ -8,23 +8,29 @@ ErrorDocument 404 /404.html
 # ----------------------------------------------------------------------
 <IfModule mod_rewrite.c>
     RewriteEngine On
-    RewriteBase
+    RewriteBase 
 
-    # A. Forzar HTTPS siempre y QUITAR "www" (Evita contenido duplicado en Google)
+    # ----------------------------------------------------------------------
+    # REGLA PRIORIDAD 1: INYECCIÓN DINÁMICA DE PRODUCTOS (SEO & BOTS)
+    # ----------------------------------------------------------------------
+    RewriteCond %{REQUEST_URI} ^/shop/product\.html$ [NC]
+    RewriteCond %{QUERY_STRING} id=([a-zA-Z0-9_-]+)
+    RewriteRule ^(.*)$ /serve_product_meta.php?id=%1 [L]
+
+    # A. Forzar HTTPS siempre y QUITAR "www"
     RewriteCond %{HTTPS} off [OR]
     RewriteCond %{HTTP_HOST} ^www\. [NC]
     RewriteRule ^(.*)$ https://pixeltechcol.com/$1 [L,R=301]
-    
     
     # B. Quitar /index.html de la URL de inicio (SEO)
     RewriteCond %{THE_REQUEST} ^[A-Z]{3,9}\ /index\.html\ HTTP/
     RewriteRule ^index\.html$ / [R=301,L]
 
-    # C. REESCRITURA DE SITEMAP Y GOOGLE FEED (Firebase Functions Proxy)
+    # C. REESCRITURA DE SITEMAP Y GOOGLE FEED
     RewriteRule ^sitemap\.xml$ serve_sitemap.php [L]
     RewriteRule ^google-feed\.xml$ serve_feed.php [L]
 
-    # D. REDIRECCIONES 301 (LIMPIEZA DE RASTRO DE WOOCOMMERCE)
+    # D. REDIRECCIONES 301 WOOCOMMERCE
     RewriteRule ^catalogo\.html$ /shop/catalog.html [R=301,L]
     RewriteRule ^catalog\.html$ /shop/catalog.html [R=301,L]
     RewriteRule ^etiqueta-producto/?(.*)$ /shop/catalog.html [R=301,L]
@@ -37,7 +43,7 @@ ErrorDocument 404 /404.html
     RewriteRule ^mi-cuenta/?(.*)$ / [R=301,L]
     RewriteRule ^wp-content/?(.*)$ / [R=301,L]
 
-    # E. Ocultar extensión .html en la barra de direcciones (Nuevas URLs Limpias)
+    # E. Ocultar extensión .html
     RewriteCond %{REQUEST_FILENAME} !-f
     RewriteCond %{REQUEST_FILENAME} !-d
     RewriteCond %{REQUEST_FILENAME}.html -f

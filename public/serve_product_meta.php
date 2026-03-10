@@ -2,36 +2,42 @@
 // Le decimos al navegador/bot que esto es HTML válido
 header('Content-Type: text/html; charset=utf-8');
 
-// 1. Obtener el ID del producto de la URL
+// 1. Obtener el ID del producto
 $product_id = isset($_GET['id']) ? trim($_GET['id']) : '';
 
 // 2. Ruta física a tu archivo HTML real
 $real_html_path = __DIR__ . '/shop/product.html'; 
 
-// Si no hay ID o no existe el archivo, mostramos error
 if (empty($product_id) || !file_exists($real_html_path)) {
     http_response_code(404);
     echo "Página de producto no encontrada.";
     exit;
 }
 
-// 3. Leemos el HTML original (que dice <title>Cargando Producto...</title>)
+// 3. Leemos el HTML original
 $html = file_get_contents($real_html_path);
 
-// 4. Consultamos Firebase usando su API REST (Súper rápida, ~100ms)
-$api_url = "https://firestore.googleapis.com/v1/projects/pixeltechcol/databases/(default)/documents/products/" . urlencode($product_id);
+// 4. API REST de Firebase + Tu API Key
+$api_key = "AIzaSyALwLCRjRaWUE5yy5-TBjjxKehguNhb0GU"; // Tu API Key extraída de firebase-init.js
+$api_url = "https://firestore.googleapis.com/v1/projects/pixeltechcol/databases/(default)/documents/products/" . urlencode($product_id) . "?key=" . $api_key;
 
-// Timeout de seguridad: Si Firebase tarda más de 2 segundos, no bloqueamos la web
-$ctx = stream_context_create(array('http' => array('timeout' => 2.0)));
-$response = @file_get_contents($api_url, false, $ctx);
+// 5. Usamos cURL en lugar de file_get_contents para saltar bloqueos de cPanel
+$ch = curl_init();
+curl_setopt($ch, CURLOPT_URL, $api_url);
+curl_setopt($ch, CURLOPT_RETURNTRANSFER, 1);
+curl_setopt($ch, CURLOPT_TIMEOUT, 2); // 2 segundos máximo
+curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+$response = curl_exec($ch);
+$http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+curl_close($ch);
 
-if ($response) {
+// 6. Si Firebase respondió correctamente, procesamos los datos
+if ($http_code == 200 && $response) {
     $data = json_decode($response, true);
     
     if (isset($data['fields'])) {
         $fields = $data['fields'];
         
-        // --- Extraer Datos ---
         $name = isset($fields['name']['stringValue']) ? $fields['name']['stringValue'] : 'Producto';
         
         $price = 0;
@@ -74,22 +80,22 @@ if ($response) {
     <meta name=\"twitter:title\" content=\"$title\">
     <meta name=\"twitter:description\" content=\"$desc\">
     <meta name=\"twitter:image\" content=\"$image\">
-        ";
+    ";
 
-        // 5. Inyectar en el HTML reemplazando la etiqueta de carga
-        $html = str_replace('<title>Cargando Producto... | PixelTech</title>', $meta_tags, $html);
+        // Reemplazamos cualquier etiqueta <title> existente en tu HTML por nuestros Metas usando RegEx
+        $html = preg_replace('/<title>.*?<\/title>/is', $meta_tags, $html);
         
-        // También podemos inyectar un pequeño script para ayudar a tu JS local (Opcional pero recomendado para evitar parpadeos)
+        // Inyectamos datos para acelerar la carga visual del cliente
         $preloadedData = json_encode([
             'id' => $product_id,
             'name' => $name,
             'price' => $price,
             'mainImage' => $image
         ]);
-        $html = str_replace('</head>', "<script>window.__PRELOADED_PRODUCT__ = $preloadedData;</script></head>", $html);
+        $html = str_replace('</head>', "\n<script>window.__PRELOADED_PRODUCT__ = $preloadedData;</script>\n</head>", $html);
     }
 }
 
-// 6. Entregamos la página lista a TODO el mundo
+// 7. Entregamos la página final
 echo $html;
 ?>
