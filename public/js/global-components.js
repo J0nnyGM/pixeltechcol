@@ -700,10 +700,21 @@ async function syncAllCategories() {
     const cachedRaw = localStorage.getItem(STORAGE_KEY);
     if (cachedRaw) {
         try {
-            categories = JSON.parse(cachedRaw);
-        } catch (e) { console.warn("Caché categorías corrupto"); }
+            const parsedData = JSON.parse(cachedRaw);
+            // PASO CLAVE: Validamos que la caché realmente sea un Array
+            if (Array.isArray(parsedData)) {
+                categories = parsedData;
+            } else {
+                console.warn("Caché de categorías con formato incorrecto. Limpiando...");
+                localStorage.removeItem(STORAGE_KEY);
+            }
+        } catch (e) { 
+            console.warn("Caché categorías corrupto"); 
+            localStorage.removeItem(STORAGE_KEY);
+        }
     }
 
+    // Si la caché estaba vacía, corrupta, o no era un array, la longitud será 0
     if (categories.length === 0) {
         try {
             const q = query(collection(db, "categories"), orderBy("name", "asc"));
@@ -724,8 +735,10 @@ async function syncAllCategories() {
         }
     }
 
+    // Ahora estamos 100% seguros de que 'categories' es un Array
     renderMobileMenuHTML(mobileList, categories);
 }
+
 
 // 🔥 CORRECCIÓN APLICADA AQUÍ 🔥
 function renderMobileMenuHTML(container, categories) {
