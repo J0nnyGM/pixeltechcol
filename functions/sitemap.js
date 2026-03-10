@@ -33,7 +33,7 @@ exports.sitemap = onRequest({ timeoutSeconds: 60, cors: true }, async (req, res)
         // 3. CORRECCIÓN: Actualizamos catalog.html a catalogo.html
         const staticPages = [
             { path: '/', priority: '1.0', freq: 'daily' },
-            { path: '/shop/catalogo.html', priority: '0.9', freq: 'daily' },
+            { path: '/shop/catalog.html', priority: '0.9', freq: 'daily' },
             { path: '/shop/search.html', priority: '0.8', freq: 'weekly' }
         ];
 

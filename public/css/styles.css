@@ -750,6 +750,9 @@
   .hidden {
     display: none;
   }
+  .inline {
+    display: inline;
+  }
   .inline-block {
     display: inline-block;
   }
@@ -1160,6 +1163,9 @@
   }
   .min-w-\[24rem\] {
     min-width: 24rem;
+  }
+  .min-w-\[80px\] {
+    min-width: 80px;
   }
   .min-w-\[100px\] {
     min-width: 100px;
@@ -5706,6 +5712,11 @@
   .md\:w-auto {
     @media (width >= 48rem) {
       width: auto;
+    }
+  }
+  .md\:w-full {
+    @media (width >= 48rem) {
+      width: 100%;
     }
   }
   .md\:min-w-0 {

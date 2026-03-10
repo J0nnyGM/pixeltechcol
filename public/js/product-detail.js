@@ -65,8 +65,13 @@ function getProductFromCache(id) {
     return null;
 }
 
+// Variable global para guardar la lista de imágenes actual
+let currentGalleryImages = [];
 // Variable para controlar la suscripción en tiempo real y evitar duplicados
 let unsubscribeProduct = null;
+
+// LÓGICA DE SWIPE (DESLIZAMIENTO EN MÓVILES)
+let swipeInitialized = false;
 
 export async function initProductDetail() {
     const params = new URLSearchParams(window.location.search);
@@ -411,28 +416,112 @@ function renderAddiWidget(price) {
 function updateGallery() {
     els.thumbsContainer.innerHTML = "";
     let displayImages = [];
+    
+    // Obtener imágenes de la variante si existe
     if (state.selectedColor && state.product.variants) {
         const v = state.product.variants.find(vari => vari.color === state.selectedColor);
         if (v && v.images) displayImages = [...v.images];
     }
+    // Obtener el resto de imágenes del catálogo del producto
     const globalImages = state.product.images || [];
-    const uniqueImages = new Set([...displayImages, ...globalImages]);
-    Array.from(uniqueImages).forEach((src) => {
+    
+    // Unir TODAS las fotos (las de la variante + todas las demás) sin duplicados
+    currentGalleryImages = Array.from(new Set([...displayImages, ...globalImages]));
+    
+    // Si no hay imágenes, usar un placeholder
+    if (currentGalleryImages.length === 0) {
+        currentGalleryImages = [state.product.mainImage || 'https://placehold.co/500'];
+    }
+
+    // Renderizar miniaturas (El carrusel inferior)
+    currentGalleryImages.forEach((src) => {
         const img = document.createElement('img');
         img.src = src;
+        
         const activateImage = () => {
             if (state.currentImage === src) return; 
             state.currentImage = src;
             els.mainImg.src = src;
-            Array.from(els.thumbsContainer.children).forEach(child => { child.classList.remove('thumb-active'); child.classList.add('thumb-inactive'); });
-            img.classList.remove('thumb-inactive'); img.classList.add('thumb-active');
+            
+            // Efecto fade en la imagen principal al cambiar
+            els.mainImg.classList.remove('fade-in');
+            void els.mainImg.offsetWidth; // Reiniciar animación
+            els.mainImg.classList.add('fade-in');
+
+            // Actualizar estado visual de las miniaturas
+            Array.from(els.thumbsContainer.children).forEach(child => { 
+                child.classList.remove('thumb-active'); 
+                child.classList.add('thumb-inactive'); 
+            });
+            img.classList.remove('thumb-inactive'); 
+            img.classList.add('thumb-active');
+            
+            // Mover automáticamente el carrusel inferior para centrar la foto seleccionada
+            img.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
         };
+
         const isActive = state.currentImage === src;
-        img.className = `w-full h-20 object-contain bg-white border rounded-xl cursor-pointer transition-all duration-200 ${isActive ? 'thumb-active' : 'thumb-inactive'}`;
-        img.onmouseenter = activateImage; img.onclick = activateImage;      
+        
+        // 🔥 CORRECCIÓN AQUÍ: w-20 h-20 asegura que sean cuadritos en el celular, 
+        // y md:w-full asegura que llenen la barra en PC. snap-center mejora el scroll.
+        img.className = `min-w-[80px] w-20 md:w-full h-20 object-contain bg-white border rounded-xl cursor-pointer transition-all duration-200 shrink-0 snap-center ${isActive ? 'thumb-active' : 'thumb-inactive'}`;
+        
+        img.onmouseenter = activateImage; 
+        img.onclick = activateImage;      
+        
         els.thumbsContainer.appendChild(img);
     });
+    
+    // Inicializar los eventos táctiles (Swipe)
+    initSwipeGallery();
 }
+
+function initSwipeGallery() {
+    if (swipeInitialized || currentGalleryImages.length <= 1) return;
+    
+    const imgContainer = els.mainImg.parentElement; // El div que envuelve a la imagen principal
+    
+    let touchStartX = 0;
+    let touchEndX = 0;
+
+    imgContainer.addEventListener('touchstart', e => {
+        touchStartX = e.changedTouches[0].screenX;
+    }, { passive: true });
+
+    imgContainer.addEventListener('touchend', e => {
+        touchEndX = e.changedTouches[0].screenX;
+        handleSwipe();
+    }, { passive: true });
+
+    function handleSwipe() {
+        const swipeDistance = touchStartX - touchEndX;
+        const minSwipeDistance = 40; // Sensibilidad del dedo
+        
+        const currentIndex = currentGalleryImages.indexOf(state.currentImage);
+        if (currentIndex === -1) return;
+
+        if (swipeDistance > minSwipeDistance) {
+            // Deslizar izquierda (Siguiente)
+            const nextIndex = (currentIndex + 1) % currentGalleryImages.length;
+            changeToImageIndex(nextIndex);
+        } 
+        else if (swipeDistance < -minSwipeDistance) {
+            // Deslizar derecha (Anterior)
+            const prevIndex = (currentIndex - 1 + currentGalleryImages.length) % currentGalleryImages.length;
+            changeToImageIndex(prevIndex);
+        }
+    }
+    
+    swipeInitialized = true;
+}
+
+function changeToImageIndex(index) {
+    const thumbs = els.thumbsContainer.children;
+    if (thumbs && thumbs[index]) {
+        thumbs[index].click(); // Simula el toque en la miniatura correspondiente
+    }
+}
+
 
 function renderOptions(p) {
     els.optionsContainer.innerHTML = "";
