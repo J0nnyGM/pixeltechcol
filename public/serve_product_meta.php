@@ -122,27 +122,34 @@ if ($http_code == 200 && $response) {
                 // 🔥 CORRECCIÓN: Escapamos el signo de dólar para que PHP no lo confunda con un comando ($1)
                 $safe_meta_tags = str_replace('$', '\\$', $meta_tags);
 
-                // 7. Inyectar en el HTML
-                $html = preg_replace('/<title>.*?<\/title>/is', $safe_meta_tags, $html);
-                
-                // Inyectamos JSON para acelerar tu JS
-                $preloadedData = json_encode([
-                    'id' => $product_id,
-                    'name' => $name,
-                    'price' => $price,
-                    'mainImage' => $image
-                ]);
-                
-                // Aquí también protegemos el JSON por si acaso
-                $safe_preloadedData = str_replace('$', '\\$', $preloadedData);
-                $html = str_replace('</head>', "\n<script>window.__PRELOADED_PRODUCT__ = $safe_preloadedData;</script>\n</head>", $html);
+            // 7. Inyectar en el HTML (Metas y H1)
+                    $html = preg_replace('/<title>.*?<\/title>/is', $safe_meta_tags, $html);
+                    
+                    // 🔥 NUEVO: Inyectar el nombre del producto directamente en el H1
+                    // Convertimos caracteres especiales (como comillas) a código HTML seguro y escapamos el signo $
+                    $safe_name = str_replace('$', '\\$', htmlspecialchars($name, ENT_QUOTES, 'UTF-8'));
+                    
+                    // Buscamos tu etiqueta <h1 id="p-name"...> y le ponemos el nombre adentro
+                    $html = preg_replace('/(<h1[^>]*id="p-name"[^>]*>).*?(<\/h1>)/is', '$1' . $safe_name . '$2', $html);
+                    
+                    // Inyectamos JSON para acelerar tu JS
+                    $preloadedData = json_encode([
+                        'id' => $product_id,
+                        'name' => $name,
+                        'price' => $price,
+                        'mainImage' => $image
+                    ]);
+                    
+                    // Protegemos el JSON por si acaso
+                    $safe_preloadedData = str_replace('$', '\\$', $preloadedData);
+                    $html = str_replace('</head>', "\n<script>window.__PRELOADED_PRODUCT__ = $safe_preloadedData;</script>\n</head>", $html);
+                }
+            } else {
+                // Si Firebase vuelve a bloquear la IP, inyectamos un mensaje oculto para saber qué código de error arrojó.
+                $error_msg = "";
+                $html = str_replace('</head>', $error_msg . "\n</head>", $html);
             }
-        } else {
-            // Si Firebase vuelve a bloquear la IP, inyectamos un mensaje oculto para saber qué código de error arrojó.
-            $error_msg = "";
-            $html = str_replace('</head>', $error_msg . "\n</head>", $html);
-        }
 
-        // 8. Imprimir la página final
-        echo $html;
-        ?>
+            // 8. Imprimir la página final
+            echo $html;
+            ?>
