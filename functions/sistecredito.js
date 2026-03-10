@@ -64,7 +64,7 @@ exports.createSistecreditoCheckout = async (data, context) => {
         dbItems.push({
             id: item.id, name: pData.name, price: price, quantity: qty,
             color: item.color || "", capacity: item.capacity || "",
-            mainImage: pData.mainImage || pData.image || "https://pixeltechcol.com/img/logo.png"
+            mainImage: pData.mainImage || pData.image || "https://pixeltechcol.com/img/logo.webp"
         });
     }
 

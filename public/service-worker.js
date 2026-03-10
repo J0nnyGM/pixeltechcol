@@ -6,7 +6,7 @@ const urlsToCache = [
   '/index.html',
   '/css/styles.css',
   '/js/global-components.js',
-  '/img/logo.png',
+  '/img/logo.webp',
   '/img/icons/icon-192x192.png',
   '/offline.html'
 ];

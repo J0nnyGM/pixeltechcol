@@ -125,7 +125,7 @@ export function loadAdminSidebar() {
                 <div class="flex flex-col items-center w-full">
                     <div class="relative group cursor-pointer" onclick="window.location.href='/admin/index.html'">
                         <div class="absolute inset-0 bg-brand-cyan/20 blur-xl rounded-full group-hover:bg-brand-cyan/30 transition"></div>
-                        <img src="../img/logo.png" alt="PixelTech" class="h-10 md:h-12 w-auto relative z-10 drop-shadow-lg">
+                        <img src="../img/logo.webp" alt="PixelTech" class="h-10 md:h-12 w-auto relative z-10 drop-shadow-lg">
                     </div>
                     <p class="text-[9px] text-gray-500 font-black uppercase tracking-[0.3em] mt-3">Admin Panel</p>
                 </div>

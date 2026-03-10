@@ -941,8 +941,11 @@ function loadPromotionsGrid() {
     const track = document.getElementById('promo-track');
     if (!track) return;
 
-    // 1. Mostrar Skeletons (Estado de Carga) si aún no hay productos en caché
+    const sectionContainer = track.parentElement.parentElement; // Toda la sección gris de ofertas
+
+    // 1. Mostrar Skeletons si aún no hay productos en caché
     if (allProductsCache.length === 0) {
+        sectionContainer.style.display = 'flex'; // Aseguramos que la sección sea visible
         const skeletonHTML = `
         <div class="w-[280px] h-[400px] bg-white rounded-[2rem] p-5 border border-gray-100 shadow-sm shrink-0 animate-pulse flex flex-col">
             <div class="w-12 h-12 bg-gray-200 rounded-full mb-4"></div>
@@ -954,19 +957,21 @@ function loadPromotionsGrid() {
                 <div class="w-1/2 h-8 bg-gray-200 rounded"></div>
             </div>
         </div>`;
-        // Pintamos 4 Skeletons para llenar el carrusel
         track.innerHTML = skeletonHTML + skeletonHTML + skeletonHTML + skeletonHTML;
-        return; // Salimos de la función y esperamos a que el evento 'catalogUpdated' nos vuelva a llamar
+        return;
     }
 
     // 2. Procesar Promociones reales
     const validPromos = allProductsCache.filter(p => p.stock > 0 && p.originalPrice > p.price);
     
     if (validPromos.length === 0) {
-        // Si ya cargó el catálogo pero no hay ofertas, ocultamos la sección completa
-        track.parentElement.parentElement.style.display = 'none'; 
+        // Si ya cargó el catálogo pero NO hay ofertas reales, ocultamos la sección completa
+        sectionContainer.style.display = 'none'; 
         return;
     }
+
+    // Si hay ofertas, nos aseguramos de que la sección sea visible
+    sectionContainer.style.display = 'flex';
 
     // Ordenar aleatoriamente y tomar 15
     validPromos.sort(() => 0.5 - Math.random());

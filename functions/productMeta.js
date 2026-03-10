@@ -18,7 +18,7 @@ exports.renderProductMeta = async (req, res) => {
         const title = `${p.name} | PixelTech Colombia`;
         // Limpiamos etiquetas HTML de la descripción
         const cleanDesc = p.description ? p.description.replace(/<[^>]*>?/gm, '').substring(0, 150) + "..." : `Compra ${p.name} al mejor precio. Envíos a toda Colombia.`;
-        const image = p.mainImage || (p.images && p.images.length > 0 ? p.images[0] : "https://pixeltechcol.com/img/logo.png");
+        const image = p.mainImage || (p.images && p.images.length > 0 ? p.images[0] : "https://pixeltechcol.com/img/logo.webp");
         
         const priceFormatted = (p.price || 0).toLocaleString('es-CO');
         const finalTitle = `$${priceFormatted} - ${p.name}`; // El precio saldrá en el título de WhatsApp

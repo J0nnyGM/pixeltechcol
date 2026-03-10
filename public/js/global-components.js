@@ -98,7 +98,7 @@ export function loadGlobalHeader() {
                 <a href="/" class="flex items-center group shrink-0 mx-auto lg:mx-0">
                     <div class="relative flex items-center">
                         <div class="absolute inset-0 bg-brand-cyan/15 blur-2xl rounded-full group-hover:bg-brand-cyan/30 transition-all duration-500"></div>
-                        <img src="/img/logo.png" alt="PixelTech" 
+                        <img src="/img/logo.webp" alt="PixelTech" 
                             class="h-12 md:h-16 lg:h-20 w-auto object-contain relative z-10 drop-shadow-[0_0_15px_rgba(0,229,255,0.2)]">
                     </div>
                 </a>
@@ -183,7 +183,7 @@ export function loadGlobalHeader() {
         <div id="mobile-menu-overlay" class="absolute inset-0 bg-black/60 backdrop-blur-sm opacity-0 transition-opacity duration-300"></div>
         <div class="relative w-[85%] max-w-sm h-full bg-white flex flex-col shadow-2xl">
             <div class="p-6 bg-brand-black flex justify-between items-center shrink-0">
-                <img src="/img/logo.png" class="h-10 w-auto" alt="PixelTech">
+                <img src="/img/logo.webp" class="h-10 w-auto" alt="PixelTech">
                 <button id="mobile-drawer-close" class="w-8 h-8 rounded-full bg-white/10 text-white flex items-center justify-center hover:bg-brand-cyan hover:text-black transition">
                     <i class="fa-solid fa-xmark"></i>
                 </button>
@@ -394,7 +394,7 @@ function initSearchLogic() {
     setupSearch('search-mobile', 'search-results-mobile');
 }
 
-// --- LOGICA DE HEADER Y MENÚ (Optimizada con Smart Cache + onSnapshot) ---
+// --- LOGICA DE HEADER Y MENÚ (Optimizada sin OnSnapshot para evitar Timeouts) ---
 async function initHeaderLogic() {
     const topBanner = document.getElementById('top-banner-dynamic');
     
@@ -404,40 +404,47 @@ async function initHeaderLogic() {
             if (data && data.freeThreshold > 0) {
                 freeHTML = `<span class="mx-8 flex items-center gap-2 text-brand-cyan"><i class="fa-solid fa-gift animate-pulse"></i> ENVÍO GRATIS DESDE $${parseInt(data.freeThreshold).toLocaleString('es-CO')}</span>`;
             }
-            const baseContent = `<span class="mx-8 flex items-center gap-2"><i class="fa-solid fa-truck-fast text-brand-cyan"></i> Envíos a toda Colombia</span><span class="mx-8 flex items-center gap-2"><i class="fa-solid fa-hand-holding-dollar text-brand-cyan"></i> Contra entrega en Bogotá</span><span class="mx-8 flex items-center gap-2"><i class="fa-solid fa-credit-card text-brand-cyan"></i> Paga con ADDI</span>${freeHTML}`;
+            const baseContent = `<span class="mx-8 flex items-center gap-2"><i class="fa-solid fa-truck-fast text-brand-cyan"></i> Envíos a toda Colombia</span><span class="mx-8 flex items-center gap-2"><i class="fa-solid fa-hand-holding-dollar text-brand-cyan"></i> Contra entrega en Bogotá</span><span class="mx-8 flex items-center gap-2"><i class="fa-solid fa-credit-card text-brand-cyan"></i> Paga con ADDI o SISTECREDITO</span>${freeHTML}`;
             topBanner.innerHTML = `<div class="flex items-center animate-marquee font-black uppercase tracking-[0.3em]">${baseContent} ${baseContent} ${baseContent}</div>`;
         };
 
-        // 1. Carga instantánea desde Caché
+        // 1. CARGA INSTANTÁNEA: Leemos el caché sin tocar la red
         const currentCacheStr = sessionStorage.getItem('pixeltech_shipping_config');
         if (currentCacheStr) {
             renderBanner(JSON.parse(currentCacheStr));
+        } else {
+            // Placeholder mientras carga
+            topBanner.innerHTML = `<div class="flex items-center justify-center font-black uppercase tracking-[0.3em] h-full"><span class="mx-8">ENVÍOS A TODO EL PAÍS 🚚</span></div>`;
         }
 
-        // 2. Conexión en Tiempo Real Inteligente
-        onSnapshot(doc(db, "config", "shipping"), (snap) => {
-            if (snap.exists()) {
-                const data = snap.data();
-                const newDataStr = JSON.stringify(data);
-                const oldDataStr = sessionStorage.getItem('pixeltech_shipping_config');
-                
-                // SOLO procesar si hubo un cambio real respecto al caché
-                if (oldDataStr !== newDataStr) {
-                    sessionStorage.setItem('pixeltech_shipping_config', newDataStr);
-                    renderBanner(data);
+        // 2. CONEXIÓN DIFERIDA (Petición Única, no en tiempo real)
+        // Esperamos 4 segundos a que la página termine de cargar las imágenes pesadas
+        setTimeout(async () => {
+            if (!navigator.onLine) return; // Si no hay internet, ni lo intentamos
+            
+            try {
+                // Usamos getDoc en lugar de onSnapshot. Es más rápido, no genera timeout de 10s 
+                // y Firestore lo maneja mejor en conexiones pobres.
+                const snap = await getDoc(doc(db, "config", "shipping"));
+                if (snap.exists()) {
+                    const data = snap.data();
+                    const newDataStr = JSON.stringify(data);
+                    const oldDataStr = sessionStorage.getItem('pixeltech_shipping_config');
                     
-                    // Disparar evento para que el Carrito Lateral recalcule la barra de envíos en tiempo real
-                    window.dispatchEvent(new Event('shippingConfigUpdated'));
+                    if (oldDataStr !== newDataStr) {
+                        sessionStorage.setItem('pixeltech_shipping_config', newDataStr);
+                        renderBanner(data);
+                        window.dispatchEvent(new Event('shippingConfigUpdated'));
+                    }
                 }
-            } else {
-                topBanner.innerHTML = `<p class="text-center">ENVÍOS A TODO EL PAÍS 🚚</p>`;
+            } catch (error) {
+                // Silenciamos el error si la red es muy mala. El caché mantendrá la web viva.
+                console.warn("No se pudo refrescar la política de envío (Red inestable).");
             }
-        }, (error) => {
-            console.error("Error en SmartCache de Envíos:", error);
-        });
+        }, 4000); 
     }
 
-    // Funciones del Drawer
+    // Funciones del Drawer (Se mantienen iguales)
     window.toggleWhatsAppModal = () => {
         const modal = document.getElementById('wa-modal');
         const overlay = document.getElementById('wa-overlay');
@@ -529,10 +536,8 @@ async function initHeaderLogic() {
         }
     });
 
-    // 🔥 NUEVO EVENTO: Reacciona cuando cambian los costos de envío desde Firebase
     window.addEventListener('shippingConfigUpdated', () => {
         const drawer = document.getElementById('cart-drawer');
-        // Solo re-renderizamos si el carrito está abierto para ahorrar recursos
         if (drawer && !drawer.classList.contains('translate-x-full')) {
             window.renderCartDrawerItems();
         }
@@ -650,16 +655,15 @@ async function initHeaderLogic() {
             if (container) {
                 let role = sessionStorage.getItem('pixeltech_user_role');
                 if(!role) {
-                    const userSnap = await getDoc(doc(db, "users", user.uid));
-                    role = (userSnap.exists() && userSnap.data().role === 'admin') ? 'admin' : 'user';
-                    sessionStorage.setItem('pixeltech_user_role', role);
+                    // Carga perezosa del rol para no bloquear el header
+                    getDoc(doc(db, "users", user.uid)).then(userSnap => {
+                        role = (userSnap.exists() && userSnap.data().role === 'admin') ? 'admin' : 'user';
+                        sessionStorage.setItem('pixeltech_user_role', role);
+                        renderUserLink(role, container, mobileProfile);
+                    });
+                } else {
+                    renderUserLink(role, container, mobileProfile);
                 }
-                
-                const isAdmin = role === 'admin';
-                const label = isAdmin ? 'Admin' : 'Cuenta';
-                const link = isAdmin ? '/admin/index.html' : '/profile.html';
-                container.innerHTML = `<a href="${link}" class="flex flex-col items-center gap-1 group w-14"><div class="w-12 h-12 rounded-2xl bg-brand-cyan text-brand-black flex items-center justify-center shadow-lg transition duration-300 hover:bg-white"><i class="fa-solid ${isAdmin ? 'fa-user-shield' : 'fa-user-check'} text-xl"></i></div><span class="text-[8px] font-black uppercase tracking-widest text-brand-cyan text-center">${label}</span></a>`;
-                if (mobileProfile) mobileProfile.href = link;
             }
         } else {
             if (container) {
@@ -669,10 +673,19 @@ async function initHeaderLogic() {
         }
     });
 
+    function renderUserLink(role, container, mobileProfile) {
+        const isAdmin = role === 'admin';
+        const label = isAdmin ? 'Admin' : 'Cuenta';
+        const link = isAdmin ? '/admin/index.html' : '/profile.html';
+        container.innerHTML = `<a href="${link}" class="flex flex-col items-center gap-1 group w-14"><div class="w-12 h-12 rounded-2xl bg-brand-cyan text-brand-black flex items-center justify-center shadow-lg transition duration-300 hover:bg-white"><i class="fa-solid ${isAdmin ? 'fa-user-shield' : 'fa-user-check'} text-xl"></i></div><span class="text-[8px] font-black uppercase tracking-widest text-brand-cyan text-center">${label}</span></a>`;
+        if (mobileProfile) mobileProfile.href = link;
+    }
+
     const handleSearch = (e) => { if (e.key === 'Enter' && e.target.value.trim()) window.location.href = `/shop/search.html?q=${encodeURIComponent(e.target.value.trim())}`; };
     document.getElementById('search-desktop')?.addEventListener('keypress', handleSearch);
     document.getElementById('search-mobile')?.addEventListener('keypress', handleSearch);
 }
+
 
 // --- CARGA DE CATEGORÍAS ---
 async function syncAllCategories() {
@@ -787,7 +800,7 @@ export function loadGlobalFooter() {
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 lg:gap-12 mb-16">
                 
                 <div class="space-y-6">
-                    <img src="/img/logo.png" alt="PixelTech" class="h-10 opacity-90">
+                    <img src="/img/logo.webp" alt="PixelTech" class="h-10 opacity-90">
                     <p class="text-gray-500 text-xs leading-relaxed uppercase font-medium tracking-wider">Innovación al alcance de tu mano.</p>
                     <div class="flex gap-4 text-gray-400">
                         <a href="https://www.instagram.com/pixeltech.col/" class="hover:text-brand-cyan transition"><i class="fa-brands fa-instagram text-lg"></i></a>
