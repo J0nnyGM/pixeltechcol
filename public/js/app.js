@@ -1398,10 +1398,26 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // 4. ESCUCHA DE EVENTOS EN TIEMPO REAL
     window.addEventListener('catalogUpdated', () => {
+        const updateEverything = () => {
+            // Aquí sí volvemos a filtrar y cargar los datos frescos de Firebase
+            loadViewHistory();
+            loadWeeklyChoices(); 
+            loadPromotionsGrid(); 
+            
+            if (document.getElementById('featured-grid')) loadFeatured();
+            
+            // Repinta la categoría activa o los más vendidos
+            const activeCatBtn = document.querySelector('.cat-btn.active');
+            if (activeCatBtn && activeCatBtn.innerText !== "TODAS") {
+                if (window.filterBy) window.filterBy(activeCatBtn.dataset.cat, activeCatBtn);
+            } else {
+                loadBestSellers();
+            }
+        };
+
         if ('requestIdleCallback' in window) {
-            requestIdleCallback(refreshAllGrids);
+            requestIdleCallback(updateEverything);
         } else {
-            setTimeout(refreshAllGrids, 200);
+            setTimeout(updateEverything, 100);
         }
     });
-});
