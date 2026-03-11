@@ -1,19 +1,26 @@
 # ----------------------------------------------------------------------
-# 1. PÁGINAS DE ERROR PERSONALIZADAS
+# 1. EJECUTAR PHP DENTRO DE ARCHIVOS HTML (Ajustado para tu cPanel)
+# ----------------------------------------------------------------------
+# Usamos el manejador exacto que tu servidor ya definió al final del archivo
+<IfModule mime_module>
+  AddHandler application/x-httpd-ea-php74___lsphp .html .htm
+</IfModule>
+
+# ----------------------------------------------------------------------
+# 2. PÁGINAS DE ERROR PERSONALIZADAS
 # ----------------------------------------------------------------------
 ErrorDocument 404 /404.html
 
 # ----------------------------------------------------------------------
-# 2. MOTOR DE REESCRITURA (RUTAS, DOMINIOS Y SEGURIDAD)
+# 3. MOTOR DE REESCRITURA (RUTAS, DOMINIOS Y SEGURIDAD)
 # ----------------------------------------------------------------------
 <IfModule mod_rewrite.c>
     RewriteEngine On
     RewriteBase /
 
     # ======================================================================
-    # REGLA 1: FORZAR HTTPS Y QUITAR "www" (DEBE SER LA PRIMERA REGLA SIEMPRE)
+    # REGLA 1: FORZAR HTTPS Y QUITAR "www"
     # ======================================================================
-    # Si entran por HTTP o con WWW, los mandamos al dominio limpio antes de hacer nada más.
     RewriteCond %{HTTPS} off [OR]
     RewriteCond %{HTTP_HOST} ^www\. [NC]
     RewriteRule ^(.*)$ https://pixeltechcol.com/$1 [L,R=301]
@@ -21,7 +28,6 @@ ErrorDocument 404 /404.html
     # ======================================================================
     # REGLA 2: INYECCIÓN DINÁMICA DE PRODUCTOS (SEO & BOTS)
     # ======================================================================
-    # Ahora que estamos seguros de que estamos en "pixeltechcol.com", inyectamos el PHP.
     RewriteCond %{REQUEST_URI} ^/shop/product\.html$ [NC]
     RewriteCond %{QUERY_STRING} id=([a-zA-Z0-9_-]+)
     RewriteRule ^(.*)$ serve_product_meta.php?id=%1 [L]
@@ -29,7 +35,7 @@ ErrorDocument 404 /404.html
     # ======================================================================
     # REGLA 3: LIMPIEZA Y REDIRECCIONES MENORES
     # ======================================================================
-    # Quitar /index.html de la URL de inicio (SEO)
+    # Quitar /index.html de la URL de inicio
     RewriteCond %{THE_REQUEST} ^[A-Z]{3,9}\ /index\.html\ HTTP/
     RewriteRule ^index\.html$ / [R=301,L]
 
@@ -58,7 +64,7 @@ ErrorDocument 404 /404.html
 </IfModule>
 
 # ----------------------------------------------------------------------
-# 3. COMPRESIÓN GZIP / DEFLATE (Para que la web cargue rápido)
+# 4. COMPRESIÓN GZIP / DEFLATE
 # ----------------------------------------------------------------------
 <IfModule mod_deflate.c>
     SetOutputFilter DEFLATE
@@ -78,7 +84,7 @@ ErrorDocument 404 /404.html
 </IfModule>
 
 # ----------------------------------------------------------------------
-# 4. CACHÉ DEL NAVEGADOR (Mejora la velocidad de carga)
+# 5. CACHÉ DEL NAVEGADOR
 # ----------------------------------------------------------------------
 <IfModule mod_expires.c>
     ExpiresActive on
@@ -112,7 +118,7 @@ ErrorDocument 404 /404.html
 </IfModule>
 
 # ----------------------------------------------------------------------
-# 5. MANEJADOR DE PHP DE CPANEL
+# 6. MANEJADOR DE PHP DE CPANEL (NO EDITAR)
 # ----------------------------------------------------------------------
 # php -- BEGIN cPanel-generated handler, do not edit
 <IfModule mime_module>
