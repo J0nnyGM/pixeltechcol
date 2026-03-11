@@ -15,7 +15,7 @@ window.showToast = (msg, type = 'success') => {
     const toast = document.createElement('div');
     toast.className = `toast ${type}`;
     let icon = '<i class="fa-solid fa-circle-check text-brand-cyan toast-icon"></i>';
-    if(type === 'error') icon = '<i class="fa-solid fa-circle-exclamation text-brand-red toast-icon"></i>';
+    if (type === 'error') icon = '<i class="fa-solid fa-circle-exclamation text-brand-red toast-icon"></i>';
     toast.innerHTML = `${icon}<span class="toast-msg">${msg}</span>`;
     container.appendChild(toast);
     requestAnimationFrame(() => { toast.classList.add('show'); });
@@ -51,12 +51,12 @@ function initSearchLogic() {
                 try {
                     const cachedRaw = localStorage.getItem('pixeltech_master_catalog');
                     let localProducts = [];
-                    
+
                     if (cachedRaw) {
                         try {
                             const data = JSON.parse(cachedRaw);
                             localProducts = Object.values(data.map || {});
-                        } catch(e) {}
+                        } catch (e) { }
                     }
 
                     let resultsArray = [];
@@ -71,12 +71,12 @@ function initSearchLogic() {
                         const q = query(
                             collection(db, "products"),
                             where("status", "==", "active"),
-                            limit(20) 
+                            limit(20)
                         );
                         const snap = await getDocs(q);
                         const products = [];
                         snap.forEach(d => products.push({ id: d.id, ...d.data() }));
-                        
+
                         resultsArray = products.filter(p => {
                             const name = (p.name || "").toLowerCase();
                             const cat = (p.category || "").toLowerCase();
@@ -95,13 +95,13 @@ function initSearchLogic() {
         input.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') {
                 const term = input.value.trim();
-                if(term) window.location.href = `/shop/search.html?q=${encodeURIComponent(term)}`;
+                if (term) window.location.href = `/shop/search.html?q=${encodeURIComponent(term)}`;
             }
         });
 
         function renderResults(products, term) {
             results.innerHTML = '';
-            
+
             if (products.length === 0) {
                 results.innerHTML = `
                     <div class="p-4 text-center">
@@ -112,7 +112,7 @@ function initSearchLogic() {
                 products.forEach(p => {
                     const img = p.mainImage || p.image || 'https://placehold.co/50';
                     const price = p.price.toLocaleString('es-CO');
-                    
+
                     results.innerHTML += `
                         <div onclick="window.location.href='/shop/product.html?id=${p.id}'" class="search-result-item">
                             <img src="${img}" class="w-10 h-10 object-contain rounded-lg bg-gray-50 border border-gray-100">
@@ -124,7 +124,7 @@ function initSearchLogic() {
                         </div>
                     `;
                 });
-                
+
                 if (products.length >= 5) {
                     results.innerHTML += `
                         <div onclick="window.location.href='/shop/search.html?q=${encodeURIComponent(term)}'" class="p-3 text-center bg-gray-50 cursor-pointer hover:bg-gray-100 transition">
@@ -144,7 +144,7 @@ function initSearchLogic() {
 // --- LOGICA DE HEADER Y MENÚ (Optimizada sin OnSnapshot para evitar Timeouts) ---
 async function initHeaderLogic() {
     const topBanner = document.getElementById('top-banner-dynamic');
-    
+
     if (topBanner) {
         const renderBanner = (data) => {
             let freeHTML = '';
@@ -165,19 +165,15 @@ async function initHeaderLogic() {
         }
 
         // 2. CONEXIÓN DIFERIDA (Petición Única, no en tiempo real)
-        // Esperamos 4 segundos a que la página termine de cargar las imágenes pesadas
-        setTimeout(async () => {
-            if (!navigator.onLine) return; // Si no hay internet, ni lo intentamos
-            
+        const fetchShipping = async () => {
+            if (!navigator.onLine) return;
             try {
-                // Usamos getDoc en lugar de onSnapshot. Es más rápido, no genera timeout de 10s 
-                // y Firestore lo maneja mejor en conexiones pobres.
                 const snap = await getDoc(doc(db, "config", "shipping"));
                 if (snap.exists()) {
                     const data = snap.data();
                     const newDataStr = JSON.stringify(data);
                     const oldDataStr = sessionStorage.getItem('pixeltech_shipping_config');
-                    
+
                     if (oldDataStr !== newDataStr) {
                         sessionStorage.setItem('pixeltech_shipping_config', newDataStr);
                         renderBanner(data);
@@ -185,10 +181,15 @@ async function initHeaderLogic() {
                     }
                 }
             } catch (error) {
-                // Silenciamos el error si la red es muy mala. El caché mantendrá la web viva.
-                console.warn("No se pudo refrescar la política de envío (Red inestable).");
+                console.warn("No se pudo refrescar la política de envío.");
             }
-        }, 4000); 
+        };
+
+        if ('requestIdleCallback' in window) {
+            requestIdleCallback(fetchShipping);
+        } else {
+            setTimeout(fetchShipping, 1000);
+        }
     }
 
     // Funciones del Drawer (Se mantienen iguales)
@@ -238,7 +239,7 @@ async function initHeaderLogic() {
 
     window.changeDrawerQty = (cartId, currentQty, change) => {
         const newQty = currentQty + change;
-        if(newQty < 1) return;
+        if (newQty < 1) return;
         const result = updateQuantity(cartId, newQty);
         if (!result.success && result.message) {
             window.showToast(result.message, 'error');
@@ -311,9 +312,9 @@ async function initHeaderLogic() {
             return;
         }
 
-        if (btnCheckout) { 
+        if (btnCheckout) {
             btnCheckout.disabled = false; btnCheckout.classList.remove('opacity-50', 'cursor-not-allowed');
-            btnCheckout.onclick = () => window.location.href='/shop/checkout.html';
+            btnCheckout.onclick = () => window.location.href = '/shop/checkout.html';
         }
 
         let subtotal = 0;
@@ -379,7 +380,7 @@ async function initHeaderLogic() {
         });
     };
     const closeDrawer = () => { if (!drawer) return; drawer.classList.add('translate-x-[-100%]'); drawer.classList.remove('translate-x-0'); overlay.classList.add('opacity-0'); };
-    
+
     if (btnCategories) btnCategories.onclick = () => openDrawer('tab-categories');
     if (btnMenu) btnMenu.onclick = () => openDrawer('tab-menu');
     if (btnClose) btnClose.onclick = closeDrawer;
@@ -393,20 +394,16 @@ async function initHeaderLogic() {
         };
     });
 
-// 🔥 TRUCO SEO: Retrasar la carga pesada del menú
-    setTimeout(() => {
+    // 🔥 NUEVO TRUCO SEO: Ejecutar cuando el navegador esté libre (Idle)
+    const initDelayedTasks = () => {
         syncAllCategories();
-    }, 4500); // ⬅️ CAMBIAMOS A 4500
-
-    // 🔥 TRUCO SEO: Retrasamos la verificación de sesión para no bloquear el renderizado inicial
-    setTimeout(() => {
         onAuthStateChanged(auth, async (user) => {
             const container = document.getElementById('user-info-desktop');
             const mobileProfile = document.getElementById('mobile-profile-link');
             if (user) {
                 if (container) {
                     let role = sessionStorage.getItem('pixeltech_user_role');
-                    if(!role) {
+                    if (!role) {
                         getDoc(doc(db, "users", user.uid)).then(userSnap => {
                             role = (userSnap.exists() && userSnap.data().role === 'admin') ? 'admin' : 'user';
                             sessionStorage.setItem('pixeltech_user_role', role);
@@ -423,7 +420,13 @@ async function initHeaderLogic() {
                 if (mobileProfile) mobileProfile.href = "/auth/login.html";
             }
         });
-    }, 4500); // 2500ms de retraso
+    };
+
+    if ('requestIdleCallback' in window) {
+        requestIdleCallback(initDelayedTasks);
+    } else {
+        setTimeout(initDelayedTasks, 1000); // Si es Safari (no soporta requestIdleCallback), esperamos solo 1 segundo.
+    }
 
     function renderUserLink(role, container, mobileProfile) {
         const isAdmin = role === 'admin';
@@ -446,7 +449,7 @@ async function syncAllCategories() {
 
     const STORAGE_KEY = 'pixeltech_categories';
     const SYNC_KEY = 'pixeltech_cat_last_sync';
-    
+
     let categories = [];
 
     const cachedRaw = localStorage.getItem(STORAGE_KEY);
@@ -460,8 +463,8 @@ async function syncAllCategories() {
                 console.warn("Caché de categorías con formato incorrecto. Limpiando...");
                 localStorage.removeItem(STORAGE_KEY);
             }
-        } catch (e) { 
-            console.warn("Caché categorías corrupto"); 
+        } catch (e) {
+            console.warn("Caché categorías corrupto");
             localStorage.removeItem(STORAGE_KEY);
         }
     }
@@ -471,14 +474,14 @@ async function syncAllCategories() {
         try {
             const q = query(collection(db, "categories"), orderBy("name", "asc"));
             const snap = await getDocs(q);
-            
+
             snap.forEach(doc => {
                 categories.push({ id: doc.id, ...doc.data() });
             });
 
             if (categories.length > 0) {
                 localStorage.setItem(STORAGE_KEY, JSON.stringify(categories));
-                localStorage.setItem(SYNC_KEY, Date.now().toString()); 
+                localStorage.setItem(SYNC_KEY, Date.now().toString());
             }
         } catch (e) {
             console.error("Error descargando categorías:", e);
@@ -502,13 +505,13 @@ function renderMobileMenuHTML(container, categories) {
         </a>
         <div class="h-px w-full bg-gray-100 my-2"></div>
     `;
-    
+
     categories.forEach(cat => {
         const subcats = cat.subcategories || [];
         // Apuntamos directo a catalog.html como manda la lógica actual
         const catUrl = `/shop/catalog.html?category=${encodeURIComponent(cat.name)}`;
         const accordionId = `acc-${(cat.id || cat.name).replace(/\s+/g, '-')}`;
-        
+
         if (subcats.length === 0) {
             container.innerHTML += `
                 <a href="${catUrl}" class="flex items-center justify-between p-4 hover:bg-slate-50 rounded-2xl transition duration-300 mb-1 border-b border-gray-50 last:border-0">
@@ -517,11 +520,11 @@ function renderMobileMenuHTML(container, categories) {
                 </a>`;
         } else {
             // CORRECCIÓN: usamos '&subcategory=' en lugar de 'q='
-            const subListHTML = subcats.map(sub => { 
-                const subName = typeof sub === 'string' ? sub : sub.name; 
-                return `<a href="/shop/catalog.html?category=${encodeURIComponent(cat.name)}&subcategory=${encodeURIComponent(subName)}" class="block py-3 px-4 text-[10px] font-bold text-gray-500 hover:text-brand-cyan border-l-2 border-gray-100 hover:border-brand-cyan ml-3 transition-all">${subName}</a>` 
+            const subListHTML = subcats.map(sub => {
+                const subName = typeof sub === 'string' ? sub : sub.name;
+                return `<a href="/shop/catalog.html?category=${encodeURIComponent(cat.name)}&subcategory=${encodeURIComponent(subName)}" class="block py-3 px-4 text-[10px] font-bold text-gray-500 hover:text-brand-cyan border-l-2 border-gray-100 hover:border-brand-cyan ml-3 transition-all">${subName}</a>`
             }).join('');
-            
+
             container.innerHTML += `
                 <div class="mb-1 border-b border-gray-50 last:border-0 transition-all duration-300 group-accordion">
                     <button class="w-full flex items-center justify-between p-4 text-left focus:outline-none hover:bg-slate-50 rounded-2xl transition" onclick="window.toggleAccordion('${accordionId}')">
@@ -539,18 +542,18 @@ function renderMobileMenuHTML(container, categories) {
     if (!window.toggleAccordion) {
         window.toggleAccordion = (id) => {
             const content = document.getElementById(id);
-            if(!content) return;
+            if (!content) return;
             const btn = content.previousElementSibling;
             const icon = btn.querySelector('.icon-rotate');
-            
-            if (content.classList.contains('hidden')) { 
-                content.classList.remove('hidden'); 
-                icon.classList.add('rotate-180', 'bg-brand-black', 'text-white'); 
-                icon.classList.remove('bg-gray-50', 'text-gray-400'); 
-            } else { 
-                content.classList.add('hidden'); 
-                icon.classList.remove('rotate-180', 'bg-brand-black', 'text-white'); 
-                icon.classList.add('bg-gray-50', 'text-gray-400'); 
+
+            if (content.classList.contains('hidden')) {
+                content.classList.remove('hidden');
+                icon.classList.add('rotate-180', 'bg-brand-black', 'text-white');
+                icon.classList.remove('bg-gray-50', 'text-gray-400');
+            } else {
+                content.classList.add('hidden');
+                icon.classList.remove('rotate-180', 'bg-brand-black', 'text-white');
+                icon.classList.add('bg-gray-50', 'text-gray-400');
             }
         };
     }
@@ -563,7 +566,7 @@ export function loadGlobalFooter() {
 export async function renderBrandCarousel(containerId, activeBrandNames = null) {
     const container = document.getElementById(containerId);
     if (!container) return;
-    
+
     let brands = [];
     const STORAGE_KEY = 'pixeltech_brands';
 
@@ -571,7 +574,7 @@ export async function renderBrandCarousel(containerId, activeBrandNames = null) 
     if (cachedRaw) {
         try {
             brands = JSON.parse(cachedRaw);
-        } catch(e) { console.warn("Cache marcas corrupto"); }
+        } catch (e) { console.warn("Cache marcas corrupto"); }
     }
 
     if (brands.length === 0) {
@@ -581,7 +584,7 @@ export async function renderBrandCarousel(containerId, activeBrandNames = null) 
             snap.forEach(doc => {
                 brands.push(doc.data());
             });
-            
+
             if (brands.length > 0) {
                 localStorage.setItem(STORAGE_KEY, JSON.stringify(brands));
             }
@@ -590,10 +593,10 @@ export async function renderBrandCarousel(containerId, activeBrandNames = null) 
         }
     }
 
-    if (brands.length === 0) { 
-        container.innerHTML = ""; 
-        container.classList.add('hidden'); 
-        return; 
+    if (brands.length === 0) {
+        container.innerHTML = "";
+        container.classList.add('hidden');
+        return;
     }
 
     container.classList.remove('hidden');
@@ -625,34 +628,34 @@ export async function renderBrandCarousel(containerId, activeBrandNames = null) 
 
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/service-worker.js')
-        .then(reg => console.log('SW registrado: ', reg.scope))
-        .catch(err => console.log('SW falló: ', err));
+        navigator.serviceWorker.register('/service-worker.js')
+            .then(reg => console.log('SW registrado: ', reg.scope))
+            .catch(err => console.log('SW falló: ', err));
     });
-  }
+}
 
-  let deferredPrompt;
+let deferredPrompt;
 
 window.addEventListener('beforeinstallprompt', (e) => {
-  e.preventDefault();
-  deferredPrompt = e;
-  
-  const installBtn = document.getElementById('btn-install-pwa');
-  if(installBtn) installBtn.classList.remove('hidden');
+    e.preventDefault();
+    deferredPrompt = e;
+
+    const installBtn = document.getElementById('btn-install-pwa');
+    if (installBtn) installBtn.classList.remove('hidden');
 });
 
 window.installPWA = async () => {
-  if (!deferredPrompt) return;
-  deferredPrompt.prompt();
-  const { outcome } = await deferredPrompt.userChoice;
-  console.log(`User response: ${outcome}`);
-  deferredPrompt = null;
-  document.getElementById('btn-install-pwa')?.classList.add('hidden');
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    console.log(`User response: ${outcome}`);
+    deferredPrompt = null;
+    document.getElementById('btn-install-pwa')?.classList.add('hidden');
 };
 
 window.addEventListener('appinstalled', () => {
-  document.getElementById('btn-install-pwa')?.classList.add('hidden');
-  console.log('PWA Installed');
+    document.getElementById('btn-install-pwa')?.classList.add('hidden');
+    console.log('PWA Installed');
 });
 
 export function trackEcommerceEvent(eventName, params) {
@@ -661,7 +664,7 @@ export function trackEcommerceEvent(eventName, params) {
     }
 
     if (typeof fbq === 'function') {
-        switch(eventName) {
+        switch (eventName) {
             case 'view_item':
                 fbq('track', 'ViewContent', {
                     content_name: params.items[0].item_name,
@@ -679,7 +682,7 @@ export function trackEcommerceEvent(eventName, params) {
                     currency: 'COP'
                 });
                 break;
-            case 'purchase': 
+            case 'purchase':
                 fbq('track', 'Purchase', {
                     value: params.value,
                     currency: 'COP'

@@ -143,9 +143,11 @@ export async function checkCacheVersion(db) {
     }
 }
 
-// Ejecutamos mucho después de cargar para que PageSpeed no lo cuente como bloqueo
+// Ejecutamos silenciosamente en segundo plano una vez que la página termine de cargar
 window.addEventListener('load', () => {
-    setTimeout(() => {
-        checkCacheVersion(db); 
-    }, 8000); // 8 Segundos
+    if ('requestIdleCallback' in window) {
+        requestIdleCallback(() => checkCacheVersion(db));
+    } else {
+        setTimeout(() => checkCacheVersion(db), 2000); 
+    }
 });

@@ -30,10 +30,12 @@ const SmartProductSync = {
             }
         }
 
-        // 🔥 TRUCO SEO: Retrasamos 3.5 segundos la descarga de Firebase para no ahogar el procesador
-        setTimeout(() => {
-            this.listenForUpdates(lastSyncTime);
-        }, 3500);
+        // 🔥 TRUCO SEO: Descargamos el catálogo solo cuando el procesador esté 100% libre
+        if ('requestIdleCallback' in window) {
+            requestIdleCallback(() => this.listenForUpdates(lastSyncTime));
+        } else {
+            setTimeout(() => this.listenForUpdates(lastSyncTime), 1500);
+        }
         
         return true;
     },
