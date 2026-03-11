@@ -83,7 +83,7 @@
     <script type="module">
         // Import dinámico con manejo de errores por si la ruta relativa falla
         try {
-            const { loadGlobalHeader, loadGlobalFooter } = await import('/js/global-components.js');
+            const { loadGlobalHeader, loadGlobalFooter } = await import('/js/global-components.js?v=2.0?v=2.0');
             loadGlobalHeader();
             loadGlobalFooter();
         } catch (e) {
