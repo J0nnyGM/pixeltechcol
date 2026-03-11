@@ -125,7 +125,7 @@ export async function initProductDetail() {
         console.log("☁️ [Detalle] Iniciando Sync con Firebase...");
         
         unsubscribeProduct = onSnapshot(doc(db, "products", productId), (snap) => {
-            if (!snap.exists()) {
+                if (!snap.exists()) {
                 document.body.innerHTML = "<div class='flex flex-col items-center justify-center h-screen'><h1 class='text-2xl font-black mb-4'>Producto no encontrado o eliminado 😔</h1><a href='/' class='bg-brand-cyan px-6 py-3 rounded-xl font-bold'>Volver al Inicio</a></div>";
                 return;
             }
@@ -141,10 +141,10 @@ export async function initProductDetail() {
                 renderProductData(productData, productId);
                 updateLocalCacheWith(productData);
             }
-        }, (error) => {
+            }, (error) => {
             console.error("Error en SmartSync Detalle:", error);
         });
-    }, 1500); // Retrasamos la conexión pesada 1.5 segundos
+    }, 4500); // ⬅️ CAMBIAMOS A 4500 (4.5 segundos)
 }
 
 function updateLocalCacheWith(productData) {

@@ -645,10 +645,10 @@ async function initHeaderLogic() {
         };
     });
 
-    // 🔥 TRUCO SEO: Retrasar la carga pesada del menú
+// 🔥 TRUCO SEO: Retrasar la carga pesada del menú
     setTimeout(() => {
         syncAllCategories();
-    }, 2500);
+    }, 4500); // ⬅️ CAMBIAMOS A 4500
 
     // 🔥 TRUCO SEO: Retrasamos la verificación de sesión para no bloquear el renderizado inicial
     setTimeout(() => {
@@ -675,7 +675,7 @@ async function initHeaderLogic() {
                 if (mobileProfile) mobileProfile.href = "/auth/login.html";
             }
         });
-    }, 2500); // 2500ms de retraso
+    }, 4500); // 2500ms de retraso
 
     function renderUserLink(role, container, mobileProfile) {
         const isAdmin = role === 'admin';
