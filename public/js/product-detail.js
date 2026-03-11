@@ -101,8 +101,8 @@ export async function initProductDetail() {
              els.mainImg.src = productData.mainImage || 'https://placehold.co/500';
         }
         
-        els.loader.classList.add('hidden');
-        els.content.classList.remove('hidden');
+        if (els.loader) els.loader.classList.add('hidden');
+        if (els.content) els.content.classList.remove('hidden');
     }
 
     // 2. BUSCAR CACHÉ LOCAL (Para tener opciones y descripción rápido)
@@ -222,10 +222,9 @@ async function renderProductData(p, productId) {
     await updateShippingText();
 
     els.whatsappBtn.href = `https://wa.me/573009046450?text=Hola PixelTech, me interesa este producto: ${p.name} (Ref: ${productId})`;
-    els.loader.classList.add('hidden');
-    els.content.classList.remove('hidden');
+    if (els.loader) els.loader.classList.add('hidden');
+    if (els.content) els.content.classList.remove('hidden');
     els.btnAdd.onclick = handleAddToCart;
-
     // 5. Extras
     initStickyBar(); 
     loadRelatedProductsOptimized(p.category, p.id); 
