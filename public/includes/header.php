@@ -1,6 +1,11 @@
 <style>
     @keyframes marquee { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
-    .animate-marquee { display: flex; width: max-content; animation: marquee 60s linear infinite; }
+    .animate-marquee { 
+    display: flex; 
+    width: max-content; 
+    animation: marquee 60s linear infinite; 
+    will-change: transform; 
+    }
     .marquee-container:hover .animate-marquee { animation-play-state: paused; }
     .drawer-shadow { box-shadow: -10px 0 30px rgba(0,0,0,0.2); }
     .no-scrollbar::-webkit-scrollbar { display: none; }

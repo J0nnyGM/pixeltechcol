@@ -1357,31 +1357,43 @@ function renderPromosHTML() {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
-    // 1. Iniciar sincronización (Vital)
+    // 1. Iniciar sincronización (Vital y asíncrono)
     await SmartProductSync.init();
 
-    // 2. Renderizar SOLO la parte superior (Vital para el usuario)
+    // 2. Renderizar SOLO lo que el usuario ve al entrar (Hero)
     loadPromoSlider();
     updateCartCount();
 
-    // 3. Diferir TODO el resto de la página para que no bloquee el procesador (Adios TBT)
-    const renderBelowTheFold = () => {
-        loadNewLaunch();
-        initMasterSliders(); 
-        loadViewHistory();
-        loadWeeklyChoices();
-        loadPromotionsGrid();
-        loadFeatured();
-        loadCategoriesBar();
-        loadBestSellers();
-        loadBrandsMarquee();
+    // 3. FRAGMENTACIÓN (Chunking): Cargamos el resto de la web en "pedacitos"
+    const loadChunks = [
+        () => loadNewLaunch(),
+        () => { loadViewHistory(); loadWeeklyChoices(); },
+        () => { loadPromotionsGrid(); loadFeatured(); },
+        () => { loadCategoriesBar(); loadBestSellers(); },
+        () => { loadBrandsMarquee(); initMasterSliders(); }
+    ];
+
+    let chunkIndex = 0;
+    
+    const processChunks = () => {
+        if (chunkIndex < loadChunks.length) {
+            loadChunks[chunkIndex](); // Ejecuta un pedacito
+            chunkIndex++;
+            
+            // Le da un "respiro" al procesador antes de cargar el siguiente pedacito
+            if ('requestIdleCallback' in window) {
+                requestIdleCallback(() => setTimeout(processChunks, 50));
+            } else {
+                setTimeout(processChunks, 100);
+            }
+        }
     };
 
+    // Empezamos la cadena cuando el navegador esté desocupado
     if ('requestIdleCallback' in window) {
-        // Ejecuta el resto cuando el procesador esté 100% libre
-        requestIdleCallback(renderBelowTheFold);
+        requestIdleCallback(processChunks);
     } else {
-        setTimeout(renderBelowTheFold, 50);
+        setTimeout(processChunks, 100);
     }
 
     // 4. ESCUCHA DE EVENTOS EN TIEMPO REAL
@@ -1389,7 +1401,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         if ('requestIdleCallback' in window) {
             requestIdleCallback(refreshAllGrids);
         } else {
-            setTimeout(refreshAllGrids, 100);
+            setTimeout(refreshAllGrids, 200);
         }
     });
 });
