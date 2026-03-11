@@ -110,16 +110,9 @@
             </div>
 
             <div class="lg:col-span-5 flex flex-col">
-                <div id="p-loader" class="space-y-8">
-                    <div class="h-6 w-1/3 bg-gray-100 animate-pulse rounded-full"></div>
-                    <div class="h-14 w-full bg-gray-100 animate-pulse rounded-2xl"></div>
-                    <div class="h-20 w-1/2 bg-gray-100 animate-pulse rounded-2xl"></div>
-                </div>
-
-                <div id="p-content" class="hidden space-y-6">
+                <div id="p-content" class="space-y-6">
                     <div>
-                        <h1 id="p-name" class="text-2xl md:text-4xl font-black text-brand-black uppercase tracking-tighter leading-tight md:leading-[1.1] mb-2"></h1>
-                        
+                        <h1 id="p-name" class="text-2xl md:text-4xl font-black text-brand-black uppercase tracking-tighter leading-tight md:leading-[1.1] mb-2"></h1> 
                         <p id="p-sku-display" class="text-[10px] font-bold text-gray-400 uppercase tracking-[0.2em] mb-4 md:mb-6">REF: --</p>
 
                         <div class="flex items-baseline gap-3 md:gap-5 mb-4">
@@ -235,7 +228,7 @@
                 if (img) img.src = p_load.mainImage;
                 
                 const name = document.getElementById('p-name');
-                if (name) name.textContent = p_load.name;
+                if (name && !name.textContent) name.textContent = p_load.name;
                 
                 const price = document.getElementById('p-price');
                 if (price) price.textContent = '$' + p_load.price.toLocaleString('es-CO');

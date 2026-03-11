@@ -817,7 +817,7 @@ export function loadGlobalFooter() {
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 lg:gap-12 mb-16">
                 
                 <div class="space-y-6">
-                    <img src="/img/logo.webp" alt="PixelTech" class="h-10 opacity-90">
+                    <img src="/img/logo.webp" alt="PixelTech" width="160" height="40" class="h-10 w-auto opacity-90">
                     <p class="text-gray-500 text-xs leading-relaxed uppercase font-medium tracking-wider">Innovación al alcance de tu mano.</p>
                     <div class="flex gap-4 text-gray-400">
                         <a href="https://www.instagram.com/pixeltech.col/" class="hover:text-brand-cyan transition"><i class="fa-brands fa-instagram text-lg"></i></a>
