@@ -151,8 +151,7 @@
 
     </main>
 
-    <div id="global-footer"></div>
-
+<?php include $_SERVER['DOCUMENT_ROOT'] . '/includes/footer.php'; ?>
 <script type="module">
     import { getCart, updateQuantity, removeFromCart, getCartTotal, updateCartCount } from '../js/cart.js';
     import { auth, db, doc, getDoc, onAuthStateChanged, collection, query, where, documentId, getDocs } from '../js/firebase-init.js'; 
