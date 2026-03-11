@@ -5,12 +5,12 @@
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="PixelTech">
-    <link rel="preconnect" href="https://firebasestorage.googleapis.com">
-    <link rel="preconnect" href="https://www.googletagmanager.com">
-    <link rel="dns-prefetch" href="https://firebasestorage.googleapis.com">
+    
+    <link rel="preload" href="css/styles.css" as="style">
+    <link rel="stylesheet" href="css/styles.css">
 
-    <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
-    <link rel="dns-prefetch" href="https://www.gstatic.com">
+    <link rel="preconnect" href="https://firebasestorage.googleapis.com" crossorigin>
+    <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
 
     <link rel="apple-touch-startup-image" href="/img/icons/icon-512x512.png">
     <link rel="manifest" href="/manifest.json">
@@ -25,30 +25,21 @@
     <meta property="og:image" content="https://pixeltechcol.com/img/icons/icon-512x512.png">
 
     <link rel="canonical" href="https://pixeltechcol.com/" />
-    
-    
-    <link rel="stylesheet" href="css/styles.css">
 
     <script defer src="https://www.googletagmanager.com/gtag/js?id=G-0HP0VNV5F5"></script>
     <script>
         window.dataLayer = window.dataLayer || [];
         function gtag(){dataLayer.push(arguments);}
-        window.gtag = gtag; // Exportamos gtag al entorno global
+        window.gtag = gtag;
 
-        // Función que arranca Analytics solo cuando el usuario es humano (mueve el mouse o hace scroll)
         const initGTM = () => {
             gtag('js', new Date());
-            gtag('config', 'G-0HP0VNV5F5', {
-                'page_path': window.location.pathname
-            });
-            // Limpiamos los "escuchadores" para que no se ejecute dos veces
+            gtag('config', 'G-0HP0VNV5F5', { 'page_path': window.location.pathname });
             ['scroll', 'mousemove', 'touchstart'].forEach(e => window.removeEventListener(e, initGTM));
         };
 
-        // Si el usuario hace scroll, mueve el dedo o el mouse, disparamos Analytics
         ['scroll', 'mousemove', 'touchstart'].forEach(e => window.addEventListener(e, initGTM, { once: true, passive: true }));
         
-        // Si el usuario no hace nada por 6 segundos (ej. está leyendo), lo disparamos de todas formas (Googlebot ya se habrá ido)
         setTimeout(() => {
             if (!window.gtagLoaded) {
                 window.gtagLoaded = true;
@@ -59,44 +50,32 @@
 
     <link rel="preload" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
     <noscript><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"></noscript>
+    
     <style>
+        /* 🔥 FORZAR SWAP EN FUENTES EXTERNAS PARA MEJORAR FCP */
+        @font-face { font-family: 'Font Awesome 6 Free'; font-style: normal; font-weight: 900; font-display: swap; src: url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/webfonts/fa-solid-900.woff2') format('woff2'); }
+        @font-face { font-family: 'Font Awesome 6 Free'; font-style: normal; font-weight: 400; font-display: swap; src: url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/webfonts/fa-regular-400.woff2') format('woff2'); }
+        @font-face { font-family: 'Font Awesome 6 Brands'; font-style: normal; font-weight: 400; font-display: swap; src: url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/webfonts/fa-brands-400.woff2') format('woff2'); }
+
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
         .fade-in { animation: fadeIn 0.8s ease-out forwards; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-        /* Scroll suave para el historial */
         .smooth-scroll { scroll-behavior: smooth; }
-
-        /* --- Animación para el Carrusel de Promociones --- */
-        @keyframes scrollLeft {
-            0% { transform: translateX(0); }
-            100% { transform: translateX(-50%); } 
-        }
-        .animate-scroll {
-            animation: scrollLeft 60s linear infinite; 
-        }
-        .pause-animation:hover {
-            animation-play-state: paused;
-        }
-        /* Efecto de desvanecimiento en los bordes para indicar más contenido */
-        .mask-fade {
-            -webkit-mask-image: linear-gradient(to right, transparent, black 5%, black 95%, transparent);
-            mask-image: linear-gradient(to right, transparent, black 5%, black 95%, transparent);
-        }
+        @keyframes scrollLeft { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
+        .animate-scroll { animation: scrollLeft 60s linear infinite; }
+        .pause-animation:hover { animation-play-state: paused; }
+        .mask-fade { -webkit-mask-image: linear-gradient(to right, transparent, black 5%, black 95%, transparent); mask-image: linear-gradient(to right, transparent, black 5%, black 95%, transparent); }
     </style>
 
     <script>
         try {
-            // Buscamos si hay banners guardados en la memoria local
             const cachedPromosRaw = localStorage.getItem('pixeltech_promo_slider_cache');
             if (cachedPromosRaw) {
                 const promos = JSON.parse(cachedPromosRaw);
                 if (promos && promos.length > 0) {
-                    // Obtenemos la URL de la primera imagen del carrusel
                     const firstPromo = promos;
                     const imgUrl = firstPromo.promoBannerUrl || firstPromo.mainImage || firstPromo.image;
-                    
-                    // Solo precarga si la imagen existe y no es "undefined"
                     if (imgUrl && imgUrl !== "undefined") {
                         const preloadLink = document.createElement("link");
                         preloadLink.href = imgUrl;
@@ -127,44 +106,35 @@
                                 const container = document.getElementById('promo-slider-container');
                                 try {
                                     const cache = localStorage.getItem('pixeltech_promo_slider_cache');
-                                    if (cache) {
+                                    if (cache && cache.length > 10) {
                                         const promos = JSON.parse(cache);
                                         if (promos && promos.length > 0) {
                                             const p = promos;
-                                            const bgImage = p.promoBannerUrl || p.mainImage || p.image || 'https://placehold.co/600x800';
-                                            const isCustom = !!p.promoBannerUrl;
-                                            
-                                            if (isCustom) {
-                                                container.innerHTML = `
-                                                    <div class="absolute inset-0 w-full h-full bg-white promo-slide overflow-hidden opacity-100 z-10" data-idx="0">
-                                                        <img src="${bgImage}" fetchpriority="high" class="w-full h-full object-fill">
-                                                    </div>
-                                                `;
-                                            } else {
-                                                const hasDiscount = p.originalPrice && p.originalPrice > p.price;
-                                                let priceDisplay = '<p class="text-brand-cyan font-black text-xl md:text-2xl mt-1">$' + (p.price || 0).toLocaleString('es-CO') + '</p>';
-                                                if (hasDiscount) {
-                                                    const disc = Math.round(((p.originalPrice - p.price) / p.originalPrice) * 100);
-                                                    priceDisplay = '<div class="flex items-end gap-3 mt-2"><div class="flex flex-col items-start leading-none"><span class="text-gray-400 line-through text-[10px] md:text-xs font-bold mb-1">Antes $' + p.originalPrice.toLocaleString('es-CO') + '</span><span class="text-brand-cyan font-black text-xl md:text-2xl">$' + p.price.toLocaleString('es-CO') + '</span></div><span class="bg-brand-red text-white text-[10px] font-black px-2 py-1 rounded-md mb-0.5 shadow-sm">-' + disc + '%</span></div>';
+                                            const bgImage = p.promoBannerUrl || p.mainImage || p.image;
+                                            if(bgImage && bgImage !== "undefined") {
+                                                const isCustom = !!p.promoBannerUrl;
+                                                if (isCustom) {
+                                                    container.innerHTML = '<div class="absolute inset-0 w-full h-full bg-white promo-slide overflow-hidden opacity-100 z-10" data-idx="0"><img src="'+bgImage+'" fetchpriority="high" class="w-full h-full object-fill"></div>';
+                                                } else {
+                                                    const hasDiscount = p.originalPrice && p.originalPrice > p.price;
+                                                    let priceDisplay = '<p class="text-brand-cyan font-black text-xl md:text-2xl mt-1">$' + (p.price || 0).toLocaleString('es-CO') + '</p>';
+                                                    if (hasDiscount) {
+                                                        const disc = Math.round(((p.originalPrice - p.price) / p.originalPrice) * 100);
+                                                        priceDisplay = '<div class="flex items-end gap-3 mt-2"><div class="flex flex-col items-start leading-none"><span class="text-gray-400 line-through text-[10px] md:text-xs font-bold mb-1">Antes $' + p.originalPrice.toLocaleString('es-CO') + '</span><span class="text-brand-cyan font-black text-xl md:text-2xl">$' + p.price.toLocaleString('es-CO') + '</span></div><span class="bg-brand-red text-white text-[10px] font-black px-2 py-1 rounded-md mb-0.5 shadow-sm">-' + disc + '%</span></div>';
+                                                    }
+                                                    container.innerHTML = '<div class="absolute inset-0 w-full h-full bg-slate-900 promo-slide overflow-hidden opacity-100 z-10" data-idx="0"><img src="'+bgImage+'" fetchpriority="high" decoding="sync" class="absolute inset-0 w-full h-full object-fill opacity-60"><div class="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-900/50 to-transparent"></div><div class="relative z-10 p-6 md:p-8 h-full flex flex-col justify-end items-center md:items-start text-center md:text-left"><span class="bg-brand-red text-white text-[8px] font-black px-3 py-1 rounded-full mb-3 uppercase tracking-widest shadow-lg shadow-red-500/20">Oferta Destacada</span><h2 class="text-lg md:text-xl font-black text-white uppercase tracking-tighter line-clamp-2 leading-tight">'+p.name+'</h2>'+priceDisplay+'</div></div>';
                                                 }
-                                                
-                                                container.innerHTML = `
-                                                    <div class="absolute inset-0 w-full h-full bg-slate-900 promo-slide overflow-hidden opacity-100 z-10" data-idx="0">
-                                                        <img src="${bgImage}" fetchpriority="high" decoding="sync" class="absolute inset-0 w-full h-full object-fill opacity-60">
-                                                        <div class="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-900/50 to-transparent"></div>
-                                                        <div class="relative z-10 p-6 md:p-8 h-full flex flex-col justify-end items-center md:items-start text-center md:text-left">
-                                                            <span class="bg-brand-red text-white text-[8px] font-black px-3 py-1 rounded-full mb-3 uppercase tracking-widest shadow-lg shadow-red-500/20">Oferta Destacada</span>
-                                                            <h2 class="text-lg md:text-xl font-black text-white uppercase tracking-tighter line-clamp-2 leading-tight">${p.name}</h2>
-                                                            ${priceDisplay}
-                                                        </div>
-                                                    </div>
-                                                `;
+                                                container.dataset.preloaded = "true";
+                                                return; // Si cargó bien, salimos.
                                             }
-                                            // Marca de seguridad para que app.js no lo borre
-                                            container.dataset.preloaded = "true";
                                         }
                                     }
                                 } catch (e) {}
+
+                                // 🔥 BANNER DE BIENVENIDA (Para nuevos visitantes / Googlebot) 🔥
+                                // No bloquea nada, pesa poco y destruye el LCP alto.
+                                container.innerHTML = '<div class="absolute inset-0 w-full h-full bg-slate-900 promo-slide overflow-hidden opacity-100 z-10" data-idx="0"><img src="/img/logo.webp" fetchpriority="high" decoding="sync" class="absolute inset-0 w-full h-full object-contain opacity-20 p-10"><div class="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-900/80 to-transparent"></div><div class="relative z-10 p-6 md:p-8 h-full flex flex-col justify-end items-center md:items-start text-center md:text-left"><span class="bg-brand-cyan text-brand-black text-[8px] font-black px-3 py-1 rounded-full mb-3 uppercase tracking-widest shadow-lg shadow-cyan-500/20">Bienvenidos a PixelTech</span><h2 class="text-lg md:text-xl font-black text-white uppercase tracking-tighter line-clamp-2 leading-tight">Cargando las mejores ofertas...</h2></div></div>';
+                                // Como no tiene "preloaded=true", app.js lo reemplazará por ofertas reales en cuanto lleguen.
                             })();
                         </script>
                     </div>
@@ -183,9 +153,9 @@
                     <div class="lg:col-span-2 lg:row-span-3 bg-slate-50 rounded-[2rem] md:rounded-[2.5rem] border border-gray-100 p-3 md:p-4 flex flex-col justify-between h-fit lg:h-full relative group-history z-10">
                         <div class="flex items-center justify-between mb-1 px-2 shrink-0"><h3 class="font-black text-[9px] uppercase tracking-[0.2em] text-gray-400">Visto recientemente</h3><div class="h-px bg-gray-200 flex-grow mx-4"></div></div>
                         <div class="relative w-full flex items-center justify-center flex-grow h-full">
-                            <button id="hist-btn-left" class="hidden md:flex absolute -left-2 z-20 w-7 h-7 bg-white border border-gray-100 rounded-full shadow-md items-center justify-center text-brand-black hover:bg-brand-black hover:text-brand-cyan transition"><i class="fa-solid fa-chevron-left text-[10px]"></i></button>
+                            <button id="hist-btn-left" aria-label="Ver historial anterior" class="hidden md:flex absolute -left-2 z-20 w-7 h-7 bg-white border border-gray-100 rounded-full shadow-md items-center justify-center text-brand-black hover:bg-brand-black hover:text-brand-cyan transition"><i class="fa-solid fa-chevron-left text-[10px]"></i></button>
                             <div id="view-history-list" class="flex gap-3 overflow-x-auto no-scrollbar smooth-scroll px-1 py-1 items-center h-full w-full"><p class="text-[9px] text-gray-400 font-bold uppercase w-full text-center self-center">Explora productos para ver tu historial</p></div>
-                            <button id="hist-btn-right" class="hidden md:flex absolute -right-2 z-20 w-7 h-7 bg-white border border-gray-100 rounded-full shadow-md items-center justify-center text-brand-black hover:bg-brand-black hover:text-brand-cyan transition"><i class="fa-solid fa-chevron-right text-[10px]"></i></button>
+                            <button id="hist-btn-right" aria-label="Ver historial siguiente" class="hidden md:flex absolute -right-2 z-20 w-7 h-7 bg-white border border-gray-100 rounded-full shadow-md items-center justify-center text-brand-black hover:bg-brand-black hover:text-brand-cyan transition"><i class="fa-solid fa-chevron-right text-[10px]"></i></button>
                         </div>
                     </div>
                 </div>
@@ -218,13 +188,12 @@
                 <div class="absolute bottom-0 left-0 w-64 h-64 bg-purple-500/10 rounded-full blur-3xl translate-y-1/2 -translate-x-1/2 pointer-events-none"></div>
 
                 <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-y-10 gap-x-4 relative z-10">
-                    
                     <div class="flex flex-col items-center text-center gap-3 group/icon cursor-default">
                         <div class="w-14 h-14 rounded-2xl bg-slate-800 border border-slate-700 flex items-center justify-center group-hover/icon:scale-110 group-hover/icon:bg-brand-cyan group-hover/icon:text-black group-hover/icon:border-brand-cyan transition-all duration-300 shadow-lg">
                             <i class="fa-solid fa-truck-fast text-2xl text-brand-cyan group-hover/icon:text-black transition-colors"></i>
                         </div>
                         <div>
-                            <h4 class="font-black text-[10px] uppercase tracking-widest text-white mb-1">Envíos Colombia</h4>
+                            <h2 class="font-black text-[10px] uppercase tracking-widest text-white mb-1">Envíos Colombia</h2>
                             <p class="text-[9px] text-gray-400 font-bold">Rápido y Seguro</p>
                         </div>
                     </div>
@@ -234,7 +203,7 @@
                             <i class="fa-solid fa-hand-holding-dollar text-2xl text-emerald-500 group-hover/icon:text-black transition-colors"></i>
                         </div>
                         <div>
-                            <h4 class="font-black text-[10px] uppercase tracking-widest text-white mb-1">Contra Entrega</h4>
+                            <h2 class="font-black text-[10px] uppercase tracking-widest text-white mb-1">Contra Entrega</h2>
                             <p class="text-[9px] text-gray-400 font-bold">Paga al recibir</p>
                         </div>
                     </div>
@@ -244,7 +213,7 @@
                             <i class="fa-solid fa-medal text-2xl text-purple-500 group-hover/icon:text-white transition-colors"></i>
                         </div>
                         <div>
-                            <h4 class="font-black text-[10px] uppercase tracking-widest text-white mb-1">Garantía</h4>
+                            <h2 class="font-black text-[10px] uppercase tracking-widest text-white mb-1">Garantía</h2>
                             <p class="text-[9px] text-gray-400 font-bold">100% Originales</p>
                         </div>
                     </div>
@@ -254,7 +223,7 @@
                             <i class="fa-solid fa-credit-card text-2xl text-pink-500 group-hover/icon:text-white transition-colors"></i>
                         </div>
                         <div>
-                            <h4 class="font-black text-[10px] uppercase tracking-widest text-white mb-1">Crédito ADDI</h4>
+                            <h2 class="font-black text-[10px] uppercase tracking-widest text-white mb-1">Crédito ADDI</h2>
                             <p class="text-[9px] text-gray-400 font-bold">Fácil y Rápido</p>
                         </div>
                     </div>
@@ -264,11 +233,10 @@
                             <i class="fa-solid fa-headset text-2xl text-yellow-500 group-hover/icon:text-black transition-colors"></i>
                         </div>
                         <div>
-                            <h4 class="font-black text-[10px] uppercase tracking-widest text-white mb-1">Soporte</h4>
+                            <h2 class="font-black text-[10px] uppercase tracking-widest text-white mb-1">Soporte</h2>
                             <p class="text-[9px] text-gray-400 font-bold">Personalizado</p>
                         </div>
                     </div>
-
                 </div>
             </div>
         </section>
@@ -294,8 +262,7 @@
                     <h2 class="text-2xl md:text-3xl font-black text-brand-black tracking-tighter uppercase mb-6">Explora por <span class="text-brand-cyan">Categoría</span></h2>
                     
                     <div class="relative flex items-center justify-center max-w-6xl mx-auto group/cat">
-                        
-                        <button onclick="document.getElementById('categories-bar').scrollBy({left: -200, behavior: 'smooth'})" 
+                        <button onclick="document.getElementById('categories-bar').scrollBy({left: -200, behavior: 'smooth'})" aria-label="Mover categorías a la izquierda"
                             class="absolute left-0 z-20 w-8 h-8 md:w-10 md:h-10 bg-white border border-gray-100 rounded-full shadow-lg flex items-center justify-center text-brand-black hover:text-brand-cyan hover:border-brand-cyan transition-all opacity-0 group-hover/cat:opacity-100 disabled:opacity-0 -translate-x-2 md:-translate-x-4">
                             <i class="fa-solid fa-chevron-left text-xs md:text-sm"></i>
                         </button>
@@ -303,7 +270,7 @@
                         <div id="categories-bar" class="flex gap-3 overflow-x-auto no-scrollbar py-4 px-4 w-full snap-x scroll-smooth mask-fade">
                             </div>
 
-                        <button onclick="document.getElementById('categories-bar').scrollBy({left: 200, behavior: 'smooth'})" 
+                        <button onclick="document.getElementById('categories-bar').scrollBy({left: 200, behavior: 'smooth'})" aria-label="Mover categorías a la derecha"
                             class="absolute right-0 z-20 w-8 h-8 md:w-10 md:h-10 bg-white border border-gray-100 rounded-full shadow-lg flex items-center justify-center text-brand-black hover:text-brand-cyan hover:border-brand-cyan transition-all opacity-0 group-hover/cat:opacity-100 disabled:opacity-0 translate-x-2 md:translate-x-4">
                             <i class="fa-solid fa-chevron-right text-xs md:text-sm"></i>
                         </button>
@@ -333,7 +300,8 @@
 
 
     <script type="module">
-        import { loadGlobalHeader, loadGlobalFooter } from '../js/global-components.js?v=1.1';        loadGlobalHeader();
+        import { loadGlobalHeader, loadGlobalFooter } from '../js/global-components.js?v=1.1';        
+        loadGlobalHeader();
         loadGlobalFooter();
     </script>
 
@@ -342,9 +310,9 @@
     "@context": "https://schema.org",
     "@type": "ElectronicsStore",
     "name": "PixelTech Col SAS",
-    "image": "https://pixeltech.com/img/logo.webp",
-    "@id": "https://pixeltech.com",
-    "url": "https://pixeltech.com",
+    "image": "https://pixeltechcol.com/img/logo.webp",
+    "@id": "https://pixeltechcol.com",
+    "url": "https://pixeltechcol.com",
     "telephone": "+573009046450",
     "priceRange": "  $",
     "address": {
@@ -377,7 +345,6 @@
         "https://www.facebook.com/pixeltech.col",
         "https://www.instagram.com/pixeltech.col",
         "https://www.tiktok.com/@pixeltech.col"
-
     ]
     }
     </script>
@@ -385,5 +352,4 @@
     <script type="module" src="js/app.js"></script>
 
 </body>
-
 </html>
