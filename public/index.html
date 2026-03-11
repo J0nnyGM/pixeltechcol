@@ -131,19 +131,38 @@
                                         const promos = JSON.parse(cache);
                                         if (promos && promos.length > 0) {
                                             const p = promos;
-                                            
-                                            // Agregamos una imagen temporal en caso de que este producto no tenga foto
-                                            const imgUrl = p.promoBannerUrl || p.mainImage || p.image || 'https://placehold.co/600x800/1e293b/00AEC7?text=PixelTech';
+                                            const bgImage = p.promoBannerUrl || p.mainImage || p.image || 'https://placehold.co/600x800';
                                             const isCustom = !!p.promoBannerUrl;
                                             
-                                            container.innerHTML = `
-                                                <div class="absolute inset-0 w-full h-full bg-slate-900 overflow-hidden z-10">
-                                                    <img src="${imgUrl}" fetchpriority="high" class="${isCustom ? 'w-full h-full object-fill' : 'absolute inset-0 w-full h-full object-fill opacity-60'}">
-                                                </div>
-                                            `;
+                                            if (isCustom) {
+                                                container.innerHTML = `
+                                                    <div class="absolute inset-0 w-full h-full bg-white promo-slide overflow-hidden opacity-100 z-10" data-idx="0">
+                                                        <img src="${bgImage}" fetchpriority="high" class="w-full h-full object-fill">
+                                                    </div>
+                                                `;
+                                            } else {
+                                                const hasDiscount = p.originalPrice && p.originalPrice > p.price;
+                                                let priceDisplay = '<p class="text-brand-cyan font-black text-xl md:text-2xl mt-1">$' + (p.price || 0).toLocaleString('es-CO') + '</p>';
+                                                if (hasDiscount) {
+                                                    const disc = Math.round(((p.originalPrice - p.price) / p.originalPrice) * 100);
+                                                    priceDisplay = '<div class="flex items-end gap-3 mt-2"><div class="flex flex-col items-start leading-none"><span class="text-gray-400 line-through text-[10px] md:text-xs font-bold mb-1">Antes $' + p.originalPrice.toLocaleString('es-CO') + '</span><span class="text-brand-cyan font-black text-xl md:text-2xl">$' + p.price.toLocaleString('es-CO') + '</span></div><span class="bg-brand-red text-white text-[10px] font-black px-2 py-1 rounded-md mb-0.5 shadow-sm">-' + disc + '%</span></div>';
+                                                }
+                                                
+                                                container.innerHTML = `
+                                                    <div class="absolute inset-0 w-full h-full bg-slate-900 promo-slide overflow-hidden opacity-100 z-10" data-idx="0">
+                                                        <img src="${bgImage}" fetchpriority="high" decoding="sync" class="absolute inset-0 w-full h-full object-fill opacity-60">
+                                                        <div class="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-900/50 to-transparent"></div>
+                                                        <div class="relative z-10 p-6 md:p-8 h-full flex flex-col justify-end items-center md:items-start text-center md:text-left">
+                                                            <span class="bg-brand-red text-white text-[8px] font-black px-3 py-1 rounded-full mb-3 uppercase tracking-widest shadow-lg shadow-red-500/20">Oferta Destacada</span>
+                                                            <h2 class="text-lg md:text-xl font-black text-white uppercase tracking-tighter line-clamp-2 leading-tight">${p.name}</h2>
+                                                            ${priceDisplay}
+                                                        </div>
+                                                    </div>
+                                                `;
+                                            }
+                                            // Marca de seguridad para que app.js no lo borre
+                                            container.dataset.preloaded = "true";
                                         }
-                                    } else {
-                                        container.innerHTML = `<div class="flex flex-col items-center justify-center h-full text-brand-cyan opacity-50"><i class="fa-solid fa-circle-notch fa-spin text-3xl mb-2"></i><span class="text-[8px] font-black uppercase tracking-widest">Cargando...</span></div>`;
                                     }
                                 } catch (e) {}
                             })();

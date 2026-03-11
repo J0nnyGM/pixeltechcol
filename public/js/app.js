@@ -700,7 +700,10 @@ function loadPromoSlider() {
     if (cachedPromosRaw) {
         try {
             currentPromos = JSON.parse(cachedPromosRaw);
-            buildSliderDOM(currentPromos);
+            // Si el HTML ya lo pintó perfecto, no lo sobreescribimos para evitar el CLS
+            if (container.dataset.preloaded !== "true") {
+                buildSliderDOM(currentPromos);
+            }
         } catch (e) {}
     }
 
