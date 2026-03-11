@@ -134,8 +134,13 @@ if ($http_code == 200 && $response) {
         $safe_meta_tags = str_replace('$', '\\$', $meta_tags);
         $html = preg_replace('/<title>.*?<\/title>/is', $safe_meta_tags, $html);
         
-        $safe_name = str_replace('$', '\\$', htmlspecialchars($name, ENT_QUOTES, 'UTF-8'));
-        $html = preg_replace('/(<h1[^>]*id="p-name"[^>]*>).*?(<\/h1>)/is', '$1' . $safe_name . '$2', $html);
+    // 🔥 INYECCIÓN DIRECTA DE LA FOTO (Cero retraso de renderización) 🔥
+        $safe_image = str_replace('$', '\\$', $image);
+        $html = preg_replace('/(<img[^>]*id="p-main-image"[^>]*src=")([^"]*)("[^>]*>)/is', '${1}' . $safe_image . '$3', $html);
+        
+        // 🔥 INYECCIÓN DIRECTA DEL PRECIO 🔥
+        $formatted_price = "$" . number_format($price, 0, ',', '.');
+        $html = preg_replace('/(<span[^>]*id="p-price"[^>]*>).*?(<\/span>)/is', '${1}' . $formatted_price . '$2', $html);
         
         $preloadedData = json_encode(['id' => $product_id, 'name' => $name, 'price' => $price, 'mainImage' => $image]);
         $safe_preloadedData = str_replace('$', '\\$', $preloadedData);
