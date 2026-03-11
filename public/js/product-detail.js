@@ -144,7 +144,7 @@ export async function initProductDetail() {
             }, (error) => {
             console.error("Error en SmartSync Detalle:", error);
         });
-    }, 4500); // ⬅️ CAMBIAMOS A 4500 (4.5 segundos)
+    }, 1200); // ⬅️ CAMBIAMOS A 4500 (4.5 segundos)
 }
 
 function updateLocalCacheWith(productData) {

@@ -167,7 +167,7 @@ exports.createSistecreditoCheckout = async (data, context) => {
 };
 
 // ==========================================
-// 2. WEBHOOK DE SISTECRÉDITO (CORREGIDO Y ORDENADO)
+// 2. WEBHOOK DE SISTECRÉDITO (BLINDADO Y SEGURO)
 // ==========================================
 exports.webhook = async (req, res) => {
     return cors(req, res, async () => {
@@ -176,23 +176,24 @@ exports.webhook = async (req, res) => {
             const body = req.body;
             console.log("🔔 Webhook Sistecrédito:", JSON.stringify(body));
 
-            // SISTECRÉDITO en producción manda el JSON plano en el body
-            // La "I" de Invoice y la "T" de TransactionStatus van en Mayúscula
-            const orderId = body.Invoice || body.invoice; 
-            const status = body.TransactionStatus || body.transactionStatus || body.status; 
+            const txData = body.data || body; 
             
-            // Extraer el ID real de la transacción de SC para el recibo
-            const paymentId = body._id || body.id || 'SISTECREDITO';
+            // 🔥 CORRECCIÓN CRÍTICA: Extraer soportando Mayúsculas y Minúsculas
+            const orderId = txData.Invoice || txData.invoice; 
+            const rawStatus = txData.TransactionStatus || txData.transactionStatus || ""; 
+            const status = rawStatus.toUpperCase(); // Estandarizamos a MAYÚSCULAS
+            const paymentId = txData._id || txData.id || 'SISTECREDITO';
 
             if (!orderId) {
-                console.error("❌ No se encontró Invoice ID en el webhook");
+                console.error("❌ Faltan datos: Invoice ID");
                 return res.status(400).send("Missing Invoice ID");
             }
 
             const orderRef = db.collection('orders').doc(orderId);
             const remRef = db.collection('remissions').doc(orderId);
 
-            if (status === 'Approved') { 
+            // Evaluamos en mayúsculas, igual que en ADDI
+            if (status === 'APPROVED') { 
                 await db.runTransaction(async (t) => {
                     
                     // ==========================================
@@ -238,7 +239,7 @@ exports.webhook = async (req, res) => {
                         if (!defQ.empty) accDoc = defQ.docs[0];
                     }
 
-                    // LEEMOS LA REMISIÓN AQUÍ ARRIBA ANTES DE ESCRIBIR
+                    // LEEMOS LA REMISIÓN
                     const remSnap = await t.get(remRef); 
 
                     // ==========================================
@@ -277,19 +278,20 @@ exports.webhook = async (req, res) => {
                     t.update(orderRef, {
                         status: 'PAGADO', 
                         paymentStatus: 'PAID', 
-                        paymentId: paymentId, // Usamos el ID seguro que extrajimos arriba
+                        paymentId: paymentId, // Usamos la variable limpia que creamos arriba
                         updatedAt: admin.firestore.FieldValue.serverTimestamp(), 
                         isStockDeducted: true
                     });
                 });
-                console.log(`✅ Sistecrédito: Orden ${orderId} Pagada Exitosamente.`);
+                console.log(`✅ Sistecrédito: Orden ${orderId} procesada idéntico a ADDI.`);
 
-            } else if (status === 'Rejected' || status === 'Cancelled' || status === 'Failed') { 
+            // Evaluamos rechazos también en mayúsculas
+            } else if (status === 'REJECTED' || status === 'CANCELLED' || status === 'FAILED') { 
                 const docCheck = await orderRef.get();
                 if (docCheck.exists && docCheck.data().paymentStatus !== 'PAID') {
                     await orderRef.update({ 
                         status: 'RECHAZADO', 
-                        statusDetail: status 
+                        statusDetail: rawStatus 
                     });
                     console.log(`❌ Orden ${orderId} Rechazada/Cancelada por Sistecrédito`);
                 }
