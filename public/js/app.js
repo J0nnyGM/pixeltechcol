@@ -1372,6 +1372,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     loadBrandsMarquee();
 
     updateCartCount();
+    
 
     // 3. ESCUCHA DE EVENTOS EN TIEMPO REAL
     // Cuando el SmartCache detecte un cambio en Firebase, repintará las zonas afectadas

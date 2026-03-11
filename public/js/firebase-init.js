@@ -101,6 +101,7 @@ export async function checkCacheVersion(db) {
 
             // 🔥 CASO 2: ES UN USUARIO RECURRENTE
             const localVersion = parseInt(localVersionString);
+            
 
             // Si el servidor tiene una versión mayor, detonamos la bomba 💣
             if (serverVersion > localVersion) {

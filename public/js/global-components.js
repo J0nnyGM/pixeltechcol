@@ -831,6 +831,7 @@ export function loadGlobalFooter() {
                     </div>
                 </div>
                 
+                
                 <div>
                     <h2 class="font-black text-[10px] uppercase tracking-[0.3em] text-brand-cyan mb-6">Navegación</h4>
                     <ul class="space-y-4 text-[10px] font-bold uppercase tracking-widest text-gray-400">
