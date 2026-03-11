@@ -80,7 +80,7 @@ export function loadGlobalHeader() {
         </div>
     </div>
 
-    <button onclick="window.toggleWhatsAppModal()" class="fixed bottom-24 lg:bottom-10 right-6 z-50 w-14 h-14 bg-[#25D366] text-white rounded-full shadow-xl flex items-center justify-center hover:scale-110 hover:shadow-2xl transition-all duration-300 group">
+    <button onclick="window.toggleWhatsAppModal()" aria-label="Abrir chat de WhatsApp" class="fixed bottom-24 lg:bottom-10 right-6 z-50 w-14 h-14 bg-[#25D366] text-white rounded-full shadow-xl flex items-center justify-center hover:scale-110 hover:shadow-2xl transition-all duration-300 group">
         <i class="fa-brands fa-whatsapp text-3xl group-hover:animate-none animate-bounce-slow"></i>
         <span class="absolute top-0 right-0 w-3.5 h-3.5 bg-red-500 rounded-full border-2 border-white animate-pulse"></span>
     </button>
@@ -183,7 +183,7 @@ export function loadGlobalHeader() {
         <div class="relative w-[85%] max-w-sm h-full bg-white flex flex-col shadow-2xl">
             <div class="p-6 bg-brand-black flex justify-between items-center shrink-0">
                 <img src="/img/logo.webp" alt="PixelTech" width="120" height="40" class="h-10 w-auto opacity-90">
-                <button id="mobile-drawer-close" class="w-8 h-8 rounded-full bg-white/10 text-white flex items-center justify-center hover:bg-brand-cyan hover:text-black transition">
+                <button id="mobile-drawer-close" aria-label="Cerrar menú móvil" class="w-8 h-8 rounded-full bg-white/10 text-white flex items-center justify-center hover:bg-brand-cyan hover:text-black transition">
                     <i class="fa-solid fa-xmark"></i>
                 </button>
             </div>
@@ -239,7 +239,7 @@ export function loadGlobalHeader() {
         <div id="cart-drawer" class="absolute right-0 top-0 w-full max-w-[400px] h-full bg-white shadow-2xl flex flex-col drawer-shadow translate-x-full smooth-drawer pointer-events-auto">
             <div class="p-6 bg-white border-b border-gray-100 flex justify-between items-center z-10 relative">
                 <h3 class="font-black text-lg uppercase tracking-tight flex items-center gap-3"><i class="fa-solid fa-bag-shopping text-brand-cyan"></i> Mi Carrito</h3>
-                <button onclick="window.toggleCartDrawer()" class="w-8 h-8 rounded-full bg-gray-50 text-gray-400 flex items-center justify-center hover:bg-brand-red hover:text-white transition"><i class="fa-solid fa-xmark"></i></button>
+                <button onclick="window.toggleCartDrawer()" aria-label="Cerrar carrito de compras" class="w-8 h-8 rounded-full bg-gray-50 text-gray-400 flex items-center justify-center hover:bg-brand-red hover:text-white transition"><i class="fa-solid fa-xmark"></i></button>
             </div>
             <div id="cart-shipping-bar" class="px-6 py-3 bg-slate-50 border-b border-gray-100">
                 <p id="shipping-msg" class="text-[9px] font-bold text-gray-500 uppercase tracking-wide text-center mb-2">Calculando envío...</p>
@@ -820,14 +820,14 @@ export function loadGlobalFooter() {
                     <img src="/img/logo.webp" alt="PixelTech" width="160" height="40" class="h-10 w-auto opacity-90">
                     <p class="text-gray-500 text-xs leading-relaxed uppercase font-medium tracking-wider">Innovación al alcance de tu mano.</p>
                     <div class="flex gap-4 text-gray-400">
-                        <a href="https://www.instagram.com/pixeltech.col/" class="hover:text-brand-cyan transition"><i class="fa-brands fa-instagram text-lg"></i></a>
-                        <a href="https://www.facebook.com/pixeltech.col" class="hover:text-brand-cyan transition"><i class="fa-brands fa-facebook text-lg"></i></a>
-                        <a href="https://www.tiktok.com/@pixeltech.col" class="hover:text-brand-cyan transition"><i class="fa-brands fa-tiktok text-lg"></i></a>
+                        <a href="https://www.instagram.com/pixeltech.col/" aria-label="Visitar Instagram de PixelTech" class="hover:text-brand-cyan transition"><i class="fa-brands fa-instagram text-lg"></i></a>
+                        <a href="https://www.facebook.com/pixeltech.col" aria-label="Visitar Facebook de PixelTech" class="hover:text-brand-cyan transition"><i class="fa-brands fa-facebook text-lg"></i></a>
+                        <a href="https://www.tiktok.com/@pixeltech.col" aria-label="Visitar TikTok de PixelTech" class="hover:text-brand-cyan transition"><i class="fa-brands fa-tiktok text-lg"></i></a>
                     </div>
                 </div>
                 
                 <div>
-                    <h4 class="font-black text-[10px] uppercase tracking-[0.3em] text-brand-cyan mb-6">Navegación</h4>
+                    <h2 class="font-black text-[10px] uppercase tracking-[0.3em] text-brand-cyan mb-6">Navegación</h4>
                     <ul class="space-y-4 text-[10px] font-bold uppercase tracking-widest text-gray-400">
                         <li><a href="/index.html" class="hover:text-white transition">Inicio</a></li>
                         <li><a href="/shop/catalog.html" class="hover:text-white transition text-brand-cyan">Catálogo</a></li>
@@ -838,7 +838,7 @@ export function loadGlobalFooter() {
                 </div>
                 
                 <div>
-                    <h4 class="font-black text-[10px] uppercase tracking-[0.3em] text-brand-cyan mb-6">Legal y Ayuda</h4>
+                    <h2 class="font-black text-[10px] uppercase tracking-[0.3em] text-brand-cyan mb-6">Legal y Ayuda</h4>
                     <ul class="space-y-4 text-[10px] font-bold uppercase tracking-widest text-gray-400">
                         <li><a href="/policies/warranty.html" class="hover:text-white transition">Garantías</a></li>
                         <li><a href="/policies/shipping.html" class="hover:text-white transition">Política de Envíos</a></li>
@@ -849,7 +849,7 @@ export function loadGlobalFooter() {
                 </div>
                 
                 <div>
-                    <h4 class="font-black text-[10px] uppercase tracking-[0.3em] text-brand-cyan mb-6">Contacto Oficial</h4>
+                    <h2 class="font-black text-[10px] uppercase tracking-[0.3em] text-brand-cyan mb-6">Contacto Oficial</h4>
                     <div class="space-y-4">
                         <div class="flex items-start gap-3">
                             <div class="w-8 h-8 rounded-xl bg-white/5 flex items-center justify-center shrink-0 mt-1"><i class="fa-solid fa-location-dot text-brand-cyan text-xs"></i></div>
