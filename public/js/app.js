@@ -1396,7 +1396,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         setTimeout(processChunks, 100);
     }
 
-    // 4. ESCUCHA DE EVENTOS EN TIEMPO REAL
+// 4. ESCUCHA DE EVENTOS EN TIEMPO REAL
     window.addEventListener('catalogUpdated', () => {
         const updateEverything = () => {
             // Aquí sí volvemos a filtrar y cargar los datos frescos de Firebase
@@ -1421,3 +1421,4 @@ document.addEventListener('DOMContentLoaded', async () => {
             setTimeout(updateEverything, 100);
         }
     });
+});
