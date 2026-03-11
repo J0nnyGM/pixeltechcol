@@ -17,20 +17,21 @@
     <link rel="preload" href="../css/styles.css?v=1.1" as="style">
     <link rel="stylesheet" href="../css/styles.css?v=1.1">
 
-    <link rel="preconnect" href="https://s3.amazonaws.com" crossorigin>
-    <link rel="preconnect" href="https://cdn.addi.com" crossorigin>
-    <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
-    <link rel="preconnect" href="https://pixeltechcol.firebaseapp.com" crossorigin>
-    <link rel="preconnect" href="https://apis.google.com" crossorigin>
-    <link rel="preconnect" href="https://www.googleapis.com" crossorigin>
-    <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
     <link rel="preconnect" href="https://firebasestorage.googleapis.com" crossorigin>
+    <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+    <link rel="preconnect" href="https://s3.amazonaws.com" crossorigin>
+
+    <link rel="dns-prefetch" href="https://cdn.addi.com">
+    <link rel="dns-prefetch" href="https://pixeltechcol.firebaseapp.com">
+    <link rel="dns-prefetch" href="https://apis.google.com">
+    <link rel="dns-prefetch" href="https://www.googleapis.com">
+    <link rel="dns-prefetch" href="https://firestore.googleapis.com">
 
     <link rel="preload" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
     <noscript><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"></noscript>
 
     <style>
-        /* 🔥 5. FORZAR SWAP EN FUENTES EXTERNAS (Evita FOIT / Texto invisible) */
+        /* 🔥 FORZAR SWAP EN FUENTES EXTERNAS (Evita FOIT / Texto invisible) */
         @font-face { 
             font-family: 'Font Awesome 6 Free'; font-style: normal; font-weight: 900; font-display: swap; 
             src: url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/webfonts/fa-solid-900.woff2') format('woff2'); 
@@ -55,8 +56,6 @@
         .thumb-inactive { border-color: #f3f4f6; border-width: 1px; opacity: 0.7; }
         .thumb-inactive:hover { opacity: 1; border-color: #00AEC7; }
         .no-scrollbar::-webkit-scrollbar { display: none; }
-        .fade-in { animation: fadeIn 0.4s ease-out forwards; }
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
         
         /* --- STICKY BAR CSS --- */
         .sticky-bar { 
@@ -216,30 +215,6 @@
         import { loadGlobalHeader, loadGlobalFooter } from '../js/global-components.js?v=1.1';
         loadGlobalHeader(); 
         loadGlobalFooter(); 
-    </script>
-
-    <script>
-        // Esto se ejecuta de inmediato, sin importar si Firebase cargó o no.
-        document.addEventListener('DOMContentLoaded', () => {
-            if (window.__PRELOADED_PRODUCT__) {
-                const p_load = window.__PRELOADED_PRODUCT__;
-                
-                const img = document.getElementById('p-main-image');
-                if (img) img.src = p_load.mainImage;
-                
-                const name = document.getElementById('p-name');
-                if (name && !name.textContent) name.textContent = p_load.name;
-                
-                const price = document.getElementById('p-price');
-                if (price) price.textContent = '$' + p_load.price.toLocaleString('es-CO');
-                
-                const loader = document.getElementById('p-loader');
-                if (loader) loader.classList.add('hidden');
-                
-                const content = document.getElementById('p-content');
-                if (content) content.classList.remove('hidden');
-            }
-        });
     </script>
 
     <script type="module">
