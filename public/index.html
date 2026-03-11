@@ -93,23 +93,21 @@
                 const promos = JSON.parse(cachedPromosRaw);
                 if (promos && promos.length > 0) {
                     // Obtenemos la URL de la primera imagen del carrusel
-                    const firstPromo = promos[0];
+                    const firstPromo = promos;
                     const imgUrl = firstPromo.promoBannerUrl || firstPromo.mainImage || firstPromo.image;
                     
-                    if (imgUrl) {
-                        // Creamos la etiqueta <link rel="preload"> en tiempo real
+                    // Solo precarga si la imagen existe y no es "undefined"
+                    if (imgUrl && imgUrl !== "undefined") {
                         const preloadLink = document.createElement("link");
                         preloadLink.href = imgUrl;
                         preloadLink.rel = "preload";
                         preloadLink.as = "image";
-                        preloadLink.setAttribute("fetchpriority", "high"); // Le da máxima prioridad al navegador
+                        preloadLink.setAttribute("fetchpriority", "high");
                         document.head.appendChild(preloadLink);
                     }
                 }
             }
-        } catch (error) {
-            // Silenciamos cualquier error para no bloquear la carga
-        }
+        } catch (error) {}
     </script>
 </head>
 
@@ -133,7 +131,9 @@
                                         const promos = JSON.parse(cache);
                                         if (promos && promos.length > 0) {
                                             const p = promos;
-                                            const imgUrl = p.promoBannerUrl || p.mainImage || p.image;
+                                            
+                                            // Agregamos una imagen temporal en caso de que este producto no tenga foto
+                                            const imgUrl = p.promoBannerUrl || p.mainImage || p.image || 'https://placehold.co/600x800/1e293b/00AEC7?text=PixelTech';
                                             const isCustom = !!p.promoBannerUrl;
                                             
                                             container.innerHTML = `

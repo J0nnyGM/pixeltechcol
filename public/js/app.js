@@ -1011,7 +1011,7 @@ function loadFeatured() {
                 
                 // Validación de seguridad: Si recuperamos al menos 4 productos (por si borraste alguno del admin)
                 // mantenemos la lista. Si hay muy pocos, mejor regeneramos.
-                if (productsToShow.length >= 4) {
+                if (productsToShow.length >= 10) {
                     needsRefresh = false;
                     console.log(`📅 Destacados vigentes. Rotación en: ${Math.round((MS_IN_8_DAYS - timeDiff) / (1000 * 60 * 60 * 24))} días.`);
                 }
