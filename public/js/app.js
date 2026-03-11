@@ -1357,40 +1357,39 @@ function renderPromosHTML() {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
-    // 1. Iniciar sincronización INTELIGENTE (No bloquea la página, es asíncrono)
+    // 1. Iniciar sincronización (Vital)
     await SmartProductSync.init();
 
-    // 2. Renderizar UI desde memoria (Carga ultrarrápida inicial)
+    // 2. Renderizar SOLO la parte superior (Vital para el usuario)
     loadPromoSlider();
-    loadNewLaunch();
-    initMasterSliders(); 
-
-    loadViewHistory();
-    loadWeeklyChoices();
-    loadPromotionsGrid();
-    loadFeatured();
-    loadCategoriesBar();
-    loadBestSellers();
-    loadBrandsMarquee();
-
     updateCartCount();
-    
 
-    // 3. ESCUCHA DE EVENTOS EN TIEMPO REAL
-    // Cuando el SmartCache detecte un cambio en Firebase, repintará las zonas afectadas
-    window.addEventListener('catalogUpdated', () => {
+    // 3. Diferir TODO el resto de la página para que no bloquee el procesador (Adios TBT)
+    const renderBelowTheFold = () => {
+        loadNewLaunch();
+        initMasterSliders(); 
         loadViewHistory();
         loadWeeklyChoices();
         loadPromotionsGrid();
-        
-        if (document.getElementById('featured-grid')) loadFeatured();
-        
-        // Repinta la categoría activa o los más vendidos
-        const activeCatBtn = document.querySelector('.cat-btn.active');
-        if (activeCatBtn && activeCatBtn.innerText !== "TODAS") {
-            if (window.filterBy) window.filterBy(activeCatBtn.dataset.cat, activeCatBtn);
+        loadFeatured();
+        loadCategoriesBar();
+        loadBestSellers();
+        loadBrandsMarquee();
+    };
+
+    if ('requestIdleCallback' in window) {
+        // Ejecuta el resto cuando el procesador esté 100% libre
+        requestIdleCallback(renderBelowTheFold);
+    } else {
+        setTimeout(renderBelowTheFold, 50);
+    }
+
+    // 4. ESCUCHA DE EVENTOS EN TIEMPO REAL
+    window.addEventListener('catalogUpdated', () => {
+        if ('requestIdleCallback' in window) {
+            requestIdleCallback(refreshAllGrids);
         } else {
-            loadBestSellers();
+            setTimeout(refreshAllGrids, 100);
         }
     });
 });
