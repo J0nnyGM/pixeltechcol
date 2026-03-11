@@ -78,76 +78,80 @@ export {
 };
 
 // ==========================================
-// 🧹 KILL SWITCH: LIMPIEZA DE CACHÉ GLOBAL Y PWA
+// 💥 KILL SWITCH: DESTRUCCIÓN TOTAL DE CACHÉ EN TIEMPO REAL
 // ==========================================
-export async function checkCacheVersion(db) {
-    if (!navigator.onLine) return; // Si no hay internet, abortamos
+export function initCacheKillSwitch(db) {
+    if (!navigator.onLine) return; // Si no hay internet, no hacemos nada
 
     try {
         const configRef = doc(db, "config", "system");
-        const snap = await getDoc(configRef);
         
-        if (snap.exists()) {
-            const serverVersion = snap.data().cacheVersion || 1;
-            const localVersionString = localStorage.getItem('pixeltech_cache_version');
+        // Usamos onSnapshot para que sea EN TIEMPO REAL. 
+        // Apenas cambies el número en Firebase, a todos los usuarios se les limpiará la app.
+        onSnapshot(configRef, async (snap) => {
+            if (snap.exists()) {
+                const serverVersion = snap.data().cacheVersion || 1;
+                const localVersionString = localStorage.getItem('pixeltech_cache_version');
 
-            // 🔥 CASO 1: ES UN USUARIO NUEVO (No tiene versión guardada)
-            if (localVersionString === null) {
-                // Simplemente guardamos la versión actual silenciosamente y no recargamos nada
-                console.log(`👋 Nuevo visitante. Registrando versión de caché v${serverVersion}.`);
-                localStorage.setItem('pixeltech_cache_version', serverVersion.toString());
-                return; // Cortamos la ejecución aquí
-            }
+                // 🔥 CASO 1: ES UN USUARIO NUEVO
+                if (localVersionString === null) {
+                    localStorage.setItem('pixeltech_cache_version', serverVersion.toString());
+                    return; 
+                }
 
-            // 🔥 CASO 2: ES UN USUARIO RECURRENTE
-            const localVersion = parseInt(localVersionString);
-            
-
-            // Si el servidor tiene una versión mayor, detonamos la bomba 💣
-            if (serverVersion > localVersion) {
-                console.warn(`🔄 Nueva versión detectada (v${serverVersion}). Limpiando TODO el caché...`);
-
-                // 1. Borramos Datos Locales (Carrito, Sesiones de usuario, etc.)
-                Object.keys(localStorage).forEach(key => {
-                    if (key.includes('pixeltech_')) localStorage.removeItem(key);
-                });
+                // 🔥 CASO 2: USUARIO RECURRENTE
+                const localVersion = parseInt(localVersionString);
                 
-                Object.keys(sessionStorage).forEach(key => {
-                    if (key.includes('pixeltech_')) sessionStorage.removeItem(key);
-                });
+                // Si el servidor tiene una versión mayor, DETONAMOS LA BOMBA 💣
+                if (serverVersion > localVersion) {
+                    console.warn(`💥 KILL SWITCH ACTIVADO (v${serverVersion}). Borrando absolutamente todo...`);
 
-                // 2. DESTRUIR EL CACHÉ DEL SERVICE WORKER
-                if ('caches' in window) {
-                    const cacheNames = await caches.keys();
-                    await Promise.all(cacheNames.map(name => caches.delete(name)));
-                    console.log("🧹 Bóveda de archivos eliminada.");
+                    // 1. DESTRUIR DATOS LOCALES (Limpieza absoluta)
+                    // Nota: Firebase Auth usa IndexedDB, así que el usuario NO perderá su sesión, 
+                    // pero sí borraremos tu historial, selecciones y caché de productos.
+                    localStorage.clear(); 
+                    sessionStorage.clear();
+
+                    // 2. DESTRUIR LA BÓVEDA DEL SERVICE WORKER (Archivos físicos)
+                    if ('caches' in window) {
+                        const cacheNames = await caches.keys();
+                        await Promise.all(cacheNames.map(name => caches.delete(name)));
+                        console.log("🧹 Bóveda de archivos (Caches) eliminada.");
+                    }
+
+                    // 3. MATAR LOS SERVICE WORKERS ACTIVOS
+                    if ('serviceWorker' in navigator) {
+                        const registrations = await navigator.serviceWorker.getRegistrations();
+                        for (let registration of registrations) {
+                            await registration.unregister();
+                        }
+                        console.log("🔌 Service Worker desregistrado y eliminado.");
+                    }
+
+                    // 4. Registrar la nueva versión para evitar bucles infinitos
+                    localStorage.setItem('pixeltech_cache_version', serverVersion.toString());
+
+                    // 5. RECARGA NUCLEAR (Evita el caché HTTP del navegador)
+                    // Cambiamos window.location.reload(true) por esto. Al agregar "?v=X", 
+                    // el navegador cree que es una página distinta y descarga el HTML/JS obligatoriamente.
+                    const newUrl = new URL(window.location.href);
+                    newUrl.searchParams.set('v_cache', serverVersion);
+                    window.location.replace(newUrl.toString()); 
                 }
-
-                // 3. DESREGISTRAR EL SERVICE WORKER ACTUAL
-                if ('serviceWorker' in navigator) {
-                    const registrations = await navigator.serviceWorker.getRegistrations();
-                    for (let registration of registrations) await registration.unregister();
-                    console.log("🔌 Service Worker antiguo desregistrado.");
-                }
-
-                // 4. Guardamos la nueva versión para no crear un bucle infinito
-                localStorage.setItem('pixeltech_cache_version', serverVersion.toString());
-
-                // 5. Forzamos la recarga de la página
-                window.location.reload(true);
             }
-        }
+        }, (error) => {
+            console.warn("Kill Switch en pausa (Modo Offline o error de red).");
+        });
     } catch (error) {
-        if (error.code === 'unavailable' || error.message.includes('offline')) return;
-        console.error("Error comprobando versión de caché:", error);
+        console.error("Error iniciando Kill Switch:", error);
     }
 }
 
 // Ejecutamos silenciosamente en segundo plano una vez que la página termine de cargar
 window.addEventListener('load', () => {
     if ('requestIdleCallback' in window) {
-        requestIdleCallback(() => checkCacheVersion(db));
+        requestIdleCallback(() => initCacheKillSwitch(db));
     } else {
-        setTimeout(() => checkCacheVersion(db), 2000); 
+        setTimeout(() => initCacheKillSwitch(db), 2000); 
     }
 });
