@@ -160,7 +160,7 @@ export async function viewOrderDetail(orderId) {
         
         if (itemsList) {
             itemsList.innerHTML = (o.items || []).map((item, idx) => {
-                const img = item.mainImage || item.image || '/img/placeholder-tech.png';
+                const img = item.mainImage || item.image || '/img/placeholder-tech.webp';
                 let snInputs = '';
                 for (let i = 0; i < (item.quantity || 1); i++) {
                     const val = (item.sns && item.sns[i]) ? item.sns[i] : '';

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'pixeltech-shell-v7.1';
+const CACHE_NAME = 'pixeltech-shell-v7.2';
 
 // Archivos vitales para que la app arranque sin internet
 const urlsToCache = [
@@ -7,7 +7,7 @@ const urlsToCache = [
   '/css/styles.css',
   '/js/global-components.js',
   '/img/logo.webp',
-  '/img/icons/icon-192x192.png',
+  '/img/icons/icon-192x192.webp',
   '/offline.html'
 ];
 
