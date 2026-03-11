@@ -65,7 +65,7 @@
 
 <body class="bg-slate-50 font-sans text-brand-black h-screen overflow-hidden flex flex-col">
 
-    <div id="global-header" class="shrink-0"></div>
+    <?php include $_SERVER['DOCUMENT_ROOT'] . '/includes/header.php'; ?>
 
     <div class="flex flex-grow overflow-hidden relative">
         
@@ -123,7 +123,7 @@
                     </div>
                 </div>
 
-<section id="section-orders" class="page-section active">
+                <section id="section-orders" class="page-section active">
                     <div class="flex flex-col md:flex-row justify-between items-end mb-8 gap-4">
                         <div>
                             <h1 class="text-3xl md:text-4xl font-black tracking-tighter uppercase text-brand-black">Historial <span class="text-brand-cyan">Pedidos</span></h1>
