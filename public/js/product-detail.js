@@ -1,5 +1,5 @@
 import { db, doc, collection, query, where, limit, getDocs, onSnapshot } from './firebase-init.js';
-import { addToCart } from './cart.js';
+import { addToCart } from './cart.js'; 
 import { trackEcommerceEvent } from './global-components.js';
 
 // Estado local
@@ -24,7 +24,7 @@ const els = {
     loader: document.getElementById('p-loader'),
     content: document.getElementById('p-content'),
     desc: document.getElementById('p-description'),
-
+    
     breadCat: document.getElementById('breadcrumb-cat'),
     breadCatLink: document.getElementById('breadcrumb-cat-link'),
     breadSub: document.getElementById('breadcrumb-sub'),
@@ -43,11 +43,11 @@ const els = {
 
     stickyBar: document.getElementById('sticky-bar'),
     stickyPrice: document.getElementById('sticky-price'),
-    stickyDiscountRow: document.getElementById('sticky-discount-row'),
-    stickyOldPrice: document.getElementById('sticky-old-price'),
-    stickyBadge: document.getElementById('sticky-discount-badge'),
-    purchaseSection: document.getElementById('purchase-section'),
-
+    stickyDiscountRow: document.getElementById('sticky-discount-row'), 
+    stickyOldPrice: document.getElementById('sticky-old-price'),     
+    stickyBadge: document.getElementById('sticky-discount-badge'),   
+    purchaseSection: document.getElementById('purchase-section'),    
+    
     relatedSection: document.getElementById('related-products-section'),
     relatedGrid: document.getElementById('related-grid')
 };
@@ -67,7 +67,7 @@ function getProductFromCache(id) {
         if (map[id]) {
             return map[id];
         }
-    } catch (e) { }
+    } catch (e) {}
     return null;
 }
 
@@ -91,16 +91,16 @@ export async function initProductDetail() {
 
     if (window.__PRELOADED_PRODUCT__) {
         productData = window.__PRELOADED_PRODUCT__;
-
+        
         // Pintamos lo básico al instante
         els.name.textContent = productData.name;
         els.price.textContent = `$${productData.price.toLocaleString('es-CO')}`;
-
+        
         // La foto ya se precargó en el HTML, solo nos aseguramos de que esté
-        if (els.mainImg.src === "" || els.mainImg.src.includes('undefined')) {
-            els.mainImg.src = productData.mainImage || 'https://placehold.co/500';
+        if(els.mainImg.src === "" || els.mainImg.src.includes('undefined')) {
+             els.mainImg.src = productData.mainImage || 'https://placehold.co/500';
         }
-
+        
         els.loader.classList.add('hidden');
         els.content.classList.remove('hidden');
     }
@@ -117,35 +117,35 @@ export async function initProductDetail() {
         renderAddiWidget(productData.price);
     }
 
-    // 3. 🔥 CONEXIÓN A FIREBASE SUPER-DIFERIDA (Libera el LCP) 🔥
-    // Esperamos a que la imagen y toda la página cargue, y luego esperamos 500ms más.
-    window.addEventListener('load', () => {
-        setTimeout(() => {
-            if (unsubscribeProduct) unsubscribeProduct();
+    // 3. 🔥 CONEXIÓN A FIREBASE DIFERIDA (El Secreto de los 100 Puntos) 🔥
+    // Retrasamos la conexión pesada en tiempo real (WebSockets) hasta que la página ya esté pintada y Googlebot haya terminado de evaluar.
+    setTimeout(() => {
+        if (unsubscribeProduct) unsubscribeProduct();
+        
+        console.log("☁️ [Detalle] Iniciando Sync con Firebase...");
+        
+        unsubscribeProduct = onSnapshot(doc(db, "products", productId), (snap) => {
+            if (!snap.exists()) {
+                document.body.innerHTML = "<div class='flex flex-col items-center justify-center h-screen'><h1 class='text-2xl font-black mb-4'>Producto no encontrado o eliminado 😔</h1><a href='/' class='bg-brand-cyan px-6 py-3 rounded-xl font-bold'>Volver al Inicio</a></div>";
+                return;
+            }
 
-            console.log("☁️ [Detalle] Iniciando Sync con Firebase post-carga...");
+            const freshData = { id: snap.id, ...snap.data() };
+            
+            const isDifferent = !productData || JSON.stringify(productData) !== JSON.stringify(freshData);
 
-            unsubscribeProduct = onSnapshot(doc(db, "products", productId), (snap) => {
-                if (!snap.exists()) {
-                    document.body.innerHTML = "<div class='flex flex-col items-center justify-center h-screen'><h1 class='text-2xl font-black mb-4'>Producto no encontrado o eliminado 😔</h1><a href='/' class='bg-brand-cyan px-6 py-3 rounded-xl font-bold'>Volver al Inicio</a></div>";
-                    return;
-                }
-
-                const freshData = { id: snap.id, ...snap.data() };
-                const isDifferent = !productData || JSON.stringify(productData) !== JSON.stringify(freshData);
-
-                if (isDifferent) {
-                    console.log("🔥 [Detalle] Actualización detectada.");
-                    productData = freshData;
-                    renderProductData(productData, productId);
-                    updateLocalCacheWith(productData);
-                }
-            }, (error) => {
-                console.error("Error en SmartSync Detalle:", error);
-            });
-        }, 500);
-    });
-} // <- Fin de initProductDetail
+            if (isDifferent) {
+                console.log("🔥 [Detalle] Actualización detectada.");
+                productData = freshData;
+                // Ahora sí, re-renderizamos con la data completa de Firebase
+                renderProductData(productData, productId);
+                updateLocalCacheWith(productData);
+            }
+        }, (error) => {
+            console.error("Error en SmartSync Detalle:", error);
+        });
+    }, 1500); // Retrasamos la conexión pesada 1.5 segundos
+}
 
 function updateLocalCacheWith(productData) {
     try {
@@ -158,7 +158,7 @@ function updateLocalCacheWith(productData) {
                 localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
             }
         }
-    } catch (e) { }
+    } catch(e) {}
 }
 
 async function renderProductData(p, productId) {
@@ -166,7 +166,7 @@ async function renderProductData(p, productId) {
     // Si ya teníamos un precio/stock previo (ej. de variantes), lo actualizamos basándonos en la nueva data base
     state.currentPrice = p.price;
     state.currentStock = p.stock || 0;
-
+    
     // Si la imagen actual ya no existe en las nuevas imágenes (ej: se borró), volvemos a la principal
     const allImages = [p.mainImage, ...(p.images || [])].filter(Boolean);
     if (!state.currentImage || !allImages.includes(state.currentImage)) {
@@ -215,7 +215,7 @@ async function renderProductData(p, productId) {
     // 4. Inicializar & Render (Manteniendo preselecciones si existían)
     // initializeSelection(p); // Lo quitamos como pediste anteriormente para no forzar selecciones
     renderOptions(p);
-    updatePriceDisplay();
+    updatePriceDisplay(); 
     updateGallery();
     els.mainImg.src = state.currentImage;
     els.mainImg.alt = `Comprar ${p.name} - ${p.category} en Colombia`;
@@ -227,8 +227,8 @@ async function renderProductData(p, productId) {
     els.btnAdd.onclick = handleAddToCart;
 
     // 5. Extras
-    initStickyBar();
-    loadRelatedProductsOptimized(p.category, p.id);
+    initStickyBar(); 
+    loadRelatedProductsOptimized(p.category, p.id); 
 }
 
 // ... RESTO DEL CÓDIGO (loadRelatedProductsOptimized, updatePriceDisplay, etc.) ...
@@ -237,7 +237,7 @@ async function renderProductData(p, productId) {
 async function loadRelatedProductsOptimized(category, currentId) {
     if (!els.relatedSection) return;
     let related = [];
-
+    
     // 1. Caché
     const cachedRaw = localStorage.getItem('pixeltech_master_catalog');
     if (cachedRaw) {
@@ -248,7 +248,7 @@ async function loadRelatedProductsOptimized(category, currentId) {
                 const others = allProducts.filter(p => p.category !== category && p.status === 'active' && p.id !== currentId);
                 related = [...related, ...others];
             }
-        } catch (e) { }
+        } catch (e) {}
     }
 
     // 2. Firebase Fallback
@@ -266,9 +266,9 @@ async function loadRelatedProductsOptimized(category, currentId) {
 
     if (related.length === 0) return;
     related.sort(() => 0.5 - Math.random());
-
+    
     els.relatedSection.classList.remove('hidden');
-    els.relatedGrid.innerHTML = related.slice(0, 8).map(p => {
+els.relatedGrid.innerHTML = related.slice(0, 8).map(p => {
         const price = p.price.toLocaleString('es-CO');
         const originalImg = p.mainImage || (p.images && p.images.length > 0 ? p.images[0] : 'https://placehold.co/150');
         const miniaturaImg = getResizedImageUrl(originalImg);
@@ -303,13 +303,13 @@ async function loadRelatedProductsOptimized(category, currentId) {
         autoScrollInterval = setInterval(() => {
             if (!grid) return;
             const maxScrollLeft = grid.scrollWidth - grid.clientWidth;
-
+            
             // Si llegó al final, regresa suavemente al inicio (Loop)
             if (grid.scrollLeft >= maxScrollLeft - 10) {
                 grid.scrollTo({ left: 0, behavior: 'smooth' });
             } else {
                 // Se mueve hacia la derecha el equivalente a 1 tarjeta + su espacio
-                const cardWidth = grid.querySelector('div').offsetWidth + 16;
+                const cardWidth = grid.querySelector('div').offsetWidth + 16; 
                 grid.scrollBy({ left: cardWidth, behavior: 'smooth' });
             }
         }, 3500); // 3500ms = Se mueve cada 3.5 segundos
@@ -345,14 +345,14 @@ function saveToHistory(product) {
         history.unshift({ id: product.id, name: product.name, price: product.price, image: product.mainImage || product.image, category: product.category });
         if (history.length > 15) history.pop();
         localStorage.setItem('pixeltech_view_history', JSON.stringify(history));
-    } catch (e) { }
+    } catch (e) {}
 }
 
 async function updateShippingText() {
     if (!els.shippingText) return;
     try {
         const configSnap = await getDoc(doc(db, "config", "shipping"));
-        let cutoffTime = "14:00";
+        let cutoffTime = "14:00"; 
         if (configSnap.exists()) cutoffTime = configSnap.data().cutoffTime || "14:00";
         const now = new Date();
         const [hours, minutes] = cutoffTime.split(':').map(Number);
@@ -374,20 +374,20 @@ function updatePriceDisplay() {
     const p = state.product;
     let price = p.price;
     let stock = p.stock;
-    let activeSku = p.sku || 'N/A';
+    let activeSku = p.sku || 'N/A'; 
 
     if (!p.isSimple && p.combinations) {
         if (state.selectedColor || state.selectedCapacity) {
-            const variant = p.combinations.find(c =>
+            const variant = p.combinations.find(c => 
                 (c.color === state.selectedColor || (!c.color && !state.selectedColor)) &&
                 (c.capacity === state.selectedCapacity || (!c.capacity && !state.selectedCapacity))
             );
             if (variant) {
                 stock = variant.stock;
                 price = variant.price;
-                if (variant.sku) activeSku = variant.sku;
+                if(variant.sku) activeSku = variant.sku; 
             } else {
-                stock = 0;
+                stock = 0; 
             }
         }
     }
@@ -401,15 +401,15 @@ function updatePriceDisplay() {
 
     // Actualizar UI
     els.price.textContent = `$${price.toLocaleString('es-CO')}`;
-    if (els.stickyPrice) els.stickyPrice.textContent = `$${price.toLocaleString('es-CO')}`;
-
+    if(els.stickyPrice) els.stickyPrice.textContent = `$${price.toLocaleString('es-CO')}`;
+    
     // Actualizar Texto SKU
-    if (els.sku) {
+    if(els.sku) {
         els.sku.textContent = `REF: ${activeSku}`;
         if (activeSku === 'N/A' || activeSku === '') {
             els.sku.classList.add('hidden');
         } else {
-            els.sku.classList.remove('hidden');
+             els.sku.classList.remove('hidden');
         }
     }
 
@@ -420,8 +420,8 @@ function updatePriceDisplay() {
         els.price.classList.add('text-brand-red');
         els.oldPrice.textContent = formattedOld;
         els.oldPrice.classList.remove('hidden');
-        if (els.discountTag) { els.discountTag.textContent = `-${disc}%`; els.discountTag.classList.remove('hidden'); }
-        if (els.stickyDiscountRow) {
+        if(els.discountTag) { els.discountTag.textContent = `-${disc}%`; els.discountTag.classList.remove('hidden'); }
+        if(els.stickyDiscountRow) {
             els.stickyDiscountRow.classList.remove('hidden');
             els.stickyOldPrice.textContent = formattedOld;
             els.stickyBadge.textContent = `-${disc}%`;
@@ -431,8 +431,8 @@ function updatePriceDisplay() {
     } else {
         els.price.classList.remove('text-brand-red');
         els.oldPrice.classList.add('hidden');
-        if (els.discountTag) els.discountTag.classList.add('hidden');
-        if (els.stickyDiscountRow) {
+        if(els.discountTag) els.discountTag.classList.add('hidden');
+        if(els.stickyDiscountRow) {
             els.stickyDiscountRow.classList.add('hidden');
             els.stickyPrice.classList.add('text-brand-black');
             els.stickyPrice.classList.remove('text-brand-red');
@@ -500,19 +500,19 @@ function renderAddiWidget(price) {
     window.addEventListener('scroll', loadOnInteraction, { once: true, passive: true });
     window.addEventListener('touchstart', loadOnInteraction, { once: true, passive: true });
     window.addEventListener('mousemove', loadOnInteraction, { once: true, passive: true });
-
+    
     // Por si acaso el usuario se queda mirando sin tocar nada, lo cargamos a los 6 segundos (fuera del radar de Google)
-    setTimeout(() => {
+    setTimeout(() => { 
         window.removeEventListener('scroll', loadOnInteraction);
         window.removeEventListener('touchstart', loadOnInteraction);
-        initAddi();
+        initAddi(); 
     }, 6000);
 }
 
 function updateGallery() {
     els.thumbsContainer.innerHTML = "";
     let displayImages = [];
-
+    
     // Obtener imágenes de la variante si existe
     if (state.selectedColor && state.product.variants) {
         const v = state.product.variants.find(vari => vari.color === state.selectedColor);
@@ -520,71 +520,71 @@ function updateGallery() {
     }
     // Obtener el resto de imágenes del catálogo del producto
     const globalImages = state.product.images || [];
-
+    
     // Unir TODAS las fotos (las de la variante + todas las demás) sin duplicados
     currentGalleryImages = Array.from(new Set([...displayImages, ...globalImages]));
-
+    
     // Si no hay imágenes, usar un placeholder
     if (currentGalleryImages.length === 0) {
         currentGalleryImages = [state.product.mainImage || 'https://placehold.co/500'];
     }
 
-    // Renderizar miniaturas (El carrusel inferior)
+// Renderizar miniaturas (El carrusel inferior)
     currentGalleryImages.forEach((src) => {
         const img = document.createElement('img');
-
+        
         // 1. Intentamos cargar la miniatura rápida
-        img.src = getResizedImageUrl(src);
-
+        img.src = getResizedImageUrl(src); 
+        
         // 2. 🔥 SALVAVIDAS: Si la miniatura no existe aún en Firebase, cargamos la foto original
-        img.onerror = function () {
+        img.onerror = function() {
             if (this.src !== src) {
                 this.src = src;
             }
         };
-
+        
         const activateImage = () => {
-            if (state.currentImage === src) return;
+            if (state.currentImage === src) return; 
             state.currentImage = src;
             els.mainImg.src = src; // La principal siempre debe ser la gigante HD
-
+            
             els.mainImg.classList.remove('fade-in');
-            void els.mainImg.offsetWidth;
+            void els.mainImg.offsetWidth; 
             els.mainImg.classList.add('fade-in');
 
-            Array.from(els.thumbsContainer.children).forEach(child => {
-                child.classList.remove('thumb-active');
-                child.classList.add('thumb-inactive');
+            Array.from(els.thumbsContainer.children).forEach(child => { 
+                child.classList.remove('thumb-active'); 
+                child.classList.add('thumb-inactive'); 
             });
-            img.classList.remove('thumb-inactive');
+            img.classList.remove('thumb-inactive'); 
             img.classList.add('thumb-active');
-
+            
             img.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
         };
 
         const isActive = state.currentImage === src;
-
+        
         img.className = `min-w-[80px] w-20 md:w-full h-20 object-contain bg-white border rounded-xl cursor-pointer transition-all duration-200 shrink-0 snap-center ${isActive ? 'thumb-active' : 'thumb-inactive'}`;
-
+        
         // Atributos obligatorios para Google PageSpeed
         img.width = 80;
         img.height = 80;
-
-        img.onmouseenter = activateImage;
-        img.onclick = activateImage;
-
+        
+        img.onmouseenter = activateImage; 
+        img.onclick = activateImage;      
+        
         els.thumbsContainer.appendChild(img);
     });
-
+    
     // Inicializar los eventos táctiles (Swipe)
     initSwipeGallery();
 }
 
 function initSwipeGallery() {
     if (swipeInitialized || currentGalleryImages.length <= 1) return;
-
+    
     const imgContainer = els.mainImg.parentElement; // El div que envuelve a la imagen principal
-
+    
     let touchStartX = 0;
     let touchEndX = 0;
 
@@ -600,7 +600,7 @@ function initSwipeGallery() {
     function handleSwipe() {
         const swipeDistance = touchStartX - touchEndX;
         const minSwipeDistance = 40; // Sensibilidad del dedo
-
+        
         const currentIndex = currentGalleryImages.indexOf(state.currentImage);
         if (currentIndex === -1) return;
 
@@ -608,14 +608,14 @@ function initSwipeGallery() {
             // Deslizar izquierda (Siguiente)
             const nextIndex = (currentIndex + 1) % currentGalleryImages.length;
             changeToImageIndex(nextIndex);
-        }
+        } 
         else if (swipeDistance < -minSwipeDistance) {
             // Deslizar derecha (Anterior)
             const prevIndex = (currentIndex - 1 + currentGalleryImages.length) % currentGalleryImages.length;
             changeToImageIndex(prevIndex);
         }
     }
-
+    
     swipeInitialized = true;
 }
 
@@ -629,9 +629,9 @@ function changeToImageIndex(index) {
 
 function renderOptions(p) {
     els.optionsContainer.innerHTML = "";
-
+    
     // --- NUEVO: Variable para detectar si hay opciones ---
-    let hasOptions = false;
+    let hasOptions = false; 
 
     // Colores
     if (p.hasVariants && p.variants?.length > 0) {
@@ -640,7 +640,7 @@ function renderOptions(p) {
         colorDiv.innerHTML = `<label class="block text-[8px] font-black text-gray-400 uppercase tracking-widest mb-2 text-center md:text-left">Color</label>`;
         const btnContainer = document.createElement('div');
         btnContainer.className = "flex flex-wrap gap-3 justify-center md:justify-start";
-
+        
         p.variants.forEach((v) => {
             const isSelected = state.selectedColor === v.color;
             let isOut = p.hasCapacities ? !p.combinations.some(c => c.color === v.color && c.stock > 0) : getStockForVariant(p, v.color, null) <= 0;
@@ -674,24 +674,24 @@ function renderOptions(p) {
         capDiv.innerHTML = `<label class="block text-[8px] font-black text-gray-400 uppercase tracking-widest mb-2 text-center md:text-left">Capacidad</label>`;
         const btnContainer = document.createElement('div');
         btnContainer.className = "flex flex-wrap gap-3 justify-center md:justify-start";
-
+        
         p.capacities.forEach((c) => {
             const isSelected = state.selectedCapacity === c.label;
-            const isOut = state.selectedColor ? getStockForVariant(p, state.selectedColor, c.label) <= 0 : false;
+            const isOut = state.selectedColor ? getStockForVariant(p, state.selectedColor, c.label) <= 0 : false; 
             const btn = document.createElement('button');
             let classes = `px-6 py-3 rounded-xl border-2 text-xs font-bold uppercase transition-all duration-200 flex flex-col items-center min-w-[100px] relative `;
             if (isOut) { classes += "bg-gray-100 text-gray-400 border-gray-100 cursor-not-allowed opacity-60 "; btn.disabled = true; }
             else if (isSelected) classes += "bg-brand-cyan text-brand-black border-brand-cyan shadow-lg shadow-cyan-500/20 ";
             else classes += "bg-white text-gray-500 border-gray-100 hover:border-brand-cyan hover:text-brand-black ";
             btn.className = classes;
-
-            let comboPrice = c.price;
+            
+            let comboPrice = c.price; 
             if (p.combinations && state.selectedColor) {
-                const combo = p.combinations.find(comb => comb.color === state.selectedColor && comb.capacity === c.label);
-                if (combo) comboPrice = combo.price;
+                 const combo = p.combinations.find(comb => comb.color === state.selectedColor && comb.capacity === c.label);
+                 if (combo) comboPrice = combo.price;
             } else if (p.combinations) {
                 const combos = p.combinations.filter(comb => comb.capacity === c.label);
-                if (combos.length > 0) comboPrice = Math.min(...combos.map(x => x.price));
+                if(combos.length > 0) comboPrice = Math.min(...combos.map(x => x.price));
             }
 
             btn.innerHTML = `<span>${c.label}</span><span class="text-[9px] font-normal mt-1 ${isSelected ? 'text-brand-black' : 'text-gray-400'}">$${comboPrice.toLocaleString('es-CO')}</span>${isOut ? `<span class="absolute -top-2 -right-2 bg-red-500 text-white text-[8px] px-1.5 rounded-full">AGOTADO</span>` : ''}`;
@@ -730,17 +730,17 @@ function handleAddToCart() {
             quantity: qty
         }]
     });
-
+    
     addToCart({ id: p.id, name: p.name, price: state.currentPrice, image: state.currentImage, color: state.selectedColor, capacity: state.selectedCapacity, quantity: qty });
-    if (window.showToast) window.showToast(`${p.name} agregado al carrito`);
+    if(window.showToast) window.showToast(`${p.name} agregado al carrito`);
     setTimeout(() => { els.btnAdd.innerText = originalText; els.btnAdd.classList.remove('bg-green-500', 'text-white'); }, 1000);
 }
 
 window.changeQty = (d) => {
     const i = document.getElementById('p-qty');
     let v = parseInt(i.value) + d;
-    if (v < 1) v = 1;
-    if (v > state.currentStock) v = state.currentStock;
+    if(v < 1) v = 1;
+    if(v > state.currentStock) v = state.currentStock;
     i.value = v;
 };
 
@@ -748,9 +748,9 @@ window.changeQty = (d) => {
 function injectProductSchema(p) {
     const oldSchema = document.getElementById('json-ld-product');
     if (oldSchema) oldSchema.remove();
-
-    const currentUrl = window.location.href;
-
+    
+    const currentUrl = window.location.href; 
+    
     // Usar SIEMPRE el precio y stock EXACTO que el cliente está viendo en su pantalla en este milisegundo
     const exactDisplayedPrice = state.currentPrice || p.price;
     const exactDisplayedStock = state.currentStock || p.stock || 0;
@@ -787,15 +787,15 @@ function injectProductSchema(p) {
 
     // Agregar fecha de fin de promoción solo si el precio actual es menor al original
     if (p.originalPrice && p.originalPrice > exactDisplayedPrice) {
-        schemaData.offers.priceValidUntil = p.promoEndsAt ? new Date(p.promoEndsAt.seconds * 1000).toISOString() : new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString();
+         schemaData.offers.priceValidUntil = p.promoEndsAt ? new Date(p.promoEndsAt.seconds * 1000).toISOString() : new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString();
     }
 
     if (p.sku) {
         const cleanSku = p.sku.replace(/\s|-/g, '');
         if (/^\d{8}$|^\d{12,14}$/.test(cleanSku)) {
-            schemaData.gtin = cleanSku;
+            schemaData.gtin = cleanSku; 
         } else {
-            schemaData.mpn = p.sku;
+            schemaData.mpn = p.sku; 
         }
     }
 
