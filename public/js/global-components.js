@@ -49,9 +49,15 @@ export function loadGlobalHeader() {
     // 2. HTML ESTRUCTURAL
     headerContainer.innerHTML = `
     <div class="fixed top-1/2 right-0 -translate-y-1/2 z-40 hidden md:flex flex-col gap-2 items-end">
-        <a href="https://www.facebook.com/pixeltech.col" target="_blank" class="w-10 h-10 bg-[#1877F2] text-white flex items-center justify-center rounded-l-xl hover:w-14 transition-all duration-300 shadow-lg relative overflow-hidden group"><i class="fa-brands fa-facebook-f text-lg absolute right-3"></i></a>
-        <a href="https://www.instagram.com/pixeltech.col/" target="_blank" class="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-500 text-white flex items-center justify-center rounded-l-xl hover:w-14 transition-all duration-300 shadow-lg relative overflow-hidden group"><i class="fa-brands fa-instagram text-xl absolute right-2.5"></i></a>
-        <a href="https://www.tiktok.com/@pixeltech.col" target="_blank" class="w-10 h-10 bg-black text-white flex items-center justify-center rounded-l-xl hover:w-14 transition-all duration-300 shadow-lg border border-gray-800 relative overflow-hidden group"><i class="fa-brands fa-tiktok text-lg absolute right-3"></i></a>
+        <a href="https://www.facebook.com/pixeltech.col" target="_blank" aria-label="Visitar nuestro Facebook" class="w-10 h-10 bg-[#1877F2] text-white flex items-center justify-center rounded-xl hover:scale-110 shadow-lg transition">
+            <i class="fa-brands fa-facebook-f text-lg"></i>
+        </a>
+        <a href="https://www.instagram.com/pixeltech.col/" target="_blank" aria-label="Visitar nuestro Instagram" class="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-500 text-white flex items-center justify-center rounded-xl hover:scale-110 shadow-lg transition">
+            <i class="fa-brands fa-instagram text-lg"></i>
+        </a>
+        <a href="https://www.tiktok.com/@pixeltech.col" target="_blank" aria-label="Visitar nuestro TikTok" class="w-10 h-10 bg-black text-white flex items-center justify-center rounded-xl hover:scale-110 shadow-lg transition">
+            <i class="fa-brands fa-tiktok text-lg"></i>
+        </a>
     </div>
 
     <div id="wa-overlay" class="fixed inset-0 z-[59] hidden" onclick="window.toggleWhatsAppModal()"></div>
@@ -104,11 +110,10 @@ export function loadGlobalHeader() {
 
                 <div class="hidden lg:block flex-grow max-w-2xl relative z-50">
                     <div class="relative group">
-                        <input type="text" id="search-desktop" autocomplete="off" placeholder="¿Qué equipo necesitas hoy?..." 
-                            class="w-full bg-slate-900 border-2 border-slate-800 text-white px-6 py-4 rounded-2xl outline-none focus:border-brand-cyan focus:ring-4 focus:ring-brand-cyan/5 transition-all font-medium placeholder-gray-600 shadow-inner text-sm relative z-10">
-                        <button class="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 group-focus-within:text-brand-cyan transition z-20">
-                            <i class="fa-solid fa-magnifying-glass text-lg"></i>
-                        </button>
+                            <input type="text" id="search-desktop" aria-label="Buscar productos" autocomplete="off" placeholder="¿Qué equipo necesitas hoy?..." class="w-full bg-slate-900 border-2 border-slate-800 text-white px-6 py-4 pr-16 rounded-[2rem] focus:outline-none focus:border-brand-cyan transition shadow-inner">
+                            <button aria-label="Realizar búsqueda" class="absolute right-2 top-1/2 -translate-y-1/2 w-12 h-12 flex items-center justify-center text-gray-500 group-focus-within:text-brand-cyan hover:scale-110 transition cursor-pointer">
+                                <i class="fa-solid fa-magnifying-glass text-xl"></i>
+                            </button>
                         <div id="search-results-desktop" class="search-dropdown"></div>
                     </div>
                 </div>
