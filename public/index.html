@@ -29,48 +29,32 @@
     
     <link rel="stylesheet" href="css/styles.css">
 
+    <script defer src="https://www.googletagmanager.com/gtag/js?id=G-0HP0VNV5F5"></script>
     <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            setTimeout(function() {
-                // 1. Cargar Google Analytics
-                var gtagScript = document.createElement('script');
-                gtagScript.src = "https://www.googletagmanager.com/gtag/js?id=G-0HP0VNV5F5"; // Asegúrate de poner tu ID real
-                gtagScript.async = true;
-                document.head.appendChild(gtagScript);
+        window.dataLayer = window.dataLayer || [];
+        function gtag(){dataLayer.push(arguments);}
+        window.gtag = gtag; // Exportamos gtag al entorno global
 
-                window.dataLayer = window.dataLayer || [];
-                function gtag(){dataLayer.push(arguments);}
-                window.gtag = gtag; // Hacemos gtag global para que otros scripts lo puedan usar
-                gtag('js', new Date());
-                gtag('config', 'G-0HP0VNV5F5');
+        // Función que arranca Analytics solo cuando el usuario es humano (mueve el mouse o hace scroll)
+        const initGTM = () => {
+            gtag('js', new Date());
+            gtag('config', 'G-0HP0VNV5F5', {
+                'page_path': window.location.pathname
+            });
+            // Limpiamos los "escuchadores" para que no se ejecute dos veces
+            ['scroll', 'mousemove', 'touchstart'].forEach(e => window.removeEventListener(e, initGTM));
+        };
 
-                // 2. Si tienes LogRocket, agrégalo aquí de forma similar
-                /*
-                var lrScript = document.createElement('script');
-                lrScript.src = "https://cdn.lr-in.com/logger-1.min.js";
-                lrScript.async = true;
-                lrScript.onload = function() {
-                    LogRocket.init('tu_id/tu_app');
-                };
-                document.head.appendChild(lrScript);
-                */
-                
-                // 3. Si tienes Facebook Pixel, agrégalo aquí
-                /*
-                !function(f,b,e,v,n,t,s)
-                {if(f.fbq)return;n=f.fbq=function(){n.callMethod?
-                n.callMethod.apply(n,arguments):n.queue.push(arguments)};
-                if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
-                n.queue=[];t=b.createElement(e);t.async=!0;
-                t.src=v;s=b.getElementsByTagName(e)[0];
-                s.parentNode.insertBefore(t,s)}(window, document,'script',
-                'https://connect.facebook.net/en_US/fbevents.js');
-                fbq('init', 'TU_ID_DE_PIXEL');
-                fbq('track', 'PageView');
-                */
-
-            }, 4000); // 4000ms = 4 segundos. Googlebot termina de evaluar antes de esto.
-        });
+        // Si el usuario hace scroll, mueve el dedo o el mouse, disparamos Analytics
+        ['scroll', 'mousemove', 'touchstart'].forEach(e => window.addEventListener(e, initGTM, { once: true, passive: true }));
+        
+        // Si el usuario no hace nada por 6 segundos (ej. está leyendo), lo disparamos de todas formas (Googlebot ya se habrá ido)
+        setTimeout(() => {
+            if (!window.gtagLoaded) {
+                window.gtagLoaded = true;
+                initGTM();
+            }
+        }, 6000);
     </script>
 
     <link rel="preload" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
