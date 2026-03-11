@@ -35,8 +35,10 @@ if (file_exists($cache_file) && (time() - filemtime($cache_file)) < $cache_time)
 header('X-PixelTech-Cache: MISS'); // Si no hay caché, avisamos que tuvimos que consultar
 // -------------------------------------------------------------------
 
-// 2. Leemos el HTML original
-$html = file_get_contents($real_html_path);
+// 2. Leemos el HTML original procesando el código PHP interno (Header/Footer)
+ob_start(); // Iniciamos el búfer de memoria
+include $real_html_path; // Ejecutamos el HTML y sus includes PHP
+$html = ob_get_clean(); // Guardamos el resultado ensamblado y limpiamos la memoria
 
 // 3. API REST directa a Firebase
 $api_key = "AIzaSyALwLCRjRaWUE5yy5-TBjjxKehguNhb0GU"; 
