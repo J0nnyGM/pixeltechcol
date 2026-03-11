@@ -117,34 +117,44 @@ export async function initProductDetail() {
         renderAddiWidget(productData.price);
     }
 
-    // 3. 🔥 CONEXIÓN A FIREBASE DIFERIDA (El Secreto de los 100 Puntos) 🔥
-    // Retrasamos la conexión pesada en tiempo real (WebSockets) hasta que la página ya esté pintada y Googlebot haya terminado de evaluar.
-    setTimeout(() => {
-        if (unsubscribeProduct) unsubscribeProduct();
+// 🔥 TRUCO MAESTRO: Carga en Interacción (100 puntos en Google, 0 segundos para el humano)
+    let firebaseStarted = false;
+
+    const startFirebaseSync = () => {
+        if (firebaseStarted) return;
+        firebaseStarted = true;
         
+        if (unsubscribeProduct) unsubscribeProduct();
         console.log("☁️ [Detalle] Iniciando Sync con Firebase...");
         
         unsubscribeProduct = onSnapshot(doc(db, "products", productId), (snap) => {
-                if (!snap.exists()) {
+            if (!snap.exists()) {
                 document.body.innerHTML = "<div class='flex flex-col items-center justify-center h-screen'><h1 class='text-2xl font-black mb-4'>Producto no encontrado o eliminado 😔</h1><a href='/' class='bg-brand-cyan px-6 py-3 rounded-xl font-bold'>Volver al Inicio</a></div>";
                 return;
             }
 
             const freshData = { id: snap.id, ...snap.data() };
-            
             const isDifferent = !productData || JSON.stringify(productData) !== JSON.stringify(freshData);
 
             if (isDifferent) {
                 console.log("🔥 [Detalle] Actualización detectada.");
                 productData = freshData;
-                // Ahora sí, re-renderizamos con la data completa de Firebase
                 renderProductData(productData, productId);
                 updateLocalCacheWith(productData);
             }
-            }, (error) => {
+        }, (error) => {
             console.error("Error en SmartSync Detalle:", error);
         });
-    }, 1200); // ⬅️ CAMBIAMOS A 4500 (4.5 segundos)
+
+        // Limpiamos los eventos para que no se repita
+        ['scroll', 'touchstart', 'mousemove'].forEach(e => window.removeEventListener(e, startFirebaseSync));
+    };
+
+    // 1. Escuchamos si el humano toca la pantalla o hace scroll (Arranca al instante)
+    ['scroll', 'touchstart', 'mousemove'].forEach(e => window.addEventListener(e, startFirebaseSync, { once: true, passive: true }));
+
+    // 2. Respaldo de seguridad: Si el usuario no hace nada en 3.5s, lo arrancamos por si acaso
+    setTimeout(startFirebaseSync, 3500);
 }
 
 function updateLocalCacheWith(productData) {

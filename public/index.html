@@ -124,10 +124,30 @@
                 
                 <div class="lg:col-span-4 relative rounded-[2rem] md:rounded-[2.5rem] overflow-hidden shadow-xl bg-slate-900 group h-[50vh] min-h-[350px] lg:h-full lg:min-h-full">
                     <div id="promo-slider-container" class="h-full w-full relative">
-                        <div class="flex flex-col items-center justify-center h-full text-brand-cyan opacity-50">
-                            <i class="fa-solid fa-circle-notch fa-spin text-3xl mb-2"></i>
-                            <span class="text-[8px] font-black uppercase tracking-widest">Cargando Vitrina</span>
-                        </div>
+                        <script>
+                            (function() {
+                                const container = document.getElementById('promo-slider-container');
+                                try {
+                                    const cache = localStorage.getItem('pixeltech_promo_slider_cache');
+                                    if (cache) {
+                                        const promos = JSON.parse(cache);
+                                        if (promos && promos.length > 0) {
+                                            const p = promos;
+                                            const imgUrl = p.promoBannerUrl || p.mainImage || p.image;
+                                            const isCustom = !!p.promoBannerUrl;
+                                            
+                                            container.innerHTML = `
+                                                <div class="absolute inset-0 w-full h-full bg-slate-900 overflow-hidden z-10">
+                                                    <img src="${imgUrl}" fetchpriority="high" class="${isCustom ? 'w-full h-full object-fill' : 'absolute inset-0 w-full h-full object-fill opacity-60'}">
+                                                </div>
+                                            `;
+                                        }
+                                    } else {
+                                        container.innerHTML = `<div class="flex flex-col items-center justify-center h-full text-brand-cyan opacity-50"><i class="fa-solid fa-circle-notch fa-spin text-3xl mb-2"></i><span class="text-[8px] font-black uppercase tracking-widest">Cargando...</span></div>`;
+                                    }
+                                } catch (e) {}
+                            })();
+                        </script>
                     </div>
                 </div>
                 

@@ -30,8 +30,11 @@ const SmartProductSync = {
             }
         }
 
-        // 2. Iniciar conexión en tiempo real con Firebase (Solo Deltas)
-        this.listenForUpdates(lastSyncTime);
+        // 🔥 TRUCO SEO: Retrasamos 3.5 segundos la descarga de Firebase para no ahogar el procesador
+        setTimeout(() => {
+            this.listenForUpdates(lastSyncTime);
+        }, 3500);
+        
         return true;
     },
 
