@@ -68,26 +68,6 @@
         .mask-fade { -webkit-mask-image: linear-gradient(to right, transparent, black 5%, black 95%, transparent); mask-image: linear-gradient(to right, transparent, black 5%, black 95%, transparent); }
     </style>
 
-    <script>
-        try {
-            const cachedPromosRaw = localStorage.getItem('pixeltech_promo_slider_cache');
-            if (cachedPromosRaw) {
-                const promos = JSON.parse(cachedPromosRaw);
-                if (promos && promos.length > 0) {
-                    const firstPromo = promos;
-                    const imgUrl = firstPromo.promoBannerUrl || firstPromo.mainImage || firstPromo.image;
-                    if (imgUrl && imgUrl !== "undefined") {
-                        const preloadLink = document.createElement("link");
-                        preloadLink.href = imgUrl;
-                        preloadLink.rel = "preload";
-                        preloadLink.as = "image";
-                        preloadLink.setAttribute("fetchpriority", "high");
-                        document.head.appendChild(preloadLink);
-                    }
-                }
-            }
-        } catch (error) {}
-    </script>
 </head>
 
 <body class="bg-white font-sans text-brand-black antialiased flex flex-col min-h-screen">
@@ -100,43 +80,20 @@
             <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 md:gap-6 h-auto lg:h-[60vh] lg:min-h-[550px] xl:min-h-[650px]">
                 
                 <div class="lg:col-span-4 relative rounded-[2rem] md:rounded-[2.5rem] overflow-hidden shadow-xl bg-slate-900 group h-[50vh] min-h-[350px] lg:h-full lg:min-h-full">
-                    <div id="promo-slider-container" class="h-full w-full relative">
-                        <script>
-                            (function() {
-                                const container = document.getElementById('promo-slider-container');
-                                try {
-                                    const cache = localStorage.getItem('pixeltech_promo_slider_cache');
-                                    if (cache && cache.length > 10) {
-                                        const promos = JSON.parse(cache);
-                                        if (promos && promos.length > 0) {
-                                            const p = promos;
-                                            const bgImage = p.promoBannerUrl || p.mainImage || p.image;
-                                            if(bgImage && bgImage !== "undefined") {
-                                                const isCustom = !!p.promoBannerUrl;
-                                                if (isCustom) {
-                                                    container.innerHTML = '<div class="absolute inset-0 w-full h-full bg-white promo-slide overflow-hidden opacity-100 z-10" data-idx="0"><img src="'+bgImage+'" fetchpriority="high" class="w-full h-full object-fill"></div>';
-                                                } else {
-                                                    const hasDiscount = p.originalPrice && p.originalPrice > p.price;
-                                                    let priceDisplay = '<p class="text-brand-cyan font-black text-xl md:text-2xl mt-1">$' + (p.price || 0).toLocaleString('es-CO') + '</p>';
-                                                    if (hasDiscount) {
-                                                        const disc = Math.round(((p.originalPrice - p.price) / p.originalPrice) * 100);
-                                                        priceDisplay = '<div class="flex items-end gap-3 mt-2"><div class="flex flex-col items-start leading-none"><span class="text-gray-400 line-through text-[10px] md:text-xs font-bold mb-1">Antes $' + p.originalPrice.toLocaleString('es-CO') + '</span><span class="text-brand-cyan font-black text-xl md:text-2xl">$' + p.price.toLocaleString('es-CO') + '</span></div><span class="bg-brand-red text-white text-[10px] font-black px-2 py-1 rounded-md mb-0.5 shadow-sm">-' + disc + '%</span></div>';
-                                                    }
-                                                    container.innerHTML = '<div class="absolute inset-0 w-full h-full bg-slate-900 promo-slide overflow-hidden opacity-100 z-10" data-idx="0"><img src="'+bgImage+'" fetchpriority="high" decoding="sync" class="absolute inset-0 w-full h-full object-fill opacity-60"><div class="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-900/50 to-transparent"></div><div class="relative z-10 p-6 md:p-8 h-full flex flex-col justify-end items-center md:items-start text-center md:text-left"><span class="bg-brand-red text-white text-[8px] font-black px-3 py-1 rounded-full mb-3 uppercase tracking-widest shadow-lg shadow-red-500/20">Oferta Destacada</span><h2 class="text-lg md:text-xl font-black text-white uppercase tracking-tighter line-clamp-2 leading-tight">'+p.name+'</h2>'+priceDisplay+'</div></div>';
-                                                }
-                                                container.dataset.preloaded = "true";
-                                                return; // Si cargó bien, salimos.
-                                            }
-                                        }
-                                    }
-                                } catch (e) {}
+                    <div id="promo-slider-container" class="h-full w-full relative bg-slate-900">
+                        
+                        <div class="absolute inset-0 w-full h-full promo-slide opacity-100 z-10 flex items-center justify-center">
+                            
+                            <img src="/img/logo.webp" fetchpriority="high" decoding="sync" alt="Bienvenidos a PixelTech" class="absolute inset-0 w-full h-full object-contain opacity-20 p-10">
+                            
+                            <div class="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-900/80 to-transparent"></div>
+                            
+                            <div class="relative z-10 p-6 md:p-8 h-full w-full flex flex-col justify-end items-center md:items-start text-center md:text-left">
+                                <span class="bg-brand-cyan text-brand-black text-[8px] font-black px-3 py-1 rounded-full mb-3 uppercase tracking-widest shadow-lg shadow-cyan-500/20">Bienvenidos a PixelTech</span>
+                                <h2 class="text-lg md:text-xl font-black text-white uppercase tracking-tighter line-clamp-2 leading-tight">Cargando las mejores ofertas...</h2>
+                            </div>
+                        </div>
 
-                                // 🔥 BANNER DE BIENVENIDA (Para nuevos visitantes / Googlebot) 🔥
-                                // No bloquea nada, pesa poco y destruye el LCP alto.
-                                container.innerHTML = '<div class="absolute inset-0 w-full h-full bg-slate-900 promo-slide overflow-hidden opacity-100 z-10" data-idx="0"><img src="/img/logo.webp" fetchpriority="high" decoding="sync" class="absolute inset-0 w-full h-full object-contain opacity-20 p-10"><div class="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-900/80 to-transparent"></div><div class="relative z-10 p-6 md:p-8 h-full flex flex-col justify-end items-center md:items-start text-center md:text-left"><span class="bg-brand-cyan text-brand-black text-[8px] font-black px-3 py-1 rounded-full mb-3 uppercase tracking-widest shadow-lg shadow-cyan-500/20">Bienvenidos a PixelTech</span><h2 class="text-lg md:text-xl font-black text-white uppercase tracking-tighter line-clamp-2 leading-tight">Cargando las mejores ofertas...</h2></div></div>';
-                                // Como no tiene "preloaded=true", app.js lo reemplazará por ofertas reales en cuanto lleguen.
-                            })();
-                        </script>
                     </div>
                 </div>
                 
