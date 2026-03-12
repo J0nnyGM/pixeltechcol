@@ -164,6 +164,22 @@ function updateLocalCacheWith(productData) {
 
 async function renderProductData(p, productId) {
     state.product = p;
+    
+    // 🔥 NUEVO: Leer parámetros de la URL para autoseleccionar variantes
+    const params = new URLSearchParams(window.location.search);
+    const urlColor = params.get('color');
+    const urlCapacity = params.get('capacity');
+
+    if (urlColor && p.variants) {
+        const foundColor = p.variants.find(v => v.color.toLowerCase() === urlColor.toLowerCase());
+        if (foundColor) state.selectedColor = foundColor.color;
+    }
+    if (urlCapacity && p.capacities) {
+        const foundCap = p.capacities.find(c => c.label.toLowerCase() === urlCapacity.toLowerCase());
+        if (foundCap) state.selectedCapacity = foundCap.label;
+    }
+
+    // Inicializar valores base
     state.currentPrice = p.price;
     state.currentStock = p.stock || 0;
     
@@ -171,10 +187,6 @@ async function renderProductData(p, productId) {
     if (!state.currentImage || !allImages.includes(state.currentImage)) {
         state.currentImage = p.mainImage || (p.images && p.images.length > 0 ? p.images[0] : 'https://placehold.co/500');
     }
-
-    injectProductSchema(p);
-    updateMetaTags(p);
-    saveToHistory(p);
 
     document.title = `${p.name} | PixelTech`;
     els.name.textContent = p.name;
@@ -209,6 +221,7 @@ async function renderProductData(p, productId) {
     renderOptions(p);
     updatePriceDisplay(); 
     updateGallery();
+    
     els.mainImg.src = state.currentImage;
     els.mainImg.alt = `Comprar ${p.name} - ${p.category} en Colombia`;
     await updateShippingText();
@@ -219,6 +232,11 @@ async function renderProductData(p, productId) {
     els.btnAdd.onclick = handleAddToCart;
     initStickyBar(); 
     loadRelatedProductsOptimized(p.category, p.id); 
+    
+    // Inyectar schema al final con los datos ya actualizados
+    injectProductSchema(p);
+    updateMetaTags(p);
+    saveToHistory(p);
 }
 
 async function loadRelatedProductsOptimized(category, currentId) {
@@ -668,8 +686,25 @@ function injectProductSchema(p) {
     const availability = exactDisplayedStock > 0 ? "https://schema.org/InStock" : "https://schema.org/OutOfStock";
 
     let schemaProductName = p.name;
+    
+    // 🔥 REPLICAMOS EXACTAMENTE LA LÓGICA DE IDs DEL XML DE MERCHANT 🔥
+    let currentVariantId = p.id;
+    let currentSku = p.sku || p.id;
+
     if (state.selectedColor || state.selectedCapacity) {
         schemaProductName = `${p.name} ${state.selectedCapacity || ''} ${state.selectedColor ? '- ' + state.selectedColor : ''}`.trim();
+        
+        if (p.combinations) {
+            const combo = p.combinations.find(c => 
+                (c.color === state.selectedColor || (!c.color && !state.selectedColor)) &&
+                (c.capacity === state.selectedCapacity || (!c.capacity && !state.selectedCapacity))
+            );
+            if (combo) {
+                // Genera un ID idéntico al que envía el feed XML
+                currentVariantId = combo.sku || `${p.id}_${combo.color || 'x'}_${combo.capacity || 'y'}`.replace(/\s+/g, '');
+                currentSku = combo.sku || p.sku || currentVariantId;
+            }
+        }
     }
 
     const schemaData = {
@@ -678,8 +713,8 @@ function injectProductSchema(p) {
         "name": schemaProductName,
         "image": [state.currentImage || p.mainImage || p.image].filter(Boolean),
         "description": p.description ? p.description.replace(/<[^>]*>?/gm, '') : `Compra ${p.name} en PixelTech.`,
-        "sku": p.sku || p.id,
-        "productID": p.id,
+        "sku": currentSku,
+        "productID": currentVariantId, // 👈 ESTO EVITA EL ERROR DE DISCREPANCIA
         "brand": { "@type": "Brand", "name": p.brand || "Genérico" },
         "offers": {
             "@type": "Offer",
