@@ -86,7 +86,6 @@ export async function initProductDetail() {
     if (!productId) { window.location.href = '/index.html'; return; }
 
     // 1. 🔥 HIDRATACIÓN INMEDIATA (Velocidad Extrema) 🔥
-    // Usamos los datos que el PHP ya inyectó para pintar la pantalla en 0ms.
     let productData = null;
 
     if (window.__PRELOADED_PRODUCT__) {
@@ -96,7 +95,6 @@ export async function initProductDetail() {
         els.name.textContent = productData.name;
         els.price.textContent = `$${productData.price.toLocaleString('es-CO')}`;
         
-        // La foto ya se precargó en el HTML, solo nos aseguramos de que esté
         if(els.mainImg.src === "" || els.mainImg.src.includes('undefined')) {
              els.mainImg.src = productData.mainImage || 'https://placehold.co/500';
         }
@@ -105,19 +103,14 @@ export async function initProductDetail() {
         if (els.content) els.content.classList.remove('hidden');
     }
 
-    // 2. BUSCAR CACHÉ LOCAL (Para tener opciones y descripción rápido)
+    // 2. BUSCAR CACHÉ LOCAL
     const cachedProduct = getProductFromCache(productId);
     if (cachedProduct) {
         console.log("⚡ [Detalle] Cargado desde SmartCache");
         productData = cachedProduct;
-        // Renderizamos TODO (descripción, opciones, galería) sin tocar la red
         renderProductData(productData, productId);
-    } else if (productData) {
-        // Si no hay caché, pero sí data de PHP, inicializamos cosas básicas mientras llega Firebase
-        renderAddiWidget(productData.price);
-    }
+    } 
 
-// 🔥 TRUCO MAESTRO: Carga en Interacción (100 puntos en Google, 0 segundos para el humano)
     let firebaseStarted = false;
 
     const startFirebaseSync = () => {
@@ -145,9 +138,6 @@ export async function initProductDetail() {
         }, (error) => {
             console.error("Error en SmartSync Detalle:", error);
         });
-
-        // Limpiamos los eventos para que no se repita
-        ['scroll', 'touchstart', 'mousemove'].forEach(e => window.removeEventListener(e, startFirebaseSync));
     };
 
     // 🔥 EN LA PÁGINA DE PRODUCTO, LA DATA ES VITAL: Pedimos las variantes de inmediato sin bloquear.
@@ -174,11 +164,9 @@ function updateLocalCacheWith(productData) {
 
 async function renderProductData(p, productId) {
     state.product = p;
-    // Si ya teníamos un precio/stock previo (ej. de variantes), lo actualizamos basándonos en la nueva data base
     state.currentPrice = p.price;
     state.currentStock = p.stock || 0;
     
-    // Si la imagen actual ya no existe en las nuevas imágenes (ej: se borró), volvemos a la principal
     const allImages = [p.mainImage, ...(p.images || [])].filter(Boolean);
     if (!state.currentImage || !allImages.includes(state.currentImage)) {
         state.currentImage = p.mainImage || (p.images && p.images.length > 0 ? p.images[0] : 'https://placehold.co/500');
@@ -188,12 +176,10 @@ async function renderProductData(p, productId) {
     updateMetaTags(p);
     saveToHistory(p);
 
-    // 1. Datos Básicos
     document.title = `${p.name} | PixelTech`;
     els.name.textContent = p.name;
     els.desc.innerHTML = p.description || '';
 
-    // 2. Breadcrumbs
     els.breadName.textContent = p.name;
     if (p.category) {
         els.breadCat.textContent = p.category;
@@ -208,23 +194,18 @@ async function renderProductData(p, productId) {
         els.breadSubSep.classList.remove('hidden');
     }
 
-    // 3. Garantía
     if (p.warranty && els.warrantyText) {
         const units = { months: 'Meses', days: 'Días', years: 'Años' };
         const unitText = units[p.warranty.unit] || p.warranty.unit || 'Meses';
         els.warrantyText.textContent = `Garantía directa de ${p.warranty.time} ${unitText} por defectos de fábrica.`;
     }
 
-    // (Opcional) Evitar enviar view_item múltiple si solo es un cambio en tiempo real, 
-    // pero para simplicidad lo mantenemos. Podrías envolverlo en un if (!state.hasTrackedView) { ... }
     trackEcommerceEvent('view_item', {
         currency: "COP",
         value: p.price,
         items: [{ item_id: p.id, item_name: p.name, price: p.price, item_category: p.category }]
     });
 
-    // 4. Inicializar & Render (Manteniendo preselecciones si existían)
-    // initializeSelection(p); // Lo quitamos como pediste anteriormente para no forzar selecciones
     renderOptions(p);
     updatePriceDisplay(); 
     updateGallery();
@@ -236,19 +217,14 @@ async function renderProductData(p, productId) {
     if (els.loader) els.loader.classList.add('hidden');
     if (els.content) els.content.classList.remove('hidden');
     els.btnAdd.onclick = handleAddToCart;
-    // 5. Extras
     initStickyBar(); 
     loadRelatedProductsOptimized(p.category, p.id); 
 }
-
-// ... RESTO DEL CÓDIGO (loadRelatedProductsOptimized, updatePriceDisplay, etc.) ...
-// Pegar aquí exactamente el resto de tu código sin modificaciones
 
 async function loadRelatedProductsOptimized(category, currentId) {
     if (!els.relatedSection) return;
     let related = [];
     
-    // 1. Caché
     const cachedRaw = localStorage.getItem('pixeltech_master_catalog');
     if (cachedRaw) {
         try {
@@ -261,7 +237,6 @@ async function loadRelatedProductsOptimized(category, currentId) {
         } catch (e) {}
     }
 
-    // 2. Firebase Fallback
     if (related.length === 0) {
         try {
             let q = query(collection(db, "products"), where("category", "==", category), where("status", "==", "active"), limit(5));
@@ -278,7 +253,7 @@ async function loadRelatedProductsOptimized(category, currentId) {
     related.sort(() => 0.5 - Math.random());
     
     els.relatedSection.classList.remove('hidden');
-els.relatedGrid.innerHTML = related.slice(0, 8).map(p => {
+    els.relatedGrid.innerHTML = related.slice(0, 8).map(p => {
         const price = p.price.toLocaleString('es-CO');
         const originalImg = p.mainImage || (p.images && p.images.length > 0 ? p.images[0] : 'https://placehold.co/150');
         const miniaturaImg = getResizedImageUrl(originalImg);
@@ -305,7 +280,6 @@ els.relatedGrid.innerHTML = related.slice(0, 8).map(p => {
             </div>`;
     }).join('');
 
-    // 🔥 NUEVO: LÓGICA DE AUTO-SCROLL (CARRUSEL INFINITO) 🔥
     const grid = els.relatedGrid;
     let autoScrollInterval;
 
@@ -314,23 +288,19 @@ els.relatedGrid.innerHTML = related.slice(0, 8).map(p => {
             if (!grid) return;
             const maxScrollLeft = grid.scrollWidth - grid.clientWidth;
             
-            // Si llegó al final, regresa suavemente al inicio (Loop)
             if (grid.scrollLeft >= maxScrollLeft - 10) {
                 grid.scrollTo({ left: 0, behavior: 'smooth' });
             } else {
-                // Se mueve hacia la derecha el equivalente a 1 tarjeta + su espacio
                 const cardWidth = grid.querySelector('div').offsetWidth + 16; 
                 grid.scrollBy({ left: cardWidth, behavior: 'smooth' });
             }
-        }, 3500); // 3500ms = Se mueve cada 3.5 segundos
+        }, 3500); 
     };
 
     const stopAutoScroll = () => clearInterval(autoScrollInterval);
 
-    // Arrancamos el motor
     startAutoScroll();
 
-    // Pausamos el motor si el cliente quiere mirar o tocar un producto
     grid.addEventListener('mouseenter', stopAutoScroll);
     grid.addEventListener('mouseleave', startAutoScroll);
     grid.addEventListener('touchstart', stopAutoScroll, { passive: true });
@@ -409,21 +379,15 @@ function updatePriceDisplay() {
     if (currentQty > stock) els.qty.value = Math.max(1, stock);
     if (stock <= 0) els.qty.value = 0;
 
-    // Actualizar UI
     els.price.textContent = `$${price.toLocaleString('es-CO')}`;
     if(els.stickyPrice) els.stickyPrice.textContent = `$${price.toLocaleString('es-CO')}`;
     
-    // Actualizar Texto SKU
     if(els.sku) {
         els.sku.textContent = `REF: ${activeSku}`;
-        if (activeSku === 'N/A' || activeSku === '') {
-            els.sku.classList.add('hidden');
-        } else {
-             els.sku.classList.remove('hidden');
-        }
+        if (activeSku === 'N/A' || activeSku === '') els.sku.classList.add('hidden');
+        else els.sku.classList.remove('hidden');
     }
 
-    // Lógica Ofertas
     if (p.originalPrice && p.originalPrice > price) {
         const disc = Math.round(((p.originalPrice - price) / p.originalPrice) * 100);
         const formattedOld = `$${p.originalPrice.toLocaleString('es-CO')}`;
@@ -466,87 +430,31 @@ function updatePriceDisplay() {
             els.btnAdd.textContent = "Sin Stock";
         }
     }
-    renderAddiWidget(price);
+    renderAddiWidget(price); // <-- AGREGA ESTA LÍNEA AQUÍ
     injectProductSchema(p);
-}
-
-function renderAddiWidget(price) {
-    if (!els.addiContainer || price <= 0) return;
-
-    // Función interna que inyecta ADDI
-    const initAddi = () => {
-        if (!document.getElementById('addi-script')) {
-            const script = document.createElement('script');
-            script.id = 'addi-script';
-            script.src = "https://s3.amazonaws.com/widgets.addi.com/bundle.min.js";
-            script.defer = true;
-            document.body.appendChild(script);
-        }
-
-        let existingWidget = els.addiContainer.querySelector('addi-widget');
-        if (existingWidget) {
-            existingWidget.setAttribute('price', price);
-        } else {
-            const widget = document.createElement('addi-widget');
-            widget.setAttribute('price', price);
-            widget.setAttribute('ally-slug', 'pixeltechcolombia-ecommerce');
-            widget.setAttribute('text-color', '#111827');
-            widget.setAttribute('logo-color', '#00AEC7');
-            els.addiContainer.appendChild(widget);
-        }
-    };
-
-    // 🔥 TRUCO SEO SUPREMO: Cargar ADDI solo cuando el cliente humano toque la pantalla o haga scroll. 
-    // ¡Googlebot nunca hace scroll, así que le daremos un 100% de ilusión de ligereza!
-    const loadOnInteraction = () => {
-        initAddi();
-        // Limpiamos los eventos para que no se ejecute 1000 veces
-        window.removeEventListener('scroll', loadOnInteraction);
-        window.removeEventListener('touchstart', loadOnInteraction);
-        window.removeEventListener('mousemove', loadOnInteraction);
-    };
-
-    // Escuchamos la primera interacción del usuario humano
-    window.addEventListener('scroll', loadOnInteraction, { once: true, passive: true });
-    window.addEventListener('touchstart', loadOnInteraction, { once: true, passive: true });
-    window.addEventListener('mousemove', loadOnInteraction, { once: true, passive: true });
-    
-    // Por si acaso el usuario se queda mirando sin tocar nada, lo cargamos a los 6 segundos (fuera del radar de Google)
-    setTimeout(() => { 
-        window.removeEventListener('scroll', loadOnInteraction);
-        window.removeEventListener('touchstart', loadOnInteraction);
-        initAddi(); 
-    }, 6000);
 }
 
 function updateGallery() {
     els.thumbsContainer.innerHTML = "";
     let displayImages = [];
     
-    // Obtener imágenes de la variante si existe
     if (state.selectedColor && state.product.variants) {
         const v = state.product.variants.find(vari => vari.color === state.selectedColor);
         if (v && v.images) displayImages = [...v.images];
     }
-    // Obtener el resto de imágenes del catálogo del producto
     const globalImages = state.product.images || [];
     
-    // Unir TODAS las fotos (las de la variante + todas las demás) sin duplicados
     currentGalleryImages = Array.from(new Set([...displayImages, ...globalImages]));
     
-    // Si no hay imágenes, usar un placeholder
     if (currentGalleryImages.length === 0) {
         currentGalleryImages = [state.product.mainImage || 'https://placehold.co/500'];
     }
 
-// Renderizar miniaturas (El carrusel inferior)
     currentGalleryImages.forEach((src) => {
         const img = document.createElement('img');
         
-        // 1. Intentamos cargar la miniatura rápida
         img.src = getResizedImageUrl(src); 
         
-        // 2. 🔥 SALVAVIDAS: Si la miniatura no existe aún en Firebase, cargamos la foto original
         img.onerror = function() {
             if (this.src !== src) {
                 this.src = src;
@@ -556,7 +464,7 @@ function updateGallery() {
         const activateImage = () => {
             if (state.currentImage === src) return; 
             state.currentImage = src;
-            els.mainImg.src = src; // La principal siempre debe ser la gigante HD
+            els.mainImg.src = src; 
             
             els.mainImg.classList.remove('fade-in');
             void els.mainImg.offsetWidth; 
@@ -576,7 +484,6 @@ function updateGallery() {
         
         img.className = `min-w-[80px] w-20 md:w-full h-20 object-contain bg-white border rounded-xl cursor-pointer transition-all duration-200 shrink-0 snap-center ${isActive ? 'thumb-active' : 'thumb-inactive'}`;
         
-        // Atributos obligatorios para Google PageSpeed
         img.width = 80;
         img.height = 80;
         
@@ -586,14 +493,13 @@ function updateGallery() {
         els.thumbsContainer.appendChild(img);
     });
     
-    // Inicializar los eventos táctiles (Swipe)
     initSwipeGallery();
 }
 
 function initSwipeGallery() {
     if (swipeInitialized || currentGalleryImages.length <= 1) return;
     
-    const imgContainer = els.mainImg.parentElement; // El div que envuelve a la imagen principal
+    const imgContainer = els.mainImg.parentElement; 
     
     let touchStartX = 0;
     let touchEndX = 0;
@@ -609,18 +515,16 @@ function initSwipeGallery() {
 
     function handleSwipe() {
         const swipeDistance = touchStartX - touchEndX;
-        const minSwipeDistance = 40; // Sensibilidad del dedo
+        const minSwipeDistance = 40; 
         
         const currentIndex = currentGalleryImages.indexOf(state.currentImage);
         if (currentIndex === -1) return;
 
         if (swipeDistance > minSwipeDistance) {
-            // Deslizar izquierda (Siguiente)
             const nextIndex = (currentIndex + 1) % currentGalleryImages.length;
             changeToImageIndex(nextIndex);
         } 
         else if (swipeDistance < -minSwipeDistance) {
-            // Deslizar derecha (Anterior)
             const prevIndex = (currentIndex - 1 + currentGalleryImages.length) % currentGalleryImages.length;
             changeToImageIndex(prevIndex);
         }
@@ -632,7 +536,7 @@ function initSwipeGallery() {
 function changeToImageIndex(index) {
     const thumbs = els.thumbsContainer.children;
     if (thumbs && thumbs[index]) {
-        thumbs[index].click(); // Simula el toque en la miniatura correspondiente
+        thumbs[index].click(); 
     }
 }
 
@@ -640,12 +544,11 @@ function changeToImageIndex(index) {
 function renderOptions(p) {
     els.optionsContainer.innerHTML = "";
     
-    // --- NUEVO: Variable para detectar si hay opciones ---
     let hasOptions = false; 
 
     // Colores
     if (p.hasVariants && p.variants?.length > 0) {
-        hasOptions = true; // Sí hay colores
+        hasOptions = true; 
         const colorDiv = document.createElement('div');
         colorDiv.innerHTML = `<label class="block text-[8px] font-black text-gray-400 uppercase tracking-widest mb-2 text-center md:text-left">Color</label>`;
         const btnContainer = document.createElement('div');
@@ -679,7 +582,7 @@ function renderOptions(p) {
 
     // Capacidades
     if (p.hasCapacities && p.capacities?.length > 0) {
-        hasOptions = true; // Sí hay capacidades
+        hasOptions = true; 
         const capDiv = document.createElement('div');
         capDiv.innerHTML = `<label class="block text-[8px] font-black text-gray-400 uppercase tracking-widest mb-2 text-center md:text-left">Capacidad</label>`;
         const btnContainer = document.createElement('div');
@@ -711,7 +614,6 @@ function renderOptions(p) {
         capDiv.appendChild(btnContainer); els.optionsContainer.appendChild(capDiv);
     }
 
-    // --- NUEVO: Controlar la visibilidad de la caja completa ---
     if (hasOptions) {
         els.optionsContainer.classList.remove('hidden');
     } else {
@@ -761,12 +663,10 @@ function injectProductSchema(p) {
     
     const currentUrl = window.location.href; 
     
-    // Usar SIEMPRE el precio y stock EXACTO que el cliente está viendo en su pantalla en este milisegundo
     const exactDisplayedPrice = state.currentPrice || p.price;
     const exactDisplayedStock = state.currentStock || p.stock || 0;
     const availability = exactDisplayedStock > 0 ? "https://schema.org/InStock" : "https://schema.org/OutOfStock";
 
-    // Si tiene variantes seleccionadas, agregar ese texto al nombre oculto de Google
     let schemaProductName = p.name;
     if (state.selectedColor || state.selectedCapacity) {
         schemaProductName = `${p.name} ${state.selectedCapacity || ''} ${state.selectedColor ? '- ' + state.selectedColor : ''}`.trim();
@@ -795,7 +695,6 @@ function injectProductSchema(p) {
         }
     };
 
-    // Agregar fecha de fin de promoción solo si el precio actual es menor al original
     if (p.originalPrice && p.originalPrice > exactDisplayedPrice) {
          schemaData.offers.priceValidUntil = p.promoEndsAt ? new Date(p.promoEndsAt.seconds * 1000).toISOString() : new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString();
     }
@@ -842,4 +741,45 @@ function updateMetaTags(p) {
     canonicalLink.setAttribute("rel", "canonical");
     canonicalLink.setAttribute("href", `${window.location.origin}/shop/product.html?id=${p.id}`);
     document.head.appendChild(canonicalLink);
-}   
+}
+
+function renderAddiWidget(price) {
+    if (!els.addiContainer || price <= 0) return;
+
+    // Si ya existe el widget, solo le actualizamos el precio (para cuando eligen otra variante)
+    let existingWidget = els.addiContainer.querySelector('addi-widget');
+    if (existingWidget) {
+        existingWidget.setAttribute('price', price);
+        return;
+    }
+
+    // Función para inyectar Addi de forma asíncrona
+    const initAddi = () => {
+        if (!document.getElementById('addi-script')) {
+            const script = document.createElement('script');
+            script.id = 'addi-script';
+            script.src = "https://s3.amazonaws.com/widgets.addi.com/bundle.min.js";
+            script.async = true; // Esto evita que bloquee a PageSpeed
+            document.body.appendChild(script);
+        }
+
+        const widget = document.createElement('addi-widget');
+        widget.setAttribute('price', price);
+        widget.setAttribute('ally-slug', 'pixeltechcolombia-ecommerce');
+        widget.setAttribute('text-color', '#111827');
+        widget.setAttribute('logo-color', '#00AEC7');
+        
+        // Quitamos el esqueleto gris de carga
+        const skeleton = document.getElementById('addi-skeleton');
+        if (skeleton) skeleton.remove();
+        
+        els.addiContainer.appendChild(widget);
+    };
+
+    // Le pedimos al navegador que cargue Addi solo cuando no esté ocupado
+    if ('requestIdleCallback' in window) {
+        requestIdleCallback(initAddi);
+    } else {
+        setTimeout(initAddi, 1000);
+    }
+}

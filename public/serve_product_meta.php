@@ -147,6 +147,9 @@ if ($http_code == 200 && $response) {
         // 🔥 INYECCIÓN DIRECTA DEL NOMBRE DEL PRODUCTO 🔥
         $safe_name = str_replace('$', '\\$', $name);
         $html = preg_replace('/(<h1[^>]*id="p-name"[^>]*>)(.*?)(<\/h1>)/is', '${1}' . $safe_name . '${3}', $html);
+        
+        // --- NUEVO: Poner el título en la etiqueta <title> ---
+        $html = preg_replace('/(<title>)(.*?)(<\/title>)/is', '${1}' . $title . '${3}', $html);
 
         // 🔥 INYECCIÓN DIRECTA DE LA DESCRIPCIÓN 🔥
         if (isset($fields['description']['stringValue'])) {
