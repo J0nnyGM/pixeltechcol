@@ -1,4 +1,4 @@
-import { db, collection, addDoc, query, orderBy, Timestamp, limit, startAfter, where, doc, getDoc, updateDoc, onSnapshot } from "./firebase-init.js";
+import { db, collection, addDoc, query, orderBy, Timestamp, limit, startAfter, where, doc, getDoc,getDocs, updateDoc, onSnapshot } from "./firebase-init.js";
 
 // --- REFERENCIAS DOM ---
 const modal = document.getElementById('client-modal');
