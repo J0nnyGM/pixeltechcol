@@ -143,6 +143,17 @@ if ($http_code == 200 && $response) {
         // 🔥 INYECCIÓN DIRECTA DEL PRECIO 🔥
         $formatted_price = "$" . number_format($price, 0, ',', '.');
         $html = preg_replace('/(<span[^>]*id="p-price"[^>]*>).*?(<\/span>)/is', '${1}' . $formatted_price . '$2', $html);
+
+        // 🔥 INYECCIÓN DIRECTA DEL NOMBRE DEL PRODUCTO 🔥
+        $safe_name = str_replace('$', '\\$', $name);
+        $html = preg_replace('/(<h1[^>]*id="p-name"[^>]*>)(.*?)(<\/h1>)/is', '${1}' . $safe_name . '${3}', $html);
+
+        // 🔥 INYECCIÓN DIRECTA DE LA DESCRIPCIÓN 🔥
+        if (isset($fields['description']['stringValue'])) {
+            $raw_desc = $fields['description']['stringValue'];
+            $safe_desc_html = str_replace('$', '\\$', $raw_desc);
+            $html = preg_replace('/(<div[^>]*id="p-description"[^>]*>)(.*?)(<\/div>)/is', '${1}' . $safe_desc_html . '${3}', $html);
+        }
         
         $preloadedData = json_encode(['id' => $product_id, 'name' => $name, 'price' => $price, 'mainImage' => $image]);
         $safe_preloadedData = str_replace('$', '\\$', $preloadedData);

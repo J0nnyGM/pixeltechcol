@@ -150,11 +150,12 @@ export async function initProductDetail() {
         ['scroll', 'touchstart', 'mousemove'].forEach(e => window.removeEventListener(e, startFirebaseSync));
     };
 
-    // 1. Escuchamos si el humano toca la pantalla o hace scroll (Arranca al instante)
-    ['scroll', 'touchstart', 'mousemove'].forEach(e => window.addEventListener(e, startFirebaseSync, { once: true, passive: true }));
-
-    // 2. Respaldo de seguridad: Si el usuario no hace nada en 3.5s, lo arrancamos por si acaso
-    setTimeout(startFirebaseSync, 3500);
+    // 🔥 EN LA PÁGINA DE PRODUCTO, LA DATA ES VITAL: Pedimos las variantes de inmediato sin bloquear.
+    if ('requestIdleCallback' in window) {
+        requestIdleCallback(startFirebaseSync);
+    } else {
+        setTimeout(startFirebaseSync, 50);
+    }
 }
 
 function updateLocalCacheWith(productData) {
