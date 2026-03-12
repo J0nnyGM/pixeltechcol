@@ -1357,56 +1357,61 @@ function renderPromosHTML() {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
-    // 1. Iniciar sincronización (Vital y asíncrono)
+    // 1. Iniciar sincronización (Lee la memoria del celular al instante)
     await SmartProductSync.init();
 
-    // 2. Renderizar SOLO lo que el usuario ve al entrar (Hero)
-    loadPromoSlider();
-    updateCartCount();
+    // 🔥 LA MAGIA: Si ya tenemos los productos en la memoria (Usuario recurrente)
+    if (allProductsCache.length > 0) {
+        // PINTAMOS TODO AL INSTANTE sin pausas. El usuario NO verá cajas grises.
+        loadPromoSlider();
+        updateCartCount();
+        loadNewLaunch();
+        loadViewHistory();
+        loadWeeklyChoices();
+        loadPromotionsGrid();
+        if (document.getElementById('featured-grid')) loadFeatured();
+        loadCategoriesBar();
+        loadBestSellers();
+        loadBrandsMarquee();
+        initMasterSliders();
+    } 
+    // Si es un USUARIO NUEVO (Memoria vacía)
+    else {
+        // Renderizamos lo principal y dejamos que los esqueletos grises hagan su trabajo
+        loadPromoSlider();
+        updateCartCount();
 
-    // 3. FRAGMENTACIÓN (Chunking): Cargamos el resto de la web en "pedacitos"
-    const loadChunks = [
-        () => loadNewLaunch(),
-        () => { loadViewHistory(); loadWeeklyChoices(); },
-        () => { loadPromotionsGrid(); loadFeatured(); },
-        () => { loadCategoriesBar(); loadBestSellers(); },
-        () => { loadBrandsMarquee(); initMasterSliders(); }
-    ];
+        // Usamos la fragmentación para no bloquear el celular mientras esperamos a Firebase
+        const loadChunks = [
+            () => loadNewLaunch(),
+            () => { loadViewHistory(); loadWeeklyChoices(); },
+            () => { loadPromotionsGrid(); loadFeatured(); },
+            () => { loadCategoriesBar(); loadBestSellers(); },
+            () => { loadBrandsMarquee(); initMasterSliders(); }
+        ];
 
-    let chunkIndex = 0;
-    
-    const processChunks = () => {
-        if (chunkIndex < loadChunks.length) {
-            loadChunks[chunkIndex](); // Ejecuta un pedacito
-            chunkIndex++;
-            
-            // Le da un "respiro" al procesador antes de cargar el siguiente pedacito
-            if ('requestIdleCallback' in window) {
-                requestIdleCallback(() => setTimeout(processChunks, 50));
-            } else {
-                setTimeout(processChunks, 100);
+        let chunkIndex = 0;
+        const processChunks = () => {
+            if (chunkIndex < loadChunks.length) {
+                loadChunks[chunkIndex]();
+                chunkIndex++;
+                if ('requestIdleCallback' in window) requestIdleCallback(() => setTimeout(processChunks, 50));
+                else setTimeout(processChunks, 100);
             }
-        }
-    };
+        };
 
-    // Empezamos la cadena cuando el navegador esté desocupado
-    if ('requestIdleCallback' in window) {
-        requestIdleCallback(processChunks);
-    } else {
-        setTimeout(processChunks, 100);
+        if ('requestIdleCallback' in window) requestIdleCallback(processChunks);
+        else setTimeout(processChunks, 100);
     }
 
-// 4. ESCUCHA DE EVENTOS EN TIEMPO REAL
+    // ESCUCHA DE EVENTOS EN TIEMPO REAL (Cuando Firebase termina de traer datos nuevos)
     window.addEventListener('catalogUpdated', () => {
         const updateEverything = () => {
-            // Aquí sí volvemos a filtrar y cargar los datos frescos de Firebase
             loadViewHistory();
             loadWeeklyChoices(); 
             loadPromotionsGrid(); 
-            
             if (document.getElementById('featured-grid')) loadFeatured();
             
-            // Repinta la categoría activa o los más vendidos
             const activeCatBtn = document.querySelector('.cat-btn.active');
             if (activeCatBtn && activeCatBtn.innerText !== "TODAS") {
                 if (window.filterBy) window.filterBy(activeCatBtn.dataset.cat, activeCatBtn);
@@ -1415,10 +1420,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         };
 
-        if ('requestIdleCallback' in window) {
-            requestIdleCallback(updateEverything);
-        } else {
-            setTimeout(updateEverything, 100);
-        }
+        if ('requestIdleCallback' in window) requestIdleCallback(updateEverything);
+        else setTimeout(updateEverything, 100);
     });
 });
