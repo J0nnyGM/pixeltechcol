@@ -433,7 +433,7 @@ if (btnSave) {
                 }
 
                 await updateDoc(clientRef, updateData);
-                window.showToast("Cliente actualizado con éxito", "success");
+                alert("✅ Cliente actualizado con éxito");
             } else {
                 // CREAR NUEVO
                 const newClientData = {
@@ -446,7 +446,7 @@ if (btnSave) {
                     addresses: address ? [{ alias: "Principal", address, dept: deptName, city, isDefault: true }] : []
                 };
                 await addDoc(collection(db, "users"), newClientData);
-                window.showToast("Cliente nuevo registrado", "success");
+                alert("✅ Cliente nuevo registrado");
             }
 
             closeModal();
