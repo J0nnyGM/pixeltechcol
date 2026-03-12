@@ -1395,8 +1395,11 @@ document.addEventListener('DOMContentLoaded', async () => {
             if (chunkIndex < loadChunks.length) {
                 loadChunks[chunkIndex]();
                 chunkIndex++;
-                if ('requestIdleCallback' in window) requestIdleCallback(() => setTimeout(processChunks, 50));
-                else setTimeout(processChunks, 100);
+                if ('requestIdleCallback' in window) {
+                    requestIdleCallback(() => setTimeout(processChunks, 50));
+                } else {
+                    setTimeout(processChunks, 100);
+                }
             }
         };
 
@@ -1404,14 +1407,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         else setTimeout(processChunks, 100);
     }
 
-    // ESCUCHA DE EVENTOS EN TIEMPO REAL (Cuando Firebase termina de traer datos nuevos)
+    // 4. ESCUCHA DE EVENTOS EN TIEMPO REAL (Cuando Firebase trae datos nuevos)
     window.addEventListener('catalogUpdated', () => {
         const updateEverything = () => {
             loadViewHistory();
             loadWeeklyChoices(); 
             loadPromotionsGrid(); 
+            
             if (document.getElementById('featured-grid')) loadFeatured();
             
+            // Repinta la categoría activa o los más vendidos
             const activeCatBtn = document.querySelector('.cat-btn.active');
             if (activeCatBtn && activeCatBtn.innerText !== "TODAS") {
                 if (window.filterBy) window.filterBy(activeCatBtn.dataset.cat, activeCatBtn);
@@ -1420,7 +1425,10 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         };
 
-        if ('requestIdleCallback' in window) requestIdleCallback(updateEverything);
-        else setTimeout(updateEverything, 100);
+        if ('requestIdleCallback' in window) {
+            requestIdleCallback(updateEverything);
+        } else {
+            setTimeout(updateEverything, 100);
+        }
     });
 });
