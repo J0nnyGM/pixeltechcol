@@ -179,11 +179,6 @@
 
     <?php include $_SERVER['DOCUMENT_ROOT'] . '/includes/footer.php'; ?>
 
-    <script type="module">
-        import { loadGlobalHeader, loadGlobalFooter } from '/js/global-components.js?v=2.0';        
-        loadGlobalHeader();
-        loadGlobalFooter();
-    </script>
     <script type="application/ld+json">
     {
     "@context": "https://schema.org",
@@ -220,7 +215,14 @@
     ]
     }
     </script>
-    <script type="module" src="/js/app.js?v=2.0"></script>
+
+    <script type="module">
+        import { loadGlobalHeader, loadGlobalFooter } from '/js/global-components.js?v=2.1';        
+        loadGlobalHeader();
+        loadGlobalFooter();
+    </script>
+    
+    <script type="module" src="/js/app.js?v=2.1"></script>
 </body>
 </html>
 
