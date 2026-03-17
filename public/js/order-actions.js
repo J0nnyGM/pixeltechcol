@@ -369,47 +369,181 @@ export async function confirmDispatch(onSuccess) {
 }
 
 // --- 3. IMPRIMIR PDF ---
+// --- 3. IMPRIMIR PDF (REMISIÓN PROFESIONAL) ---
 export async function printRemission(orderId) {
     try {
         const snap = await getDoc(doc(db, "orders", orderId));
-        if (!snap.exists()) return alert("Error");
-        const o = snap.data();
-        const dateStr = o.createdAt?.toDate ? o.createdAt.toDate().toLocaleDateString() : '--';
+        if (!snap.exists()) return alert("Error al generar la remisión");
         
-        let address = o.shippingData?.address || o.address || 'Local';
+        const o = snap.data();
+        
+        // 1. Fechas y Números
+        const dateStr = o.createdAt?.toDate ? o.createdAt.toDate().toLocaleString('es-CO') : '--';
+        const remissionNumber = o.internalOrderNumber ? `#${o.internalOrderNumber}` : 'S/N';
+        const shortId = snap.id.slice(0, 8).toUpperCase();
+        
+        // 2. Dirección
+        let address = o.shippingData?.address || o.address || 'Retiro en Local';
         if (o.shippingData?.city) address += `, ${o.shippingData.city}`;
+        if (o.shippingData?.department) address += ` - ${o.shippingData.department}`;
 
-        const itemsHtml = (o.items || []).map(i => `
+        // 3. Datos del cliente (Validando compatibilidad con ventas web/manuales)
+        const clientName = o.userName || o.buyerInfo?.name || 'N/A';
+        const clientPhone = o.phone || o.buyerInfo?.phone || 'N/A';
+        const clientDoc = o.clientDoc || o.buyerInfo?.document || 'N/A';
+
+        // 4. Tabla de Items (SIN SERIALES)
+        const itemsHtml = (o.items || []).map(i => {
+            // Mostramos si tiene variante de color/capacidad
+            let variantText = '';
+            if(i.color || i.capacity) {
+                variantText = `<br><span style="color:#6b7280; font-size:11px;">${i.capacity ? i.capacity + ' ' : ''}${i.color ? i.color : ''}</span>`;
+            }
+            
+            return `
             <tr>
-                <td><strong>${i.name}</strong>${i.sns?.length ? '<br><small>SN: '+i.sns.join(', ')+'</small>' : ''}</td>
+                <td><strong>${i.name || i.title}</strong>${variantText}</td>
                 <td style="text-align:center">${i.quantity}</td>
-                <td style="text-align:right">$${(i.price || 0).toLocaleString()}</td>
-                <td style="text-align:right">$${((i.price || 0) * i.quantity).toLocaleString()}</td>
-            </tr>`).join('');
+                <td style="text-align:right">$${(i.price || 0).toLocaleString('es-CO')}</td>
+                <td style="text-align:right; font-weight:bold;">$${((i.price || 0) * i.quantity).toLocaleString('es-CO')}</td>
+            </tr>`;
+        }).join('');
 
-        const w = window.open('', '_blank', 'width=800,height=600');
+        // 5. Totales
+        const total = o.total || 0;
+        const shipping = o.shippingCost || 0;
+        const subtotal = total - shipping;
+
+        // 6. Generación del Documento
+        const w = window.open('', '_blank', 'width=800,height=800');
         w.document.write(`
-            <html><head><title>Cotización #${snap.id.slice(0,8)}</title>
-            <style>body{font-family:sans-serif;padding:20px;font-size:12px} table{width:100%;border-collapse:collapse;margin-top:20px} th{text-align:left;background:#eee;padding:5px} td{padding:5px;border-bottom:1px solid #eee} .box{background:#f9f9f9;padding:15px;border-radius:10px;margin-bottom:20px} .cufe{margin-top:40px;padding:10px;background:#e0f2fe;color:#0369a1;border:1px solid #bae6fd;border-radius:5px;text-align:center;font-weight:bold}</style>
-            </head><body>
-                <div style="display:flex;justify-content:space-between;margin-bottom:20px">
-                    <div style="text-align:right"><h2>Remisión de Venta</h2><p>#${snap.id.slice(0,8).toUpperCase()}</p><p>${dateStr}</p></div>
+            <!DOCTYPE html>
+            <html lang="es">
+            <head>
+                <meta charset="UTF-8">
+                <title>Remisión ${remissionNumber}</title>
+                <style>
+                    body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; padding: 40px; font-size: 13px; color: #111827; max-width: 800px; margin: 0 auto; }
+                    h1, h2, h3, h4 { color: #111827; margin: 0 0 5px 0; line-height: 1.2; }
+                    
+                    /* Cabecera */
+                    .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 30px; border-bottom: 2px solid #111827; padding-bottom: 20px; }
+                    .store-info h1 { font-size: 28px; font-weight: 900; letter-spacing: -1px; margin-bottom: 2px; }
+                    .store-info p { margin: 0; color: #4b5563; font-size: 12px; }
+                    
+                    .remission-info { text-align: right; }
+                    .remission-info h2 { font-size: 22px; font-weight: 900; letter-spacing: 2px; }
+                    .remission-info .consecutivo { font-size: 18px; font-weight: 900; color: #00AEC7; margin-bottom: 5px; display: block;}
+                    .remission-info p { margin: 2px 0; font-size: 12px; color: #4b5563; }
+                    .badge { display: inline-block; background: #f3f4f6; padding: 4px 8px; border-radius: 4px; font-family: monospace; margin-top: 5px; font-weight: bold; font-size: 11px;}
+                    
+                    .section-title { font-size: 10px; font-weight: 900; color: #9ca3af; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 10px; border-bottom: 1px solid #e5e7eb; padding-bottom: 5px;}
+                    
+                    /* Información Cliente */
+                    .customer-info { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 30px; background: #f9fafb; padding: 20px; border-radius: 12px; }
+                    .customer-box p { margin: 0; font-size: 13px; font-weight: bold;}
+                    .customer-box label { font-size: 9px; font-weight: 900; color: #9ca3af; text-transform: uppercase; display: block; margin-bottom: 2px; letter-spacing: 0.5px;}
+
+                    /* Tabla de Productos */
+                    table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
+                    th { text-align: left; background: #f9fafb; padding: 12px; font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: 1px; color: #6b7280; border-bottom: 2px solid #e5e7eb; }
+                    td { padding: 15px 12px; border-bottom: 1px solid #f3f4f6; vertical-align: top; }
+                    
+                    /* Totales */
+                    .totals-container { display: flex; justify-content: flex-end; margin-bottom: 40px; }
+                    .totals-table { width: 300px; border-collapse: collapse; }
+                    .totals-table td { padding: 10px; border-bottom: 1px solid #f3f4f6; }
+                    .totals-table tr:last-child td { border-bottom: none; font-size: 16px; font-weight: 900; border-top: 2px solid #111827; }
+                    .totals-table td:last-child { text-align: right; font-weight: bold; color: #111827; }
+                    .totals-table td:first-child { text-align: left; color: #6b7280; font-weight: bold; }
+
+                    /* Pie de página */
+                    .footer { margin-top: 50px; text-align: center; color: #4b5563; font-size: 11px; border-top: 1px solid #e5e7eb; padding-top: 20px; line-height: 1.6; }
+                    .footer strong { color: #111827; font-size: 12px;}
+                    
+                    /* Evitar que se corte en páginas en la impresora */
+                    @media print {
+                        body { padding: 0; }
+                        table { page-break-inside: auto; }
+                        tr { page-break-inside: avoid; page-break-after: auto; }
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="header">
+                    <div class="store-info">
+                        <h1>PIXELTECH</h1>
+                        <p>Lo mejor en tecnología</p>
+                        <p>Bogotá, Colombia</p>
+                    </div>
+                    <div class="remission-info">
+                        <h2>REMISIÓN</h2>
+                        <span class="consecutivo">${remissionNumber}</span>
+                        <p>${dateStr}</p>
+                        <div class="badge">Pedido ID: ${shortId}</div>
+                    </div>
                 </div>
-                <div class="box">
-                    <strong>Cliente:</strong> ${o.userName}<br>
-                    <strong>ID:</strong> ${o.clientDoc || 'N/A'}<br>
-                    <strong>Tel:</strong> ${o.phone || 'N/A'}<br>
-                    <strong>Dir:</strong> ${address}
+
+                <div class="section-title">Información del Cliente</div>
+                <div class="customer-info">
+                    <div class="customer-box">
+                        <label>Cliente</label>
+                        <p>${clientName}</p>
+                    </div>
+                    <div class="customer-box">
+                        <label>Teléfono</label>
+                        <p>${clientPhone}</p>
+                    </div>
+                    <div class="customer-box">
+                        <label>Identificación</label>
+                        <p>${clientDoc}</p>
+                    </div>
+                    <div class="customer-box">
+                        <label>Dirección de Entrega</label>
+                        <p>${address}</p>
+                    </div>
                 </div>
-                <table><thead><tr><th>Producto</th><th style="text-align:center">Cant</th><th style="text-align:right">Unit</th><th style="text-align:right">Total</th></tr></thead>
-                <tbody>${itemsHtml}</tbody></table>
-                <div style="text-align:right;margin-top:20px">
-                    <p>Envío: $${(o.shippingCost || 0).toLocaleString()}</p>
-                    <h3>Total: $${(o.total || 0).toLocaleString()}</h3>
+
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Descripción</th>
+                            <th style="text-align:center">Cant</th>
+                            <th style="text-align:right">Unitario</th>
+                            <th style="text-align:right">Total</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${itemsHtml}
+                    </tbody>
+                </table>
+
+                <div class="totals-container">
+                    <table class="totals-table">
+                        <tr>
+                            <td>Subtotal</td>
+                            <td>$${subtotal.toLocaleString('es-CO')}</td>
+                        </tr>
+                        <tr>
+                            <td>Envío</td>
+                            <td>$${shipping.toLocaleString('es-CO')}</td>
+                        </tr>
+                        <tr>
+                            <td>TOTAL</td>
+                            <td>$${total.toLocaleString('es-CO')}</td>
+                        </tr>
+                    </table>
                 </div>
-                <div class="cufe">Para solicitud de factura con código CUFE contáctanos al 3009046450</div>
-                <script>setTimeout(()=>{window.print();window.close()},500)</script>
-            </body></html>`);
+
+                <div class="footer">
+                    Este documento es una remisión de entrega y soporte de garantía.<br>
+                    <strong>Para solicitud de factura con código CUFE contáctanos al 3009046450</strong>
+                </div>
+
+                <script>setTimeout(() => { window.print(); window.close(); }, 800);</script>
+            </body>
+            </html>
+        `);
         w.document.close();
     } catch(e) { console.error(e); }
 }

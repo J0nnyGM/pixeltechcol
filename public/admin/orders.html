@@ -89,7 +89,7 @@
                 </div>
                 <div class="relative w-full md:w-auto">
                     <i class="fa-solid fa-search absolute left-4 top-1/2 -translate-y-1/2 text-brand-black text-xs"></i>
-                    <input type="text" id="search-input" placeholder="Buscar por ID o Cliente..."
+                    <input type="text" id="search-input" placeholder="Buscar por # Orden o Cliente..."
                         class="w-full md:w-64 pl-10 pr-4 py-3 rounded-xl border border-gray-200 text-xs font-bold outline-none focus:border-brand-cyan transition bg-white shadow-sm text-brand-black">
                 </div>
             </div>
@@ -122,7 +122,7 @@
                         <thead
                             class="bg-slate-50 text-[9px] uppercase font-black text-brand-black tracking-widest border-b border-gray-100">
                             <tr>
-                                <th class="px-8 py-6 w-32">ID / Fecha</th>
+                                <th class="px-8 py-6 w-36"># Orden / Fecha</th>
                                 <th class="px-8 py-6">Cliente</th>
                                 <th class="px-8 py-6 text-center">Canal</th>
                                 <th class="px-8 py-6 text-center">Estado Pago</th>
@@ -263,6 +263,7 @@
                     <option value="Interrapidisimo">Interrapidísimo</option>
                     <option value="Envía">Envía</option>
                     <option value="Coordinadora">Coordinadora</option>
+                    <option value="DespachoBogota">Despacho Bogota</option>
                 </select>
                 <input type="text" id="dispatch-tracking" placeholder="Número de Guía"
                     class="w-full bg-slate-50 border border-gray-200 rounded-xl p-3 text-sm font-mono font-bold outline-none text-brand-black">
@@ -559,7 +560,7 @@
         };
 
         // --- FILTRADO Y RENDERIZADO EN MEMORIA RAM (CERO LECTURAS) ---
-function renderOrdersFromMemory() {
+        function renderOrdersFromMemory() {
             const tableBody = document.getElementById('orders-table-body');
             if (!tableBody) return;
             
@@ -631,52 +632,73 @@ function renderOrdersFromMemory() {
                 return;
             }
 
-            // Filtrar en memoria: busca por ID, Teléfono, Nombre de cliente o Cédula
+            // 🔥 NUEVO: Filtrar incluyendo el número de orden interno (internalOrderNumber)
             const results = adminOrdersCache.filter(o => {
                 const idMatch = o.id.toLowerCase().includes(val);
                 const phoneMatch = (o.buyerInfo?.phone || o.phone || "").toLowerCase().includes(val);
                 const nameMatch = (o.buyerInfo?.name || o.userName || "").toLowerCase().includes(val);
                 const docMatch = (o.buyerInfo?.document || o.clientDoc || "").toLowerCase().includes(val);
+                const internalNumMatch = (o.internalOrderNumber || "").toString().includes(val);
 
-                return idMatch || phoneMatch || nameMatch || docMatch;
+                return idMatch || phoneMatch || nameMatch || docMatch || internalNumMatch;
             });
 
             tableBody.innerHTML = "";
 
             if (results.length === 0) {
-                tableBody.innerHTML = `<tr><td colspan="7" class="p-10 text-center text-xs text-red-500 font-bold uppercase">No se encontró coincidencia en caché local. Intenta buscar el ID exacto.</td></tr>`;
+                tableBody.innerHTML = `<tr><td colspan="7" class="p-10 text-center text-xs text-red-500 font-bold uppercase">No se encontró coincidencia en caché local. Presiona ENTER para buscar a fondo.</td></tr>`;
             } else {
                 tableBody.innerHTML += `<tr class="bg-brand-cyan/10 border-b border-brand-cyan/20"><td colspan="7" class="py-3 px-8 text-[10px] font-black uppercase text-brand-black tracking-widest"><i class="fa-solid fa-search text-brand-cyan mr-2"></i> Resultados de Búsqueda</td></tr>`;
                 results.forEach(o => renderRow(o));
             }
         });
 
-        // Opcional: Búsqueda forzada al servidor si presiona Enter (para buscar un pedido muy viejo que no esté en los 150 cacheados)
+        // 🔥 NUEVO: Búsqueda forzada al servidor si presiona Enter (Busca en ID y en consecutivo)
         searchInput.addEventListener('keyup', async function (e) {
             if (e.key === 'Enter') {
                 const val = this.value.trim();
-                if (val.length < 5) return; // Evitar búsquedas muy cortas
+                if (val.length < 3) return; // Evitar búsquedas muy cortas
 
                 const tableBody = document.getElementById('orders-table-body');
                 tableBody.innerHTML = `<tr><td colspan="7" class="p-8 text-center"><i class="fa-solid fa-cloud-arrow-down fa-bounce text-brand-cyan"></i> Buscando en el archivo del servidor...</td></tr>`;
 
                 try {
+                    const ordersRef = collection(db, "orders");
+                    let finalDocs = [];
+
+                    // 1. Buscar por ID de Firebase
                     const docRef = doc(db, "orders", val);
                     const docSnap = await getDoc(docRef);
                     if (docSnap.exists()) {
+                        finalDocs.push({ id: docSnap.id, ...docSnap.data() });
+                    }
+
+                    // 2. Buscar por internalOrderNumber (Si el usuario escribió un número, ej: "1045")
+                    if (!isNaN(val)) {
+                        const qNum = query(ordersRef, where("internalOrderNumber", "==", parseInt(val)));
+                        const snapNum = await getDocs(qNum);
+                        snapNum.forEach(d => {
+                            // Evitar duplicados si por casualidad coincidió con el ID
+                            if (!finalDocs.find(x => x.id === d.id)) {
+                                finalDocs.push({ id: d.id, ...d.data() });
+                            }
+                        });
+                    }
+
+                    if (finalDocs.length > 0) {
                         tableBody.innerHTML = `<tr class="bg-gray-800 text-white"><td colspan="7" class="py-3 px-8 text-[10px] font-black uppercase tracking-widest"><i class="fa-solid fa-cloud text-brand-cyan mr-2"></i> Resultado desde Servidor</td></tr>`;
-                        renderRow({ id: docSnap.id, ...docSnap.data() });
+                        finalDocs.forEach(o => renderRow(o));
                     } else {
-                        tableBody.innerHTML = `<tr><td colspan="7" class="p-10 text-center text-xs text-red-500 font-bold uppercase">Definitivamente no existe la orden: "${val}".</td></tr>`;
+                        tableBody.innerHTML = `<tr><td colspan="7" class="p-10 text-center text-xs text-red-500 font-bold uppercase">Definitivamente no existe la orden con ID o Número: "${val}".</td></tr>`;
                     }
                 } catch (e) {
+                    console.error("Error buscando en servidor:", e);
                     renderOrdersFromMemory();
                 }
             }
         });
 
         // --- RENDER DE FILA VISUAL ---
-// --- RENDER DE FILA VISUAL ---
         function renderRow(o) {
             const isTienda = o.source === 'TIENDA' || o.source === 'TIENDA_WEB';
             let sClass = 'bg-gray-100 text-gray-500 border-gray-200', sText = o.status;
@@ -690,18 +712,14 @@ function renderOrdersFromMemory() {
             else if (o.status === 'DEVUELTO') { sClass = 'bg-purple-100 text-purple-700 border-purple-200'; sText = 'Devuelto'; }
             else if (o.status === 'DEVOLUCION_PARCIAL') { sClass = 'bg-orange-100 text-orange-700 border-orange-200'; sText = 'Dev. Parcial'; }
 
-            // 1. Cálculos Financieros Estrictos
+            // Cálculos Financieros Estrictos
             const total = Number(o.total) || 0;
             const paid = Number(o.amountPaid) || 0;
             const refunded = Number(o.refundedAmount) || 0;
             
-            // La deuda real es el Total menos lo que ya pagó, menos lo que se le devolvió
             let pendingBalance = total - paid - refunded;
-            // Evitar saldos negativos por errores de redondeo o devoluciones previas
             if (pendingBalance < 0) pendingBalance = 0; 
 
-            // 2. Determinar si está pagado al 100%
-            // Se considera pagado si la bandera dice PAID o si el saldo pendiente es 0
             const isFullyPaid = o.paymentStatus === 'PAID' || o.status === 'PAGADO' || pendingBalance === 0;
 
             let pBadge = `<span class="text-[9px] font-black uppercase text-red-500 bg-red-50 px-2 py-1 rounded border border-red-100">Cartera</span>`;
@@ -717,11 +735,10 @@ function renderOrdersFromMemory() {
                 ? `<span class="w-9 h-9 rounded-xl bg-blue-50 text-blue-500 border border-blue-100 flex items-center justify-center cursor-default" title="Factura Solicitada"><i class="fa-solid fa-check text-xs"></i></span>`
                 : `<button onclick="window.requestInvoice('${o.id}')" title="Solicitar Factura" class="w-9 h-9 rounded-xl bg-white border border-blue-200 text-blue-500 hover:bg-blue-500 hover:text-white transition shadow-sm flex items-center justify-center"><i class="fa-solid fa-file-invoice-dollar text-xs"></i></button>`;
 
-            // Lógica del Botón Pagar (CORREGIDA)
+            // Lógica del Botón Pagar
             let payActionBtn = '';
             const isFinished = ['CANCELADO', 'RECHAZADO'].includes(o.status);
             
-            // SOLO mostramos el botón si NO está finalizada (cancelada) y el saldo pendiente es MAYOR a cero
             if (pendingBalance > 0 && !isFinished && !isFullyPaid) {
                 payActionBtn = `
                     <button onclick="window.openPaymentModal('${o.id}', ${pendingBalance})" 
@@ -747,11 +764,18 @@ function renderOrdersFromMemory() {
                 `;
             }
 
+            // 🔥 DISEÑO NUEVO: Consecutivo Gigante y el ID de Firebase chiquito 🔥
+            const internalNumDisplay = o.internalOrderNumber ? `#${o.internalOrderNumber}` : 'S/N';
+            const shortId = o.id.slice(0, 8);
+
             const tableBody = document.getElementById('orders-table-body');
             tableBody.innerHTML += `
                 <tr class="hover:bg-slate-50 transition border-b border-gray-50 group fade-in">
                     <td class="px-8 py-6">
-                        <div class="font-mono text-[10px] text-brand-black uppercase font-bold">#${o.id.slice(0, 8)}</div>
+                        <div class="flex items-center gap-2 mb-1">
+                            <div class="font-black text-base text-brand-cyan uppercase tracking-tighter">${internalNumDisplay}</div>
+                            <div class="font-mono text-[8px] text-gray-400 uppercase bg-gray-100 px-1.5 py-0.5 rounded" title="ID Firebase: ${o.id}">${shortId}</div>
+                        </div>
                         <div class="text-[9px] font-bold text-brand-black mt-1">${dateStr}</div>
                     </td>
                     <td class="px-8 py-6">

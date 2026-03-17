@@ -23,6 +23,9 @@ const merchantModule = require('./google-merchant'); // <--- 1. NUEVO: Importar 
 const sitemapModule = require('./sitemap');
 const productMetaModule = require('./productMeta');
 const localInventory  = require("./local-inventory");
+const orderCounterModule = require('./order-counter');
+const mercadolibreModule = require('./mercadolibre');
+const mercadolibre2Module = require('./mercadolibre2');
 
 
 // --- 3. EXPORTAR FUNCIONES ---
@@ -67,3 +70,19 @@ exports.sitemap = sitemapModule.sitemap;
 exports.renderProductMeta = functions.https.onRequest(productMetaModule.renderProductMeta);
 
 exports.generateLocalInventoryFeed = localInventory.generateLocalInventoryFeed;
+
+
+// 🔥 NUEVO: Exportar el trigger asignador de consecutivos
+exports.assignSequentialNumber = orderCounterModule.assignSequentialNumber; 
+
+
+//HABILITACION SCRIPT NUMERO REMISIONES
+//exports.backfillOrderNumbers = orderCounterModule.backfillOrderNumbers;
+
+// Tienda 1
+exports.mercadolibreWebhook = functions.https.onRequest(mercadolibreModule.webhook);
+exports.renewMercadoLibreToken = onSchedule("every 5 hours", mercadolibreModule.renewTokenTask);
+
+// Tienda 2
+exports.mercadolibreStore2Webhook = functions.https.onRequest(mercadolibre2Module.webhook);
+exports.renewMercadoLibreStore2Token = onSchedule("every 4 hours", mercadolibre2Module.renewTokenTask);

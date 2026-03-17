@@ -31,6 +31,8 @@ export function loadAdminSidebar() {
                 { name: 'Categorías', icon: 'fa-tags', path: '/admin/categories.html' },
                 { name: 'Marcas', icon: 'fa-copyright', path: '/admin/brands.html' }, 
                 { name: 'Nueva Entrada', icon: 'fa-truck-loading', path: '/admin/inventory-entry.html' },
+                // 🔥 NUEVO: Historial de compras agregado aquí
+                { name: 'Historial Compras', icon: 'fa-file-invoice', path: '/admin/purchases.html' },
                 { name: 'Inventario RMA', icon: 'fa-warehouse', path: '/admin/warranty-inventory.html' }
             ]
         },
@@ -41,9 +43,10 @@ export function loadAdminSidebar() {
                 { name: 'Gestión de Cartera', icon: 'fa-wallet', path: '/admin/cartera.html' },
                 { name: 'Cuentas', icon: 'fa-vault', path: '/admin/treasury.html' },
                 { name: 'Control de Gastos', icon: 'fa-money-bill-trend-up', path: '/admin/expenses.html' }, 
+                // 🔥 NUEVO: Rentabilidad FIFO agregado aquí
+                { name: 'Rentabilidad FIFO', icon: 'fa-chart-pie', path: '/admin/profitability.html' },
                 { name: 'Logística', icon: 'fa-truck-fast', path: '/admin/shipping-config.html' },
                 { name: 'Banners y Promos', icon: 'fa-bullhorn', path: '/admin/promotions.html' },
-                // --- NUEVO: CONFIGURACIÓN GENERAL ---
                 { name: 'Configuración', icon: 'fa-gear', path: '/admin/settings.html' }
             ]
         }

@@ -152,55 +152,72 @@ async function loadClientOrders(isNextPage = false) {
     
     if (!isNextPage) {
         els.ordersList.innerHTML = `<tr><td colspan="6" class="p-8 text-center"><i class="fa-solid fa-circle-notch fa-spin text-brand-cyan"></i> Cargando...</td></tr>`;
-        els.pendingList.innerHTML = ""; // Limpiar lista de deuda solo en carga inicial
-        pendingOrders = []; // Reset deuda
+        els.pendingList.innerHTML = ""; 
+        pendingOrders = []; 
         if(loadMoreBtn) loadMoreBtn.classList.add('hidden');
     }
 
     try {
-        // A. CÁLCULO DE DEUDA (Solo en la primera carga)
-        // Necesitamos revisar TODAS las pendientes para saber cuánto debe en total.
-        // Esto no se pagina porque la deuda es un dato financiero exacto.
+        // A. CÁLCULO DE DEUDA Y TOTAL COMPRAS (LTV)
+        // Solo lo hacemos en la primera carga para actualizar las cajas superiores
         if (!isNextPage) {
-            const qDebt = query(
+            // Buscamos TODAS las órdenes del cliente para calcular los totales reales
+            const qAllOrders = query(
                 collection(db, "orders"), 
-                where("userId", "==", clientId),
-                where("paymentStatus", "in", ["PENDING", "PARTIAL"]),
-                orderBy("createdAt", "asc")
+                where("userId", "==", clientId)
             );
-            const snapDebt = await getDocs(qDebt);
+            
+            const snapAll = await getDocs(qAllOrders);
             let totalDebt = 0;
+            let totalLTV = 0; // Lifetime Value (Total de compras históricas)
             
             els.pendingList.innerHTML = "";
-            
-            if(snapDebt.empty) {
+            pendingOrders = [];
+
+            if(snapAll.empty) {
                 els.pendingList.innerHTML = `<tr><td colspan="5" class="p-8 text-center text-xs text-gray-400 font-bold uppercase">Al día.</td></tr>`;
+            } else {
+                snapAll.forEach(d => {
+                    const o = { id: d.id, ...d.data() };
+                    
+                    // Ignoramos los cancelados/rechazados para las estadísticas financieras
+                    if(o.status === 'CANCELADO' || o.status === 'RECHAZADO') return;
+
+                    const total = o.total || 0;
+                    const paid = o.amountPaid || 0;
+                    // Restamos lo devuelto para que el saldo pendiente sea exacto
+                    const refunded = o.refundedAmount || 0; 
+                    
+                    // Sumamos al Total de Compras Históricas (LTV)
+                    totalLTV += (total - refunded); 
+
+                    // Calculamos la deuda real
+                    const balance = total - paid - refunded;
+
+                    // Si hay deuda pendiente y no está pagada totalmente
+                    if (balance > 0 && o.paymentStatus !== 'PAID' && o.status !== 'PAGADO') {
+                        totalDebt += balance;
+                        pendingOrders.push({ ...o, balance, ref: d.ref });
+                        
+                        els.pendingList.innerHTML += `
+                            <tr class="border-b border-gray-50 hover:bg-red-50/30 transition">
+                                <td class="px-6 py-4 font-mono text-gray-500">#${o.id.slice(0,6).toUpperCase()}</td>
+                                <td class="px-6 py-4 font-bold text-gray-600">${o.createdAt?.toDate().toLocaleDateString('es-CO')}</td>
+                                <td class="px-6 py-4 text-right font-black text-brand-black">${formatMoney(total)}</td>
+                                <td class="px-6 py-4 text-right text-green-600">${formatMoney(paid)}</td>
+                                <td class="px-6 py-4 text-right text-red-500 font-black">${formatMoney(balance)}</td>
+                            </tr>
+                        `;
+                    }
+                });
             }
 
-            snapDebt.forEach(d => {
-                const o = { id: d.id, ...d.data() };
-                if(o.status === 'CANCELADO' || o.status === 'RECHAZADO') return;
+            if (pendingOrders.length === 0) {
+                 els.pendingList.innerHTML = `<tr><td colspan="5" class="p-8 text-center text-xs text-gray-400 font-bold uppercase">El cliente está al día con sus pagos.</td></tr>`;
+            }
 
-                const paid = o.amountPaid || 0;
-                const total = o.total || 0;
-                const balance = total - paid;
-
-                if (balance > 0) {
-                    totalDebt += balance;
-                    pendingOrders.push({ ...o, balance, ref: d.ref });
-                    
-                    els.pendingList.innerHTML += `
-                        <tr class="border-b border-gray-50 hover:bg-red-50/30 transition">
-                            <td class="px-6 py-4 font-mono text-gray-500">#${o.id.slice(0,6)}</td>
-                            <td class="px-6 py-4 font-bold text-gray-600">${o.createdAt?.toDate().toLocaleDateString('es-CO')}</td>
-                            <td class="px-6 py-4 text-right font-black">${formatMoney(total)}</td>
-                            <td class="px-6 py-4 text-right text-green-600">${formatMoney(paid)}</td>
-                            <td class="px-6 py-4 text-right text-red-500 font-black">${formatMoney(balance)}</td>
-                        </tr>
-                    `;
-                }
-            });
-            // Actualizar UI Deuda
+            // 🔥 ACTUALIZAR UI DE LAS CAJAS SUPERIORES 🔥
+            els.ltv.textContent = formatMoney(totalLTV);
             els.balance.textContent = formatMoney(totalDebt);
             els.debtAmount.textContent = formatMoney(totalDebt);
             els.modalDebt.textContent = formatMoney(totalDebt);
@@ -240,28 +257,28 @@ async function loadClientOrders(isNextPage = false) {
         snapHist.forEach(d => {
             const o = d.data();
             
-            // Calculo LTV aproximado (solo suma lo que vamos viendo, para ahorrar lecturas de agregación)
-            // Si quieres LTV exacto, necesitarías otra estrategia, pero para visualización rápida esto sirve.
-            if(!isNextPage) {
-                 // Reiniciar LTV visual si es primera carga, o acumular si tuvieramos el total guardado en el usuario
-                 // Por ahora dejamos el LTV como informativo de lo cargado o lo traemos del user data si existiera.
-                 // Simplificamos: Mostramos Total Compras basado en lo visible o lo dejamos pendiente.
-            }
+            // Cálculos financieros exactos para la tabla
+            const total = o.total || 0;
+            const paid = o.amountPaid || 0;
+            const refunded = o.refundedAmount || 0;
+            const pendingBalance = total - paid - refunded;
+            
+            const isFullyPaid = o.paymentStatus === 'PAID' || o.status === 'PAGADO' || pendingBalance <= 0;
 
             let payBadge = `<span class="text-[9px] font-black uppercase text-red-500 bg-red-50 px-2 py-1 rounded border border-red-100">Pendiente</span>`;
-            if (o.paymentStatus === 'PAID') payBadge = `<span class="text-[9px] font-black uppercase text-green-600 bg-green-50 px-2 py-1 rounded border border-green-100">Pagado</span>`;
-            else if (o.amountPaid > 0) payBadge = `<span class="text-[9px] font-black uppercase text-orange-500 bg-orange-50 px-2 py-1 rounded border border-orange-100">Parcial</span>`;
+            if (isFullyPaid) payBadge = `<span class="text-[9px] font-black uppercase text-green-600 bg-green-50 px-2 py-1 rounded border border-green-100"><i class="fa-solid fa-check"></i> Pagado</span>`;
+            else if (paid > 0) payBadge = `<span class="text-[9px] font-black uppercase text-orange-500 bg-orange-50 px-2 py-1 rounded border border-orange-100">Parcial</span>`;
 
-            // Insertar HTML (usando insertAdjacentHTML para no romper eventos si hubiera)
+            // Insertar HTML
             const row = `
                 <tr class="hover:bg-slate-50 transition border-b border-gray-50 group animate-in fade-in">
-                    <td class="px-8 py-6 font-mono text-xs text-gray-500">#${d.id.slice(0,6)}</td>
+                    <td class="px-8 py-6 font-mono text-xs font-bold text-brand-cyan">#${(o.internalOrderNumber || d.id.slice(0,6)).toString().toUpperCase()}</td>
                     <td class="px-8 py-6 text-xs font-bold">${o.createdAt?.toDate().toLocaleDateString('es-CO')}</td>
                     <td class="px-8 py-6 text-center"><span class="px-3 py-1 rounded-full text-[9px] font-black uppercase border border-gray-200 bg-gray-50 text-gray-500">${o.status}</span></td>
                     <td class="px-8 py-6 text-center">${payBadge}</td>
-                    <td class="px-8 py-6 text-right font-black text-brand-black text-sm">${formatMoney(o.total)}</td>
+                    <td class="px-8 py-6 text-right font-black text-brand-black text-sm">${formatMoney(total)}</td>
                     <td class="px-8 py-6 text-center">
-                        <button onclick="window.openOrderModal('${d.id}')" class="w-8 h-8 rounded-lg bg-white border border-gray-200 text-gray-400 hover:text-brand-cyan hover:border-brand-cyan transition shadow-sm"><i class="fa-solid fa-eye text-xs"></i></button>
+                        <button onclick="window.openOrderModal('${d.id}')" title="Ver Detalle" class="w-8 h-8 flex items-center justify-center mx-auto rounded-lg bg-white border border-gray-200 text-gray-400 hover:text-brand-cyan hover:border-brand-cyan transition shadow-sm"><i class="fa-solid fa-eye text-xs"></i></button>
                     </td>
                 </tr>
             `;
@@ -270,7 +287,7 @@ async function loadClientOrders(isNextPage = false) {
 
     } catch (e) { 
         console.error("Error orders:", e); 
-        if(!isNextPage) els.ordersList.innerHTML = `<tr><td colspan="6" class="p-8 text-center text-red-400">Error cargando datos.</td></tr>`;
+        if(!isNextPage) els.ordersList.innerHTML = `<tr><td colspan="6" class="p-8 text-center text-red-400">Error cargando datos de historial.</td></tr>`;
     }
 }
 
