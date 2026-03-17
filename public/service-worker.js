@@ -1,4 +1,4 @@
-const CACHE_NAME = 'pixeltech-shell-v8.6'; // 🔥 Subimos la versión
+const CACHE_NAME = 'pixeltech-shell-v8.8'; // 🔥 Subimos la versión
 
 // Archivos vitales para que la app arranque sin internet
 const urlsToCache = [
@@ -48,7 +48,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Lista negra de dominios que el Service Worker DEBE IGNORAR.
+// Lista negra de dominios y archivos que el Service Worker DEBE IGNORAR (siempre consultar a la red).
   const ignoredDomains = [
     'firebasestorage', 
     'firestore', 
@@ -59,8 +59,15 @@ self.addEventListener('fetch', (event) => {
     'google-analytics'
   ];
 
-  if (ignoredDomains.some(domain => url.includes(domain))) {
-    return; 
+  const alwaysFetchFiles = [
+    'admin-ui.js',
+    'admin-guard.js',
+    'index.html' // Evita que el dashboard principal se quede atascado
+  ];
+
+  // Si la URL coincide con un dominio ignorado o con un archivo de administración vital, saltamos el caché
+  if (ignoredDomains.some(domain => url.includes(domain)) || alwaysFetchFiles.some(file => url.includes(file))) {
+    return; // Pasa directamente a la red sin tocar el caché
   }
 
   // 🔥 NUEVA ESTRATEGIA: Network First (Red Primero) para HTML, CSS y JS

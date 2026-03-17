@@ -19,6 +19,20 @@
         .fade-in { animation: fadeIn 0.4s ease-out forwards; opacity: 0; transform: translateY(10px); }
         @keyframes fadeIn { to { opacity: 1; transform: translateY(0); } }
     </style>
+
+    <script>
+        // Si agregamos "?limpiar=true" a la URL, destruimos todo el caché y los Service Workers
+        if (window.location.search.includes('limpiar=true')) {
+            if ('caches' in window) {
+                caches.keys().then(keys => Promise.all(keys.map(k => caches.delete(k))));
+            }
+            if ('serviceWorker' in navigator) {
+                navigator.serviceWorker.getRegistrations().then(regs => regs.forEach(r => r.unregister()));
+            }
+            alert("Sistema optimizado y actualizado. Recargando...");
+            window.location.href = window.location.pathname; // Recarga limpia
+        }
+    </script>
 </head>
 
 <body class="bg-slate-50 font-sans text-brand-black flex h-screen overflow-hidden selection:bg-brand-cyan selection:text-white" style="display: none;">
@@ -255,7 +269,7 @@
     <script type="module">
         import '../js/admin-guard.js';
         import { db, collection, getDocs, orderBy, query, limit, auth, doc, getDoc, where, getCountFromServer, getAggregateFromServer, sum, onSnapshot } from '../js/firebase-init.js';
-        import { loadAdminSidebar } from '../js/admin-ui.js?v=1.0.1';
+        import { loadAdminSidebar } from '../js/admin-ui.js?v=2.0.0';
         import { initManualSale, openManualSaleModal } from '../js/manual-sale.js';
         import '../js/order-actions.js';
 
