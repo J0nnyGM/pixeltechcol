@@ -165,7 +165,7 @@ function updateLocalCacheWith(productData) {
 async function renderProductData(p, productId) {
     state.product = p;
     
-    // 🔥 NUEVO: Leer parámetros de la URL para autoseleccionar variantes
+    // Leer parámetros de la URL para autoseleccionar variantes
     const params = new URLSearchParams(window.location.search);
     const urlColor = params.get('color');
     const urlCapacity = params.get('capacity');
@@ -177,6 +177,21 @@ async function renderProductData(p, productId) {
     if (urlCapacity && p.capacities) {
         const foundCap = p.capacities.find(c => c.label.toLowerCase() === urlCapacity.toLowerCase());
         if (foundCap) state.selectedCapacity = foundCap.label;
+    }
+
+    // 🔥 CORRECCIÓN CRÍTICA: Autoselección de protección 🔥
+    // Si la URL trajo solo 1 parámetro (ej. el color) pero el producto requiere 2, 
+    // autoseleccionamos el faltante basándonos en el que tenga stock.
+    if (p.hasCapacities && !state.selectedCapacity) {
+        // Busca la primera capacidad que tenga stock haciendo match con el color seleccionado
+        const validCap = p.capacities.find(cap => getStockForVariant(p, state.selectedColor, cap.label) > 0) || p.capacities[0];
+        if (validCap) state.selectedCapacity = validCap.label;
+    }
+    
+    if (p.hasVariants && !state.selectedColor) {
+        // Busca el primer color que tenga stock haciendo match con la capacidad seleccionada
+        const validColor = p.variants.find(v => getStockForVariant(p, v.color, state.selectedCapacity) > 0) || p.variants[0];
+        if (validColor) state.selectedColor = validColor.color;
     }
 
     // Inicializar valores base

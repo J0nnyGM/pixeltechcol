@@ -99,10 +99,13 @@ exports.generateProductFeed = onRequest({ timeoutSeconds: 60, cors: true }, asyn
                         saleDateXml = `\n                <g:sale_price_effective_date>${startDate.toISOString()}/${endDate.toISOString()}</g:sale_price_effective_date>`;
                     } catch (e) {}
                 }
-
                 // FUNCIÓN GENERADORA MEJORADA CON STOCK EXACTO
                 const generateItemXml = (variantId, title, currentPrice, originalPrice, stockNum, color, capacity, images, isVariant, skuCode) => {
-                    const link = `${DOMAIN}/shop/product.html?id=${baseId}${color ? '&color=' + encodeURIComponent(color) : ''}`;
+                    
+                    // 🔥 CORRECCIÓN: Armar el link inyectando tanto el color como la capacidad
+                    let link = `${DOMAIN}/shop/product.html?id=${baseId}`;
+                    if (color) link += `&color=${encodeURIComponent(color)}`;
+                    if (capacity) link += `&capacity=${encodeURIComponent(capacity)}`;
                     
                     const numCurrentPrice = Number(currentPrice) || 0;
                     const numOriginalPrice = Number(originalPrice) || 0;
