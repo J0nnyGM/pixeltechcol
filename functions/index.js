@@ -26,6 +26,7 @@ const localInventory  = require("./local-inventory");
 const orderCounterModule = require('./order-counter');
 const mercadolibreModule = require('./mercadolibre');
 const mercadolibre2Module = require('./mercadolibre2');
+const mercadolibre3Module = require('./mercadolibre3');
 
 
 // --- 3. EXPORTAR FUNCIONES ---
@@ -85,4 +86,8 @@ exports.renewMercadoLibreToken = onSchedule("every 5 hours", mercadolibreModule.
 
 // Tienda 2
 exports.mercadolibreStore2Webhook = functions.https.onRequest(mercadolibre2Module.webhook);
-exports.renewMercadoLibreStore2Token = onSchedule("every 4 hours", mercadolibre2Module.renewTokenTask);
+exports.renewMercadoLibreStore2Token = onSchedule("every 5 hours", mercadolibre2Module.renewTokenTask);
+
+// Tienda 3
+exports.mercadolibreStore3Webhook = functions.https.onRequest(mercadolibre3Module.webhook);
+exports.renewMercadoLibreStore3Token = onSchedule("every 5 hours", mercadolibre3Module.renewTokenTask);
