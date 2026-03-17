@@ -186,18 +186,15 @@ export function loadAdminSidebar() {
         };
     }
 
-// =========================================================================
+    // =========================================================================
     // 🔥 LÓGICA DE ACTUALIZACIÓN DEL SERVICE WORKER (PURGA SELECTIVA) 🔥
     // =========================================================================
     const btnUpdate = document.getElementById('btn-update-app');
     const mobileBadge = document.getElementById('mobile-update-badge');
     let newWorker;
 
-    // Función auxiliar ajustada para evitar conflictos con Tailwind CSS
     function showUpdateButton(worker) {
         newWorker = worker;
-        
-        // Usamos style.display para forzar la visualización sin importar Tailwind
         if (btnUpdate) {
             btnUpdate.classList.remove('hidden');
             btnUpdate.style.display = 'flex';
@@ -209,42 +206,43 @@ export function loadAdminSidebar() {
     }
 
     if ('serviceWorker' in navigator) {
-        // Agregamos un timestamp (tiempo actual) a la URL para destruir el caché del navegador móvil
-        const swUrl = '/service-worker.js?v=' + new Date().getTime();
-
-        navigator.serviceWorker.register(swUrl, { updateViaCache: 'none' }).then(reg => {
+        // 🔥 CAMBIO: Eliminamos el "?v=" con el timestamp.
+        // Volvemos a la URL limpia, pero mantenemos updateViaCache: 'none' para evitar el caché del móvil.
+        navigator.serviceWorker.register('/service-worker.js', { updateViaCache: 'none' }).then(reg => {
             
-            // Forzamos la actualización manual en cada carga
+            // Forzamos al navegador a comparar el SW actual con el del servidor
             reg.update();
 
-            // Si ya hay uno esperando, mostramos el botón
+            // 1. Si ya hay un SW nuevo esperando (de una visita anterior)
             if (reg.waiting) {
                 showUpdateButton(reg.waiting);
             }
 
-            // Si se está instalando en este momento...
+            // 2. Si se está instalando uno nuevo justo ahora (al cargar la página)
             if (reg.installing) {
-                reg.installing.addEventListener('statechange', () => {
-                    if (reg.installing.state === 'installed') {
-                        showUpdateButton(reg.installing);
+                const currentWorker = reg.installing;
+                currentWorker.addEventListener('statechange', (event) => {
+                    if (event.target.state === 'installed') {
+                        showUpdateButton(event.target);
                     }
                 });
             }
 
-            // Cuando detecta que el archivo service-worker.js cambió en el servidor
+            // 3. El evento clave: Se dispara SOLO cuando el navegador detecta que 
+            // el archivo service-worker.js en tu servidor tiene un código diferente.
             reg.addEventListener('updatefound', () => {
-                const installingWorker = reg.installing;
-                installingWorker.addEventListener('statechange', () => {
-                    // 🔥 CAMBIO CLAVE 2: Quitamos la restricción de 'navigator.serviceWorker.controller'
-                    // En móviles, a veces esto impedía que el botón se mostrara.
-                    if (installingWorker.state === 'installed') {
-                        showUpdateButton(installingWorker);
+                const newWorkerInstalling = reg.installing;
+                if (!newWorkerInstalling) return; 
+
+                newWorkerInstalling.addEventListener('statechange', (event) => {
+                    // Solo mostramos el botón cuando terminó de instalarse y está listo
+                    if (event.target.state === 'installed') {
+                        showUpdateButton(event.target);
                     }
                 });
             });
         });
 
-        // Este evento se dispara cuando el SW toma el control tras hacer skipWaiting()
         let refreshing;
         navigator.serviceWorker.addEventListener('controllerchange', () => {
             if (refreshing) return;
@@ -275,6 +273,7 @@ export function loadAdminSidebar() {
                 console.warn("⚠️ No se pudo limpiar el caché manualmente:", error);
             }
 
+            // Le decimos al nuevo SW que tome el control
             if (newWorker) {
                 newWorker.postMessage({ type: 'SKIP_WAITING' });
             } else {
