@@ -53,8 +53,8 @@ self.addEventListener('fetch', (event) => {
     'firebasestorage', 
     'firestore', 
     'api-colombia', 
-    'split.io',       
-    'addi.com',       
+    'split.io',      
+    'addi.com',      
     'amazonaws.com',  
     'google-analytics'
   ];
@@ -63,36 +63,50 @@ self.addEventListener('fetch', (event) => {
     return; 
   }
 
-  // 1. ESTRATEGIA: Network First (Red Primero) para Navegación (HTML)
-  if (event.request.mode === 'navigate') {
+  // 🔥 NUEVA ESTRATEGIA: Network First (Red Primero) para HTML, CSS y JS
+  // Queremos que el código y el diseño siempre estén actualizados si hay internet
+  const isNavigate = event.request.mode === 'navigate';
+  const isScriptOrStyle = event.request.destination === 'script' || event.request.destination === 'style';
+
+  if (isNavigate || isScriptOrStyle) {
     event.respondWith(
       fetch(event.request)
         .then((networkResponse) => {
-          const responseToCache = networkResponse.clone();
-          
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, responseToCache);
-          });
-          
+          // Si la red responde bien, guardamos una copia fresca en el caché
+          if (networkResponse && networkResponse.status === 200) {
+            const responseToCache = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put(event.request, responseToCache);
+            });
+          }
           return networkResponse;
         })
         .catch(() => {
+          // Si no hay internet, buscamos en el caché
           return caches.match(event.request).then((cacheResponse) => {
-            return cacheResponse || caches.match('/offline.html');
+            if (cacheResponse) {
+              return cacheResponse;
+            }
+            // Si es navegación y no hay caché, mostramos offline.html
+            if (isNavigate) {
+              return caches.match('/offline.html');
+            }
           });
         })
     );
     return;
   }
 
-  // 2. ESTRATEGIA: Stale-While-Revalidate para Assets (CSS, JS, Imágenes)
+  // 2. ESTRATEGIA: Cache First (Caché Primero) para Imágenes y fuentes
+  // Las imágenes no cambian tan seguido, así que ahorramos datos
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
-      
-      const fetchPromise = fetch(event.request).then((networkResponse) => {
+      if (cachedResponse) {
+        return cachedResponse;
+      }
+      return fetch(event.request).then((networkResponse) => {
         if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
           const responseToCache = networkResponse.clone();
-          
           caches.open(CACHE_NAME).then((cache) => {
             cache.put(event.request, responseToCache);
           });
@@ -101,8 +115,6 @@ self.addEventListener('fetch', (event) => {
       }).catch(() => {
         // Ignoramos errores de red en assets secundarios
       });
-
-      return cachedResponse || fetchPromise;
     })
   );
 });

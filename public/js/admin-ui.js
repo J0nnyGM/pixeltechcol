@@ -209,9 +209,10 @@ export function loadAdminSidebar() {
     }
 
     if ('serviceWorker' in navigator) {
-        // 🔥 CAMBIO CLAVE 1: updateViaCache: 'none' 
-        // Obliga al móvil a revisar la red siempre buscando una nueva versión del archivo service-worker.js
-        navigator.serviceWorker.register('/service-worker.js', { updateViaCache: 'none' }).then(reg => {
+        // Agregamos un timestamp (tiempo actual) a la URL para destruir el caché del navegador móvil
+        const swUrl = '/service-worker.js?v=' + new Date().getTime();
+
+        navigator.serviceWorker.register(swUrl, { updateViaCache: 'none' }).then(reg => {
             
             // Forzamos la actualización manual en cada carga
             reg.update();
