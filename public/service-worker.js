@@ -1,5 +1,4 @@
-// 🔥 IMPORTANTE: Sube este número cada vez que hagas un cambio grande en tu código (ej: v7.5)
-const CACHE_NAME = 'pixeltech-shell-v7.5';
+const CACHE_NAME = 'pixeltech-shell-v8.3'; // 🔥 Subimos la versión
 
 // Archivos vitales para que la app arranque sin internet
 const urlsToCache = [
@@ -13,7 +12,9 @@ const urlsToCache = [
 ];
 
 self.addEventListener('install', (event) => {
-  self.skipWaiting(); // Fuerza al SW a activarse de inmediato
+  // ❌ AQUÍ ESTABA EL ERROR: Eliminamos self.skipWaiting()
+  // Ahora el nuevo Service Worker se instalará, pero se quedará en estado "waiting"
+  // hasta que el usuario presione el botón.
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then((cache) => {
@@ -36,11 +37,16 @@ self.addEventListener('activate', (event) => {
       );
     })
   );
-  self.clients.claim(); // Toma control de la página inmediatamente
+  self.clients.claim(); // Toma control de la página inmediatamente (una vez activado)
 });
 
 self.addEventListener('fetch', (event) => {
   const url = event.request.url;
+
+  // Ignorar extensiones de Chrome y protocolos raros
+  if (!url.startsWith('http')) {
+    return;
+  }
 
   // Lista negra de dominios que el Service Worker DEBE IGNORAR.
   const ignoredDomains = [
@@ -58,37 +64,37 @@ self.addEventListener('fetch', (event) => {
   }
 
   // 1. ESTRATEGIA: Network First (Red Primero) para Navegación (HTML)
-  // Siempre busca la página más reciente. Si no hay internet, usa el caché o offline.html
   if (event.request.mode === 'navigate') {
     event.respondWith(
       fetch(event.request)
         .then((networkResponse) => {
-          // Si hay internet, guardamos la página más nueva en el caché silenciosamente
-          return caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, networkResponse.clone());
-            return networkResponse;
+          const responseToCache = networkResponse.clone();
+          
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put(event.request, responseToCache);
           });
+          
+          return networkResponse;
         })
         .catch(() => {
-          // Si no hay internet (falla el fetch), buscamos en el caché
           return caches.match(event.request).then((cacheResponse) => {
             return cacheResponse || caches.match('/offline.html');
           });
         })
     );
-    return; // Detenemos aquí para que no siga con el código de abajo
+    return;
   }
 
   // 2. ESTRATEGIA: Stale-While-Revalidate para Assets (CSS, JS, Imágenes)
-  // Devuelve el caché rápido, pero actualiza en segundo plano.
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
       
       const fetchPromise = fetch(event.request).then((networkResponse) => {
-        // Solo guardamos en caché respuestas válidas
         if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
+          const responseToCache = networkResponse.clone();
+          
           caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, networkResponse.clone());
+            cache.put(event.request, responseToCache);
           });
         }
         return networkResponse;
@@ -96,9 +102,15 @@ self.addEventListener('fetch', (event) => {
         // Ignoramos errores de red en assets secundarios
       });
 
-      // Retorna el caché inmediatamente si existe. Mientras tanto, fetchPromise se ejecuta atrás.
-      // Si no existe en caché, espera a fetchPromise.
       return cachedResponse || fetchPromise;
     })
   );
+});
+
+// --- ESCUCHAR LA ORDEN DE ACTUALIZACIÓN MANUAL ---
+self.addEventListener('message', (event) => {
+  // 🔥 AQUÍ SÍ SE EJECUTA: Solo cuando el admin-ui.js manda el mensaje al hacer clic en el botón
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
 });

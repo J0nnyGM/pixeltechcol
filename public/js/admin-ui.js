@@ -78,7 +78,6 @@ export function loadAdminSidebar() {
     };
 
     // --- 3. BARRA INFERIOR (SOLO MÓVIL) ---
-    // 🔥 CORRECCIÓN: z-[60] para que siempre esté por encima del main
     const mobileBottomBar = `
         <nav class="md:hidden fixed bottom-0 left-0 w-full bg-brand-black text-gray-400 border-t border-gray-800 z-[60] flex justify-around items-center pb-safe">
             
@@ -105,7 +104,6 @@ export function loadAdminSidebar() {
     `;
 
     // --- 4. OVERLAY ---
-    // 🔥 CORRECCIÓN: z-[65] para tapar la barra inferior cuando el menú lateral se abre
     const overlay = `
         <div id="sidebar-overlay" class="fixed inset-0 bg-black/80 z-[65] hidden backdrop-blur-sm transition-opacity opacity-0"></div>
     `;
@@ -117,13 +115,11 @@ export function loadAdminSidebar() {
             .sidebar-scroll::-webkit-scrollbar-track { background: transparent; }
             .sidebar-scroll::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 10px; }
             .sidebar-scroll::-webkit-scrollbar-thumb:hover { background: #00AEC7; }
-            /* Safe area padding for iPhones */
             .pb-safe { padding-bottom: env(safe-area-inset-bottom, 0); }
         </style>
     `;
 
     // --- 6. SIDEBAR COMPLETO (Drawer) ---
-    // 🔥 CORRECCIÓN: z-[70] para que el sidebar sea el rey de la pantalla en móvil
     const sidebarHTML = `
         <aside id="main-sidebar" class="fixed inset-y-0 left-0 w-72 bg-brand-black text-white flex flex-col shadow-2xl z-[70] transform -translate-x-full md:translate-x-0 transition-transform duration-300 ease-out md:static md:h-screen border-r border-gray-800">
             
@@ -146,6 +142,10 @@ export function loadAdminSidebar() {
             </nav>
 
             <div class="p-4 border-t border-gray-800 bg-black/20 mb-16 md:mb-0">
+                <button id="btn-update-app" class="hidden w-full flex items-center justify-center gap-2 py-3 text-xs font-black uppercase tracking-widest text-brand-cyan bg-brand-cyan/10 border border-brand-cyan/30 hover:bg-brand-cyan hover:text-brand-black rounded-xl transition-all duration-300 mb-3 shadow-[0_0_15px_rgba(0,174,199,0.3)]">
+                    <i class="fa-solid fa-cloud-arrow-down fa-bounce"></i> Actualizar App
+                </button>
+
                 <button id="btn-logout-global" class="w-full flex items-center justify-center gap-2 py-3 text-xs font-black uppercase tracking-widest text-gray-500 hover:text-brand-red hover:bg-red-500/10 rounded-xl transition-all duration-300 group">
                     <i class="fa-solid fa-right-from-bracket group-hover:rotate-180 transition-transform duration-500"></i> Cerrar Sesión
                 </button>
@@ -156,7 +156,7 @@ export function loadAdminSidebar() {
     // Inyectar HTML + Estilos
     sidebarContainer.innerHTML = scrollStyles + overlay + sidebarHTML + mobileBottomBar;
 
-    // --- LÓGICA DE INTERACCIÓN ---
+    // --- LÓGICA DE INTERACCIÓN DEL MENÚ ---
     const sidebar = document.getElementById('main-sidebar');
     const overlayEl = document.getElementById('sidebar-overlay');
     const triggerBtn = document.getElementById('mobile-menu-trigger');
@@ -166,14 +166,12 @@ export function loadAdminSidebar() {
     function openMenu() {
         sidebar.classList.remove('-translate-x-full');
         overlayEl.classList.remove('hidden');
-        // Pequeño delay para que la transición de opacidad funcione
         setTimeout(() => overlayEl.classList.remove('opacity-0'), 10);
     }
 
     function closeMenu() {
         sidebar.classList.add('-translate-x-full');
         overlayEl.classList.add('opacity-0');
-        // Esperamos a que termine la transición para ocultarlo del DOM
         setTimeout(() => overlayEl.classList.add('hidden'), 300);
     }
 
@@ -187,5 +185,92 @@ export function loadAdminSidebar() {
                 auth.signOut().then(() => window.location.href = '/index.html');
             }
         };
+    }
+
+// =========================================================================
+    // 🔥 LÓGICA DE ACTUALIZACIÓN DEL SERVICE WORKER (PURGA SELECTIVA) 🔥
+    // =========================================================================
+    const btnUpdate = document.getElementById('btn-update-app');
+    let newWorker;
+
+    // Función auxiliar para mostrar el botón
+    function showUpdateButton(worker) {
+        newWorker = worker;
+        if (btnUpdate) {
+            btnUpdate.classList.remove('hidden');
+        }
+    }
+
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('/service-worker.js').then(reg => {
+            
+            reg.update(); // Fuerza al navegador a buscar cambios en el servidor
+
+            // ESCENARIO 1: Ya había una actualización esperando en la fila
+            if (reg.waiting) {
+                showUpdateButton(reg.waiting);
+            }
+
+            // ESCENARIO 2: Hay una actualización instalándose en este momento
+            if (reg.installing) {
+                reg.installing.addEventListener('statechange', () => {
+                    if (reg.installing.state === 'installed') {
+                        showUpdateButton(reg.installing);
+                    }
+                });
+            }
+
+            // ESCENARIO 3: Se detecta una actualización mientras el usuario usa la app
+            reg.addEventListener('updatefound', () => {
+                const installingWorker = reg.installing;
+                installingWorker.addEventListener('statechange', () => {
+                    if (installingWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                        showUpdateButton(installingWorker);
+                    }
+                });
+            });
+        });
+
+        // Recargar automáticamente cuando el nuevo código tome el control
+        let refreshing;
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+            if (refreshing) return;
+            refreshing = true;
+            window.location.reload();
+        });
+    }
+
+    // 🔥 ACCIÓN DEL BOTÓN: PURGA DE HTML Y JS 🔥
+    if (btnUpdate) {
+        btnUpdate.addEventListener('click', async () => {
+            btnUpdate.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Limpiando sistema...';
+            
+            try {
+                // 1. Abrimos la memoria del navegador
+                const cacheNames = await caches.keys();
+                
+                for (const cacheName of cacheNames) {
+                    const cache = await caches.open(cacheName);
+                    const cachedRequests = await cache.keys();
+                    
+                    // 2. Buscamos con pinzas y eliminamos la lógica antigua
+                    for (const request of cachedRequests) {
+                        const url = request.url.toLowerCase();
+                        if (url.endsWith('.js') || url.endsWith('.html') || url.includes('?')) {
+                            await cache.delete(request);
+                        }
+                    }
+                }
+            } catch (error) {
+                console.warn("⚠️ No se pudo limpiar el caché manualmente:", error);
+            }
+
+            // 3. Activamos el nuevo Service Worker y recargamos
+            if (newWorker) {
+                newWorker.postMessage({ type: 'SKIP_WAITING' });
+            } else {
+                window.location.href = window.location.pathname + '?refresh=' + new Date().getTime();
+            }
+        });
     }
 }

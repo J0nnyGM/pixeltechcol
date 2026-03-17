@@ -1778,6 +1778,12 @@
       border-color: color-mix(in oklab, var(--color-brand-cyan) 20%, transparent);
     }
   }
+  .border-brand-cyan\/30 {
+    border-color: color-mix(in srgb, #00AEC7 30%, transparent);
+    @supports (color: color-mix(in lab, red, red)) {
+      border-color: color-mix(in oklab, var(--color-brand-cyan) 30%, transparent);
+    }
+  }
   .border-cyan-100 {
     border-color: var(--color-cyan-100);
   }
@@ -3375,6 +3381,10 @@
   }
   .shadow-\[0_0_10px_\#00AEC7\] {
     --tw-shadow: 0 0 10px var(--tw-shadow-color, #00AEC7);
+    box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
+  }
+  .shadow-\[0_0_15px_rgba\(0\,174\,199\,0\.3\)\] {
+    --tw-shadow: 0 0 15px var(--tw-shadow-color, rgba(0,174,199,0.3));
     box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
   }
   .shadow-\[0_0_20px_rgba\(0\,174\,199\,0\.3\)\] {

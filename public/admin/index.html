@@ -45,7 +45,10 @@
         <div class="p-8 max-w-[1800px] mx-auto pb-20">
             <div class="mb-8">
                 <h1 class="text-4xl font-black text-brand-black tracking-tighter uppercase leading-none mb-2">Panel de <span class="text-brand-cyan">Control</span></h1>
-                <p class="text-sm text-gray-400 font-bold tracking-wide">Visión general financiera y operativa.</p>
+                <div class="flex items-center gap-3">
+                    <p class="text-sm text-gray-400 font-bold tracking-wide">Visión general financiera y operativa.</p>
+                    <span id="app-version-badge" class="bg-brand-cyan/10 text-brand-cyan border border-brand-cyan/20 text-[9px] font-black px-2 py-0.5 rounded uppercase tracking-widest" title="Versión instalada de la PWA">v--</span>
+                </div>
             </div>
 
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6 mb-10 fade-in">
@@ -148,7 +151,7 @@
         </div>
     </main>
 
-<div id="order-modal" class="fixed inset-0 z-[70] hidden flex items-center justify-center p-4">
+    <div id="order-modal" class="fixed inset-0 z-[70] hidden flex items-center justify-center p-4">
         <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-md transition-opacity"
             onclick="document.getElementById('order-modal').classList.add('hidden')"></div>
         <div class="relative bg-white w-full max-w-5xl rounded-[2.5rem] shadow-2xl flex flex-col max-h-[90vh] overflow-hidden animate-fadeIn">
@@ -249,7 +252,7 @@
         </div>
     </div>
 
-<script type="module">
+    <script type="module">
         import '../js/admin-guard.js';
         import { db, collection, getDocs, orderBy, query, limit, auth, doc, getDoc, where, getCountFromServer, getAggregateFromServer, sum, onSnapshot } from '../js/firebase-init.js';
         import { loadAdminSidebar } from '../js/admin-ui.js';
@@ -265,7 +268,6 @@
 
         initManualSale(() => {
             // Ya no es necesario llamar fetchDashboardData manualmente aquí
-            // porque el onSnapshot detectará la venta manual y se actualizará solo.
         });
 
         document.getElementById('btn-open-manual').onclick = openManualSaleModal;
@@ -282,6 +284,18 @@
                 if(unsubscribePayables) unsubscribePayables();
             }
         });
+
+        // 🔥 OBTENER VERSIÓN DEL CACHÉ Y PINTARLA 🔥
+        if ('caches' in window) {
+            caches.keys().then(keys => {
+                const cacheName = keys.find(k => k.startsWith('pixeltech-shell-v'));
+                if (cacheName) {
+                    const version = cacheName.replace('pixeltech-shell-', '');
+                    const badge = document.getElementById('app-version-badge');
+                    if (badge) badge.textContent = version;
+                }
+            });
+        }
 
         // ==========================================================================
         // 🧠 SMART REAL-TIME CACHE: DASHBOARD ADMIN
@@ -321,8 +335,8 @@
             });
         }
 
-// --- DASHBOARD DATA (OPTIMIZADO Y CORREGIDO) ---
-async function fetchDashboardData() {
+        // --- DASHBOARD DATA (OPTIMIZADO Y CORREGIDO) ---
+        async function fetchDashboardData() {
             try {
                 const qIncome = query(collection(db, "orders"), where("status", "in", ["PAGADO", "DESPACHADO", "ENTREGADO"]));
                 const qPacking = query(collection(db, "orders"), where("status", "in", ["PAGADO", "PENDIENTE"]));
@@ -427,7 +441,7 @@ async function fetchDashboardData() {
             }
         }
 
-        // --- RENDER DE FILA VISUAL (CON LÓGICA DE PAGO ESTRICTA COMO EN ORDERS.HTML) ---
+        // --- RENDER DE FILA VISUAL ---
         function renderRow(o) {
             const isTienda = o.source === 'TIENDA' || o.source === 'TIENDA_WEB';
             let sClass = 'bg-gray-100 text-gray-500 border-gray-200', sText = o.status;
@@ -441,7 +455,6 @@ async function fetchDashboardData() {
             else if (o.status === 'DEVUELTO') { sClass = 'bg-purple-100 text-purple-700 border-purple-200'; sText = 'Devuelto'; }
             else if (o.status === 'DEVOLUCION_PARCIAL') { sClass = 'bg-orange-100 text-orange-700 border-orange-200'; sText = 'Dev. Parcial'; }
 
-            // 1. Cálculos Financieros Estrictos
             const total = Number(o.total) || 0;
             const paid = Number(o.amountPaid) || 0;
             const refunded = Number(o.refundedAmount) || 0;
@@ -449,7 +462,6 @@ async function fetchDashboardData() {
             let pendingBalance = total - paid - refunded;
             if (pendingBalance < 0) pendingBalance = 0; 
 
-            // 2. Determinar si está pagado al 100%
             const isFullyPaid = o.paymentStatus === 'PAID' || o.status === 'PAGADO' || pendingBalance === 0;
 
             let pBadge = `<span class="text-[9px] font-black uppercase text-red-500 bg-red-50 px-2 py-1 rounded border border-red-100">Cartera</span>`;
@@ -464,7 +476,6 @@ async function fetchDashboardData() {
                 ? `<span class="w-9 h-9 rounded-xl bg-blue-50 text-blue-500 border border-blue-100 flex items-center justify-center cursor-default" title="Factura Solicitada"><i class="fa-solid fa-check text-xs"></i></span>`
                 : `<button onclick="window.requestInvoice('${o.id}')" title="Solicitar Factura" class="w-9 h-9 rounded-xl bg-white border border-blue-200 text-blue-500 hover:bg-blue-500 hover:text-white transition shadow-sm flex items-center justify-center"><i class="fa-solid fa-file-invoice-dollar text-xs"></i></button>`;
 
-            // Lógica del Botón Pagar 
             let payActionBtn = '';
             const isFinished = ['CANCELADO', 'RECHAZADO'].includes(o.status);
             
@@ -478,7 +489,6 @@ async function fetchDashboardData() {
                 `;
             }
 
-            // Visualización Precio Neto
             const netTotal = total - refunded;
             let priceHtml = `<span class="font-black text-brand-black text-sm">$${total.toLocaleString('es-CO')}</span>`;
             if (refunded > 0) {
@@ -496,7 +506,7 @@ async function fetchDashboardData() {
             tableBody.innerHTML += `
                 <tr class="hover:bg-slate-50 transition border-b border-gray-50 group fade-in">
                     <td class="px-8 py-6">
-                        <div class="font-mono text-[10px] text-brand-black uppercase font-bold">#${o.id.slice(0, 8)}</div>
+                        <div class="font-mono text-[10px] text-brand-black uppercase font-bold">#${(o.internalOrderNumber || o.id.slice(0, 8)).toString().toUpperCase()}</div>
                         <div class="text-[9px] font-bold text-brand-black mt-1">${dateStr}</div>
                     </td>
                     <td class="px-8 py-6">
