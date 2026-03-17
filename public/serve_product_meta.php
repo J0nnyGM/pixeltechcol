@@ -115,7 +115,26 @@ if ($http_code == 200 && $response) {
             $title = $name . " | PixelTech";
         }
 
-        // --- 5. Construir Meta Etiquetas Dinámicas ---
+        // --- 5. Construir Meta Etiquetas Dinámicas y Schema (SEO Instantáneo) ---
+        
+        // Creamos el Schema.org en PHP para que Googlebot vea que es COP al instante
+        $schemaData = [
+            "@context" => "https://schema.org/",
+            "@type" => "Product",
+            "name" => $name,
+            "image" => [$image],
+            "description" => $desc,
+            "sku" => $product_id,
+            "offers" => [
+                "@type" => "Offer",
+                "url" => $productUrl,
+                "priceCurrency" => "COP", // 👈 AQUÍ FORZAMOS PESOS COLOMBIANOS
+                "price" => $price,
+                "availability" => "https://schema.org/InStock"
+            ]
+        ];
+        $json_ld = json_encode($schemaData, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+
         $meta_tags = "
     <link rel=\"preload\" as=\"image\" href=\"$image\" fetchpriority=\"high\">
     <title>$title</title>
@@ -126,17 +145,22 @@ if ($http_code == 200 && $response) {
     <meta property=\"og:description\" content=\"$desc\">
     <meta property=\"og:image\" content=\"$image\">
     <meta property=\"og:site_name\" content=\"PixelTech Col\">
+    <meta property=\"product:price:amount\" content=\"$price\">
+    <meta property=\"product:price:currency\" content=\"COP\">
     <meta name=\"twitter:card\" content=\"summary_large_image\">
     <meta name=\"twitter:title\" content=\"$title\">
     <meta name=\"twitter:description\" content=\"$desc\">
     <meta name=\"twitter:image\" content=\"$image\">
+    <script type=\"application/ld+json\" id=\"json-ld-product\">
+    $json_ld
+    </script>
         ";
 
-        // Escapar signos de dólar
+        // Escapar signos de dólar para evitar conflictos con preg_replace
         $safe_meta_tags = str_replace('$', '\\$', $meta_tags);
         $html = preg_replace('/<title>.*?<\/title>/is', $safe_meta_tags, $html);
         
-    // 🔥 INYECCIÓN DIRECTA DE LA FOTO (Cero retraso de renderización) 🔥
+        // 🔥 INYECCIÓN DIRECTA DE LA FOTO (Cero retraso de renderización) 🔥
         $safe_image = str_replace('$', '\\$', $image);
         $html = preg_replace('/(<img[^>]*id="p-main-image"[^>]*src=")([^"]*)("[^>]*>)/is', '${1}' . $safe_image . '$3', $html);
         
@@ -149,7 +173,8 @@ if ($http_code == 200 && $response) {
         $html = preg_replace('/(<h1[^>]*id="p-name"[^>]*>)(.*?)(<\/h1>)/is', '${1}' . $safe_name . '${3}', $html);
         
         // --- NUEVO: Poner el título en la etiqueta <title> ---
-        $html = preg_replace('/(<title>)(.*?)(<\/title>)/is', '${1}' . $title . '${3}', $html);
+        // (Ya no es necesario porque lo incluimos arriba en los meta_tags)
+        // $html = preg_replace('/(<title>)(.*?)(<\/title>)/is', '${1}' . $title . '${3}', $html);
 
         // 🔥 INYECCIÓN DIRECTA DE LA DESCRIPCIÓN 🔥
         if (isset($fields['description']['stringValue'])) {

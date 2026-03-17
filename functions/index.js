@@ -22,6 +22,8 @@ const syncModule = require('./sync');
 const merchantModule = require('./google-merchant'); // <--- 1. NUEVO: Importar módulo
 const sitemapModule = require('./sitemap');
 const productMetaModule = require('./productMeta');
+const localInventory  = require("./local-inventory");
+
 
 // --- 3. EXPORTAR FUNCIONES ---
 
@@ -63,3 +65,5 @@ exports.generateProductFeed = merchantModule.generateProductFeed; // <--- 2. NUE
 exports.sitemap = sitemapModule.sitemap;
 
 exports.renderProductMeta = functions.https.onRequest(productMetaModule.renderProductMeta);
+
+exports.generateLocalInventoryFeed = localInventory.generateLocalInventoryFeed;
