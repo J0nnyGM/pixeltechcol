@@ -31,7 +31,6 @@ export function loadAdminSidebar() {
                 { name: 'Categorías', icon: 'fa-tags', path: '/admin/categories.html' },
                 { name: 'Marcas', icon: 'fa-copyright', path: '/admin/brands.html' }, 
                 { name: 'Nueva Entrada', icon: 'fa-truck-loading', path: '/admin/inventory-entry.html' },
-                // 🔥 NUEVO: Historial de compras agregado aquí
                 { name: 'Historial Compras', icon: 'fa-file-invoice', path: '/admin/purchases.html' },
                 { name: 'Inventario RMA', icon: 'fa-warehouse', path: '/admin/warranty-inventory.html' }
             ]
@@ -43,7 +42,6 @@ export function loadAdminSidebar() {
                 { name: 'Gestión de Cartera', icon: 'fa-wallet', path: '/admin/cartera.html' },
                 { name: 'Cuentas', icon: 'fa-vault', path: '/admin/treasury.html' },
                 { name: 'Control de Gastos', icon: 'fa-money-bill-trend-up', path: '/admin/expenses.html' }, 
-                // 🔥 NUEVO: Rentabilidad FIFO agregado aquí
                 { name: 'Rentabilidad FIFO', icon: 'fa-chart-pie', path: '/admin/profitability.html' },
                 { name: 'Logística', icon: 'fa-truck-fast', path: '/admin/shipping-config.html' },
                 { name: 'Banners y Promos', icon: 'fa-bullhorn', path: '/admin/promotions.html' },
@@ -80,8 +78,9 @@ export function loadAdminSidebar() {
     };
 
     // --- 3. BARRA INFERIOR (SOLO MÓVIL) ---
+    // 🔥 CORRECCIÓN: z-[60] para que siempre esté por encima del main
     const mobileBottomBar = `
-        <nav class="md:hidden fixed bottom-0 left-0 w-full bg-brand-black text-gray-400 border-t border-gray-800 z-50 flex justify-around items-center pb-safe">
+        <nav class="md:hidden fixed bottom-0 left-0 w-full bg-brand-black text-gray-400 border-t border-gray-800 z-[60] flex justify-around items-center pb-safe">
             
             <a href="/admin/index.html" class="flex flex-col items-center py-3 px-2 w-full ${currentPage.includes('/admin/index.html') ? 'text-brand-cyan' : 'hover:text-white'}">
                 <i class="fa-solid fa-chart-line text-lg mb-1"></i>
@@ -106,8 +105,9 @@ export function loadAdminSidebar() {
     `;
 
     // --- 4. OVERLAY ---
+    // 🔥 CORRECCIÓN: z-[65] para tapar la barra inferior cuando el menú lateral se abre
     const overlay = `
-        <div id="sidebar-overlay" class="fixed inset-0 bg-black/80 z-40 hidden backdrop-blur-sm transition-opacity opacity-0"></div>
+        <div id="sidebar-overlay" class="fixed inset-0 bg-black/80 z-[65] hidden backdrop-blur-sm transition-opacity opacity-0"></div>
     `;
 
     // --- 5. ESTILOS SCROLL PERSONALIZADO ---
@@ -117,12 +117,15 @@ export function loadAdminSidebar() {
             .sidebar-scroll::-webkit-scrollbar-track { background: transparent; }
             .sidebar-scroll::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 10px; }
             .sidebar-scroll::-webkit-scrollbar-thumb:hover { background: #00AEC7; }
+            /* Safe area padding for iPhones */
+            .pb-safe { padding-bottom: env(safe-area-inset-bottom, 0); }
         </style>
     `;
 
     // --- 6. SIDEBAR COMPLETO (Drawer) ---
+    // 🔥 CORRECCIÓN: z-[70] para que el sidebar sea el rey de la pantalla en móvil
     const sidebarHTML = `
-        <aside id="main-sidebar" class="fixed inset-y-0 left-0 w-72 bg-brand-black text-white flex flex-col shadow-2xl z-50 transform -translate-x-full md:translate-x-0 transition-transform duration-300 ease-out md:static md:h-screen border-r border-gray-800">
+        <aside id="main-sidebar" class="fixed inset-y-0 left-0 w-72 bg-brand-black text-white flex flex-col shadow-2xl z-[70] transform -translate-x-full md:translate-x-0 transition-transform duration-300 ease-out md:static md:h-screen border-r border-gray-800">
             
             <div class="p-8 border-b border-gray-800 flex justify-between items-center md:flex-col md:justify-center gap-4 bg-brand-black/50 backdrop-blur-sm sticky top-0 z-10">
                 <div class="flex flex-col items-center w-full">
@@ -142,7 +145,7 @@ export function loadAdminSidebar() {
                 ${generateNavHTML()}
             </nav>
 
-            <div class="p-4 border-t border-gray-800 bg-black/20 mb-20 md:mb-0">
+            <div class="p-4 border-t border-gray-800 bg-black/20 mb-16 md:mb-0">
                 <button id="btn-logout-global" class="w-full flex items-center justify-center gap-2 py-3 text-xs font-black uppercase tracking-widest text-gray-500 hover:text-brand-red hover:bg-red-500/10 rounded-xl transition-all duration-300 group">
                     <i class="fa-solid fa-right-from-bracket group-hover:rotate-180 transition-transform duration-500"></i> Cerrar Sesión
                 </button>
@@ -163,12 +166,14 @@ export function loadAdminSidebar() {
     function openMenu() {
         sidebar.classList.remove('-translate-x-full');
         overlayEl.classList.remove('hidden');
+        // Pequeño delay para que la transición de opacidad funcione
         setTimeout(() => overlayEl.classList.remove('opacity-0'), 10);
     }
 
     function closeMenu() {
         sidebar.classList.add('-translate-x-full');
         overlayEl.classList.add('opacity-0');
+        // Esperamos a que termine la transición para ocultarlo del DOM
         setTimeout(() => overlayEl.classList.add('hidden'), 300);
     }
 
