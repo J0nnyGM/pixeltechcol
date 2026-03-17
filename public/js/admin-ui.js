@@ -186,29 +186,42 @@ export function loadAdminSidebar() {
         };
     }
 
-    // =========================================================================
+// =========================================================================
     // 🔥 LÓGICA DE ACTUALIZACIÓN DEL SERVICE WORKER (PURGA SELECTIVA) 🔥
     // =========================================================================
     const btnUpdate = document.getElementById('btn-update-app');
     const mobileBadge = document.getElementById('mobile-update-badge');
     let newWorker;
 
-    // Función auxiliar para mostrar el botón y la notificación
+    // Función auxiliar ajustada para evitar conflictos con Tailwind CSS
     function showUpdateButton(worker) {
         newWorker = worker;
-        if (btnUpdate) btnUpdate.classList.remove('hidden');
-        if (mobileBadge) mobileBadge.classList.remove('hidden');
+        
+        // Usamos style.display para forzar la visualización sin importar Tailwind
+        if (btnUpdate) {
+            btnUpdate.classList.remove('hidden');
+            btnUpdate.style.display = 'flex';
+        }
+        if (mobileBadge) {
+            mobileBadge.classList.remove('hidden');
+            mobileBadge.style.display = 'block';
+        }
     }
 
     if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('/service-worker.js').then(reg => {
+        // 🔥 CAMBIO CLAVE 1: updateViaCache: 'none' 
+        // Obliga al móvil a revisar la red siempre buscando una nueva versión del archivo service-worker.js
+        navigator.serviceWorker.register('/service-worker.js', { updateViaCache: 'none' }).then(reg => {
             
+            // Forzamos la actualización manual en cada carga
             reg.update();
 
+            // Si ya hay uno esperando, mostramos el botón
             if (reg.waiting) {
                 showUpdateButton(reg.waiting);
             }
 
+            // Si se está instalando en este momento...
             if (reg.installing) {
                 reg.installing.addEventListener('statechange', () => {
                     if (reg.installing.state === 'installed') {
@@ -217,16 +230,20 @@ export function loadAdminSidebar() {
                 });
             }
 
+            // Cuando detecta que el archivo service-worker.js cambió en el servidor
             reg.addEventListener('updatefound', () => {
                 const installingWorker = reg.installing;
                 installingWorker.addEventListener('statechange', () => {
-                    if (installingWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                    // 🔥 CAMBIO CLAVE 2: Quitamos la restricción de 'navigator.serviceWorker.controller'
+                    // En móviles, a veces esto impedía que el botón se mostrara.
+                    if (installingWorker.state === 'installed') {
                         showUpdateButton(installingWorker);
                     }
                 });
             });
         });
 
+        // Este evento se dispara cuando el SW toma el control tras hacer skipWaiting()
         let refreshing;
         navigator.serviceWorker.addEventListener('controllerchange', () => {
             if (refreshing) return;
