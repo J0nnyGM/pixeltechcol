@@ -77,7 +77,7 @@ export function loadAdminSidebar() {
         `).join('');
     };
 
-    // --- 3. BARRA INFERIOR (SOLO MÓVIL) ---
+    // --- 3. BARRA INFERIOR (SOLO MÓVIL) CON NOTIFICADOR ---
     const mobileBottomBar = `
         <nav class="md:hidden fixed bottom-0 left-0 w-full bg-brand-black text-gray-400 border-t border-gray-800 z-[60] flex justify-around items-center pb-safe">
             
@@ -96,9 +96,10 @@ export function loadAdminSidebar() {
                 <span class="text-[8px] font-bold uppercase tracking-widest">Stock</span>
             </a>
 
-            <button id="mobile-menu-trigger" class="flex flex-col items-center py-3 px-2 w-full text-brand-cyan hover:text-white hover:bg-white/5 transition">
+            <button id="mobile-menu-trigger" class="relative flex flex-col items-center py-3 px-2 w-full text-brand-cyan hover:text-white hover:bg-white/5 transition">
                 <i class="fa-solid fa-bars text-lg mb-1"></i>
                 <span class="text-[8px] font-bold uppercase tracking-widest">Menú</span>
+                <span id="mobile-update-badge" class="hidden absolute top-2 right-[25%] w-2.5 h-2.5 bg-brand-cyan rounded-full shadow-[0_0_8px_#00AEC7] animate-pulse"></span>
             </button>
         </nav>
     `;
@@ -123,17 +124,19 @@ export function loadAdminSidebar() {
     const sidebarHTML = `
         <aside id="main-sidebar" class="fixed inset-y-0 left-0 w-72 bg-brand-black text-white flex flex-col shadow-2xl z-[70] transform -translate-x-full md:translate-x-0 transition-transform duration-300 ease-out md:static md:h-screen border-r border-gray-800">
             
-            <div class="p-8 border-b border-gray-800 flex justify-between items-center md:flex-col md:justify-center gap-4 bg-brand-black/50 backdrop-blur-sm sticky top-0 z-10">
-                <div class="flex flex-col items-center w-full">
-                    <div class="relative group cursor-pointer" onclick="window.location.href='/admin/index.html'">
-                        <div class="absolute inset-0 bg-brand-cyan/20 blur-xl rounded-full group-hover:bg-brand-cyan/30 transition"></div>
-                        <img src="../img/logo.webp" alt="PixelTech" class="h-10 md:h-12 w-auto relative z-10 drop-shadow-lg">
-                    </div>
-                    <p class="text-[9px] text-gray-500 font-black uppercase tracking-[0.3em] mt-3">Admin Panel</p>
+            <div class="p-6 md:p-8 border-b border-gray-800 flex flex-col items-center bg-brand-black/50 backdrop-blur-sm sticky top-0 z-10 relative">
+                <button id="mobile-menu-close" class="md:hidden absolute right-4 top-4 w-8 h-8 rounded-full bg-gray-800 flex items-center justify-center text-white hover:bg-brand-red transition">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+
+                <div class="relative group cursor-pointer mt-2" onclick="window.location.href='/admin/index.html'">
+                    <div class="absolute inset-0 bg-brand-cyan/20 blur-xl rounded-full group-hover:bg-brand-cyan/30 transition"></div>
+                    <img src="../img/logo.webp" alt="PixelTech" class="h-10 md:h-12 w-auto relative z-10 drop-shadow-lg">
                 </div>
-                
-                <button id="mobile-menu-close" class="md:hidden w-8 h-8 rounded-full bg-gray-800 flex items-center justify-center text-white hover:bg-brand-red transition">
-                    <i class="fa-solid fa-chevron-left"></i>
+                <p class="text-[9px] text-gray-500 font-black uppercase tracking-[0.3em] mt-3">Admin Panel</p>
+
+                <button id="btn-update-app" class="hidden w-full flex items-center justify-center gap-2 py-3 mt-5 text-xs font-black uppercase tracking-widest text-brand-cyan bg-brand-cyan/10 border border-brand-cyan/30 hover:bg-brand-cyan hover:text-brand-black rounded-xl transition-all duration-300 shadow-[0_0_15px_rgba(0,174,199,0.3)]">
+                    <i class="fa-solid fa-cloud-arrow-down fa-bounce"></i> Actualizar App
                 </button>
             </div>
 
@@ -142,10 +145,6 @@ export function loadAdminSidebar() {
             </nav>
 
             <div class="p-4 border-t border-gray-800 bg-black/20 mb-16 md:mb-0">
-                <button id="btn-update-app" class="hidden w-full flex items-center justify-center gap-2 py-3 text-xs font-black uppercase tracking-widest text-brand-cyan bg-brand-cyan/10 border border-brand-cyan/30 hover:bg-brand-cyan hover:text-brand-black rounded-xl transition-all duration-300 mb-3 shadow-[0_0_15px_rgba(0,174,199,0.3)]">
-                    <i class="fa-solid fa-cloud-arrow-down fa-bounce"></i> Actualizar App
-                </button>
-
                 <button id="btn-logout-global" class="w-full flex items-center justify-center gap-2 py-3 text-xs font-black uppercase tracking-widest text-gray-500 hover:text-brand-red hover:bg-red-500/10 rounded-xl transition-all duration-300 group">
                     <i class="fa-solid fa-right-from-bracket group-hover:rotate-180 transition-transform duration-500"></i> Cerrar Sesión
                 </button>
@@ -187,31 +186,29 @@ export function loadAdminSidebar() {
         };
     }
 
-// =========================================================================
+    // =========================================================================
     // 🔥 LÓGICA DE ACTUALIZACIÓN DEL SERVICE WORKER (PURGA SELECTIVA) 🔥
     // =========================================================================
     const btnUpdate = document.getElementById('btn-update-app');
+    const mobileBadge = document.getElementById('mobile-update-badge');
     let newWorker;
 
-    // Función auxiliar para mostrar el botón
+    // Función auxiliar para mostrar el botón y la notificación
     function showUpdateButton(worker) {
         newWorker = worker;
-        if (btnUpdate) {
-            btnUpdate.classList.remove('hidden');
-        }
+        if (btnUpdate) btnUpdate.classList.remove('hidden');
+        if (mobileBadge) mobileBadge.classList.remove('hidden');
     }
 
     if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('/service-worker.js').then(reg => {
             
-            reg.update(); // Fuerza al navegador a buscar cambios en el servidor
+            reg.update();
 
-            // ESCENARIO 1: Ya había una actualización esperando en la fila
             if (reg.waiting) {
                 showUpdateButton(reg.waiting);
             }
 
-            // ESCENARIO 2: Hay una actualización instalándose en este momento
             if (reg.installing) {
                 reg.installing.addEventListener('statechange', () => {
                     if (reg.installing.state === 'installed') {
@@ -220,7 +217,6 @@ export function loadAdminSidebar() {
                 });
             }
 
-            // ESCENARIO 3: Se detecta una actualización mientras el usuario usa la app
             reg.addEventListener('updatefound', () => {
                 const installingWorker = reg.installing;
                 installingWorker.addEventListener('statechange', () => {
@@ -231,7 +227,6 @@ export function loadAdminSidebar() {
             });
         });
 
-        // Recargar automáticamente cuando el nuevo código tome el control
         let refreshing;
         navigator.serviceWorker.addEventListener('controllerchange', () => {
             if (refreshing) return;
@@ -246,14 +241,11 @@ export function loadAdminSidebar() {
             btnUpdate.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Limpiando sistema...';
             
             try {
-                // 1. Abrimos la memoria del navegador
                 const cacheNames = await caches.keys();
-                
                 for (const cacheName of cacheNames) {
                     const cache = await caches.open(cacheName);
                     const cachedRequests = await cache.keys();
                     
-                    // 2. Buscamos con pinzas y eliminamos la lógica antigua
                     for (const request of cachedRequests) {
                         const url = request.url.toLowerCase();
                         if (url.endsWith('.js') || url.endsWith('.html') || url.includes('?')) {
@@ -265,7 +257,6 @@ export function loadAdminSidebar() {
                 console.warn("⚠️ No se pudo limpiar el caché manualmente:", error);
             }
 
-            // 3. Activamos el nuevo Service Worker y recargamos
             if (newWorker) {
                 newWorker.postMessage({ type: 'SKIP_WAITING' });
             } else {
