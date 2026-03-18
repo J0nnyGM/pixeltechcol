@@ -29,6 +29,9 @@ exports.createCODOrder = async (data, context) => {
     const rawItems = data.items || (data.data && data.data.items);
     const shippingCost = Number(data.shippingCost || (data.data && data.data.shippingCost) || 0);
     const extraData = data.extraData || (data.data && data.data.extraData) || {};
+    
+    // 🔥 AQUÍ CAPTURAMOS EL MÉTODO ENVIADO DESDE EL CHECKOUT.JS 🔥
+    const paymentMethod = data.paymentMethod || (data.data && data.data.paymentMethod) || 'CONTRAENTREGA';
 
     if (!rawItems || !rawItems.length) throw new functions.https.HttpsError('invalid-argument', 'Carrito vacío.');
 
@@ -50,7 +53,7 @@ exports.createCODOrder = async (data, context) => {
             // --- FASE 1: LECTURAS Y CÁLCULOS (Solo .get()) ---
             for (const item of rawItems) {
                 const pRef = db.collection('products').doc(item.id);
-                const pDoc = await t.get(pRef); // LECTURA PERMITIDA AQUÍ
+                const pDoc = await t.get(pRef); 
                 
                 if (!pDoc.exists) throw new Error(`Producto ${item.id} no existe.`);
                 
@@ -100,7 +103,9 @@ exports.createCODOrder = async (data, context) => {
                 phone: extraData.phone || shippingData.phone || "", clientDoc: extraData.clientDoc || "",
                 shippingData, billingData: extraData.billingData || null, requiresInvoice: extraData.needsInvoice || false,
                 items: dbItems, subtotal, shippingCost, total,
-                status: 'PENDIENTE', paymentStatus: 'PENDING', paymentMethod: 'CONTRAENTREGA', isStockDeducted: true,
+                status: 'PENDIENTE', paymentStatus: 'PENDING', 
+                paymentMethod: paymentMethod, // 🔥 AQUÍ ASIGNAMOS LA VARIABLE DINÁMICA 🔥
+                isStockDeducted: true,
                 buyerInfo: { name: extraData.userName, email, phone: extraData.phone }
             };
 
@@ -113,8 +118,6 @@ exports.createCODOrder = async (data, context) => {
             };
 
             // --- FASE 2: ESCRITURAS (Solo .update() y .set()) ---
-            // Una vez que dejamos de leer, podemos escribir todo lo que queramos.
-            
             // 1. Actualizar Stocks
             for (const update of pendingUpdates) {
                 t.update(update.ref, update.data);

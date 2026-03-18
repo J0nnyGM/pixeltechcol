@@ -448,7 +448,7 @@ function renderTimeline(currentStatus) {
     els.timelineContainer.className = "relative w-full min-w-[320px] max-w-4xl mx-auto py-4"; 
 }
 
-// --- 4. RENDER PAGO ---
+// --- 4. RENDER PAGO (MEJORADO CON INSTRUCCIONES DINÁMICAS) ---
 function renderPaymentInfo(order) {
     if(!els.paymentContainer) return;
 
@@ -457,29 +457,75 @@ function renderPaymentInfo(order) {
     
     let icon = "fa-credit-card"; let label = "Tarjeta / Electrónico"; let iconColor = "text-brand-cyan"; let bgIcon = "bg-brand-cyan/10";
 
-    if (rawMethod.includes('COD') || rawMethod.includes('CONTRA') || rawMethod.includes('EFECTIVO')) { icon = "fa-truck-fast"; label = "Pago Contra Entrega"; iconColor = "text-brand-black"; bgIcon = "bg-gray-100"; } 
-    else if (rawMethod.includes('ADDI')) { icon = "fa-hand-holding-dollar"; label = "Crédito ADDI"; iconColor = "text-[#00D6D6]"; bgIcon = "bg-[#00D6D6]/10"; }
+    // 1. Identificamos el método de pago
+    if (rawMethod.includes('COD') || rawMethod.includes('CONTRA') || rawMethod.includes('EFECTIVO')) { 
+        icon = "fa-truck-fast"; label = "Pago Contra Entrega"; iconColor = "text-brand-black"; bgIcon = "bg-gray-100"; 
+    } 
+    else if (rawMethod.includes('ADDI')) { 
+        icon = "fa-hand-holding-dollar"; label = "Crédito ADDI"; iconColor = "text-[#00D6D6]"; bgIcon = "bg-[#00D6D6]/10"; 
+    }
+    // 🔥 NUEVO: Agregamos el color oficial de Sistecrédito
+    else if (rawMethod.includes('SISTECREDITO')) { 
+        icon = "fa-wallet"; label = "Sistecrédito"; iconColor = "text-[#00B34A]"; bgIcon = "bg-green-50"; 
+    }
     else if (rawMethod.includes('NEQUI')) { icon = "fa-mobile-screen-button"; label = "Nequi"; iconColor = "text-purple-600"; bgIcon = "bg-purple-50"; }
     else if (rawMethod.includes('PSE')) { icon = "fa-building-columns"; label = "PSE (Transferencia)"; iconColor = "text-blue-600"; bgIcon = "bg-blue-50"; }
     else if (rawMethod.includes('BANCOLOMBIA')) { icon = "fa-building-columns"; label = "Bancolombia"; iconColor = "text-yellow-600"; bgIcon = "bg-yellow-50"; }
-    else if (rawMethod.includes('MANUAL') || rawMethod.includes('TIENDA')) { icon = "fa-cash-register"; label = "Pago en Tienda / Manual"; iconColor = "text-gray-600"; bgIcon = "bg-gray-100"; }
+    else if (rawMethod.includes('MANUAL') || rawMethod.includes('TIENDA')) { 
+        icon = "fa-building-columns"; label = "Transferencia Manual"; iconColor = "text-gray-600"; bgIcon = "bg-gray-100"; 
+    }
 
     let statusBadgeHTML = "";
-    if (order.status === 'CANCELADO' || order.status === 'RECHAZADO') statusBadgeHTML = `<p class="text-xs font-bold text-red-500 uppercase flex items-center gap-1 bg-red-50 px-3 py-1.5 rounded-lg w-fit mt-1"><i class="fa-solid fa-ban"></i> Anulado</p>`;
-    else if (order.status === 'PENDIENTE_PAGO') statusBadgeHTML = `<p class="text-xs font-bold text-yellow-600 uppercase flex items-center gap-1 bg-yellow-50 px-3 py-1.5 rounded-lg w-fit mt-1"><i class="fa-solid fa-clock"></i> Pendiente</p>`;
-    else statusBadgeHTML = `<p class="text-xs font-bold text-emerald-600 uppercase flex items-center gap-1 bg-emerald-50 px-3 py-1.5 rounded-lg w-fit mt-1"><i class="fa-solid fa-check-circle"></i> Aprobado</p>`;
+    let extraInfoHTML = ""; // 🔥 NUEVO: Caja de instrucciones para el cliente
 
+    // 2. Evaluamos el estado y mostramos instrucciones si está pendiente
+    if (order.status === 'CANCELADO' || order.status === 'RECHAZADO') {
+        statusBadgeHTML = `<p class="text-xs font-bold text-red-500 uppercase flex items-center gap-1 bg-red-50 px-3 py-1.5 rounded-lg w-fit mt-1"><i class="fa-solid fa-ban"></i> Anulado</p>`;
+    }
+    else if (order.paymentStatus === 'PENDING' || order.status === 'PENDIENTE_PAGO') {
+        statusBadgeHTML = `<p class="text-xs font-bold text-yellow-600 uppercase flex items-center gap-1 bg-yellow-50 px-3 py-1.5 rounded-lg w-fit mt-1"><i class="fa-solid fa-clock"></i> Pendiente</p>`;
+        
+        // 💡 INSTRUCCIÓN PARA TRANSFERENCIA MANUAL
+        if (rawMethod.includes('MANUAL') || rawMethod.includes('TIENDA')) {
+            extraInfoHTML = `
+                <div class="w-full mt-6 bg-slate-50 p-5 rounded-2xl border border-gray-200 animate-in">
+                    <p class="text-[10px] font-black uppercase tracking-widest text-brand-black mb-2 flex items-center"><i class="fa-solid fa-circle-exclamation text-yellow-500 mr-2 text-sm"></i> Acción Requerida</p>
+                    <p class="text-xs text-gray-600 mb-4 leading-relaxed">Para comenzar a preparar tu pedido, realiza la transferencia por <strong>$${(order.total || 0).toLocaleString('es-CO')}</strong> y envía el comprobante a nuestro equipo de WhatsApp.</p>
+                    <a href="https://wa.me/573009046450?text=Hola,%20adjunto%20el%20comprobante%20de%20pago%20de%20mi%20orden%20%23${order.id.slice(0,8).toUpperCase()}" target="_blank" class="inline-flex items-center gap-2 bg-green-500 text-white px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-green-600 hover:shadow-lg hover:-translate-y-0.5 transition-all">
+                        <i class="fa-brands fa-whatsapp text-base"></i> Enviar Comprobante
+                    </a>
+                </div>
+            `;
+        } 
+        // 💡 INSTRUCCIÓN PARA CONTRA ENTREGA
+        else if (rawMethod.includes('COD') || rawMethod.includes('CONTRA')) {
+            extraInfoHTML = `
+                <div class="w-full mt-6 bg-slate-50 p-5 rounded-2xl border border-gray-200 animate-in">
+                    <p class="text-[10px] font-black uppercase tracking-widest text-brand-black mb-2 flex items-center"><i class="fa-solid fa-money-bill-wave text-emerald-500 mr-2 text-sm"></i> Prepara tu efectivo</p>
+                    <p class="text-xs text-gray-600 leading-relaxed">Tu pedido está siendo procesado. Recuerda tener <strong>$${(order.total || 0).toLocaleString('es-CO')}</strong> exactos listos para cuando el repartidor llegue a tu domicilio.</p>
+                </div>
+            `;
+        }
+    }
+    else {
+        statusBadgeHTML = `<p class="text-xs font-bold text-emerald-600 uppercase flex items-center gap-1 bg-emerald-50 px-3 py-1.5 rounded-lg w-fit mt-1"><i class="fa-solid fa-check-circle"></i> Pago Confirmado</p>`;
+    }
+
+    // 3. Renderizamos todo el bloque HTML
     els.paymentContainer.innerHTML = `
-        <div class="w-full flex flex-col md:flex-row gap-6 md:gap-10">
-            <div class="flex items-center gap-4 flex-1">
-                <div class="w-14 h-14 rounded-2xl ${bgIcon} ${iconColor} flex items-center justify-center text-xl shrink-0 shadow-sm border border-transparent"><i class="fa-solid ${icon}"></i></div>
-                <div><p class="text-[9px] font-black text-gray-400 uppercase tracking-widest">Método de Pago</p><p class="text-sm font-bold text-brand-black uppercase mt-0.5">${label}</p></div>
+        <div class="w-full flex flex-col">
+            <div class="flex flex-col md:flex-row gap-6 md:gap-10">
+                <div class="flex items-center gap-4 flex-1">
+                    <div class="w-14 h-14 rounded-2xl ${bgIcon} ${iconColor} flex items-center justify-center text-xl shrink-0 shadow-sm border border-transparent"><i class="fa-solid ${icon}"></i></div>
+                    <div><p class="text-[9px] font-black text-gray-400 uppercase tracking-widest">Método de Pago</p><p class="text-sm font-bold text-brand-black uppercase mt-0.5">${label}</p></div>
+                </div>
+                <div class="w-px bg-gray-100 hidden md:block"></div>
+                <div class="flex-1 flex items-center gap-4 md:pl-4">
+                    <div class="w-12 h-12 rounded-full bg-slate-50 flex items-center justify-center text-gray-300 shrink-0 border border-slate-100"><i class="fa-solid fa-money-bill-wave"></i></div>
+                    <div><p class="text-[9px] font-black text-gray-400 uppercase tracking-widest">Estado Transacción</p>${statusBadgeHTML}</div>
+                </div>
             </div>
-            <div class="w-px bg-gray-100 hidden md:block"></div>
-            <div class="flex-1 flex items-center gap-4 md:pl-4">
-                <div class="w-12 h-12 rounded-full bg-slate-50 flex items-center justify-center text-gray-300 shrink-0 border border-slate-100"><i class="fa-solid fa-money-bill-wave"></i></div>
-                <div><p class="text-[9px] font-black text-gray-400 uppercase tracking-widest">Estado Transacción</p>${statusBadgeHTML}</div>
-            </div>
+            ${extraInfoHTML}
         </div>`;
 }
 
