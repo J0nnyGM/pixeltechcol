@@ -83,6 +83,7 @@ exports.createAddiCheckout = async (data, context) => {
     const shippingCost = Number(data.shippingCost || (data.data && data.data.shippingCost) || 0);
     const extraData = data.extraData || (data.data && data.data.extraData) || {};
     const buyerInfo = data.buyerInfo || (data.data && data.data.buyerInfo) || {};
+    const paymentMethod = data.paymentMethod || (data.data && data.data.paymentMethod) || 'ADDI';
 
     if (!rawItems || !rawItems.length) throw new functions.https.HttpsError('invalid-argument', 'Cart empty');
 
@@ -126,7 +127,7 @@ exports.createAddiCheckout = async (data, context) => {
     const clientPhone = extraData.phone || buyerInfo.phone || "";
     const clientDoc = extraData.clientDoc || buyerInfo.document || "";
 
-    // 3. Guardar Orden en Firebase (Estructura idéntica a MP)
+// 3. Guardar Orden en Firebase (Estructura idéntica a MP)
     const newOrderRef = db.collection('orders').doc();
     const firebaseOrderId = newOrderRef.id;
 
@@ -136,25 +137,21 @@ exports.createAddiCheckout = async (data, context) => {
         userId: uid, 
         userEmail: email,
         
-        // Datos Cliente (Raíz)
         userName: clientName,
         phone: clientPhone,
         clientDoc: clientDoc,
         
-        // Datos Envío y Facturación
         shippingData: shippingData,
         billingData: extraData.billingData || null,
         requiresInvoice: extraData.needsInvoice || false,
 
-        // Totales e Items
         items: dbItems, 
         subtotal: subtotal,
         shippingCost: shippingCost, 
         total: totalAmount, 
         
-        // Estado
         status: 'PENDIENTE_PAGO',
-        paymentMethod: 'ADDI', 
+        paymentMethod: paymentMethod, // 🔥 2. NUEVO: Asignamos la variable en lugar del texto fijo
         paymentStatus: 'PENDING', 
         isStockDeducted: false,
         buyerInfo: buyerInfo

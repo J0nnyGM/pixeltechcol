@@ -19,7 +19,6 @@ exports.processScheduledTransfers = onSchedule({
     console.log("⚙️ Iniciando procesador de transferencias automáticas...");
 
     try {
-        // 1. Buscar transferencias pendientes cuya fecha ya llegó
         const snapshot = await db.collection('scheduled_transfers')
             .where('status', '==', 'PENDING')
             .where('scheduledDate', '<=', now)
@@ -32,21 +31,12 @@ exports.processScheduledTransfers = onSchedule({
 
         console.log(`🔄 Procesando ${snapshot.size} transferencias...`);
 
-        const batch = db.batch();
-        let operationsCount = 0;
-
-        // Como vamos a leer y escribir saldos de cuentas, necesitamos transacciones
-        // Pero Firestore tiene límite de escrituras en batch. 
-        // Para simplificar y evitar bloqueos masivos, procesamos una por una con runTransaction.
-        // (Nota: Si tienes miles de ventas diarias, esto se debe optimizar).
-
         const promises = snapshot.docs.map(async (docSnap) => {
             const transfer = docSnap.data();
             const transferId = docSnap.id;
 
             try {
                 await db.runTransaction(async (t) => {
-                    // Leer cuentas
                     const sourceRef = db.collection('accounts').doc(transfer.sourceAccountId);
                     const targetRef = db.collection('accounts').doc(transfer.targetAccountId);
                     
@@ -57,28 +47,24 @@ exports.processScheduledTransfers = onSchedule({
                         throw new Error("Alguna de las cuentas no existe");
                     }
 
-                    // Mover dinero
                     const amount = Number(transfer.amount);
                     const newSourceBalance = (Number(sourceDoc.data().balance) || 0) - amount;
                     const newTargetBalance = (Number(targetDoc.data().balance) || 0) + amount;
 
-                    // Actualizar Cuentas
                     t.update(sourceRef, { balance: newSourceBalance });
                     t.update(targetRef, { balance: newTargetBalance });
 
-                    // Marcar transferencia como COMPLETADA
                     t.update(db.collection('scheduled_transfers').doc(transferId), {
                         status: 'COMPLETED',
                         executedAt: admin.firestore.FieldValue.serverTimestamp()
                     });
 
-                    // Crear registros en Historial (Expenses) para que se vea en Treasury
                     const outRef = db.collection('expenses').doc();
                     t.set(outRef, {
                         description: transfer.description || "Transferencia Automática",
                         amount: amount,
                         category: "Transferencia Saliente (Auto)",
-                        paymentMethod: sourceDoc.data().name, // Sale de ADDI
+                        paymentMethod: sourceDoc.data().name, 
                         date: admin.firestore.FieldValue.serverTimestamp(),
                         createdAt: admin.firestore.FieldValue.serverTimestamp()
                     });
@@ -88,7 +74,7 @@ exports.processScheduledTransfers = onSchedule({
                         description: transfer.description || "Transferencia Automática",
                         amount: amount,
                         category: "Transferencia Entrante (Auto)",
-                        paymentMethod: targetDoc.data().name, // Entra a Bancolombia
+                        paymentMethod: targetDoc.data().name, 
                         date: admin.firestore.FieldValue.serverTimestamp(),
                         createdAt: admin.firestore.FieldValue.serverTimestamp()
                     });
@@ -97,7 +83,6 @@ exports.processScheduledTransfers = onSchedule({
 
             } catch (err) {
                 console.error(`❌ Error procesando transferencia ${transferId}:`, err);
-                // Marcar como fallida para no reintentar infinitamente sin corrección
                 await db.collection('scheduled_transfers').doc(transferId).update({
                     status: 'FAILED',
                     error: err.message
@@ -114,94 +99,94 @@ exports.processScheduledTransfers = onSchedule({
     }
 });
 
+/**
+ * LIMPIEZA DE ÓRDENES ANTIGUAS
+ * Función desactivada a petición del usuario. Los pedidos cancelados ya NO se borran.
+ */
 exports.cleanupOldOrders = async (event) => {
-    const today = new Date();
-    const sevenDaysAgo = new Date(today);
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-
-    console.log("🧹 Iniciando limpieza de órdenes antiguas anteriores a:", sevenDaysAgo);
-
-    try {
-        const snapshot = await db.collection('orders')
-            .where('createdAt', '<', sevenDaysAgo)
-            .where('status', 'in', ['PENDIENTE_PAGO', 'RECHAZADO', 'CANCELADO'])
-            .get();
-
-        if (snapshot.empty) {
-            console.log('✅ No hay órdenes antiguas para borrar.');
-            return;
-        }
-
-        const batch = db.batch();
-        let count = 0;
-
-        snapshot.docs.forEach((doc) => {
-            batch.delete(doc.ref);
-            count++;
-        });
-
-        await batch.commit();
-        console.log(`🗑️ Se eliminaron ${count} órdenes basura de forma segura.`);
-        return;
-
-    } catch (error) {
-        console.error("❌ Error en limpieza automática:", error);
-        return;
-    }
+    console.log("🛑 Limpieza de órdenes desactivada. Los pedidos cancelados se mantendrán en el historial.");
+    return;
 };
 
 /**
  * CANCELAR ÓRDENES ABANDONADAS (CADA 30 MINUTOS)
- * Busca órdenes 'PENDIENTE_PAGO' creadas hace más de 4 horas y las cancela.
+ * - Pasarelas online (PENDIENTE_PAGO): Cancela a las 4 horas.
+ * - Transferencia Manual (PENDIENTE): Cancela a las 36 horas.
  */
 exports.cancelAbandonedPayments = onSchedule({
-    schedule: "every 30 minutes", // Optimizado para ahorrar costos en Cloud
+    schedule: "every 30 minutes", 
     timeZone: "America/Bogota"
 }, async (event) => {
     const db = admin.firestore();
     
-    // Calculamos el tiempo límite: Ahora menos 4 horas
-    const timeout = new Date();
-    timeout.setHours(timeout.getHours() - 4); // <-- CAMBIO CLAVE (4 Horas)
-    const timeoutTimestamp = admin.firestore.Timestamp.fromDate(timeout);
+    // Tiempo límite para pasarelas online (4 horas)
+    const timeout4Hours = new Date();
+    timeout4Hours.setHours(timeout4Hours.getHours() - 4);
+    const timeoutTimestamp4h = admin.firestore.Timestamp.fromDate(timeout4Hours);
 
-    console.log("⏰ Buscando órdenes abandonadas anteriores a:", timeout.toISOString());
+    // Tiempo límite para Transferencia Manual (36 horas)
+    const timeout36Hours = new Date();
+    timeout36Hours.setHours(timeout36Hours.getHours() - 36);
+    const timeoutTimestamp36h = admin.firestore.Timestamp.fromDate(timeout36Hours);
+
+    console.log("⏰ Revisando órdenes abandonadas en 2 fases...");
 
     try {
-        // Buscamos órdenes PENDIENTE_PAGO de MercadoPago, ADDI o SC viejas
-        const snapshot = await db.collection('orders')
+        const batch = db.batch();
+        let countCanceled = 0;
+
+        // --- FASE 1: Órdenes Online (4 Horas) ---
+        const onlineSnapshot = await db.collection('orders')
             .where('status', '==', 'PENDIENTE_PAGO')
-            .where('createdAt', '<=', timeoutTimestamp)
+            .where('createdAt', '<=', timeoutTimestamp4h)
             .get();
 
-        if (snapshot.empty) {
-            console.log("✅ No hay órdenes abandonadas (mayores a 4 horas) para cancelar.");
-            return;
-        }
+        onlineSnapshot.docs.forEach((doc) => {
+            const orderData = doc.data();
+            if (orderData.paymentStatus === 'PAID') return;
 
-        console.log(`⚠️ Encontradas ${snapshot.size} órdenes abandonadas (más de 4 horas).`);
+            batch.update(doc.ref, {
+                status: 'CANCELADO',
+                statusDetail: 'expired_by_system',
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                notes: (orderData.notes || "") + " [Sistema: Cancelado por inactividad de pago online mayor a 4h]"
+            });
+            countCanceled++;
+        });
 
-        const batch = db.batch();
-        let count = 0;
+        // --- FASE 2: Órdenes Manuales (36 Horas) ---
+        const manualSnapshot = await db.collection('orders')
+            .where('status', '==', 'PENDIENTE')
+            .where('createdAt', '<=', timeoutTimestamp36h)
+            .get();
 
-        snapshot.docs.forEach((doc) => {
+        manualSnapshot.docs.forEach((doc) => {
             const orderData = doc.data();
             
-            // Solo cancelamos si NO es contraentrega y aseguramos que no se haya pagado
-            if (orderData.paymentStatus !== 'PAID') {
+            // Ignoramos si ya está pagada (por precaución)
+            if (orderData.paymentStatus === 'PAID') return;
+
+            // CRÍTICO: Proteger pedidos Contra Entrega (COD) para que no se cancelen
+            if (orderData.paymentMethod === 'COD' || orderData.paymentMethod === 'CONTRAENTREGA') return;
+
+            // Si es Transferencia Manual, procedemos a cancelar
+            if (orderData.paymentMethod === 'MANUAL') {
                 batch.update(doc.ref, {
                     status: 'CANCELADO',
                     statusDetail: 'expired_by_system',
                     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-                    notes: (orderData.notes || "") + " [Sistema: Cancelado por inactividad de pago mayor a 4h]"
+                    notes: (orderData.notes || "") + " [Sistema: Cancelado por superar 36h de espera en Transferencia Manual]"
                 });
-                count++;
+                countCanceled++;
             }
         });
 
-        if (count > 0) {
+        // --- EJECUTAR CANCELACIONES ---
+        if (countCanceled > 0) {
             await batch.commit();
-            console.log(`🗑️ Se cancelaron automáticamente ${count} órdenes.`);
+            console.log(`🗑️ Se cancelaron automáticamente ${countCanceled} órdenes abandonadas.`);
+        } else {
+            console.log(`✅ Revisiones completadas. No hubo órdenes vencidas para cancelar en este ciclo.`);
         }
 
     } catch (error) {
@@ -210,11 +195,11 @@ exports.cancelAbandonedPayments = onSchedule({
 });
 
 /**
- * NUEVO: VERIFICAR Y DESACTIVAR PROMOCIONES VENCIDAS
+ * VERIFICAR Y DESACTIVAR PROMOCIONES VENCIDAS
  * Se ejecuta cada hora para asegurar que los precios vuelvan a la normalidad.
  */
 exports.checkExpiredPromotions = onSchedule({
-    schedule: "every 60 minutes", // Revisar cada hora
+    schedule: "every 60 minutes", 
     timeZone: "America/Bogota"
 }, async (event) => {
     
@@ -224,8 +209,6 @@ exports.checkExpiredPromotions = onSchedule({
     console.log("⏳ Verificando promociones vencidas...");
 
     try {
-        // 1. Buscar productos que tengan fecha de fin MENOR o IGUAL a ahora
-        // y que realmente tengan un precio original guardado (indicador de oferta activa)
         const snapshot = await db.collection('products')
             .where('promoEndsAt', '<=', now)
             .get();
@@ -241,12 +224,11 @@ exports.checkExpiredPromotions = onSchedule({
         snapshot.docs.forEach((doc) => {
             const p = doc.data();
 
-            // Validación de seguridad: Solo restaurar si existe un precio original válido
             if (p.originalPrice && p.originalPrice > 0) {
                 batch.update(doc.ref, {
-                    price: p.originalPrice, // Restaurar el precio anterior
-                    originalPrice: 0,       // Limpiar el campo de precio original
-                    promoEndsAt: null       // Eliminar la fecha de vencimiento
+                    price: p.originalPrice, 
+                    originalPrice: 0,       
+                    promoEndsAt: null       
                 });
                 count++;
             }

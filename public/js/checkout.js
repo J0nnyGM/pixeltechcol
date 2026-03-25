@@ -155,6 +155,10 @@ function updateSubmitButtonText() {
         btn.innerHTML = `Pagar con Sistecrédito <i class="fa-solid fa-arrow-right"></i>`;
         btn.classList.add('bg-[#00B34A]', 'text-white');
     }
+    else if (selectedPaymentMethod === 'PSE') {
+        btn.innerHTML = `Pagar con PSE <i class="fa-solid fa-building-columns"></i>`;
+        btn.classList.add('bg-blue-600', 'text-white');
+    }
 }
 
 // ==========================================================================
@@ -511,10 +515,11 @@ els.btnSubmit.addEventListener('click', async (e) => {
             els.btnSubmit.innerHTML = btnHtml;
         }
     }
-    else if (selectedPaymentMethod === 'ADDI') {
+    // Aceptamos tanto ADDI como PSE para disparar esta función
+    else if (selectedPaymentMethod === 'ADDI' || selectedPaymentMethod === 'PSE') {
         if (!auth.currentUser) return window.location.href = '/auth/login.html';
-        if (!els.idNumber.value || els.idNumber.value.length < 5) return alert("⚠️ Se requiere Documento válido para ADDI.");
-        if (!els.phone.value || els.phone.value.length < 10) return alert("⚠️ Se requiere Celular válido para ADDI.");
+        if (!els.idNumber.value || els.idNumber.value.length < 5) return alert("⚠️ Se requiere Documento válido.");
+        if (!els.phone.value || els.phone.value.length < 10) return alert("⚠️ Se requiere Celular válido.");
 
         const btnHtml = els.btnSubmit.innerHTML;
         els.btnSubmit.disabled = true;
@@ -534,12 +539,12 @@ els.btnSubmit.addEventListener('click', async (e) => {
                 notes: els.notes.value || ""
             };
 
-            // Guardado automático del perfil antes de ir a ADDI
             await saveUserProfileUpdates(shouldSaveAddress, isFirstAddress, deptName);
 
             const payloadCompleto = {
                 userToken: String(token),
                 shippingCost: Number(currentShippingCost),
+                paymentMethod: selectedPaymentMethod, // 🔥 NUEVO: Le pasamos 'ADDI' o 'PSE' al backend
                 items: cart.map(i => ({ id: i.id, quantity: i.quantity, color: i.color || "", capacity: i.capacity || "" })),
                 extraData: {
                     userName: els.name.value,

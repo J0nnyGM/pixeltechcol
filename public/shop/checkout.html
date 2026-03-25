@@ -378,42 +378,59 @@
                             </div>
                         </label>
 
+                        <!-- NUEVO BOTÓN PSE (ESTILO UNIFICADO) -->
                         <label class="cursor-pointer relative block group">
-                            <input type="radio" name="payment_method" value="ONLINE" id="payment-online"
-                                class="peer sr-only">
+                            <input type="radio" name="payment_method" value="PSE" id="payment-pse" class="peer sr-only">
 
-                            <div
-                                class="bg-white p-5 rounded-[1.5rem] border-2 border-gray-100 shadow-sm flex items-center gap-5 transition-all duration-300 hover:border-[#009EE3]/50 
-                                peer-checked:border-[#009EE3] peer-checked:bg-[#009EE3]/5 peer-checked:shadow-xl peer-checked:shadow-[#009EE3]/10 peer-checked:scale-[1.01]
-                                peer-checked:[&_.radio-circle]:bg-[#009EE3] peer-checked:[&_.radio-circle]:border-[#009EE3] peer-checked:[&_.radio-icon]:opacity-100 peer-checked:[&_.radio-icon]:scale-100">
+                            <div class="bg-white p-5 rounded-[1.5rem] border-2 border-gray-100 shadow-sm flex items-center gap-5 transition-all duration-300 hover:border-blue-500/50 
+                                peer-checked:border-blue-600 peer-checked:bg-blue-50/10 peer-checked:shadow-xl peer-checked:shadow-blue-500/10 peer-checked:scale-[1.01]
+                                peer-checked:[&_.radio-circle]:bg-blue-600 peer-checked:[&_.radio-circle]:border-blue-600 peer-checked:[&_.radio-icon]:opacity-100 peer-checked:[&_.radio-icon]:scale-100">
 
-                                <div
-                                    class="w-14 h-14 rounded-2xl bg-[#009EE3]/10 flex items-center justify-center text-[#009EE3] text-2xl shrink-0">
-                                    <i class="fa-solid fa-shield-halved"></i>
+                                <!-- CONTENEDOR DEL ÍCONO UNIFICADO -->
+                                <div class="w-14 h-14 rounded-2xl bg-blue-50 flex items-center justify-center shrink-0 border border-blue-100/50 p-2">
+                                    <img src="/img/icons/pse.webp" alt="Pago seguro con PSE" title="PSE" class="w-full h-full object-contain" loading="lazy">
                                 </div>
 
                                 <div class="flex-grow">
-                                    <h4 class="font-black text-sm uppercase tracking-wide text-brand-black mb-1">Pagar
-                                        con MercadoPago</h4>
+                                    <h4 class="font-black text-sm uppercase tracking-wide text-brand-black mb-1">Pago con PSE</h4>
+                                    <p class="text-[10px] text-gray-500 font-bold leading-tight">Débito bancario seguro (Ahorros o Corriente).</p>
+                                </div>
 
-                                    <div class="flex flex-wrap items-center gap-2 mt-2 opacity-90">
+                                <div class="radio-circle w-6 h-6 rounded-full border-2 border-gray-300 flex items-center justify-center transition-all duration-300 shrink-0 bg-white">
+                                    <i class="radio-icon fa-solid fa-check text-white text-[10px] opacity-0 transform scale-50 transition-all duration-300"></i>
+                                </div>
+                            </div>
+                        </label>
+
+                        <!-- BOTÓN MERCADOPAGO (ÉNFASIS EN TARJETAS) -->
+                        <label class="cursor-pointer relative block group">
+                            <input type="radio" name="payment_method" value="ONLINE" id="payment-online" class="peer sr-only">
+
+                            <div class="bg-white p-5 rounded-[1.5rem] border-2 border-gray-100 shadow-sm flex items-center gap-5 transition-all duration-300 hover:border-[#009EE3]/50 
+                                peer-checked:border-[#009EE3] peer-checked:bg-[#009EE3]/5 peer-checked:shadow-xl peer-checked:shadow-[#009EE3]/10 peer-checked:scale-[1.01]
+                                peer-checked:[&_.radio-circle]:bg-[#009EE3] peer-checked:[&_.radio-circle]:border-[#009EE3] peer-checked:[&_.radio-icon]:opacity-100 peer-checked:[&_.radio-icon]:scale-100">
+
+                                <!-- CONTENEDOR DEL ÍCONO -->
+                                <div class="w-14 h-14 rounded-2xl bg-[#009EE3]/10 flex items-center justify-center shrink-0 border border-[#009EE3]/20 p-2">
+                                    <img src="/img/icons/mercadopago.webp" alt="Pagar con MercadoPago" title="MercadoPago" class="w-full h-full object-contain" loading="lazy">
+                                </div>
+
+                                <!-- TEXTOS E ÍCONOS DE TARJETAS -->
+                                <div class="flex-grow">
+                                    <h4 class="font-black text-sm uppercase tracking-wide text-brand-black mb-1">Tarjeta de Crédito / Débito</h4>
+                                    <p class="text-[10px] text-gray-500 font-bold leading-tight">Procesado de forma segura a través de MercadoPago.</p>
+                                    
+                                    <!-- Íconos de las tarjetas para refuerzo visual -->
+                                    <div class="flex items-center gap-2 mt-2 opacity-80">
                                         <i class="fa-brands fa-cc-visa text-2xl text-[#1A1F71]" title="Visa"></i>
-                                        <i class="fa-brands fa-cc-mastercard text-2xl text-[#EB001B]"
-                                            title="Mastercard"></i>
+                                        <i class="fa-brands fa-cc-mastercard text-2xl text-[#EB001B]" title="Mastercard"></i>
                                         <i class="fa-brands fa-cc-amex text-2xl text-[#006FCF]" title="Amex"></i>
-                                        <span
-                                            class="flex items-center justify-center h-5 px-1.5 rounded border border-fuchsia-200 bg-fuchsia-50 text-[8px] font-black text-fuchsia-600 uppercase tracking-tighter"
-                                            title="PSE">PSE</span>
-                                        <span
-                                            class="flex items-center justify-center h-5 px-1.5 rounded border border-yellow-200 bg-yellow-50 text-[8px] font-black text-yellow-700 uppercase tracking-tighter"
-                                            title="Efecty">Efecty</span>
                                     </div>
                                 </div>
 
-                                <div
-                                    class="radio-circle w-6 h-6 rounded-full border-2 border-gray-300 flex items-center justify-center transition-all duration-300 shrink-0 bg-white">
-                                    <i
-                                        class="radio-icon fa-solid fa-check text-white text-[10px] opacity-0 transform scale-50 transition-all duration-300"></i>
+                                <!-- CÍRCULO DE SELECCIÓN -->
+                                <div class="radio-circle w-6 h-6 rounded-full border-2 border-gray-300 flex items-center justify-center transition-all duration-300 shrink-0 bg-white">
+                                    <i class="radio-icon fa-solid fa-check text-white text-[10px] opacity-0 transform scale-50 transition-all duration-300"></i>
                                 </div>
                             </div>
                         </label>
@@ -421,27 +438,21 @@
                         <label class="cursor-pointer relative block group">
                             <input type="radio" name="payment_method" value="ADDI" class="peer sr-only">
 
-                            <div
-                                class="bg-white p-5 rounded-[1.5rem] border-2 border-gray-100 shadow-sm flex items-center gap-5 transition-all duration-300 hover:border-[#00D6D6]/50 
+                            <div class="bg-white p-5 rounded-[1.5rem] border-2 border-gray-100 shadow-sm flex items-center gap-5 transition-all duration-300 hover:border-[#00D6D6]/50 
                                 peer-checked:border-[#00D6D6] peer-checked:bg-cyan-50/10 peer-checked:shadow-xl peer-checked:shadow-[#00D6D6]/10 peer-checked:scale-[1.01]
                                 peer-checked:[&_.radio-circle]:bg-[#00D6D6] peer-checked:[&_.radio-circle]:border-[#00D6D6] peer-checked:[&_.radio-icon]:opacity-100 peer-checked:[&_.radio-icon]:scale-100">
 
-                                <div
-                                    class="w-14 h-14 rounded-2xl bg-[#00D6D6] flex items-center justify-center text-white font-black text-xs shrink-0">
-                                    ADDI
+                                <div class="w-14 h-14 rounded-2xl bg-cyan-50/20 flex items-center justify-center shrink-0 border border-cyan-100 p-2">
+                                    <img src="/img/icons/addi.webp" alt="Pagar a Cuotas con ADDI" title="ADDI" class="w-full h-full object-contain" loading="lazy">
                                 </div>
 
                                 <div class="flex-grow">
-                                    <h4 class="font-black text-sm uppercase tracking-wide text-brand-black mb-1">Paga a
-                                        Cuotas</h4>
-                                    <p class="text-[10px] text-gray-500 font-bold leading-tight">Compra ahora y paga
-                                        después. 0% Interés en aliados seleccionados.</p>
+                                    <h4 class="font-black text-sm uppercase tracking-wide text-brand-black mb-1">Paga a Cuotas</h4>
+                                    <p class="text-[10px] text-gray-500 font-bold leading-tight">Compra ahora y paga después. 0% Interés en aliados seleccionados.</p>
                                 </div>
 
-                                <div
-                                    class="radio-circle w-6 h-6 rounded-full border-2 border-gray-300 flex items-center justify-center transition-all duration-300 shrink-0 bg-white">
-                                    <i
-                                        class="radio-icon fa-solid fa-check text-white text-[10px] opacity-0 transform scale-50 transition-all duration-300"></i>
+                                <div class="radio-circle w-6 h-6 rounded-full border-2 border-gray-300 flex items-center justify-center transition-all duration-300 shrink-0 bg-white">
+                                    <i class="radio-icon fa-solid fa-check text-white text-[10px] opacity-0 transform scale-50 transition-all duration-300"></i>
                                 </div>
                             </div>
                         </label>
@@ -450,11 +461,11 @@
                             <input type="radio" name="payment_method" value="SISTECREDITO" id="payment-sistecredito" class="peer sr-only">
 
                             <div class="bg-white p-5 rounded-[1.5rem] border-2 border-gray-100 shadow-sm flex items-center gap-5 transition-all duration-300 hover:border-[#00B34A]/50 
-                            peer-checked:border-[#00B34A] peer-checked:bg-green-50/10 peer-checked:shadow-xl peer-checked:shadow-[#00B34A]/10 peer-checked:scale-[1.01]
-                            peer-checked:[&_.radio-circle]:bg-[#00B34A] peer-checked:[&_.radio-circle]:border-[#00B34A] peer-checked:[&_.radio-icon]:opacity-100 peer-checked:[&_.radio-icon]:scale-100">
+                                peer-checked:border-[#00B34A] peer-checked:bg-green-50/10 peer-checked:shadow-xl peer-checked:shadow-[#00B34A]/10 peer-checked:scale-[1.01]
+                                peer-checked:[&_.radio-circle]:bg-[#00B34A] peer-checked:[&_.radio-circle]:border-[#00B34A] peer-checked:[&_.radio-icon]:opacity-100 peer-checked:[&_.radio-icon]:scale-100">
 
-                                <div class="w-14 h-14 rounded-2xl bg-[#00B34A] flex items-center justify-center text-white font-black text-xl shrink-0">
-                                    <i class="fa-solid fa-wallet"></i>
+                                <div class="w-14 h-14 rounded-2xl bg-green-50/20 flex items-center justify-center shrink-0 border border-green-100 p-2">
+                                    <img src="/img/icons/sistecredito.webp" alt="Pagar a Cuotas con Sistecrédito" title="Sistecrédito" class="w-full h-full object-contain" loading="lazy">
                                 </div>
 
                                 <div class="flex-grow">
