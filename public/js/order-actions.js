@@ -1041,5 +1041,179 @@ if (payForm) {
     };
 }
 
+// --- 6. GENERAR RÓTULOS DE ENVÍO (4 POR PÁGINA: 2x2) ---
+export function generateLabels(ordersArray) {
+    const w = window.open('', '_blank', 'width=900,height=800');
+    
+    // 1. FUNCIÓN DE AGRUPACIÓN (CHUNKING)
+    const chunkArray = (arr, size) => {
+        const chunks = [];
+        for (let i = 0; i < arr.length; i += size) {
+            chunks.push(arr.slice(i, i + size));
+        }
+        return chunks;
+    };
+
+    // 🔥 CAMBIO: Dividimos las órdenes en páginas de 4
+    const pagesOfOrders = chunkArray(ordersArray, 4);
+
+    // 2. CONSTRUIR EL HTML POR PÁGINAS
+    const allPagesHtml = pagesOfOrders.map(pageGroup => {
+        
+        // Construimos los rótulos individuales
+        const labelsHtml = pageGroup.map(o => {
+            const clientName = o.shippingData?.name || o.buyerInfo?.name || o.userName || '';
+            const clientDoc = o.shippingData?.clientDoc || o.clientDoc || o.buyerInfo?.document || '';
+            const clientPhone = o.shippingData?.phone || o.phone || o.buyerInfo?.phone || '';
+            
+            let address = o.shippingData?.address || o.address || '';
+            let city = o.shippingData?.city || o.city || '';
+            let dept = o.shippingData?.department || '';
+
+            return `
+            <div class="label-box">
+                <div class="header-logo">
+                    <img src="https://pixeltechcol.com/img/logo.webp" alt="PixelTech">
+                </div>
+                <div class="company-info">
+                    <div>
+                        PIXEL TECH COL SAS<br>
+                        NIT: 901.561.037-7<br>
+                        CL. 31 #13A-51 OFICINA 223<br>
+                        PIXELTECHSAS@GMAIL.COM
+                    </div>
+                    <div style="text-align: right;">
+                        (PIXELTECH.COL)<br>
+                        TEL: 300 904 6450<br>
+                        BOGOTÁ
+                    </div>
+                </div>
+                
+                <h3 class="dest-title">DESTINATARIO</h3>
+                
+                <div class="dest-info">
+                    <div class="info-line">
+                        <strong>NOMBRE:</strong> <span>${clientName.toUpperCase()}</span>
+                    </div>
+                    
+                    <div class="info-row">
+                        <div class="info-line" style="width: 55%;">
+                            <strong>CC/NIT:</strong> <span>${clientDoc}</span>
+                        </div>
+                        <div class="info-line" style="width: 45%;">
+                            <strong>TEL:</strong> <span>${clientPhone}</span>
+                        </div>
+                    </div>
+                    
+                    <div class="info-line">
+                        <strong>DIRECCIÓN:</strong> <span>${address.toUpperCase()}</span>
+                    </div>
+                    
+                    <div class="info-line">
+                        <strong>CIUDAD:</strong> <span>${city.toUpperCase()} ${dept ? '- ' + dept.toUpperCase() : ''}</span>
+                    </div>
+                </div>
+            </div>
+            `;
+        }).join('');
+
+        return `<div class="print-page">${labelsHtml}</div>`;
+        
+    }).join(''); 
+
+    // 3. INYECTAR EL DOCUMENTO PARA IMPRIMIR
+    w.document.write(`
+        <!DOCTYPE html>
+        <html lang="es">
+        <head>
+            <meta charset="UTF-8">
+            <title>Impresión de Rótulos</title>
+            <style>
+                @page {
+                    size: letter;
+                    margin: 8mm; /* Margen un poco más amplio al tener menos rótulos */
+                }
+                
+                body { 
+                    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; 
+                    margin: 0; 
+                    padding: 0; 
+                    background: white; 
+                }
+                
+                /* 🔥 CAMBIO: CSS Grid para 2 columnas y 2 filas */
+                .print-page {
+                    display: grid;
+                    grid-template-columns: repeat(2, 1fr); 
+                    grid-template-rows: repeat(2, 1fr);    
+                    gap: 8mm; /* Más espacio para respirar entre etiquetas */
+                    width: 100%;
+                    height: 255mm; /* Ajustado para tamaño carta */
+                    box-sizing: border-box;
+                    page-break-after: always; 
+                }
+
+                .print-page:last-child {
+                    page-break-after: auto; 
+                }
+                
+                /* Caja individual de cada rótulo */
+                .label-box { 
+                    border: 3px solid #111827; /* Borde un poco más grueso */
+                    border-radius: 16px; 
+                    padding: 25px; /* Más espacio interno */
+                    box-sizing: border-box; 
+                    color: #111827;
+                    display: flex;
+                    flex-direction: column;
+                    justify-content: flex-start; 
+                    overflow: hidden; 
+                }
+                
+                .header-logo { text-align: center; margin-bottom: 25px; }
+                .header-logo img { height: 60px; object-fit: contain; } /* 🔥 CAMBIO: Logo más grande */
+                
+                .company-info { 
+                    display: flex; 
+                    justify-content: space-between; 
+                    font-size: 11px; /* 🔥 CAMBIO: Letra más grande */
+                    font-weight: 900; 
+                    margin-bottom: 35px; 
+                    line-height: 1.5;
+                }
+                
+                .dest-title { 
+                    font-size: 18px; /* 🔥 CAMBIO: Título más grande */
+                    font-weight: 900; 
+                    margin: 0 0 15px 0; 
+                }
+                
+                .dest-info { font-size: 14px; line-height: 1.6; }
+                .info-line { 
+                    margin-bottom: 12px; 
+                    border-bottom: 2px solid #111827; 
+                    display: flex; 
+                    align-items: flex-end;
+                    padding-bottom: 3px;
+                }
+                .info-line strong { font-weight: 900; margin-right: 8px; font-size: 13px;}
+                .info-line span { flex-grow: 1; font-weight: 700; font-size: 13px; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+                .info-row { display: flex; gap: 15px; }
+
+            </style>
+        </head>
+        <body>
+            ${allPagesHtml}
+            <script>
+                setTimeout(() => { window.print(); window.close(); }, 800);
+            <\/script>
+        </body>
+        </html>
+    `);
+    w.document.close();
+}
+
 // Exportar al window para usar en HTML
 window.openPaymentModal = openPaymentModal;
+
+window.generateLabels = generateLabels; // <-- Añadir esta línea

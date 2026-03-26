@@ -69,13 +69,19 @@
             class="bg-white/90 backdrop-blur-xl border-b border-gray-100 px-8 py-4 flex justify-between items-center sticky top-0 z-20 shadow-sm">
             <h2 class="font-black text-brand-black text-[9px] uppercase tracking-[0.3em]">Centro Logístico</h2>
             <div class="flex items-center gap-4">
+                <!-- NUEVO: Botón de Imprimir Rótulos -->
+                <button onclick="window.printSelectedLabels()"
+                    class="bg-white text-brand-black border border-gray-200 px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest hover:border-brand-cyan hover:text-brand-cyan hover:shadow-lg transition-all flex items-center gap-2 transform active:scale-95">
+                    <i class="fa-solid fa-tags"></i> Imprimir Rótulos
+                </button>
+
                 <button id="btn-open-manual"
                     class="bg-brand-black text-white px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-brand-cyan hover:text-brand-black hover:shadow-lg transition-all flex items-center gap-2 transform active:scale-95">
                     <i class="fa-solid fa-plus"></i> Nueva Venta
                 </button>
-                <div
-                    class="w-10 h-10 bg-slate-100 text-brand-cyan rounded-xl flex items-center justify-center font-bold shadow-sm">
-                    <i class="fa-solid fa-user-shield"></i></div>
+                <div class="w-10 h-10 bg-slate-100 text-brand-cyan rounded-xl flex items-center justify-center font-bold shadow-sm">
+                    <i class="fa-solid fa-user-shield"></i>
+                </div>
             </div>
         </header>
 
@@ -119,9 +125,12 @@
             <div class="bg-white rounded-[2.5rem] shadow-xl border border-gray-100 overflow-hidden fade-in">
                 <div class="overflow-x-auto">
                     <table class="w-full text-left text-sm min-w-[900px]">
-                        <thead
-                            class="bg-slate-50 text-[9px] uppercase font-black text-brand-black tracking-widest border-b border-gray-100">
+                        <thead class="bg-slate-50 text-[9px] uppercase font-black text-brand-black tracking-widest border-b border-gray-100">
                             <tr>
+                                <!-- NUEVO: Checkbox para seleccionar todos -->
+                                <th class="px-4 py-6 w-12 text-center">
+                                    <input type="checkbox" id="select-all-orders" onclick="window.toggleAllOrders(this)" class="cursor-pointer w-4 h-4 rounded text-brand-cyan focus:ring-brand-cyan border-gray-300">
+                                </th>
                                 <th class="px-8 py-6 w-36"># Orden / Fecha</th>
                                 <th class="px-8 py-6">Cliente</th>
                                 <th class="px-8 py-6 text-center">Canal</th>
@@ -771,6 +780,10 @@
             const tableBody = document.getElementById('orders-table-body');
             tableBody.innerHTML += `
                 <tr class="hover:bg-slate-50 transition border-b border-gray-50 group fade-in">
+                    <!-- NUEVO: Checkbox individual -->
+                    <td class="px-4 py-6 text-center">
+                        <input type="checkbox" class="order-cb cursor-pointer w-4 h-4 rounded text-brand-cyan focus:ring-brand-cyan border-gray-300" value="${o.id}">
+                    </td>
                     <td class="px-8 py-6">
                         <div class="flex items-center gap-2 mb-1">
                             <div class="font-black text-base text-brand-cyan uppercase tracking-tighter">${internalNumDisplay}</div>
@@ -800,6 +813,29 @@
                     </td>
                 </tr>`;
         }
+
+        // --- LÓGICA DE SELECCIÓN PARA RÓTULOS ---
+        window.toggleAllOrders = function(source) {
+            const checkboxes = document.querySelectorAll('.order-cb');
+            checkboxes.forEach(cb => cb.checked = source.checked);
+        };
+
+        window.printSelectedLabels = function() {
+            const checkboxes = document.querySelectorAll('.order-cb:checked');
+            if(checkboxes.length === 0) {
+                alert("⚠️ Por favor, selecciona al menos un pedido marcando las casillas de la tabla.");
+                return;
+            }
+            
+            // Extraer los IDs seleccionados
+            const selectedIds = Array.from(checkboxes).map(cb => cb.value);
+            
+            // Filtrar los objetos completos de la caché local para no gastar lecturas de Firebase
+            const selectedOrders = adminOrdersCache.filter(o => selectedIds.includes(o.id));
+            
+            // Llamar a la función generadora en order-actions.js
+            window.generateLabels(selectedOrders);
+        };
     </script>
     <script type="module" src="../js/admin-guard.js"></script>
 </body>
