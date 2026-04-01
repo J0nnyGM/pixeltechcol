@@ -70,10 +70,20 @@
             <h2 class="font-black text-brand-black text-[9px] uppercase tracking-[0.3em]">Centro Logístico</h2>
             <div class="flex items-center gap-4">
                 <!-- NUEVO: Botón de Imprimir Rótulos -->
-                <button onclick="window.printSelectedLabels()"
-                    class="bg-white text-brand-black border border-gray-200 px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest hover:border-brand-cyan hover:text-brand-cyan hover:shadow-lg transition-all flex items-center gap-2 transform active:scale-95">
-                    <i class="fa-solid fa-tags"></i> Imprimir Rótulos
-                </button>
+                <div class="flex bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
+                    <button onclick="window.openBulkPaymentModal()" title="Cobrar Seleccionados" class="px-4 py-2.5 text-gray-400 hover:text-green-600 hover:bg-green-50 transition border-r border-gray-100 flex items-center justify-center">
+                        <i class="fa-solid fa-hand-holding-dollar"></i>
+                    </button>
+                    <button onclick="window.openBulkPackingModal()" title="Alistar Seleccionados" class="px-4 py-2.5 text-gray-400 hover:text-purple-600 hover:bg-purple-50 transition border-r border-gray-100 flex items-center justify-center">
+                        <i class="fa-solid fa-box-open"></i>
+                    </button>
+                    <button onclick="window.openBulkDispatchModal()" title="Despachar Seleccionados" class="px-4 py-2.5 text-gray-400 hover:text-blue-500 hover:bg-blue-50 transition border-r border-gray-100 flex items-center justify-center">
+                        <i class="fa-solid fa-truck-fast"></i>
+                    </button>
+                    <button onclick="window.printSelectedLabels()" title="Imprimir Rótulos" class="px-4 py-2.5 text-gray-500 hover:text-brand-black hover:bg-slate-100 transition flex items-center gap-2 text-[10px] font-black uppercase tracking-widest">
+                        <i class="fa-solid fa-tags"></i> Rótulos
+                    </button>
+                </div>
 
                 <button id="btn-open-manual"
                     class="bg-brand-black text-white px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-brand-cyan hover:text-brand-black hover:shadow-lg transition-all flex items-center gap-2 transform active:scale-95">
@@ -409,6 +419,97 @@
         </div>
     </div>
 
+<div id="bulk-packing-modal" class="fixed inset-0 z-[85] hidden flex items-center justify-center p-4">
+        <div class="absolute inset-0 bg-slate-900/70 backdrop-blur-sm" onclick="document.getElementById('bulk-packing-modal').classList.add('hidden')"></div>
+        <div class="relative bg-white w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl flex flex-col text-center">
+            <div class="w-16 h-16 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center text-3xl mx-auto mb-4">
+                <i class="fa-solid fa-box-open"></i>
+            </div>
+            <h3 class="text-xl font-black text-brand-black uppercase">Alistamiento <span class="text-purple-500">Masivo</span></h3>
+            <p class="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-1 mb-6"><span id="bulk-pack-valid" class="text-brand-black font-black text-base">0</span> Pedidos Válidos para procesar</p>
+            
+            <div id="bulk-pack-warning" class="hidden bg-yellow-50 text-yellow-700 text-[9px] font-black uppercase tracking-widest p-3 rounded-xl border border-yellow-200 mb-6">
+                </div>
+
+            <button id="btn-confirm-bulk-pack" onclick="window.processBulkPacking()" class="w-full bg-brand-black text-white font-black py-4 rounded-xl shadow-lg uppercase text-[10px] tracking-[0.2em] hover:bg-purple-600 transition flex items-center justify-center gap-2">
+                Confirmar Alistamiento Masivo
+            </button>
+            <button onclick="document.getElementById('bulk-packing-modal').classList.add('hidden')" class="w-full mt-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest hover:text-brand-black transition">
+                Cancelar
+            </button>
+        </div>
+    </div>
+
+    <div id="bulk-dispatch-modal" class="fixed inset-0 z-[85] hidden flex items-center justify-center p-4">
+        <div class="absolute inset-0 bg-slate-900/70 backdrop-blur-sm" onclick="document.getElementById('bulk-dispatch-modal').classList.add('hidden')"></div>
+        <div class="relative bg-white w-full max-w-2xl rounded-[2.5rem] p-8 shadow-2xl flex flex-col max-h-[90vh]">
+            <div class="flex justify-between items-center mb-4">
+                <div>
+                    <h3 class="text-xl font-black text-brand-black uppercase">Despacho <span class="text-blue-500">Masivo</span></h3>
+                    <p class="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-1"><span id="bulk-disp-count">0</span> Pedidos Válidos</p>
+                </div>
+                <button onclick="document.getElementById('bulk-dispatch-modal').classList.add('hidden')" class="w-8 h-8 rounded-full bg-slate-50 text-gray-400 hover:text-brand-red flex items-center justify-center transition border border-gray-100"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+
+            <div id="bulk-disp-warning" class="hidden bg-yellow-50 text-yellow-700 text-[9px] font-black uppercase tracking-widest p-3 rounded-xl border border-yellow-200 mb-4">
+                </div>
+            
+            <div class="mb-4">
+                <label class="text-[9px] font-black text-gray-400 uppercase tracking-widest block mb-2">Transportadora Global</label>
+                <select id="bulk-dispatch-carrier" class="w-full bg-slate-50 border border-gray-200 rounded-xl p-3 text-sm font-bold outline-none text-brand-black">
+                    <option value="">Seleccione Transportadora...</option>
+                    <option value="Servientrega">Servientrega</option>
+                    <option value="Interrapidisimo">Interrapidísimo</option>
+                    <option value="Envía">Envía</option>
+                    <option value="Coordinadora">Coordinadora</option>
+                    <option value="DespachoBogota">Despacho Bogotá (Mensajería)</option>
+                </select>
+            </div>
+
+            <div class="overflow-y-auto custom-scroll pr-2 mb-6 flex-grow border-t border-b border-gray-100 py-4" id="bulk-dispatch-list">
+                </div>
+
+            <button id="btn-confirm-bulk-dispatch" onclick="window.processBulkDispatch()" class="w-full bg-blue-500 text-white font-black py-4 rounded-xl shadow-lg uppercase text-[10px] tracking-[0.2em] hover:bg-blue-600 transition flex items-center justify-center gap-2">
+                <i class="fa-solid fa-truck-ramp-box"></i> Confirmar Envíos Masivos
+            </button>
+        </div>
+    </div>
+
+    <div id="bulk-payment-modal" class="fixed inset-0 z-[90] hidden flex items-center justify-center p-4">
+        <div class="absolute inset-0 bg-brand-black/80 backdrop-blur-sm" onclick="document.getElementById('bulk-payment-modal').classList.add('hidden')"></div>
+        <div class="relative bg-white w-full max-w-md rounded-[2.5rem] shadow-2xl overflow-hidden animate-in fade-in zoom-in-95">
+            <div class="p-8 border-b border-gray-100 flex justify-between items-center bg-slate-50">
+                <div>
+                    <h3 class="text-xl font-black uppercase tracking-tighter text-brand-black">Cobro <span class="text-green-500">Masivo</span></h3>
+                    <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1"><span id="bulk-pay-count">0</span> Pedidos Válidos</p>
+                </div>
+                <button onclick="document.getElementById('bulk-payment-modal').classList.add('hidden')" class="w-8 h-8 rounded-full bg-white text-gray-400 hover:text-brand-red flex items-center justify-center transition border border-gray-200"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            
+            <div class="p-8 space-y-6">
+                <div id="bulk-pay-warning" class="hidden bg-yellow-50 text-yellow-700 text-[9px] font-black uppercase tracking-widest p-3 rounded-xl border border-yellow-200 text-center">
+                    </div>
+
+                <div class="bg-green-50 p-6 rounded-2xl text-center border border-green-100">
+                    <p class="text-[9px] font-black text-green-600 uppercase tracking-widest mb-1">Monto Total a Recibir</p>
+                    <p id="bulk-pay-total" class="text-4xl font-black text-green-700 tracking-tight">$0</p>
+                </div>
+                <div>
+                    <label class="block text-[9px] font-black text-gray-400 uppercase tracking-widest mb-2 ml-1">Cuenta de Destino (Tesorería)</label>
+                    <div class="relative">
+                        <i class="fa-solid fa-building-columns absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"></i>
+                        <select id="bulk-pay-account-select" class="w-full bg-slate-50 border border-gray-200 pl-10 pr-4 py-4 rounded-xl font-bold text-xs outline-none focus:border-brand-cyan appearance-none text-brand-black cursor-pointer shadow-sm transition-all">
+                            <option value="">Cargando cuentas...</option>
+                        </select>
+                    </div>
+                </div>
+                <button id="btn-confirm-bulk-pay" onclick="window.processBulkPayment()" class="w-full bg-brand-black text-white py-5 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] hover:bg-green-500 transition-all shadow-xl hover:shadow-green-500/30 flex items-center justify-center gap-3">
+                    <i class="fa-solid fa-check-double"></i> Confirmar Pagos
+                </button>
+            </div>
+        </div>
+    </div>
+
     <script type="module">
         import '../js/admin-guard.js';
         import { db, collection, getDocs, orderBy, query, limit, auth, doc, getDoc, where, onSnapshot } from '../js/firebase-init.js';
@@ -504,6 +605,9 @@
                     const dateB = b.createdAt?.seconds || new Date(b.createdAt).getTime();
                     return dateB - dateA;
                 });
+                
+                // 🔥 NUEVA LÍNEA: Compartimos esta memoria viva con order-actions.js
+                window.adminOrdersCache = adminOrdersCache; 
             },
 
             listenForUpdates() {

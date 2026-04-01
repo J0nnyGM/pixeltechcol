@@ -155,6 +155,7 @@ exports.cancelAbandonedPayments = onSchedule({
         });
 
         // --- FASE 2: Órdenes Manuales (36 Horas) ---
+        // La consulta ya trae únicamente los pedidos de hace MÁS de 36 horas.
         const manualSnapshot = await db.collection('orders')
             .where('status', '==', 'PENDIENTE')
             .where('createdAt', '<=', timeoutTimestamp36h)
@@ -169,8 +170,9 @@ exports.cancelAbandonedPayments = onSchedule({
             // CRÍTICO: Proteger pedidos Contra Entrega (COD) para que no se cancelen
             if (orderData.paymentMethod === 'COD' || orderData.paymentMethod === 'CONTRAENTREGA') return;
 
-            // Si es Transferencia Manual, procedemos a cancelar
-            if (orderData.paymentMethod === 'MANUAL') {
+            // Si es Transferencia Manual y proviene de la TIENDA_WEB, procedemos a cancelar.
+            // Eliminamos la validación extra de fechas porque Firestore ya hizo el filtro.
+            if (orderData.paymentMethod === 'MANUAL' && orderData.source === 'TIENDA_WEB') {
                 batch.update(doc.ref, {
                     status: 'CANCELADO',
                     statusDetail: 'expired_by_system',

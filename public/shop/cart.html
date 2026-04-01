@@ -183,11 +183,26 @@
     const shippingBarContainer = document.getElementById('free-shipping-container');
     const shippingBar = document.getElementById('free-shipping-bar');
     const shippingMsg = document.getElementById('free-shipping-msg');
-
+    
     // Variables de estado
     let calculatedShipping = 0;
     let freeShippingThreshold = 0; 
     let globalCutoffTime = "14:00";
+    
+    // 🔥 NUEVO: Variables para festivos de Colombia
+    let colombianHolidays = [];
+
+    // 🔥 NUEVO: Cargar festivos desde la API
+    async function loadHolidays() {
+        try {
+            const year = new Date().getFullYear();
+            const res = await fetch(`https://date.nager.at/api/v3/PublicHolidays/${year}/CO`);
+            const data = await res.json();
+            colombianHolidays = data.map(h => h.date);
+        } catch (e) {
+            console.error("Error cargando festivos de Colombia:", e);
+        }
+    }
 
     // ==========================================================================
     // ⚡ SINCRONIZACIÓN CON CACHÉ (LA MAGIA DE 0 LECTURAS)
@@ -274,28 +289,64 @@
         }
     }
 
-    // --- 2. LÓGICA DE TIEMPO DE DESPACHO ---
+// --- 2. LÓGICA DE TIEMPO DE DESPACHO (INTELIGENTE) ---
     function checkDispatchTime() {
         if(!dispatchMsg) return;
+        
         const now = new Date();
+        const dayOfWeek = now.getDay(); // 0 = Domingo
         const [hours, minutes] = globalCutoffTime.split(':').map(Number);
-        const cutoffDate = new Date();
+        
+        let cutoffDate = new Date();
         cutoffDate.setHours(hours, minutes, 0, 0);
 
-        const isBeforeCutoff = now < cutoffDate;
-        const diffMs = cutoffDate - now;
-        const diffHrs = Math.floor(diffMs / 3600000);
-        const diffMins = Math.floor((diffMs % 3600000) / 60000);
+        // Formateador de fecha local para comparar con la API
+        const formatDateStr = (dateObj) => {
+            const offset = dateObj.getTimezoneOffset() * 60000;
+            return new Date(dateObj.getTime() - offset).toISOString().split('T')[0];
+        };
+
+        const todayStr = formatDateStr(now);
+        const isTodayHoliday = colombianHolidays.includes(todayStr);
+
+        let isBeforeCutoff = now < cutoffDate;
+
+        // Si hoy es domingo o festivo, no se despacha hoy
+        if (dayOfWeek === 0 || isTodayHoliday) {
+            isBeforeCutoff = false;
+        }
 
         dispatchMsg.classList.remove('hidden');
 
         if (isBeforeCutoff) {
+            const diffMs = cutoffDate - now;
+            const diffHrs = Math.floor(diffMs / 3600000);
+            const diffMins = Math.floor((diffMs % 3600000) / 60000);
+
             let timeText = "";
             if(diffHrs > 0) timeText += `${diffHrs}h `;
             timeText += `${diffMins}m`;
-            dispatchMsg.innerHTML = `<p class="text-[10px] font-black uppercase text-green-600 pulse-text"><i class="fa-solid fa-bolt text-yellow-500 mr-1"></i> Pide en <span class="underline">${timeText}</span> y enviamos HOY</p>`;
+            
+            dispatchMsg.innerHTML = `<p class="text-[10px] font-black uppercase text-green-600 pulse-text"><i class="fa-solid fa-bolt text-yellow-500 mr-1"></i> Pide en <span class="underline">${timeText}</span> y despachamos HOY</p>`;
         } else {
-            dispatchMsg.innerHTML = `<p class="text-[10px] font-black uppercase text-blue-500"><i class="fa-solid fa-calendar-check mr-1"></i> Tu pedido será despachado MAÑANA</p>`;
+            // Buscar el siguiente día hábil
+            let nextDay = new Date(now);
+            nextDay.setDate(nextDay.getDate() + 1);
+
+            while (nextDay.getDay() === 0 || colombianHolidays.includes(formatDateStr(nextDay))) {
+                nextDay.setDate(nextDay.getDate() + 1);
+            }
+
+            const diasSemana = ['el DOMINGO', 'el LUNES', 'el MARTES', 'el MIÉRCOLES', 'el JUEVES', 'el VIERNES', 'el SÁBADO'];
+            let dispatchDayText = diasSemana[nextDay.getDay()];
+            
+            const tomorrow = new Date(now);
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            if (formatDateStr(nextDay) === formatDateStr(tomorrow)) {
+                dispatchDayText = "MAÑANA";
+            }
+
+            dispatchMsg.innerHTML = `<p class="text-[10px] font-black uppercase text-blue-500"><i class="fa-solid fa-calendar-check mr-1"></i> Comprando hoy, despachamos ${dispatchDayText}</p>`;
         }
     }
 
@@ -553,9 +604,13 @@
         }
     };
 
-    // --- INICIALIZACIÓN ---
-    syncCartWithCache(); // <--- AQUÍ OCURRE LA MAGIA DEL CACHÉ
-    fetchShippingConfig(); 
+     syncCartWithCache(); 
+    
+    // Primero cargamos los festivos, luego la config de envíos (que dispara checkDispatchTime)
+    loadHolidays().then(() => {
+        fetchShippingConfig(); 
+    });
+    
     render();
 
     onAuthStateChanged(auth, (user) => {

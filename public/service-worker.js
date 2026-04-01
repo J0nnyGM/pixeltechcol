@@ -1,4 +1,4 @@
-const CACHE_NAME = 'pixeltech-shell-v9.1'; // 🔥 Subimos la versión
+const CACHE_NAME = 'pixeltech-shell-v9.2'; // 🔥 Subimos la versión
 
 // Archivos vitales para que la app arranque sin internet
 const urlsToCache = [

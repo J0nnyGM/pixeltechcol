@@ -22,6 +22,11 @@ let unsubscribeClientsList = null;
 let adminClientsCache = []; // RAM Cache 
 let editingClientId = null; // Para saber si creamos o editamos
 
+const normalizeText = (str) => str ? str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "") : "";
+let masterClientsCache = []; 
+let isMasterLoaded = false;
+let unsubscribeMasterCache = null;
+
 // ==========================================================================
 // 🧠 SMART REAL-TIME CACHE: LISTA DE CLIENTES
 // ==========================================================================
@@ -94,14 +99,23 @@ function handleSnapshotResult(snapshot, isNextPage) {
     }
 
     snapshot.forEach(docSnap => {
-        // Evitamos duplicados en cache al actualizar en tiempo real
         const clientData = { id: docSnap.id, ...docSnap.data() };
+        
+        // 1. Actualiza el caché de la vista (50 en 50)
         const index = adminClientsCache.findIndex(c => c.id === docSnap.id);
         if (index > -1) adminClientsCache[index] = clientData;
         else adminClientsCache.push(clientData);
+
+        // 2. 🔥 Mantiene el Caché Maestro actualizado en tiempo real
+        if (isMasterLoaded) {
+            const mIndex = masterClientsCache.findIndex(c => c.id === docSnap.id);
+            if (mIndex > -1) masterClientsCache[mIndex] = clientData;
+            else masterClientsCache.unshift(clientData); // Lo pone de primero
+            window.adminClientsCache = masterClientsCache; // Lo comparte con Ventas Manuales
+        }
     });
 
-    applyFilters(); // Pintamos usando la función de filtro centralizada
+    applyFilters(); 
     isLoading = false;
 }
 
@@ -158,98 +172,119 @@ function renderClientRow(c) {
 // --- 2. BÚSQUEDA Y FILTRADO HÍBRIDO ---
 function applyFilters() {
     listContainer.innerHTML = "";
-    const term = searchInput ? searchInput.value.toLowerCase().trim() : '';
     const type = filterType ? filterType.value : 'ALL';
 
     const results = adminClientsCache.filter(c => {
-        // 1. Filtro Búsqueda
-        const nameMatch = (c.name || c.userName || "").toLowerCase().includes(term);
-        const phoneMatch = (c.phone || "").toLowerCase().includes(term);
-        const docMatch = (c.document || "").toLowerCase().includes(term);
-        const emailMatch = (c.email || "").toLowerCase().includes(term);
-        const matchesSearch = term === "" || nameMatch || phoneMatch || docMatch || emailMatch;
-
-        // 2. Filtro Tipo
         let matchesType = true;
         const rawSource = (c.source || 'WEB').toUpperCase();
-        
         if (type === 'WEB') matchesType = (rawSource !== 'MANUAL' && rawSource !== 'MAYORISTA' && rawSource !== 'EXCEL_IMPORT');
         else if (type === 'MANUAL') matchesType = (rawSource === 'MANUAL' || rawSource === 'EXCEL_IMPORT');
         else if (type === 'MAYORISTA') matchesType = (rawSource === 'MAYORISTA');
-
-        return matchesSearch && matchesType;
+        return matchesType;
     });
 
     if (results.length === 0) {
-        listContainer.innerHTML = `<tr><td colspan="5" class="p-10 text-center text-xs font-bold text-gray-400 uppercase">No se encontraron resultados en esta vista.</td></tr>`;
+        listContainer.innerHTML = `<tr><td colspan="5" class="p-10 text-center text-xs font-bold text-gray-400 uppercase">No hay clientes de este tipo.</td></tr>`;
     } else {
         results.forEach(c => renderClientRow(c));
     }
 }
 
 if (searchInput) {
-    searchInput.addEventListener('keyup', (e) => {
-        if (e.key === 'Enter' && searchInput.value.trim().length > 0) {
-            performServerSearch(searchInput.value.trim());
+    searchInput.addEventListener('input', async (e) => { // 🔥 CAMBIO: Busca mientras escribes ('input')
+        const term = normalizeText(e.target.value.trim());
+
+        if (term.length === 0) {
+            applyFilters(); // Vuelve a la paginación normal
+            loadMoreBtn.classList.remove('hidden'); 
             return;
         }
-        applyFilters();
-    });
-}
-if (filterType) {
-    filterType.addEventListener('change', applyFilters);
-}
 
-async function performServerSearch(term) {
-    if(isLoading) return;
-    isLoading = true;
+        if (term.length < 2) return;
 
-    if(unsubscribeClientsList) unsubscribeClientsList();
+        // Si el caché maestro aún no ha bajado, lo forzamos
+        if (!isMasterLoaded) {
+            listContainer.innerHTML = `<tr><td colspan="5" class="p-10 text-center"><i class="fa-solid fa-circle-notch fa-spin text-brand-cyan"></i> Descargando base de datos completa...</td></tr>`;
+            await loadMasterCache();
+        }
 
-    listContainer.innerHTML = `<tr><td colspan="5" class="p-10 text-center"><i class="fa-solid fa-search fa-bounce text-brand-cyan"></i> Buscando a fondo...</td></tr>`;
-    loadMoreBtn.classList.add('hidden');
+        loadMoreBtn.classList.add('hidden'); // Anula la paginación
+        listContainer.innerHTML = "";
 
-    try {
-        const usersRef = collection(db, "users");
+        const type = filterType ? filterType.value : 'ALL';
 
-        const docRef = doc(db, "users", term);
-        const p1 = getDoc(docRef).then(s => s.exists() ? [{ id: s.id, ...s.data() }] : []);
-        const qEmail = query(usersRef, where("email", "==", term));
-        const p2 = getDocs(qEmail).then(s => s.docs.map(d => ({ id: d.id, ...d.data() })));
-        const qDoc = query(usersRef, where("document", "==", term));
-        const p3 = getDocs(qDoc).then(s => s.docs.map(d => ({ id: d.id, ...d.data() })));
-        const qPhone = query(usersRef, where("phone", "==", term));
-        const p4 = getDocs(qPhone).then(s => s.docs.map(d => ({ id: d.id, ...d.data() })));
+        // Filtramos sobre TODO EL UNIVERSO DE CLIENTES
+        const results = masterClientsCache.filter(c => {
+            const nameMatch = normalizeText(c.name || c.userName || "").includes(term);
+            const phoneMatch = (c.phone || "").includes(term);
+            const docMatch = (c.document || "").includes(term);
+            const emailMatch = normalizeText(c.email || "").includes(term);
+            
+            const matchesSearch = nameMatch || phoneMatch || docMatch || emailMatch;
 
-        const [r1, r2, r3, r4] = await Promise.all([p1, p2, p3, p4]);
-        
-        const allResults = [...r1, ...r2, ...r3, ...r4];
-        const uniqueIds = new Set();
-        const finalDocs = [];
+            let matchesType = true;
+            const rawSource = (c.source || 'WEB').toUpperCase();
+            if (type === 'WEB') matchesType = (rawSource !== 'MANUAL' && rawSource !== 'MAYORISTA' && rawSource !== 'EXCEL_IMPORT');
+            else if (type === 'MANUAL') matchesType = (rawSource === 'MANUAL' || rawSource === 'EXCEL_IMPORT');
+            else if (type === 'MAYORISTA') matchesType = (rawSource === 'MAYORISTA');
 
-        allResults.forEach(d => {
-            if(!uniqueIds.has(d.id)) {
-                uniqueIds.add(d.id);
-                finalDocs.push(d);
-            }
+            return matchesSearch && matchesType;
         });
 
-        listContainer.innerHTML = "";
-        
-        if (finalDocs.length > 0) {
-            // Reemplazamos la cache temporalmente para que el filtro también funcione con la búsqueda
-            adminClientsCache = finalDocs;
-            applyFilters();
+        if (results.length === 0) {
+            listContainer.innerHTML = `<tr><td colspan="5" class="p-10 text-center text-xs font-bold text-gray-400 uppercase">No se encontraron coincidencias para "${e.target.value}".</td></tr>`;
         } else {
-            listContainer.innerHTML = `<tr><td colspan="5" class="p-10 text-center text-xs font-bold text-gray-400 uppercase">No se encontró cliente con ID, Email, Teléfono o Documento exacto: "${term}"<br><span class="text-[9px] text-brand-cyan cursor-pointer hover:underline mt-2 block" onclick="window.location.reload()">Recargar Lista Original</span></td></tr>`;
+            // Renderizamos máximo 100 para no trabar el navegador si buscan la letra "a"
+            results.slice(0, 100).forEach(c => renderClientRow(c));
         }
-    } catch(e) {
-        console.error(e);
-        startClientsListener(false); 
-    } finally {
-        isLoading = false;
-    }
+    });
 }
+
+if (filterType) {
+    filterType.addEventListener('change', () => {
+        // Si hay texto en el buscador, disparamos la búsqueda, si no, aplicamos filtros normales
+        if (searchInput && searchInput.value.trim().length > 0) {
+            searchInput.dispatchEvent(new Event('input'));
+        } else {
+            applyFilters();
+        }
+    });
+}
+
+// 🔥 NUEVO: Descarga y MANTIENE VIVO el caché maestro en segundo plano
+function loadMasterCache() {
+    if (isMasterLoaded) return;
+    
+    if (unsubscribeMasterCache) unsubscribeMasterCache();
+    
+    // Al usar onSnapshot, Firebase actualizará esto automáticamente si alguien más hace un cambio
+    unsubscribeMasterCache = onSnapshot(collection(db, "users"), (snap) => {
+        masterClientsCache = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        
+        // Ordenamos por fecha
+        masterClientsCache.sort((a, b) => {
+            const dateA = a.createdAt?.seconds || 0;
+            const dateB = b.createdAt?.seconds || 0;
+            return dateB - dateA;
+        });
+
+        isMasterLoaded = true;
+        window.adminClientsCache = masterClientsCache; 
+        sessionStorage.setItem('pixeltech_admin_clients_master', JSON.stringify(masterClientsCache));
+        
+        console.log(`📡 Caché Maestro Sincronizado: ${masterClientsCache.length} clientes actualizados en vivo.`);
+        
+        // MAGIA: Si estás buscando algo justo en el momento en que tu empleado editó el cliente,
+        // la lista de resultados se actualizará frente a tus ojos sin tocar nada.
+        const searchInput = document.getElementById('search-client');
+        if (searchInput && searchInput.value.trim().length >= 2) {
+            searchInput.dispatchEvent(new Event('input'));
+        }
+    }, (error) => {
+        console.error("Error en Caché Maestro:", error);
+    });
+}
+
 
 // --- 3. API COLOMBIA (CARGA DE CIUDADES INDEPENDIENTE) ---
 let deptsLoaded = false;
@@ -659,3 +694,5 @@ if (btnProcessImport) {
 }
 
 startClientsListener(false);
+
+loadMasterCache(); // 🔥 Descarga los datos silenciosamente al abrir la página

@@ -1,4 +1,4 @@
-import { db, collection, doc, runTransaction, addDoc, setDoc, getDocs, query, orderBy, where } from './firebase-init.js';
+import { db, collection, doc, runTransaction, addDoc, setDoc, getDocs, query, orderBy, where, onSnapshot } from './firebase-init.js';
 import { adjustStock } from './inventory-core.js';
 
 // --- HTML DEL MODAL (PLANTILLA MEJORADA) ---
@@ -193,8 +193,11 @@ export async function openManualSaleModal() {
     modal.classList.remove('hidden');
 }
 
-// --- LÓGICA DE CACHÉ INTELIGENTE ---
+let unsubscribeManualClients = null;
+
+// --- LÓGICA DE CACHÉ INTELIGENTE Y EN VIVO ---
 async function loadCaches() {
+    // 1. Productos (Mantenemos la lógica que ya tenías)
     try {
         const prodCacheStr = localStorage.getItem('pixeltech_admin_master_inventory');
         if (prodCacheStr) {
@@ -210,12 +213,30 @@ async function loadCaches() {
         }
     } catch(e) { console.error("Error cacheando productos:", e); }
 
+    // 2. 🔥 CLIENTES EN TIEMPO REAL 🔥
     try {
-        if (manualClientsCache.length === 0) {
-            const cSnap = await getDocs(collection(db, "users"));
-            manualClientsCache = cSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-        }
-    } catch(e) {}
+        if (unsubscribeManualClients) unsubscribeManualClients();
+        
+        // Al abrir la ventana de Venta Manual, nos suscribimos a los cambios de clientes
+        unsubscribeManualClients = onSnapshot(collection(db, "users"), (snap) => {
+            manualClientsCache = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+            
+            // Lo guardamos en sesión solo como respaldo por si acaso
+            sessionStorage.setItem('pixeltech_admin_clients_master', JSON.stringify(manualClientsCache));
+            
+            // Si el admin está escribiendo en el buscador del modal y alguien edita un cliente, se actualiza solo
+            const searchInput = document.getElementById('m-cust-search');
+            if (searchInput && searchInput.value.trim().length >= 2) {
+                searchInput.dispatchEvent(new Event('input'));
+            }
+        }, (error) => {
+            console.error("Error cargando clientes en vivo para venta manual:", error);
+        });
+        
+    } catch(e) { 
+        console.error("Error cacheando clientes:", e); 
+        manualClientsCache = [];
+    }
 }
 
 function setupEventListeners() {
@@ -498,31 +519,46 @@ async function setupCustomerSearch() {
     search.addEventListener('input', (e) => {
         const term = normalizeText(e.target.value);
         results.innerHTML = "";
-        if (term.length < 2) { results.classList.add('hidden'); return; }
         
+        if (term.length < 2) { 
+            results.classList.add('hidden'); 
+            return; 
+        }
+        
+        // 🔥 BÚSQUEDA MEJORADA: Ignora mayúsculas y tildes gracias a normalizeText()
         const filtered = manualClientsCache.filter(u => {
-            const nameMatch = normalizeText(u.name || "").includes(term);
-            const phoneMatch = (u.phone || "").includes(term);
-            return nameMatch || phoneMatch;
+            // Usamos u.userName como fallback si u.name no existe (compatibilidad)
+            const clientNameRaw = u.name || u.userName || "";
+            const clientPhoneRaw = u.phone || "";
+            const clientDocRaw = u.document || "";
+
+            const nameMatch = normalizeText(clientNameRaw).includes(term);
+            const phoneMatch = clientPhoneRaw.includes(term); // El teléfono suele ser solo números
+            const docMatch = clientDocRaw.includes(term);
+
+            return nameMatch || phoneMatch || docMatch;
         });
 
         if (filtered.length === 0) {
-            results.innerHTML = `<div class="p-3 text-[10px] text-gray-400 font-bold text-center uppercase">Cliente no registrado</div>`;
+            results.innerHTML = `<div class="p-3 text-[10px] text-gray-400 font-bold text-center uppercase">Cliente no registrado o no cargado en caché</div>`;
         } else {
             filtered.slice(0, 8).forEach(u => {
                 const div = document.createElement('div');
                 div.className = "p-3 hover:bg-cyan-50 cursor-pointer rounded-xl transition flex justify-between items-center border-b border-gray-50 last:border-0";
+                
+                const displayName = u.name || u.userName || 'Cliente sin nombre';
+                
                 div.innerHTML = `
                     <div>
-                        <span class="block font-black text-xs uppercase text-brand-black">${u.name}</span>
-                        <span class="text-[9px] font-bold text-gray-400">${u.phone || 'Sin teléfono'}</span>
+                        <span class="block font-black text-xs uppercase text-brand-black">${displayName}</span>
+                        <span class="text-[9px] font-bold text-gray-400">${u.phone || 'Sin teléfono'} ${u.document ? ` | Doc: ${u.document}` : ''}</span>
                     </div>
                     <i class="fa-solid fa-arrow-right text-brand-cyan text-[10px]"></i>
                 `;
-                // --- CAMBIO CLAVE AQUÍ TAMBIÉN ---
+                
                 div.onmousedown = (e) => {
                     e.preventDefault(); // Evita el colapso del z-index
-                    search.value = u.name;
+                    search.value = displayName;
                     phone.value = u.phone || "";
                     selectedUserId = u.id;
                     currentUserAddresses = u.addresses || [];

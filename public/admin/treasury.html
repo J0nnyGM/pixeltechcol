@@ -150,8 +150,9 @@
                         <label class="text-[9px] font-black text-brand-cyan uppercase tracking-widest block mb-2">Vincular a Pasarela de Pagos</label>
                         <select id="acc-gateway-link" class="w-full bg-white border border-cyan-200 text-brand-black font-bold text-xs p-3 rounded-lg outline-none focus:border-brand-cyan">
                             <option value="">-- Ninguna (Cuenta Normal) --</option>
-                            <option value="MERCADOPAGO">MercadoPago (Pagos Web)</option>
-                            <option value="ADDI">ADDI (Créditos Web)</option>
+                            <option value="MERCADOPAGO">MercadoPago (Tarjetas)</option>
+                            <!-- 🔥 CAMBIO: Aclaramos que ADDI maneja el débito PSE -->
+                            <option value="ADDI">ADDI / PSE (Crédito y Débito)</option>
                             <option value="SISTECREDITO">Sistecrédito (Créditos Web)</option>
                             <option value="BOLD">Próximamente</option>
                         </select>
@@ -476,8 +477,9 @@
                 if (acc.gatewayLink === 'MERCADOPAGO') {
                     linkBadge = `<span class="absolute top-4 right-4 bg-blue-500 text-white text-[8px] font-black px-2 py-1 rounded shadow-md uppercase tracking-widest z-20">MP</span>`;
                 } else if (acc.gatewayLink === 'ADDI') {
-                    linkBadge = `<span class="absolute top-4 right-4 bg-[#00D6D6] text-white text-[8px] font-black px-2 py-1 rounded shadow-md uppercase tracking-widest z-20">ADDI</span>`;
-                } else if (acc.gatewayLink === 'SISTECREDITO') { // <--- NUEVO
+                    // 🔥 CAMBIO: Actualizamos el texto de la etiqueta a ADDI / PSE
+                    linkBadge = `<span class="absolute top-4 right-4 bg-[#00D6D6] text-white text-[8px] font-black px-2 py-1 rounded shadow-md uppercase tracking-widest z-20">ADDI / PSE</span>`;
+                } else if (acc.gatewayLink === 'SISTECREDITO') { 
                     linkBadge = `<span class="absolute top-4 right-4 bg-[#00B34A] text-white text-[8px] font-black px-2 py-1 rounded shadow-md uppercase tracking-widest z-20">SISTECRÉDITO</span>`;
                 } else if (acc.gatewayLink === 'BOLD') {
                     linkBadge = `<span class="absolute top-4 right-4 bg-red-500 text-white text-[8px] font-black px-2 py-1 rounded shadow-md uppercase tracking-widest z-20">BOLD</span>`;

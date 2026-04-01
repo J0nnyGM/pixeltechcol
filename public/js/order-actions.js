@@ -69,13 +69,17 @@ export async function viewOrderDetail(orderId) {
             // Diccionario de Métodos
             const methods = {
                 'MERCADOPAGO': { label: 'MercadoPago', icon: 'fa-regular fa-credit-card', color: 'text-blue-500' },
+                'ONLINE': { label: 'MercadoPago', icon: 'fa-regular fa-credit-card', color: 'text-blue-500' }, // Alias de MP
                 'CONTRAENTREGA': { label: 'Contra Entrega', icon: 'fa-solid fa-truck-fast', color: 'text-brand-black' },
+                'COD': { label: 'Contra Entrega', icon: 'fa-solid fa-truck-fast', color: 'text-brand-black' }, // Alias de Contra Entrega
                 'ADDI': { label: 'Crédito ADDI', icon: 'fa-solid fa-hand-holding-dollar', color: 'text-[#00D6D6]' },
-                'SISTECREDITO': { label: 'Sistecrédito', icon: 'fa-solid fa-money-check-dollar', color: 'text-emerald-500' }, // <-- NUEVO
+                'SISTECREDITO': { label: 'Sistecrédito', icon: 'fa-solid fa-money-check-dollar', color: 'text-emerald-500' },
+                'PSE': { label: 'Pago con PSE', icon: 'fa-solid fa-building-columns', color: 'text-blue-600' }, // 🔥 AQUÍ ESTÁ LA SOLUCIÓN
                 'MANUAL': { label: 'Venta Manual', icon: 'fa-solid fa-cash-register', color: 'text-gray-500' }
             };
             
-            const methodKey = o.paymentMethod || 'MANUAL';
+            // Convertimos a mayúsculas por seguridad antes de buscar en el diccionario
+            const methodKey = (o.paymentMethod || 'MANUAL').toUpperCase();
             const mInfo = methods[methodKey] || methods['MANUAL'];
 
             // Estado del Pago
@@ -1213,7 +1217,374 @@ export function generateLabels(ordersArray) {
     w.document.close();
 }
 
+// =============================================================================
+// 7. LÓGICA DE ACCIONES MASIVAS (BULK ACTIONS - 0 LECTURAS EN RAM)
+// =============================================================================
+
+let currentBulkOrdersToPay = []; 
+let currentBulkOrdersToDispatch = [];
+let currentBulkOrdersToPack = [];
+
+// --- A. ALISTAMIENTO MASIVO ---
+export async function openBulkPackingModal() {
+    const checkboxes = document.querySelectorAll('.order-cb:checked');
+    if(checkboxes.length === 0) return alert("⚠️ Selecciona al menos un pedido de la tabla.");
+
+    const selectedIds = Array.from(checkboxes).map(cb => cb.value);
+    currentBulkOrdersToPack = [];
+    let omittedCount = 0;
+
+    // 🔥 MAGIA: Leemos directamente de la Memoria RAM (0 Lecturas, 0ms de espera)
+    const cachedOrders = window.adminOrdersCache || [];
+
+    for (const id of selectedIds) {
+        const o = cachedOrders.find(order => order.id === id);
+        if (o) {
+            if (['ALISTADO', 'DESPACHADO', 'EN_RUTA', 'ENTREGADO', 'CANCELADO', 'RECHAZADO', 'DEVUELTO', 'DEVOLUCION_PARCIAL'].includes(o.status)) {
+                omittedCount++;
+                continue;
+            }
+            currentBulkOrdersToPack.push(o);
+        }
+    }
+
+    getEl('bulk-packing-modal').classList.remove('hidden');
+    const btnConfirm = getEl('btn-confirm-bulk-pack');
+
+    getEl('bulk-pack-valid').textContent = currentBulkOrdersToPack.length;
+
+    const warningEl = getEl('bulk-pack-warning');
+    if (omittedCount > 0) {
+        warningEl.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> Se omitieron ${omittedCount} pedidos porque ya estaban alistados, despachados o cancelados.`;
+        warningEl.classList.remove('hidden');
+    } else {
+        warningEl.classList.add('hidden');
+    }
+
+    if (currentBulkOrdersToPack.length === 0) {
+        btnConfirm.disabled = true;
+        btnConfirm.innerHTML = "No hay pedidos válidos";
+        return; 
+    }
+
+    btnConfirm.disabled = false;
+    btnConfirm.innerHTML = '<i class="fa-solid fa-box-open"></i> Confirmar Alistamiento Masivo';
+}
+
+export async function processBulkPacking() {
+    const btn = getEl('btn-confirm-bulk-pack');
+    const originalText = btn.innerHTML;
+    btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Procesando...';
+
+    try {
+        let batch = db.batch();
+        let opsCount = 0;
+
+        // Aquí sí escribimos en Firebase (Las escrituras masivas por batch son muy rápidas)
+        for (const order of currentBulkOrdersToPack) {
+            const oRef = doc(db, "orders", order.id);
+            batch.update(oRef, {
+                status: 'ALISTADO',
+                updatedAt: serverTimestamp()
+            });
+            opsCount++;
+
+            if (opsCount >= 450) {
+                await batch.commit();
+                batch = db.batch();
+                opsCount = 0;
+            }
+        }
+
+        if (opsCount > 0) await batch.commit();
+
+        alert(`✅ ${currentBulkOrdersToPack.length} pedidos marcados como ALISTADOS.`);
+        getEl('bulk-packing-modal').classList.add('hidden');
+        document.querySelectorAll('.order-cb').forEach(cb => cb.checked = false);
+        
+        if(window.switchTab) window.switchTab('ACTIONABLE'); 
+        else location.reload();
+
+    } catch (e) {
+        console.error(e);
+        alert("Error alistando: " + (e.message || e));
+    } finally {
+        btn.disabled = false; btn.innerHTML = originalText;
+    }
+}
+
+// --- B. COBRO MASIVO ---
+export async function openBulkPaymentModal() {
+    const checkboxes = document.querySelectorAll('.order-cb:checked');
+    if(checkboxes.length === 0) return alert("⚠️ Selecciona al menos un pedido.");
+    
+    const selectedIds = Array.from(checkboxes).map(cb => cb.value);
+    currentBulkOrdersToPay = [];
+    let totalToCollect = 0;
+    let omittedCount = 0;
+
+    // 🔥 MAGIA: Leemos desde la memoria RAM viva (0 Lecturas)
+    const cachedOrders = window.adminOrdersCache || [];
+
+    for (const id of selectedIds) {
+        const o = cachedOrders.find(order => order.id === id);
+        if (o) {
+            const total = Number(o.total) || 0;
+            const paid = Number(o.amountPaid) || 0;
+            const refunded = Number(o.refundedAmount) || 0;
+            let pending = total - paid - refunded;
+            
+            if (pending > 0 && !['CANCELADO', 'RECHAZADO', 'DEVUELTO'].includes(o.status)) {
+                currentBulkOrdersToPay.push({ pendingAmt: pending, ...o });
+                totalToCollect += pending;
+            } else {
+                omittedCount++;
+            }
+        }
+    }
+
+    getEl('bulk-payment-modal').classList.remove('hidden');
+
+    const warningEl = getEl('bulk-pay-warning');
+    if (omittedCount > 0) {
+        warningEl.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> Se omitieron ${omittedCount} pedidos porque ya están 100% pagados o fueron cancelados.`;
+        warningEl.classList.remove('hidden');
+    } else {
+        warningEl.classList.add('hidden');
+    }
+
+    if (currentBulkOrdersToPay.length === 0) {
+        getEl('bulk-pay-total').textContent = "$0";
+        getEl('btn-confirm-bulk-pay').disabled = true;
+        return alert("❌ Ninguno de los pedidos seleccionados tiene saldo pendiente por cobrar.");
+    }
+
+    getEl('bulk-pay-count').textContent = currentBulkOrdersToPay.length;
+    getEl('bulk-pay-total').textContent = `$${totalToCollect.toLocaleString('es-CO')}`;
+    
+    // Cargar cuentas en el selector
+    const selectAcc = getEl('bulk-pay-account-select');
+    const accounts = await loadAccountsCached();
+    let ops = '<option value="">Seleccione Cuenta...</option>';
+    accounts.forEach(acc => {
+        ops += `<option value="${acc.id}">${acc.name} (${acc.type})</option>`;
+    });
+    selectAcc.innerHTML = ops;
+    
+    getEl('btn-confirm-bulk-pay').disabled = false;
+}
+
+export async function processBulkPayment() {
+    const accId = getEl('bulk-pay-account-select').value;
+    if (!accId) return alert("⚠️ Debes seleccionar una cuenta de destino.");
+
+    const btn = getEl('btn-confirm-bulk-pay');
+    const originalText = btn.innerHTML;
+    btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Procesando Transacción...';
+
+    try {
+        // 🔥 AQUÍ SÍ LEEMOS AL SERVIDOR (runTransaction): 
+        // Porque el dinero es crítico y debemos bloquear la base de datos milisegundos para evitar fraudes.
+        await runTransaction(db, async (t) => {
+            const accRef = doc(db, "accounts", accId);
+            const accDoc = await t.get(accRef);
+            if (!accDoc.exists()) throw "La cuenta seleccionada no existe.";
+            
+            const orderRefs = currentBulkOrdersToPay.map(o => doc(db, "orders", o.id));
+            const oSnaps = await Promise.all(orderRefs.map(ref => t.get(ref)));
+
+            const orderDocsToUpdate = [];
+            let totalAmountCollected = 0;
+
+            oSnaps.forEach((oSnap) => {
+                if(oSnap.exists()) {
+                    const oData = oSnap.data();
+                    const pending = (oData.total || 0) - (oData.amountPaid || 0) - (oData.refundedAmount || 0);
+                    if (pending > 0) {
+                        orderDocsToUpdate.push({ ref: oSnap.ref, data: oData, payAmt: pending });
+                        totalAmountCollected += pending;
+                    }
+                }
+            });
+
+            if (totalAmountCollected <= 0) throw "No hay saldos por cobrar confirmados por el servidor.";
+
+            const newBalance = (accDoc.data().balance || 0) + totalAmountCollected;
+            t.update(accRef, { balance: newBalance });
+
+            for (const o of orderDocsToUpdate) {
+                const newAmountPaid = (o.data.amountPaid || 0) + o.payAmt;
+                
+                let nextStatus = o.data.status; 
+                if (['PENDIENTE', 'PENDIENTE_PAGO'].includes(o.data.status)) {
+                    nextStatus = 'PAGADO';
+                }
+
+                t.update(o.ref, {
+                    status: nextStatus,
+                    paymentStatus: 'PAID',
+                    amountPaid: newAmountPaid, 
+                    paymentMethod: o.data.paymentMethod || 'MANUAL', 
+                    paymentAccountId: accId,
+                    paymentDate: serverTimestamp()
+                });
+
+                const expenseRef = doc(collection(db, "expenses"));
+                t.set(expenseRef, {
+                    amount: o.payAmt,
+                    category: "Ingreso Ventas Manual (Masivo)",
+                    description: `Cobro Masivo Orden #${o.ref.id.slice(0,8)}`,
+                    paymentMethod: accDoc.data().name,
+                    supplierName: o.data.userName || "Cliente",
+                    date: serverTimestamp(),
+                    createdAt: serverTimestamp(),
+                    type: 'INCOME',
+                    orderId: o.ref.id
+                });
+            }
+        });
+
+        alert("✅ Cobro masivo registrado exitosamente.");
+        getEl('bulk-payment-modal').classList.add('hidden');
+        document.querySelectorAll('.order-cb').forEach(cb => cb.checked = false);
+        if(window.switchTab) window.switchTab('ACTIONABLE'); 
+        else location.reload();
+
+    } catch (e) {
+        console.error(e);
+        alert("Error procesando cobros: " + (e.message || e));
+    } finally {
+        btn.disabled = false; btn.innerHTML = originalText;
+    }
+}
+
+// --- C. DESPACHO MASIVO ---
+export async function openBulkDispatchModal() {
+    const checkboxes = document.querySelectorAll('.order-cb:checked');
+    if(checkboxes.length === 0) return alert("⚠️ Selecciona al menos un pedido.");
+
+    const selectedIds = Array.from(checkboxes).map(cb => cb.value);
+    currentBulkOrdersToDispatch = [];
+    let omittedCount = 0;
+
+    const listContainer = getEl('bulk-dispatch-list');
+    getEl('bulk-dispatch-modal').classList.remove('hidden');
+
+    // 🔥 MAGIA: Leemos directamente de la Memoria RAM (0 Lecturas, 0ms de espera)
+    const cachedOrders = window.adminOrdersCache || [];
+    let htmlList = '';
+
+    for (const id of selectedIds) {
+        const o = cachedOrders.find(order => order.id === id);
+        if (o) {
+            if (['DESPACHADO', 'ENTREGADO', 'CANCELADO', 'RECHAZADO', 'DEVUELTO'].includes(o.status)) {
+                omittedCount++;
+                continue; 
+            }
+
+            currentBulkOrdersToDispatch.push(o);
+            
+            const clientName = o.buyerInfo?.name || o.userName || 'Cliente';
+            const orderNum = o.internalOrderNumber ? `#${o.internalOrderNumber}` : o.id.slice(0,6);
+            
+            htmlList += `
+            <div class="flex flex-col md:flex-row items-start md:items-center justify-between gap-3 p-3 bg-slate-50 border border-gray-100 rounded-xl mb-2">
+                <div>
+                    <p class="font-black text-xs text-brand-black">${orderNum} - ${clientName.toUpperCase()}</p>
+                    <p class="text-[9px] font-bold text-gray-400">${o.shippingData?.city || 'Ciudad no definida'}</p>
+                </div>
+                <input type="text" id="bulk-track-${o.id}" placeholder="Escanear/Escribir Guía" class="w-full md:w-48 bg-white border border-gray-200 text-xs font-mono font-bold p-2 rounded-lg outline-none focus:border-blue-500">
+            </div>
+            `;
+        }
+    }
+
+    const warningEl = getEl('bulk-disp-warning');
+    if (omittedCount > 0) {
+        warningEl.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> Se omitieron ${omittedCount} pedidos porque ya fueron despachados, entregados o cancelados.`;
+        warningEl.classList.remove('hidden');
+    } else {
+        warningEl.classList.add('hidden');
+    }
+
+    if (currentBulkOrdersToDispatch.length === 0) {
+        listContainer.innerHTML = `<p class="text-center text-red-500 font-bold py-4">❌ Ninguno de los pedidos seleccionados es válido para despachar.</p>`;
+        getEl('btn-confirm-bulk-dispatch').disabled = true;
+        return;
+    }
+
+    getEl('btn-confirm-bulk-dispatch').disabled = false;
+    getEl('bulk-disp-count').textContent = currentBulkOrdersToDispatch.length;
+    listContainer.innerHTML = htmlList;
+}
+
+export async function processBulkDispatch() {
+    const carrier = getEl('bulk-dispatch-carrier').value;
+    if (!carrier) return alert("⚠️ Por favor, selecciona una Transportadora Global.");
+
+    const updatesToApply = [];
+    for (const order of currentBulkOrdersToDispatch) {
+        const trackInput = getEl(`bulk-track-${order.id}`);
+        const trackingNum = trackInput ? trackInput.value.trim() : "";
+        
+        if (!trackingNum) {
+            return alert(`⚠️ Te falta asignar el número de guía para la orden ${order.internalOrderNumber || order.id.slice(0,6)}.`);
+        }
+        
+        updatesToApply.push({ id: order.id, tracking: trackingNum });
+    }
+
+    const btn = getEl('btn-confirm-bulk-dispatch');
+    const originalText = btn.innerHTML;
+    btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Despachando...';
+
+    try {
+        let batch = db.batch();
+        let opsCount = 0;
+
+        for (const update of updatesToApply) {
+            const oRef = doc(db, "orders", update.id);
+            batch.update(oRef, {
+                status: 'DESPACHADO', 
+                shippingCarrier: carrier, 
+                shippingTracking: update.tracking, 
+                shippedAt: serverTimestamp(),
+                updatedAt: serverTimestamp()
+            });
+            opsCount++;
+
+            if (opsCount >= 450) {
+                await batch.commit();
+                batch = db.batch();
+                opsCount = 0;
+            }
+        }
+
+        if (opsCount > 0) await batch.commit();
+
+        alert("🚚 ¡Despacho Masivo Exitoso!");
+        getEl('bulk-dispatch-modal').classList.add('hidden');
+        document.querySelectorAll('.order-cb').forEach(cb => cb.checked = false); 
+        
+        if(window.switchTab) window.switchTab('ACTIONABLE'); 
+        else location.reload();
+
+    } catch (e) {
+        console.error(e);
+        alert("Error despachando: " + (e.message || e));
+    } finally {
+        btn.disabled = false; btn.innerHTML = originalText;
+    }
+}
+
+// --- EXPORTAR AL WINDOW ---
+window.openBulkPaymentModal = openBulkPaymentModal;
+window.processBulkPayment = processBulkPayment;
+window.openBulkDispatchModal = openBulkDispatchModal;
+window.processBulkDispatch = processBulkDispatch;
+window.openBulkPackingModal = openBulkPackingModal;
+window.processBulkPacking = processBulkPacking;
+
 // Exportar al window para usar en HTML
 window.openPaymentModal = openPaymentModal;
-
 window.generateLabels = generateLabels; // <-- Añadir esta línea

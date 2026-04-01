@@ -52,6 +52,8 @@ let shippingConfig = { freeThreshold: 0, defaultPrice: 0, groups: [] };
 let currentShippingCost = 0;
 let selectedPaymentMethod = 'MANUAL';
 
+let colombianHolidays = [];
+
 // Listeners en vivo
 let unsubscribeShipping = null;
 let unsubscribeUser = null;
@@ -82,6 +84,7 @@ onAuthStateChanged(auth, async (user) => {
         currentUser = user;
         
         await loadDepartments(); // API Externa (0 lecturas)
+        await loadHolidays();    // 🔥 NUEVO: Cargamos los festivos al entrar
         
         // Iniciamos los motores en tiempo real
         initShippingRealtimeSync();
@@ -150,7 +153,6 @@ function updateSubmitButtonText() {
         btn.innerHTML = `Pagar con ADDI <i class="fa-solid fa-arrow-right"></i>`;
         btn.classList.add('bg-[#00D6D6]', 'text-white');
     }
-    // NUEVO: Botón de Sistecrédito
     else if (selectedPaymentMethod === 'SISTECREDITO') {
         btn.innerHTML = `Pagar con Sistecrédito <i class="fa-solid fa-arrow-right"></i>`;
         btn.classList.add('bg-[#00B34A]', 'text-white');
@@ -159,6 +161,9 @@ function updateSubmitButtonText() {
         btn.innerHTML = `Pagar con PSE <i class="fa-solid fa-building-columns"></i>`;
         btn.classList.add('bg-blue-600', 'text-white');
     }
+
+    // 🔥 NUEVO: Forzamos la actualización del mensaje de despacho al cambiar de método
+    checkDispatchTime(shippingConfig.cutoffTime || "14:00");
 }
 
 // ==========================================================================
@@ -261,24 +266,72 @@ function populateUserForm() {
 
 function checkDispatchTime(cutoffTimeStr) {
     if(!els.dispatchMsg) return;
+    
     const now = new Date();
+    const dayOfWeek = now.getDay(); // 0 = Domingo, 1 = Lunes ... 6 = Sábado
     const [hours, minutes] = cutoffTimeStr.split(':').map(Number);
-    const cutoffDate = new Date();
+    
+    let cutoffDate = new Date();
     cutoffDate.setHours(hours, minutes, 0, 0);
 
-    const isBeforeCutoff = now < cutoffDate;
-    const diffHrs = Math.floor((cutoffDate - now) / 3600000);
-    const diffMins = Math.floor(((cutoffDate - now) % 3600000) / 60000);
+    // Formatear fecha a YYYY-MM-DD (Ajustando la zona horaria local)
+    const formatDateStr = (dateObj) => {
+        const offset = dateObj.getTimezoneOffset() * 60000;
+        return new Date(dateObj.getTime() - offset).toISOString().split('T')[0];
+    };
+
+    const todayStr = formatDateStr(now);
+    const isTodayHoliday = colombianHolidays.includes(todayStr);
+
+    // LÓGICA SISTECRÉDITO: Restamos 6 horas al límite normal
+    if (selectedPaymentMethod === 'SISTECREDITO') {
+        cutoffDate.setHours(cutoffDate.getHours() - 6);
+    }
+
+    // ¿Estamos a tiempo de despachar hoy?
+    let isBeforeCutoff = now < cutoffDate;
+
+    // Si hoy es Domingo o Festivo en Colombia, NUNCA se despacha hoy.
+    if (dayOfWeek === 0 || isTodayHoliday) {
+        isBeforeCutoff = false;
+    }
 
     els.dispatchMsg.classList.remove('hidden');
 
     if (isBeforeCutoff) {
+        const diffHrs = Math.floor((cutoffDate - now) / 3600000);
+        const diffMins = Math.floor(((cutoffDate - now) % 3600000) / 60000);
+        
         let timeText = "";
         if(diffHrs > 0) timeText += `${diffHrs}h `;
         timeText += `${diffMins}m`;
+        
         els.dispatchMsg.innerHTML = `<p class="text-[10px] font-black uppercase text-green-600 pulse-text"><i class="fa-solid fa-bolt text-yellow-500 mr-1"></i> Pide en <span class="underline">${timeText}</span> y despachamos HOY</p>`;
     } else {
-        els.dispatchMsg.innerHTML = `<p class="text-[10px] font-black uppercase text-blue-500"><i class="fa-solid fa-calendar-check mr-1"></i> Tu pedido será despachado MAÑANA</p>`;
+        // 🔥 MAGIA: Si no sale hoy, buscamos el siguiente día hábil real (saltando domingos y festivos)
+        let nextDay = new Date(now);
+        nextDay.setDate(nextDay.getDate() + 1); // Empezamos revisando el día de mañana
+
+        while (nextDay.getDay() === 0 || colombianHolidays.includes(formatDateStr(nextDay))) {
+            nextDay.setDate(nextDay.getDate() + 1); // Si es domingo o festivo, saltamos al siguiente día
+        }
+
+        // Traducir el día que encontramos a español
+        const diasSemana = ['el DOMINGO', 'el LUNES', 'el MARTES', 'el MIÉRCOLES', 'el JUEVES', 'el VIERNES', 'el SÁBADO'];
+        let dispatchDayText = diasSemana[nextDay.getDay()];
+        
+        // Si casualmente el siguiente día hábil es exactamente mañana, decimos "MAÑANA" por elegancia
+        const tomorrow = new Date(now);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        if (formatDateStr(nextDay) === formatDateStr(tomorrow)) {
+            dispatchDayText = "MAÑANA";
+        }
+
+        if (selectedPaymentMethod === 'SISTECREDITO') {
+            els.dispatchMsg.innerHTML = `<p class="text-[10px] font-black uppercase text-blue-500"><i class="fa-solid fa-calendar-check mr-1"></i> Tu pedido será despachado despacharemos ${dispatchDayText}</p>`;
+        } else {
+            els.dispatchMsg.innerHTML = `<p class="text-[10px] font-black uppercase text-blue-500"><i class="fa-solid fa-calendar-check mr-1"></i> Tu pedido será despachado ${dispatchDayText}</p>`;
+        }
     }
 }
 
@@ -296,6 +349,19 @@ async function loadDepartments() {
             els.deptSelect.appendChild(opt);
         });
     } catch (e) { console.error("API Dept Error:", e); }
+}
+
+// 🔥 NUEVO: Cargar festivos de Colombia del año actual
+async function loadHolidays() {
+    try {
+        const year = new Date().getFullYear();
+        const res = await fetch(`https://date.nager.at/api/v3/PublicHolidays/${year}/CO`);
+        const data = await res.json();
+        // Extraemos solo las fechas (ej: "2026-05-01") y las guardamos en nuestro caché
+        colombianHolidays = data.map(h => h.date);
+    } catch (e) {
+        console.error("Error cargando festivos de Colombia:", e);
+    }
 }
 
 els.savedAddrSelect.addEventListener('change', (e) => {
