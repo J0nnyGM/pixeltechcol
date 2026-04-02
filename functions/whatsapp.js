@@ -63,111 +63,131 @@ async function downloadAndUploadMedia(mediaId, mimeType, phoneNumber) {
 
 // --- WEBHOOK (RECIBIR + BOT) ---
 exports.webhook = onRequest({ timeoutSeconds: 60 }, async (req, res) => {
-    // A. Verificación (GET)
+    // A. Verificación (GET) - Esto lo usa Meta cuando vinculas la app por primera vez
     if (req.method === "GET") {
         if (req.query["hub.mode"] === "subscribe" && req.query["hub.verify_token"] === VERIFY_TOKEN) {
+            console.log("✅ Webhook verificado por Meta correctamente.");
             res.status(200).send(req.query["hub.challenge"]);
-        } else res.sendStatus(403);
+        } else {
+            console.error("❌ Fallo en la verificación del Webhook. Token incorrecto.");
+            res.sendStatus(403);
+        }
         return;
     }
 
-    // B. Recepción (POST)
+    // B. Recepción (POST) - Aquí entran los mensajes y alertas
     if (req.method === "POST") {
         const body = req.body;
-        if (body.object && body.entry?.[0]?.changes?.[0]?.value?.messages) {
-            const change = body.entry[0].changes[0].value;
-            const message = change.messages[0];
-            const phoneNumber = message.from;
-            const userName = change.contacts[0]?.profile?.name || "Usuario";
-            const type = message.type;
-            
-            let content = "";
-            let mediaUrl = null;
 
-            try {
-                // 1. Procesar contenido entrante
-                if (type === "text") content = message.text.body;
-                else if (type === "image") {
-                    content = message.image.caption || "📷 Imagen recibida";
-                    mediaUrl = await downloadAndUploadMedia(message.image.id, message.image.mime_type, phoneNumber);
-                } else if (type === "audio") {
-                    content = "🎤 Audio recibido";
-                    mediaUrl = await downloadAndUploadMedia(message.audio.id, message.audio.mime_type, phoneNumber);
-                } else content = `[Archivo: ${type}]`;
+        // 🔥 LOG GIGANTE 1: Imprime absolutamente todo lo que Meta nos manda
+        console.log("📥 [META PAYLOAD CRUDO]:", JSON.stringify(body, null, 2));
 
-                const chatRef = db.collection('chats').doc(phoneNumber);
+        if (body.object) {
+            const change = body.entry?.[0]?.changes?.[0]?.value;
+
+            // ESCENARIO 1: Llegó un mensaje de un cliente
+            if (change?.messages) {
+                const message = change.messages[0];
+                const phoneNumber = message.from;
+                const userName = change.contacts?.[0]?.profile?.name || "Usuario";
+                const type = message.type;
                 
-                // 2. 🤖 LOGICA DEL BOT DE HORARIO 🤖
-                // Obtener hora actual en Colombia
-                const now = new Date();
-                const bogotaHour = parseInt(now.toLocaleString("en-US", {timeZone: "America/Bogota", hour: "numeric", hour12: false}));
-                
-                // Configuración Horario: 8 PM (20) a 7 AM (7)
-                // OJO: Si bogotaHour es 20, 21, 22, 23 OR 0, 1, 2, 3, 4, 5, 6
-                const isOutOfOffice = bogotaHour >= 20 || bogotaHour < 7; 
+                console.log(`💬 [MENSAJE ENTRANTE] De: ${phoneNumber} | Tipo: ${type}`);
 
-                let autoReplySent = false;
+                let content = "";
+                let mediaUrl = null;
 
-                if (isOutOfOffice) {
-                    // Verificamos si ya le respondimos automáticamente hace poco (para no hacer spam en cada mensaje)
-                    const docSnap = await chatRef.get();
-                    const lastAutoReply = docSnap.exists ? docSnap.data().lastAutoReply?.toDate() : null;
+                try {
+                    // 1. Procesar contenido entrante
+                    if (type === "text") content = message.text.body;
+                    else if (type === "image") {
+                        content = message.image.caption || "📷 Imagen recibida";
+                        mediaUrl = await downloadAndUploadMedia(message.image.id, message.image.mime_type, phoneNumber);
+                    } else if (type === "audio") {
+                        content = "🎤 Audio recibido";
+                        mediaUrl = await downloadAndUploadMedia(message.audio.id, message.audio.mime_type, phoneNumber);
+                    } else content = `[Archivo: ${type}]`;
+
+                    const chatRef = db.collection('chats').doc(phoneNumber);
                     
-                    // Si nunca le hemos respondido o pasaron más de 12 horas desde la última respuesta automática
-                    const hoursSinceLast = lastAutoReply ? (now - lastAutoReply) / (1000 * 60 * 60) : 24;
+                    // 2. 🤖 LÓGICA DEL BOT DE HORARIO 🤖
+                    const now = new Date();
+                    const bogotaHour = parseInt(now.toLocaleString("en-US", {timeZone: "America/Bogota", hour: "numeric", hour12: false}));
+                    
+                    const isOutOfOffice = bogotaHour >= 20 || bogotaHour < 7; 
+                    let autoReplySent = false;
 
-                    if (hoursSinceLast > 12) {
-                        const replyText = "Hola 👋, gracias por escribir a PixelTech.\n\n🌙 Nuestro equipo descansa en este momento, pero hemos recibido tu mensaje y te responderemos a primera hora de la mañana.";
-                        
-                        // Enviar respuesta a WhatsApp
-                        const replyId = await sendToMeta(phoneNumber, replyText, 'text');
-                        
-                        // Guardar en el historial (Como mensaje saliente del sistema)
-                        await chatRef.collection('messages').add({
-                            type: 'outgoing', // Para que salga a la derecha
-                            content: replyText,
-                            messageType: 'text',
-                            whatsappId: replyId,
-                            isAutoReply: true, // Marca interna
-                            timestamp: admin.firestore.Timestamp.now()
-                        });
+                    if (isOutOfOffice) {
+                        const docSnap = await chatRef.get();
+                        const lastAutoReply = docSnap.exists ? docSnap.data().lastAutoReply?.toDate() : null;
+                        const hoursSinceLast = lastAutoReply ? (now - lastAutoReply) / (1000 * 60 * 60) : 24;
 
-                        autoReplySent = true;
+                        if (hoursSinceLast > 12) {
+                            console.log(`🌙 [BOT] Fuera de horario. Enviando auto-respuesta a ${phoneNumber}...`);
+                            const replyText = "Hola 👋, gracias por escribir a PixelTech.\n\n🌙 Nuestro equipo descansa en este momento, pero hemos recibido tu mensaje y te responderemos a primera hora de la mañana.";
+                            
+                            const replyId = await sendToMeta(phoneNumber, replyText, 'text');
+                            
+                            await chatRef.collection('messages').add({
+                                type: 'outgoing', 
+                                content: replyText,
+                                messageType: 'text',
+                                whatsappId: replyId,
+                                isAutoReply: true, 
+                                timestamp: admin.firestore.Timestamp.now()
+                            });
+
+                            autoReplySent = true;
+                        }
                     }
+
+                    // 3. Guardar el mensaje del cliente en Firestore
+                    const updateData = {
+                        clientName: userName, 
+                        phoneNumber, 
+                        lastMessage: content,
+                        lastMessageAt: admin.firestore.FieldValue.serverTimestamp(),
+                        lastCustomerInteraction: admin.firestore.FieldValue.serverTimestamp(),
+                        unread: true, 
+                        platform: 'whatsapp',
+                        status: 'open'
+                    };
+
+                    if (autoReplySent) {
+                        updateData.lastAutoReply = admin.firestore.FieldValue.serverTimestamp();
+                    }
+
+                    await chatRef.set(updateData, { merge: true });
+
+                    await chatRef.collection('messages').add({
+                        type: 'incoming', 
+                        content: content,
+                        mediaUrl: mediaUrl,
+                        messageType: type,
+                        whatsappId: message.id, 
+                        timestamp: admin.firestore.Timestamp.now()
+                    });
+                    
+                    console.log("✅ [MENSAJE GUARDADO] Firestore actualizado correctamente.");
+
+                } catch (e) { 
+                    // 🔥 LOG GIGANTE 2: Si el código falla internamente, lo atrapamos aquí
+                    console.error("❌ [ERROR INTERNO PROCESANDO MENSAJE]:", e); 
                 }
-
-                // 3. Guardar el mensaje del cliente y actualizar cabecera
-                const updateData = {
-                    clientName: userName, 
-                    phoneNumber, 
-                    lastMessage: content,
-                    lastMessageAt: admin.firestore.FieldValue.serverTimestamp(),
-                    lastCustomerInteraction: admin.firestore.FieldValue.serverTimestamp(),
-                    unread: true, // IMPORTANTE: Sigue siendo true para que lo veas mañana
-                    platform: 'whatsapp',
-                    status: 'open'
-                };
-
-                // Si enviamos auto-respuesta, actualizamos la fecha para el control de spam
-                if (autoReplySent) {
-                    updateData.lastAutoReply = admin.firestore.FieldValue.serverTimestamp();
-                    // Opcional: Si quieres que la auto-respuesta quite el "unread", pon unread: false. 
-                    // Pero dejémoslo en true para que veas que el cliente escribió.
+            } 
+            // ESCENARIO 2: Reporte de Estado (Ej: El mensaje falló, se entregó, se leyó)
+            else if (change?.statuses) {
+                const status = change.statuses[0];
+                console.log(`📊 [REPORTE DE ESTADO META] Mensaje ID: ${status.id} | Estado: ${status.status}`);
+                
+                if (status.errors) {
+                    console.error("🚫 [META BLOQUEO/ERROR]:", JSON.stringify(status.errors, null, 2));
                 }
-
-                await chatRef.set(updateData, { merge: true });
-
-                await chatRef.collection('messages').add({
-                    type: 'incoming', 
-                    content: content,
-                    mediaUrl: mediaUrl,
-                    messageType: type,
-                    whatsappId: message.id, 
-                    timestamp: admin.firestore.Timestamp.now()
-                });
-
-            } catch (e) { console.error("Error Webhook:", e); }
+            }
         }
+        
+        // MUY IMPORTANTE: Siempre debes decirle a Meta "Recibido (200 OK)", sin importar si tu código falló.
+        // Si no haces esto rápido, Meta intentará reenviar el mensaje y luego suspenderá tu Webhook.
         res.sendStatus(200);
     }
 });

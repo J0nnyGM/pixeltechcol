@@ -1,4 +1,4 @@
-import { db, doc, getDoc, updateDoc, Timestamp, collection, getDocs, runTransaction, serverTimestamp } from './firebase-init.js';
+import { db, doc, getDoc, updateDoc, Timestamp, collection, getDocs, runTransaction, serverTimestamp, writeBatch } from './firebase-init.js';
 import { adjustStock } from './inventory-core.js'; 
 
 // --- CACHÉ DE OPTIMIZACIÓN ---
@@ -1277,10 +1277,9 @@ export async function processBulkPacking() {
     btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Procesando...';
 
     try {
-        let batch = db.batch();
+        let batch = writeBatch(db); // 🔥 CORREGIDO
         let opsCount = 0;
 
-        // Aquí sí escribimos en Firebase (Las escrituras masivas por batch son muy rápidas)
         for (const order of currentBulkOrdersToPack) {
             const oRef = doc(db, "orders", order.id);
             batch.update(oRef, {
@@ -1291,7 +1290,7 @@ export async function processBulkPacking() {
 
             if (opsCount >= 450) {
                 await batch.commit();
-                batch = db.batch();
+                batch = writeBatch(db); // 🔥 CORREGIDO
                 opsCount = 0;
             }
         }
@@ -1539,7 +1538,7 @@ export async function processBulkDispatch() {
     btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Despachando...';
 
     try {
-        let batch = db.batch();
+        let batch = writeBatch(db); // 🔥 CORREGIDO
         let opsCount = 0;
 
         for (const update of updatesToApply) {
@@ -1555,7 +1554,7 @@ export async function processBulkDispatch() {
 
             if (opsCount >= 450) {
                 await batch.commit();
-                batch = db.batch();
+                batch = writeBatch(db); // 🔥 CORREGIDO
                 opsCount = 0;
             }
         }
