@@ -33,13 +33,23 @@ let colorImagesMap = {};
 let matrixData = {};
 let cachedCategories = []; 
 
+// Tipos de imagen permitidos
+const VALID_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+
 // --- 1. GALERÍA GLOBAL ---
 const pImagesInput = document.getElementById('p-images');
 if (pImagesInput) {
     pImagesInput.onchange = (e) => {
+        let hasInvalid = false;
         Array.from(e.target.files).forEach(file => {
-            globalFiles.push({ id: Math.random().toString(36).substr(2, 9), file });
+            if (VALID_IMAGE_TYPES.includes(file.type)) {
+                globalFiles.push({ id: Math.random().toString(36).substr(2, 9), file });
+            } else {
+                hasInvalid = true;
+                console.warn(`Archivo ignorado: ${file.name} (Solo JPG, PNG, WEBP)`);
+            }
         });
+        if (hasInvalid) alert("Algunos archivos fueron ignorados. Solo se permiten imágenes JPG, PNG o WEBP.");
         renderGlobalGallery();
         e.target.value = "";
     };
@@ -91,7 +101,7 @@ document.getElementById('btn-add-color').onclick = () => {
     const val = input.value.trim();
     if(val && !definedColors.includes(val)) {
         definedColors.push(val);
-        colorImagesMap[val] = []; // Inicializar array vacío para este color
+        colorImagesMap[val] = []; 
         renderTags();
         renderColorUploaders();
         renderMatrix();
@@ -127,7 +137,7 @@ window.removeAttr = (type, val) => {
     renderTags(); renderMatrix(); 
 };
 
-// --- 3. SUBIDA POR COLOR (CORREGIDO: ELIMINACIÓN INDIVIDUAL) ---
+// --- 3. SUBIDA POR COLOR ---
 function renderColorUploaders() {
     const container = document.getElementById('color-uploaders-container');
     const section = document.getElementById('color-images-section');
@@ -153,27 +163,34 @@ function renderColorUploaders() {
             <div class="w-24 shrink-0"><span class="text-xs font-bold text-brand-black">${color}</span></div>
             <div class="flex gap-2 flex-wrap flex-grow">${imagesHTML}</div>
             <label class="cursor-pointer bg-white border border-gray-200 text-brand-black px-3 py-2 rounded-lg text-[9px] font-black uppercase hover:bg-brand-cyan hover:border-brand-cyan transition">
-                + Fotos <input type="file" multiple accept="image/*" class="hidden" onchange="addColorImages('${color}', this.files)">
+                + Fotos <input type="file" multiple accept=".png, .jpg, .jpeg, .webp, image/png, image/jpeg, image/webp" class="hidden" onchange="addColorImages('${color}', this.files)">
             </label>`;
         container.appendChild(div);
     });
 }
 
-// Nueva función para borrar imagen específica de un color
 window.removeColorImage = (color, index) => {
     if (colorImagesMap[color]) {
-        colorImagesMap[color].splice(index, 1); // Elimina el archivo del array
-        renderColorUploaders(); // Re-renderiza para actualizar la vista
+        colorImagesMap[color].splice(index, 1); 
+        renderColorUploaders(); 
     }
 };
 
 window.addColorImages = (color, files) => { 
     if(!colorImagesMap[color]) colorImagesMap[color] = [];
-    colorImagesMap[color] = [...colorImagesMap[color], ...Array.from(files)]; 
+    let hasInvalid = false;
+    const validFiles = Array.from(files).filter(file => {
+        if (VALID_IMAGE_TYPES.includes(file.type)) return true;
+        hasInvalid = true;
+        return false;
+    });
+    if (hasInvalid) alert("Formato inválido. Solo se admiten JPG, PNG y WEBP.");
+    
+    colorImagesMap[color] = [...colorImagesMap[color], ...validFiles]; 
     renderColorUploaders(); 
 };
 
-// --- 4. MATRIZ (CON SKU DINÁMICO) ---
+// --- 4. MATRIZ ---
 function renderMatrix() {
     const tbody = document.getElementById('matrix-tbody');
     const globalSku = document.getElementById('p-sku').value.trim().toUpperCase(); 
@@ -424,7 +441,7 @@ form.onsubmit = async (e) => {
             category: pCategoryHidden.value,
             subcategory: pSubCategoryHidden.value,
             description: descriptionEditor.innerHTML,
-            status: 'active',
+            status: document.getElementById('p-status').value, // 🔥 CORRECCIÓN AQUÍ: Toma del select "Borrador/Activo"
             createdAt: new Date(),
             updatedAt: new Date(),
             price: finalPrice,
@@ -447,14 +464,14 @@ form.onsubmit = async (e) => {
         };
 
         await addDoc(collection(db, "products"), productData);
-        alert("✅ Producto publicado y optimizado.");
+        alert("✅ Producto guardado correctamente.");
         window.location.href = "products.html";
 
     } catch (e) { 
         console.error(e); 
         alert("Error: " + e.message); 
         btnPublish.disabled = false; 
-        btnPublish.innerHTML = 'Guardar en Inventario';
+        btnPublish.innerHTML = 'Publicar';
     }
 };
 

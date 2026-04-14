@@ -11,8 +11,8 @@ const PHONE_ID = process.env.WHATSAPP_PHONE_ID;
 
 // --- HELPERS ---
 
-// 1. Enviar mensaje a Meta (Reutilizable)
-async function sendToMeta(phoneNumber, message, type = 'text', mediaUrl = null) {
+// 1. Enviar mensaje a Meta (Reutilizable - Actualizado con Templates)
+async function sendToMeta(phoneNumber, message, type = 'text', mediaUrl = null, templateName = null, templateLang = 'en_US') {
     const url = `https://graph.facebook.com/v17.0/${PHONE_ID}/messages`;
     let body = { 
         messaging_product: 'whatsapp', 
@@ -22,6 +22,11 @@ async function sendToMeta(phoneNumber, message, type = 'text', mediaUrl = null) 
 
     if (type === 'image') {
         body.image = { link: mediaUrl, caption: message || "" };
+    } else if (type === 'template') {
+        body.template = { 
+            name: templateName, 
+            language: { code: templateLang } 
+        };
     } else {
         body.text = { body: message };
     }
@@ -33,7 +38,7 @@ async function sendToMeta(phoneNumber, message, type = 'text', mediaUrl = null) 
         return response.data.messages[0].id;
     } catch (error) {
         console.error("Error Meta API:", error.response?.data || error.message);
-        throw new Error("Fallo al enviar mensaje a WhatsApp");
+        throw new Error(error.response?.data?.error?.message || "Fallo al enviar mensaje a WhatsApp");
     }
 }
 
@@ -221,5 +226,92 @@ exports.sendMessage = onCall(async (request) => {
         return { success: true };
     } catch (error) {
         throw new HttpsError('internal', error.message);
+    }
+});
+
+// --- FUNCIÓN DE PRUEBA: ENVIAR PLANTILLA HELLO_WORLD ---
+exports.sendTestTemplate = onCall(async (request) => {
+    if (!request.auth) throw new HttpsError('unauthenticated', 'Login requerido.');
+    
+    const { phoneNumber } = request.data;
+    
+    try {
+        // Disparamos la plantilla por defecto de Meta
+        const waId = await sendToMeta(phoneNumber, null, 'template', null, 'hello_world', 'en_US');
+        return { success: true, waId: waId };
+    } catch (error) {
+        throw new HttpsError('internal', error.message);
+    }
+});
+
+// --- FUNCIÓN DE MARKETING MASIVO (CAMPAÑAS) ---
+exports.sendMassTemplate = onCall(async (request) => {
+    if (!request.auth) throw new HttpsError('unauthenticated', 'Login requerido.');
+    
+    const { phoneNumber, templateName, imageUrl, clientName, customMessage, linkPath } = request.data;
+    
+    try {
+        const url = `https://graph.facebook.com/v17.0/${PHONE_ID}/messages`;
+        
+        // Estructura exacta que exige Meta para plantillas con variables
+        const body = {
+            messaging_product: 'whatsapp',
+            to: phoneNumber,
+            type: 'template',
+            template: {
+                name: templateName,
+                language: { code: 'es' }, // Tu plantilla en Meta debe estar en Español (es)
+                components: [
+                    {
+                        type: 'header',
+                        parameters: [
+                            { type: 'image', image: { link: imageUrl } }
+                        ]
+                    },
+                    {
+                        type: 'body',
+                        parameters: [
+                            { type: 'text', text: clientName || "Cliente" }, // {{1}}
+                            { type: 'text', text: customMessage || "Promoción especial" } // {{2}}
+                        ]
+                    },
+                    {
+                        type: 'button',
+                        sub_type: 'url',
+                        index: "0", // El primer botón de la plantilla
+                        parameters: [
+                            { type: 'text', text: linkPath } // Lo que va después del dominio base
+                        ]
+                    }
+                ]
+            }
+        };
+
+        const response = await axios.post(url, body, {
+            headers: { 'Authorization': `Bearer ${API_TOKEN}`, 'Content-Type': 'application/json' }
+        });
+
+        // Opcional: Dejar un rastro en el chat del cliente para saber qué le enviamos
+        const chatRef = db.collection('chats').doc(phoneNumber);
+        await chatRef.set({
+            lastMessage: '📢 [Campaña Enviada]',
+            lastMessageAt: admin.firestore.FieldValue.serverTimestamp(),
+            unread: false 
+        }, { merge: true });
+
+        await chatRef.collection('messages').add({
+            type: 'outgoing',
+            content: `📢 *Campaña Masiva:*\n${customMessage}\n🔗 URL: /${linkPath}`,
+            mediaUrl: imageUrl,
+            messageType: 'template',
+            whatsappId: response.data.messages[0].id,
+            timestamp: admin.firestore.Timestamp.now()
+        });
+
+        return { success: true, waId: response.data.messages[0].id };
+    } catch (error) {
+        // Log detallado para atrapar errores de políticas de Meta
+        console.error("❌ Error Meta API (Campaña Masiva):", JSON.stringify(error.response?.data || error.message));
+        throw new HttpsError('internal', error.response?.data?.error?.message || "Fallo al enviar campaña a Meta");
     }
 });

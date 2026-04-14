@@ -1,66 +1,38 @@
 // public/js/auth-logic.js
-import { 
-    auth, 
-    db, 
-    provider, 
-    signInWithPopup, 
-    doc, 
-    getDoc, 
-    setDoc 
-} from "./firebase-init.js";
+import { auth, db, provider, signInWithPopup, doc, getDoc, setDoc } from "./firebase-init.js";
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 
-import { 
-    createUserWithEmailAndPassword, 
-    signInWithEmailAndPassword, 
-    updateProfile,
-    sendPasswordResetEmail // <--- Agrega esta importación
-} from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
-
-// --- ELEMENTOS DEL DOM ---
 const loginForm = document.getElementById('login-form');
 const registerForm = document.getElementById('register-form');
 const googleBtn = document.getElementById('btn-google');
 const msgBox = document.getElementById('auth-message');
+const forgotPasswordLink = document.getElementById('forgot-password');
 
-// --- FUNCIONES DE UTILIDAD ---
-
-/**
- * Muestra mensajes de error o éxito en la interfaz
- */
 function showMessage(msg, type = 'error') {
     if (!msgBox) return;
     msgBox.textContent = msg;
     msgBox.classList.remove('hidden', 'bg-red-500/20', 'text-red-400', 'bg-green-500/20', 'text-green-400', 'border-red-500/50', 'border-green-500/50');
-    
-    if (type === 'error') {
-        msgBox.classList.add('bg-red-500/20', 'text-red-400', 'border', 'border-red-500/50');
-    } else {
-        msgBox.classList.add('bg-green-500/20', 'text-green-400', 'border', 'border-green-500/50');
-    }
+    if (type === 'error') msgBox.classList.add('bg-red-500/20', 'text-red-400', 'border', 'border-red-500/50');
+    else msgBox.classList.add('bg-green-500/20', 'text-green-400', 'border', 'border-green-500/50');
     msgBox.classList.remove('hidden');
 }
 
-/**
- * REDIRECCIÓN INTELIGENTE:
- * Verifica el rol en Firestore y redirige según corresponda.
- */
+// --- REDIRECCIÓN INTELIGENTE ---
 async function smartRedirect(user) {
     try {
         const userDoc = await getDoc(doc(db, "users", user.uid));
-        
         if (userDoc.exists()) {
-            const userData = userDoc.data();
+            const role = userDoc.data().role;
+            const staffRoles = ['admin', 'contabilidad', 'ventas', 'logistica'];
             
-            if (userData.role === 'admin') {
-                console.log("Acceso de Administrador detectado.");
+            if (staffRoles.includes(role)) {
+                console.log(`Acceso Empleado (${role}).`);
                 window.location.href = "/admin/index.html";
             } else {
-                console.log("Acceso de Cliente detectado.");
+                console.log("Acceso Cliente.");
                 window.location.href = "/index.html";
             }
         } else {
-            // Si por alguna razón no hay documento (ej. error en registro), 
-            // asumimos cliente por seguridad.
             window.location.href = "/index.html";
         }
     } catch (error) {
@@ -155,7 +127,6 @@ if (googleBtn) {
 }
 
 // --- LÓGICA DE RESTABLECER CONTRASEÑA ---
-const forgotPasswordLink = document.getElementById('forgot-password');
 
 if (forgotPasswordLink) {
     forgotPasswordLink.addEventListener('click', async (e) => {

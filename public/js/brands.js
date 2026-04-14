@@ -127,7 +127,7 @@ function renderGrid() {
         const imageSrc = brand.image || 'https://placehold.co/400x300?text=' + encodeURIComponent(brand.name || 'Marca');
         
         const card = document.createElement('a');
-        card.href = `/shop/search.html?subcategory=${encodeURIComponent(brand.name)}`;
+        card.href = `/shop/search.html?brand=${encodeURIComponent(brand.name)}`;
         
         card.className = "group relative bg-white rounded-[2rem] border border-gray-100 overflow-hidden shadow-sm hover:shadow-2xl hover:border-brand-cyan/30 transition-all duration-300 hover:-translate-y-2 cursor-pointer h-56 flex flex-col";
 

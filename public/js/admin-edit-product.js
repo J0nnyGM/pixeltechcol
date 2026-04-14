@@ -12,6 +12,9 @@ const stockInput = document.getElementById('p-stock');
 const priceInput = document.getElementById('p-price');
 const stockLabel = document.getElementById('stock-label-type');
 
+// Tipos de imagen permitidos
+const VALID_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+
 // --- FORMATO DE MONEDA Y HELPER SKU ---
 const getRawPrice = () => {
     const raw = priceInput.value.replace(/\D/g, ''); 
@@ -28,7 +31,6 @@ priceInput.addEventListener('input', (e) => {
 });
 
 function lockGlobalInputs() { 
-    // SOLO BLOQUEAMOS EL STOCK GLOBAL SI HAY VARIANTES, PORQUE SE CALCULA AUTOMÁTICO DE LA TABLA
     stockInput.readOnly = true;
     stockInput.classList.add('bg-gray-100', 'text-gray-400', 'cursor-not-allowed');
     stockLabel.innerHTML = "Stock Total <span class='text-xs text-brand-cyan'>(Auto)</span>";
@@ -42,7 +44,6 @@ function lockGlobalInputs() {
 }
 
 function unlockGlobalInputs() { 
-    // SI ES PRODUCTO SIMPLE, EL STOCK GLOBAL ES EDITABLE
     stockInput.readOnly = false;
     stockInput.classList.remove('bg-gray-100', 'text-gray-400', 'cursor-not-allowed');
     stockLabel.innerHTML = "Stock Total <span class='text-xs text-brand-cyan'>(Editable)</span>";
@@ -113,10 +114,7 @@ async function initEdit() {
         document.getElementById('p-sku').value = p.sku || '';
         document.getElementById('p-brand').value = p.brand || '';
         document.getElementById('p-price').value = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(initialPrice);
-        
-        // Asignar el stock inicial
         document.getElementById('p-stock').value = p.stock || 0; 
-
         document.getElementById('p-status').value = p.status || 'active';
         
         // 2. Categoría
@@ -155,17 +153,14 @@ async function initEdit() {
         colorImagesMap = {};
         matrixData = {};
 
-        // A. Cargar Definiciones
         if (p.definedColors && Array.isArray(p.definedColors)) definedColors = p.definedColors;
         if (p.definedCapacities && Array.isArray(p.definedCapacities)) definedCaps = p.definedCapacities;
 
-        // Fallback
         if (definedColors.length === 0 && p.variants && Array.isArray(p.variants)) {
             p.variants.forEach(v => {
                 if (v.color && !definedColors.includes(v.color)) definedColors.push(v.color);
             });
         }
-        // Fallback para capacidades
         if (definedCaps.length === 0 && p.capacities && Array.isArray(p.capacities)) {
             p.capacities.forEach(c => {
                 const label = typeof c === 'object' ? c.label : c;
@@ -209,7 +204,6 @@ async function initEdit() {
             });
         }
 
-        // Renderizar componentes
         renderTags();
         renderColorUploaders();
         renderMatrix();
@@ -228,9 +222,15 @@ async function initEdit() {
 const pImagesInput = document.getElementById('p-images');
 if (pImagesInput) {
     pImagesInput.onchange = (e) => {
+        let hasInvalid = false;
         Array.from(e.target.files).forEach(file => {
-            globalFiles.push({ id: Math.random().toString(36).substr(2,9), type: 'file', content: file });
+            if (VALID_IMAGE_TYPES.includes(file.type)) {
+                globalFiles.push({ id: Math.random().toString(36).substr(2,9), type: 'file', content: file });
+            } else {
+                hasInvalid = true;
+            }
         });
+        if (hasInvalid) alert("Algunos archivos fueron ignorados. Solo se permiten imágenes JPG, PNG o WEBP.");
         renderGlobalGallery();
         e.target.value = "";
     };
@@ -320,13 +320,12 @@ function renderColorUploaders() {
             <div class="w-24 shrink-0"><span class="text-xs font-bold text-brand-black">${color}</span></div>
             <div class="flex gap-2 flex-wrap flex-grow">${imagesHTML}</div>
             <label class="cursor-pointer bg-white border border-gray-200 text-brand-black px-3 py-2 rounded-lg text-[9px] font-black uppercase hover:bg-brand-cyan hover:border-brand-cyan transition">
-                + Fotos <input type="file" multiple accept="image/*" class="hidden" onchange="addColorImages('${color}', this.files)">
+                + Fotos <input type="file" multiple accept=".png, .jpg, .jpeg, .webp, image/png, image/jpeg, image/webp" class="hidden" onchange="addColorImages('${color}', this.files)">
             </label>`;
         container.appendChild(div);
     });
 }
 
-// Nueva función de borrado
 window.removeColorImage = (color, index) => {
     if (colorImagesMap[color]) {
         colorImagesMap[color].splice(index, 1);
@@ -336,9 +335,15 @@ window.removeColorImage = (color, index) => {
 
 window.addColorImages = (color, files) => { 
     if(!colorImagesMap[color]) colorImagesMap[color] = [];
+    let hasInvalid = false;
     Array.from(files).forEach(file => {
-        colorImagesMap[color].push({ id: Math.random().toString(36).substr(2,9), type: 'file', content: file });
+        if (VALID_IMAGE_TYPES.includes(file.type)) {
+            colorImagesMap[color].push({ id: Math.random().toString(36).substr(2,9), type: 'file', content: file });
+        } else {
+            hasInvalid = true;
+        }
     });
+    if (hasInvalid) alert("Formato inválido. Solo se admiten JPG, PNG y WEBP.");
     renderColorUploaders(); 
 };
 
@@ -350,12 +355,12 @@ function renderMatrix() {
     
     if(definedColors.length === 0 && definedCaps.length === 0) {
         tbody.innerHTML = `<tr><td colspan="4" class="p-8 text-center text-gray-300 text-xs">Producto Simple (Sin variantes)</td></tr>`;
-        unlockGlobalInputs(); // <-- DESBLOQUEA EL INPUT GLOBAL DE STOCK
+        unlockGlobalInputs(); 
         recalcTotalStock();
         return;
     }
 
-    lockGlobalInputs(); // <-- BLOQUEA EL INPUT GLOBAL, SE CALCULARÁ DE LA MATRIZ
+    lockGlobalInputs(); 
 
     let rows = [];
     if(definedColors.length > 0 && definedCaps.length > 0) definedColors.forEach(c => definedCaps.forEach(k => rows.push({ key: `${c}-${k}`, label: `${c} + ${k}`, color: c, cap: k })));
@@ -400,10 +405,7 @@ window.updateMatrixData = (key, field, val) => {
     } else {
         matrixData[key][field] = Number(val);
     }
-    // Si editamos el stock de la matriz, recalcúlar el total
-    if (field === 'stock') {
-        recalcTotalStock();
-    }
+    if (field === 'stock') recalcTotalStock();
 };
 
 function recalcTotalStock() {
@@ -589,7 +591,7 @@ form.onsubmit = async (e) => {
             brand: document.getElementById('p-brand').value,
             category: pCategoryHidden.value || document.getElementById('p-category').value,
             subcategory: document.getElementById('p-subcategory').value,
-            status: document.getElementById('p-status').value,
+            status: document.getElementById('p-status').value, // 🔥 CORRECCIÓN: Seleccionado del desplegable
             description: descriptionEditor.innerHTML,
             updatedAt: new Date(),
             price: finalPrice,

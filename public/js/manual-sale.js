@@ -1,7 +1,7 @@
 import { db, collection, doc, runTransaction, addDoc, setDoc, getDocs, query, orderBy, where, onSnapshot } from './firebase-init.js';
 import { adjustStock } from './inventory-core.js';
 
-// --- HTML DEL MODAL (PLANTILLA MEJORADA) ---
+// --- HTML DEL MODAL (PLANTILLA INTEGRADA - SIN SUB-MODALES) ---
 const MODAL_HTML = `
 <div id="manual-modal" class="fixed inset-0 z-[80] hidden flex items-center justify-center p-4 sm:p-6">
     <div class="absolute inset-0 bg-slate-900/70 backdrop-blur-sm" id="btn-close-overlay"></div>
@@ -17,20 +17,50 @@ const MODAL_HTML = `
         
         <div class="p-8 overflow-y-auto space-y-8 custom-scroll bg-white flex-1">
             
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div class="relative group">
-                    <label class="text-[9px] font-black uppercase text-gray-400 tracking-widest mb-2 block">Buscar Cliente (Opcional)</label>
+            <div class="grid grid-cols-1 gap-4">
+                
+                <div id="m-search-section" class="relative group">
+                    <label class="text-[9px] font-black uppercase text-gray-400 tracking-widest mb-2 block ml-1">Buscar Cliente Registrado *</label>
                     <div class="relative">
                         <i class="fa-solid fa-user absolute left-4 top-1/2 -translate-y-1/2 text-gray-300"></i>
-                        <input type="text" id="m-cust-search" autocomplete="off" placeholder="Nombre o teléfono..." class="w-full bg-slate-50 border border-gray-100 py-4 pl-11 pr-4 rounded-2xl text-sm font-bold outline-none focus:border-brand-cyan focus:bg-white transition-colors text-brand-black shadow-sm">
+                        <input type="text" id="m-cust-search" autocomplete="off" placeholder="Buscar por nombre, teléfono o cédula..." class="w-full bg-slate-50 border border-gray-100 py-4 pl-11 pr-4 rounded-2xl text-sm font-bold outline-none focus:border-brand-cyan focus:bg-white transition-colors text-brand-black shadow-sm">
                     </div>
-                    <div id="m-cust-results" class="absolute z-50 w-full mt-2 bg-white border border-gray-100 rounded-2xl shadow-xl hidden max-h-48 overflow-y-auto p-2 custom-scroll"></div>
+                    <div id="m-cust-results" class="absolute z-50 w-full mt-2 bg-white border border-gray-100 rounded-2xl shadow-xl hidden max-h-56 overflow-y-auto p-2 custom-scroll"></div>
                 </div>
-                <div>
-                    <label class="text-[9px] font-black uppercase text-gray-400 tracking-widest mb-2 block">Contacto / Teléfono</label>
-                    <div class="relative">
-                        <i class="fa-solid fa-phone absolute left-4 top-1/2 -translate-y-1/2 text-gray-300"></i>
-                        <input type="text" id="m-cust-phone" placeholder="Número del cliente" class="w-full bg-slate-50 border border-gray-100 py-4 pl-11 pr-4 rounded-2xl text-sm font-bold outline-none focus:border-brand-cyan focus:bg-white transition-colors text-brand-black shadow-sm">
+
+                <div id="m-selected-client-section" class="hidden bg-slate-50 p-5 rounded-[2rem] border border-gray-100 flex justify-between items-center animate-in fade-in slide-in-from-top-2">
+                    <div>
+                        <p class="text-[9px] font-black text-emerald-500 uppercase tracking-widest mb-1"><i class="fa-solid fa-check-circle mr-1"></i> Cliente Vinculado</p>
+                        <p id="m-sel-cname" class="text-lg font-black text-brand-black uppercase"></p>
+                        <p id="m-sel-cphone" class="text-xs font-bold text-gray-500"></p>
+                    </div>
+                    <button id="btn-clear-client" class="w-10 h-10 bg-white border border-gray-200 text-gray-400 hover:text-red-500 hover:border-red-200 rounded-full flex items-center justify-center transition shadow-sm shrink-0" title="Cambiar Cliente"><i class="fa-solid fa-rotate-right"></i></button>
+                </div>
+
+                <div id="m-new-client-section" class="hidden bg-cyan-50/30 p-6 rounded-[2rem] border border-cyan-100 relative animate-in fade-in slide-in-from-top-2 shadow-sm">
+                    <button id="btn-cancel-new-client" class="absolute top-4 right-4 w-8 h-8 flex items-center justify-center rounded-full text-gray-400 hover:bg-white hover:text-red-500 transition shadow-sm border border-transparent hover:border-gray-200" title="Cancelar"><i class="fa-solid fa-xmark"></i></button>
+                    
+                    <div class="mb-5">
+                        <span class="bg-brand-cyan text-brand-black px-3 py-1 rounded-md text-[9px] font-black uppercase tracking-widest shadow-sm">Registrar Nuevo Cliente</span>
+                    </div>
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+                        <div class="md:col-span-2">
+                            <label class="text-[9px] font-black text-gray-500 uppercase tracking-widest mb-1 block ml-1">Nombre Completo *</label>
+                            <input type="text" id="m-nc-name" placeholder="Ej: Juan Pérez" class="w-full bg-white border border-cyan-100 p-3.5 rounded-xl text-sm font-bold outline-none focus:border-brand-cyan shadow-sm">
+                        </div>
+                        <div>
+                            <label class="text-[9px] font-black text-gray-500 uppercase tracking-widest mb-1 block ml-1">Teléfono / WhatsApp *</label>
+                            <input type="text" id="m-nc-phone" placeholder="Ej: 3001234567" class="w-full bg-white border border-cyan-100 p-3.5 rounded-xl text-sm font-bold outline-none focus:border-brand-cyan shadow-sm">
+                        </div>
+                        <div>
+                            <label class="text-[9px] font-black text-gray-500 uppercase tracking-widest mb-1 block ml-1">Cédula / NIT</label>
+                            <input type="text" id="m-nc-doc" placeholder="Opcional" class="w-full bg-white border border-cyan-100 p-3.5 rounded-xl text-sm font-bold outline-none focus:border-brand-cyan shadow-sm">
+                        </div>
+                        <div class="md:col-span-2">
+                            <label class="text-[9px] font-black text-gray-500 uppercase tracking-widest mb-1 block ml-1">Email</label>
+                            <input type="email" id="m-nc-email" placeholder="cliente@correo.com" class="w-full bg-white border border-cyan-100 p-3.5 rounded-xl text-sm font-bold outline-none focus:border-brand-cyan shadow-sm">
+                        </div>
                     </div>
                 </div>
             </div>
@@ -138,8 +168,14 @@ const MODAL_HTML = `
 // --- VARIABLES GLOBALES DEL MÓDULO ---
 let manualProductsCache = []; 
 let manualClientsCache = [];
+
+// Estado del Cliente
+let isCreatingNewClient = false;
 let selectedUserId = null;
+let selectedUserName = "";
+let selectedUserPhone = "";
 let currentUserAddresses = [];
+
 let onSuccessCallback = null;
 
 // --- UTILIDADES ---
@@ -170,10 +206,24 @@ export async function openManualSaleModal() {
     const modal = document.getElementById('manual-modal');
     const container = document.getElementById('manual-items-container');
     
+    // Resetear Estado de Cliente
+    isCreatingNewClient = false;
     selectedUserId = null;
+    selectedUserName = "";
+    selectedUserPhone = "";
     currentUserAddresses = [];
+    
+    // Resetear UI
+    document.getElementById('m-search-section').classList.remove('hidden');
+    document.getElementById('m-selected-client-section').classList.add('hidden');
+    document.getElementById('m-new-client-section').classList.add('hidden');
+    
     document.getElementById('m-cust-search').value = "";
-    document.getElementById('m-cust-phone').value = "";
+    document.getElementById('m-nc-name').value = "";
+    document.getElementById('m-nc-phone').value = "";
+    document.getElementById('m-nc-doc').value = "";
+    document.getElementById('m-nc-email').value = "";
+
     document.getElementById('manual-total-display').textContent = "$ 0";
     document.getElementById('m-shipping-cost').value = "$ 0";
     document.getElementById('m-dept-manual').value = "";
@@ -197,7 +247,7 @@ let unsubscribeManualClients = null;
 
 // --- LÓGICA DE CACHÉ INTELIGENTE Y EN VIVO ---
 async function loadCaches() {
-    // 1. Productos (Mantenemos la lógica que ya tenías)
+    // 1. Productos
     try {
         const prodCacheStr = localStorage.getItem('pixeltech_admin_master_inventory');
         if (prodCacheStr) {
@@ -213,24 +263,20 @@ async function loadCaches() {
         }
     } catch(e) { console.error("Error cacheando productos:", e); }
 
-    // 2. 🔥 CLIENTES EN TIEMPO REAL 🔥
+    // 2. CLIENTES EN TIEMPO REAL
     try {
         if (unsubscribeManualClients) unsubscribeManualClients();
         
-        // Al abrir la ventana de Venta Manual, nos suscribimos a los cambios de clientes
         unsubscribeManualClients = onSnapshot(collection(db, "users"), (snap) => {
             manualClientsCache = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-            
-            // Lo guardamos en sesión solo como respaldo por si acaso
             sessionStorage.setItem('pixeltech_admin_clients_master', JSON.stringify(manualClientsCache));
             
-            // Si el admin está escribiendo en el buscador del modal y alguien edita un cliente, se actualiza solo
             const searchInput = document.getElementById('m-cust-search');
-            if (searchInput && searchInput.value.trim().length >= 2) {
+            if (searchInput && searchInput.value.trim().length >= 2 && !isCreatingNewClient && !selectedUserId) {
                 searchInput.dispatchEvent(new Event('input'));
             }
         }, (error) => {
-            console.error("Error cargando clientes en vivo para venta manual:", error);
+            console.error("Error cargando clientes en vivo:", error);
         });
         
     } catch(e) { 
@@ -270,14 +316,12 @@ function setupEventListeners() {
     };
 }
 
-// --- LÓGICA FILAS Y PRODUCTOS (CON ALINEACIÓN Y Z-INDEX CORREGIDO) ---
+// --- LÓGICA FILAS Y PRODUCTOS ---
 function addManualItemRow() {
     const div = document.createElement('div');
-    // 1. Agregamos 'relative' y 'focus-within:z-[60]' a la fila completa
     div.className = "item-row-container relative focus-within:z-[60] bg-slate-50/50 p-4 rounded-2xl border border-gray-100 shadow-sm animate-in fade-in slide-in-from-top-2";
     div.innerHTML = `
         <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-start relative focus-within:z-[60]">
-            
             <div class="md:col-span-4 relative focus-within:z-[70]">
                 <label class="text-[8px] font-black text-gray-400 uppercase tracking-widest mb-2 block ml-1">Producto</label>
                 <div class="relative">
@@ -366,10 +410,9 @@ function setupProductSearch(row) {
                     </div>
                 `;
 
-                // --- CAMBIO CLAVE: Usamos onmousedown y e.preventDefault() ---
                 if (!isOutOfStock) {
                     d.onmousedown = (e) => {
-                        e.preventDefault(); // ¡Magia! Evita que el z-index colapse
+                        e.preventDefault(); 
                         searchInput.value = p.name;
                         row.querySelector('.p-id').value = p.id;
                         row.querySelector('.p-price-display').value = formatCurrency(p.price);
@@ -507,15 +550,22 @@ function calculateManualTotal() {
     document.getElementById('manual-total-display').textContent = formatCurrency(total);
 }
 
-// --- LOGICA CLIENTES Y DIRECCIONES ---
+
+// --- LÓGICA DE CLIENTES (INTEGRADA) ---
 async function setupCustomerSearch() {
     const search = document.getElementById('m-cust-search');
     const results = document.getElementById('m-cust-results');
-    const phone = document.getElementById('m-cust-phone');
+    
+    // Contenedores
+    const searchSection = document.getElementById('m-search-section');
+    const selectedSection = document.getElementById('m-selected-client-section');
+    const newClientSection = document.getElementById('m-new-client-section');
+    
+    const modeSelect = document.getElementById('m-shipping-mode');
     const optSaved = document.getElementById('opt-saved-addr');
     const savedSelect = document.getElementById('m-saved-addr-select');
-    const modeSelect = document.getElementById('m-shipping-mode');
 
+    // 1. EVENTO BUSCAR
     search.addEventListener('input', (e) => {
         const term = normalizeText(e.target.value);
         results.innerHTML = "";
@@ -525,26 +575,56 @@ async function setupCustomerSearch() {
             return; 
         }
         
-        // 🔥 BÚSQUEDA MEJORADA: Ignora mayúsculas y tildes gracias a normalizeText()
         const filtered = manualClientsCache.filter(u => {
-            // Usamos u.userName como fallback si u.name no existe (compatibilidad)
             const clientNameRaw = u.name || u.userName || "";
             const clientPhoneRaw = u.phone || "";
             const clientDocRaw = u.document || "";
-
-            const nameMatch = normalizeText(clientNameRaw).includes(term);
-            const phoneMatch = clientPhoneRaw.includes(term); // El teléfono suele ser solo números
-            const docMatch = clientDocRaw.includes(term);
-
-            return nameMatch || phoneMatch || docMatch;
+            return normalizeText(clientNameRaw).includes(term) || clientPhoneRaw.includes(term) || clientDocRaw.includes(term);
         });
 
         if (filtered.length === 0) {
-            results.innerHTML = `<div class="p-3 text-[10px] text-gray-400 font-bold text-center uppercase">Cliente no registrado o no cargado en caché</div>`;
+            results.innerHTML = `
+                <div class="p-4 text-[10px] text-gray-400 font-bold text-center uppercase border-b border-gray-100">Cliente no encontrado</div>
+                <div class="p-2 bg-gray-50 rounded-b-2xl">
+                    <button type="button" id="btn-m-inline-create" class="w-full bg-brand-cyan text-brand-black font-black text-[10px] py-3 rounded-xl uppercase tracking-widest hover:bg-cyan-400 transition shadow-sm flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-user-plus"></i> Registrar Nuevo Cliente
+                    </button>
+                </div>
+            `;
+            
+            // ACCIÓN: CREAR NUEVO
+            document.getElementById('btn-m-inline-create').onmousedown = (ev) => {
+                ev.preventDefault(); 
+                isCreatingNewClient = true;
+                
+                // Mostrar UI de creación
+                searchSection.classList.add('hidden');
+                newClientSection.classList.remove('hidden');
+                
+                // Autocompletar lo que el usuario haya escrito
+                const rawTerm = search.value.trim();
+                if (/^[\d\s\+]+$/.test(rawTerm)) {
+                    document.getElementById('m-nc-phone').value = rawTerm.replace(/\s+/g, '');
+                    document.getElementById('m-nc-name').focus();
+                } else {
+                    document.getElementById('m-nc-name').value = rawTerm;
+                    document.getElementById('m-nc-phone').focus();
+                }
+                
+                // Reset de Direcciones (Obliga a escribir una nueva)
+                optSaved.disabled = true;
+                optSaved.textContent = "🏠 Dirección Guardada (Seleccione Cliente)";
+                modeSelect.value = 'new';
+                modeSelect.dispatchEvent(new Event('change'));
+                
+                results.classList.add('hidden');
+            };
+
         } else {
+            // MOSTRAR RESULTADOS
             filtered.slice(0, 8).forEach(u => {
                 const div = document.createElement('div');
-                div.className = "p-3 hover:bg-cyan-50 cursor-pointer rounded-xl transition flex justify-between items-center border-b border-gray-50 last:border-0";
+                div.className = "p-3 hover:bg-cyan-50 cursor-pointer rounded-xl transition flex justify-between items-center border-b border-gray-50 last:border-0 group";
                 
                 const displayName = u.name || u.userName || 'Cliente sin nombre';
                 
@@ -553,16 +633,25 @@ async function setupCustomerSearch() {
                         <span class="block font-black text-xs uppercase text-brand-black">${displayName}</span>
                         <span class="text-[9px] font-bold text-gray-400">${u.phone || 'Sin teléfono'} ${u.document ? ` | Doc: ${u.document}` : ''}</span>
                     </div>
-                    <i class="fa-solid fa-arrow-right text-brand-cyan text-[10px]"></i>
+                    <button class="bg-white border border-gray-200 text-brand-cyan w-6 h-6 rounded-full flex items-center justify-center group-hover:bg-brand-cyan group-hover:text-white transition shadow-sm"><i class="fa-solid fa-check text-[10px]"></i></button>
                 `;
                 
-                div.onmousedown = (e) => {
-                    e.preventDefault(); // Evita el colapso del z-index
-                    search.value = displayName;
-                    phone.value = u.phone || "";
+                // ACCIÓN: SELECCIONAR EXISTENTE
+                div.onmousedown = (ev) => {
+                    ev.preventDefault(); 
+                    isCreatingNewClient = false;
                     selectedUserId = u.id;
+                    selectedUserName = displayName;
+                    selectedUserPhone = u.phone || "";
                     currentUserAddresses = u.addresses || [];
                     
+                    // Cambiar UI
+                    searchSection.classList.add('hidden');
+                    selectedSection.classList.remove('hidden');
+                    document.getElementById('m-sel-cname').textContent = selectedUserName;
+                    document.getElementById('m-sel-cphone').textContent = selectedUserPhone || "Sin Teléfono";
+                    
+                    // Cargar direcciones guardadas
                     if (currentUserAddresses.length > 0) {
                         optSaved.disabled = false;
                         optSaved.textContent = `🏠 Usar Guardada (${currentUserAddresses.length})`;
@@ -583,10 +672,40 @@ async function setupCustomerSearch() {
         results.classList.remove('hidden');
     });
 
+    // 2. CANCELAR O LIMPIAR CLIENTE
+    const resetClientUI = () => {
+        isCreatingNewClient = false;
+        selectedUserId = null;
+        selectedUserName = "";
+        selectedUserPhone = "";
+        currentUserAddresses = [];
+        
+        search.value = "";
+        document.getElementById('m-nc-name').value = "";
+        document.getElementById('m-nc-phone').value = "";
+        document.getElementById('m-nc-doc').value = "";
+        document.getElementById('m-nc-email').value = "";
+        
+        searchSection.classList.remove('hidden');
+        selectedSection.classList.add('hidden');
+        newClientSection.classList.add('hidden');
+        results.classList.add('hidden');
+        search.focus();
+        
+        optSaved.disabled = true;
+        optSaved.textContent = "🏠 Dirección Guardada (Seleccione Cliente)";
+        modeSelect.value = 'new';
+        modeSelect.dispatchEvent(new Event('change'));
+    };
+
+    document.getElementById('btn-clear-client').onclick = resetClientUI;
+    document.getElementById('btn-cancel-new-client').onclick = resetClientUI;
+
     document.addEventListener('click', (e) => {
         if (!search.contains(e.target) && !results.contains(e.target)) results.classList.add('hidden');
     });
 }
+
 
 async function loadPaymentAccounts() {
     const sel = document.getElementById('m-payment-account');
@@ -599,21 +718,27 @@ async function loadPaymentAccounts() {
 }
 
 async function loadManualDepartments() {
-    const sel = document.getElementById('m-dept-manual');
+    const selManual = document.getElementById('m-dept-manual');
     try {
         const res = await fetch('https://api-colombia.com/api/v1/Department');
         const data = await res.json();
         data.sort((a,b) => a.name.localeCompare(b.name));
-        sel.innerHTML = '<option value="">Seleccionar Depto...</option>';
-        data.forEach(d => sel.innerHTML += `<option value="${d.id}">${d.name}</option>`);
+        let options = '<option value="">Seleccionar Depto...</option>';
+        data.forEach(d => options += `<option value="${d.id}">${d.name}</option>`);
+        if (selManual) selManual.innerHTML = options;
     } catch(e) { console.error(e); }
 }
 
-// --- GUARDAR TRANSACCIÓN ---
+// --- GUARDAR TRANSACCIÓN Y CREAR CLIENTE SI ES NECESARIO ---
 async function saveOrder() {
     const btn = document.getElementById('btn-save-manual');
-    const custName = document.getElementById('m-cust-search').value.trim();
-    const custPhone = document.getElementById('m-cust-phone').value.trim();
+    
+    // 1. VALIDAR ESTADO DEL CLIENTE
+    if (!selectedUserId && !isCreatingNewClient) {
+        return alert("🚨 Por favor, busca un cliente existente o registra uno nuevo.");
+    }
+
+    // 2. VALIDAR PRODUCTOS
     const items = [];
     let hasStockError = false;
     
@@ -637,11 +762,15 @@ async function saveOrder() {
         }
     });
 
-    if (hasStockError) return alert("🚨 Uno de los productos excede el stock disponible. Por favor, revisa las cantidades.");
-    if (!custName || items.length === 0) return alert("🚨 Faltan datos (Cliente o Productos).");
+    if (hasStockError) return alert("🚨 Uno de los productos excede el stock disponible.");
+    if (items.length === 0) return alert("🚨 Debes agregar al menos un producto a la venta.");
 
+    // 3. CAPTURAR DATOS DE ENVÍO
     const shippingMode = document.getElementById('m-shipping-mode').value;
     let shippingData = {};
+    let clientDept = ""; 
+    let clientCity = ""; 
+    let clientAddr = "";
     
     if (shippingMode === 'pickup') {
         shippingData = { address: "📍 Recogida en Local" };
@@ -652,20 +781,59 @@ async function saveOrder() {
         shippingData = { department: a.dept, city: a.city, address: `${a.address} (${a.alias})` };
     } else {
         const dSelect = document.getElementById('m-dept-manual');
+        clientDept = dSelect.options[dSelect.selectedIndex]?.text || "";
+        clientCity = document.getElementById('m-city-manual').value || "";
+        clientAddr = document.getElementById('m-address-manual').value || "";
+        
         shippingData = {
-            department: dSelect.options[dSelect.selectedIndex]?.text || "",
-            city: document.getElementById('m-city-manual').value || "",
-            address: document.getElementById('m-address-manual').value || ""
+            department: clientDept,
+            city: clientCity,
+            address: clientAddr
         };
         if(!shippingData.department || !shippingData.address) return alert("Faltan datos de la nueva dirección de entrega.");
     }
 
     const originalText = btn.innerHTML;
-    btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Guardando...';
+    btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Procesando Venta...';
 
-    const shippingCost = parseCurrency(document.getElementById('m-shipping-cost').value);
-    
     try {
+        let finalUserId = selectedUserId;
+        let custName = selectedUserName;
+        let custPhone = selectedUserPhone;
+
+        // 4. SI ESTÁ CREANDO UN CLIENTE NUEVO EN LÍNEA -> GUARDARLO EN FIREBASE PRIMERO
+        if (isCreatingNewClient) {
+            custName = document.getElementById('m-nc-name').value.trim();
+            custPhone = document.getElementById('m-nc-phone').value.trim();
+            const docVal = document.getElementById('m-nc-doc').value.trim();
+            const emailVal = document.getElementById('m-nc-email').value.trim();
+
+            if (!custName || !custPhone) throw new Error("🚨 El Nombre y Teléfono del nuevo cliente son obligatorios.");
+
+            const newClientData = {
+                name: custName,
+                phone: custPhone,
+                email: emailVal,
+                document: docVal,
+                source: 'MANUAL',
+                role: 'client',
+                createdAt: new Date(),
+                dept: clientDept,
+                city: clientCity,
+                address: clientAddr,
+                addresses: clientAddr ? [{ alias: "Principal", address: clientAddr, dept: clientDept, city: clientCity, isDefault: true }] : []
+            };
+
+            const docRef = await addDoc(collection(db, "users"), newClientData);
+            finalUserId = docRef.id;
+            
+            // Agregarlo a la memoria local por si acaso
+            newClientData.id = docRef.id;
+            manualClientsCache.unshift(newClientData);
+        }
+
+        // 5. CÁLCULOS FINALES
+        const shippingCost = parseCurrency(document.getElementById('m-shipping-cost').value);
         const subtotal = items.reduce((acc, i) => acc + (i.price * i.quantity), 0);
         const total = subtotal + shippingCost;
         const accountId = document.getElementById('m-payment-account').value;
@@ -676,7 +844,7 @@ async function saveOrder() {
             await adjustStock(item.id, -(item.quantity), item.color, item.capacity); 
         }
 
-        // 2. Lógica Financiera
+        // 6. LÓGICA FINANCIERA
         let paymentStatus = 'PENDING';
         let paymentMethodName = 'Crédito / Cartera';
         let amountPaid = 0;
@@ -687,14 +855,10 @@ async function saveOrder() {
                  const d = await t.get(ref);
                  if(!d.exists()) throw new Error("La cuenta seleccionada ya no existe.");
                  
-                 // 1. Actualizamos el saldo de la cuenta
                  t.update(ref, { balance: (d.data().balance || 0) + total });
                  paymentMethodName = d.data().name;
              });
              
-             // 2. CREAMOS EL REGISTRO DE INGRESO EN LA COLECCIÓN EXPENSES
-             // Esto se hace fuera de la transacción de la cuenta para no mezclar referencias cruzadas, 
-             // pero garantizando que se registre correctamente.
              await addDoc(collection(db, "expenses"), {
                  amount: total,
                  category: "Ingreso Ventas Manual",
@@ -710,8 +874,9 @@ async function saveOrder() {
              amountPaid = total;
         }
 
+        // 7. CREAR LA ORDEN
         const orderData = {
-            userId: selectedUserId || "DIRECTA", 
+            userId: finalUserId, 
             userName: custName, 
             phone: custPhone,
             items, 
@@ -746,7 +911,7 @@ async function saveOrder() {
 
     } catch (e) {
         console.error(e);
-        alert("Error crítico: " + e.message);
+        alert(e.message);
     } finally {
         btn.disabled = false; btn.innerHTML = originalText;
     }

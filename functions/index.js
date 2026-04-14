@@ -59,6 +59,9 @@ exports.checkExpiredPromotions = schedulerModule.checkExpiredPromotions;
 // WhatsApp
 exports.whatsappWebhook = whatsappModule.webhook;
 exports.sendWhatsappMessage = whatsappModule.sendMessage;
+exports.sendTestTemplate = whatsappModule.sendTestTemplate; // 🔥 NUEVO: Exportar la prueba de plantilla
+exports.sendMassTemplate = whatsappModule.sendMassTemplate; // 🔥 NUEVO: Conectar la función de Campañas
+
 
 // Sync
 exports.touchProductTimestamp = syncModule.touchProductTimestamp;
