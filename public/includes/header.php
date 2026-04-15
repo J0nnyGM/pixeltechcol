@@ -59,7 +59,7 @@
             </a>
             <a href="https://wa.me/573009046450" target="_blank" class="flex items-center gap-4 p-4 rounded-2xl bg-gray-50 border border-gray-100 hover:bg-green-50 hover:border-green-200 hover:shadow-md transition-all group cursor-pointer">
                 <div class="w-12 h-12 rounded-full bg-white flex items-center justify-center text-green-500 shadow-sm group-hover:scale-110 transition border border-gray-100"><i class="fa-solid fa-headset text-lg"></i></div>
-                <div><p class="font-black text-sm text-gray-800 uppercase tracking-wide group-hover:text-green-700 transition">Ventas Online 1</p><p class="text-[10px] text-gray-400 font-medium">Consultas y disponibilidad</p></div>
+                <div><p class="font-black text-sm text-gray-800 uppercase tracking-wide group-hover:text-green-700 transition">Ventas Online 2</p><p class="text-[10px] text-gray-400 font-medium">Consultas y disponibilidad</p></div>
                 <i class="fa-brands fa-whatsapp text-2xl text-gray-200 ml-auto group-hover:text-green-500 transition"></i>
             </a>
             <a href="https://wa.me/573159834171" target="_blank" class="flex items-center gap-4 p-4 rounded-2xl bg-gray-50 border border-gray-100 hover:bg-blue-50 hover:border-blue-200 hover:shadow-md transition-all group cursor-pointer">
@@ -109,6 +109,11 @@
                     <div class="w-12 h-12 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center group-hover:bg-green-500 group-hover:text-white transition duration-300"><i class="fa-brands fa-whatsapp text-xl"></i></div>
                     <span class="text-[8px] font-black uppercase tracking-widest text-gray-400 group-hover:text-green-500 text-center">Chat</span>
                 </a>
+                <a href="https://wa.me/573174534353" target="_blank" class="flex flex-col items-center gap-1 group w-14">
+                    <div class="w-12 h-12 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center group-hover:bg-green-500 group-hover:text-white transition duration-300"><i class="fa-brands fa-whatsapp text-xl"></i></div>
+                    <span class="text-[8px] font-black uppercase tracking-widest text-gray-400 group-hover:text-green-500 text-center">Chat</span>
+                </a>
+
                 <div id="user-info-desktop" class="w-14"></div>
                 
                 <button onclick="window.toggleCartDrawer()" class="flex flex-col items-center gap-1 group w-14">
