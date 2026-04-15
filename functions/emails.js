@@ -76,7 +76,7 @@ function getBeautifulEmailTemplate(type, order, orderId) {
     // Mensaje predeterminado: "Hola PixelTech, tengo una duda sobre mi pedido #ABC12345 a nombre de Juan..."
     const waMessage = `Hola PixelTech, tengo una duda sobre mi pedido #${cleanOrderId} a nombre de ${customerName}.`;
     // Crear Link (Codificamos el texto para que funcione en URL)
-    const waLink = `https://wa.me/573229243907?text=${encodeURIComponent(waMessage)}`;
+    const waLink = `https://wa.me/573174534353?text=${encodeURIComponent(waMessage)}`;
 
 
     // 3. Bloque de Rastreo (Solo si hay guía)

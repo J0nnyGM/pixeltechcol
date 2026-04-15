@@ -42,7 +42,7 @@
                         <div class="w-8 h-8 rounded-xl bg-white/5 flex items-center justify-center shrink-0 mt-1"><i class="fa-solid fa-location-dot text-brand-cyan text-xs"></i></div>
                         <div>
                             <p class="text-[10px] font-black uppercase text-gray-300">Sede Principal</p>
-                            <p class="text-[9px] text-gray-500 mt-1">Avenida Caracas # 47-39<br>Bogotá, Colombia</p>
+                            <p class="text-[9px] text-gray-500 mt-1">Calle 31 # 13A-51 Oficina 223 Ed. Panorama<br>Bogotá, Colombia</p>
                         </div>
                     </div>
                     
