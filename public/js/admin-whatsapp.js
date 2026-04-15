@@ -1,5 +1,4 @@
-// Asegúrate de agregar setDoc a tus importaciones arriba del archivo:
-import { db, collection, query, orderBy, onSnapshot, doc, updateDoc, setDoc, functions, httpsCallable, limitToLast, storage, ref, uploadBytes, getDownloadURL, where, getDocs, limit, startAt, endAt, startAfter, addDoc, Timestamp } from "./firebase-init.js";
+import { auth, db, collection, onAuthStateChanged, query, orderBy, onSnapshot, doc, updateDoc, setDoc, functions, httpsCallable, limitToLast, storage, ref, uploadBytes, getDownloadURL, where, getDocs, limit, startAt, endAt, startAfter, addDoc, Timestamp } from "./firebase-init.js";
 import { viewOrderDetail } from "./order-actions.js";
 import { initManualSale, openManualSaleModal } from "./manual-sale.js";
 
@@ -22,8 +21,12 @@ const els = {
     fileInput: document.getElementById('image-upload-input'),
     backBtn: document.getElementById('back-to-list-btn'),
     btnCloseChat: document.getElementById('btn-close-chat'),
+    
+    // PESTAÑAS NUEVAS
+    tabMine: document.getElementById('tab-mine'),
     tabOpen: document.getElementById('tab-open'),
     tabResolved: document.getElementById('tab-resolved'),
+    
     chatSearchInput: document.getElementById('chat-search-input'),
     btnResolve: document.getElementById('btn-resolve-chat'),
     btnProducts: document.getElementById('btn-products'),
@@ -58,6 +61,8 @@ const els = {
     btnSaveClient: document.getElementById('save-client'),
     notifySound: document.getElementById('notify-sound'),
 
+    adminStatsSection: document.getElementById('admin-stats-section'),
+    adminStatsTbody: document.getElementById('admin-stats-tbody'),
 };
 
 // --- CONFIGURACIÓN GLOBAL ---
@@ -66,7 +71,7 @@ let activeChatData = null;
 let unsubscribeMessages = null;
 let unsubscribeChats = null;
 let timerInterval = null;
-let currentTab = 'open'; 
+let currentTab = 'mine'; // 🔥 Pestaña por defecto
 let chatSearchTimeout = null;
 let oldestMessageDoc = null; 
 let isChatLoading = false;   
@@ -78,14 +83,12 @@ const ORDERS_PER_PAGE = 3;
 const TIME_UNITS = { 'months': 'Meses', 'years': 'Años', 'days': 'Días' };
 const QUICK_REPLIES = [
     { title: "👋 Saludo", text: "¡Hola! Gracias por escribir a PixelTech. ¿En qué podemos ayudarte hoy?" },
-    { title: "🛵 Envío Bogotá", text: "Para Bogotá el envío llega el mismo día (Lunes a Sábado) si confirmas antes de las 2:30 PM.\n\n💰 Costo: $10.000\n🤝 Pago: Contra entrega." },
-    { title: "🚚 Envío Nacional", text: "Realizamos envíos a toda Colombia 🇨🇴. Si confirmas antes de las 2:30 PM sale hoy mismo.\n\n📸 Te enviamos foto del paquete y la guía de rastreo.\n💰 Costo promedio: $18.000 (varía según ubicación)." },
-    { title: "📍 Pasar a Recoger", text: "Estamos en Chapinero, Bogotá (a 1 cuadra de estación Marly).\n\n🏢 *Avenida Caracas # 47-39*\nEdificio Almenar 48, Torre A, Apto 801.\n\n⚠️ *Importante:* Avísame 30 minutos antes de pasar para estar pendiente, a veces salimos a hacer envíos." },
-    { title: "⏰ Horarios", text: "Nuestros horarios de atención son:\n\n📅 Lunes a Viernes: 9:00 AM - 5:00 PM\n📅 Sábados: 10:00 AM - 2:30 PM" },
-    { title: "🟣 Nequi/Davi", text: "Puedes realizar el pago a:\n\n📱 *Nequi / Daviplata*\n3003729020\nLina Gil" },
-    { title: "🏢 Datos Empresa", text: "Datos para facturación:\n\n*Pixel Tech Col SAS*\nNIT: 901.561.037-7\nTel: 300 904 6450\nDir: Av Caracas # 47-39, Ed. Almenar 48, Apto 801." },
-    { title: "📝 Pedir Datos", text: "Para procesar tu pedido, regálame por favor estos datos:\n\n🧑🏻 Nombre:\n🎫 C.C:\n📲 Cel:\n🏠 Dirección:\n🏭 Barrio:\n🌆 Ciudad:" },
-    { title: "🛡️ Garantía", text: "Todos nuestros productos tienen *1 mes de garantía* por defectos de fábrica.\n\nNota: Los defectos de fábrica usualmente se muestran inmediatamente o durante la primera semana." }
+    { title: "🛵 Envío Bogotá", text: "Para Bogotá el envío llega el mismo día (Lunes a Sábado) si confirmas antes de las 3:30 PM.\n\n💰 Costo: $10.000\n🤝 Pago: Contra entrega." },
+    { title: "🚚 Envío Nacional", text: "Realizamos envíos a toda Colombia 🇨🇴. Si confirmas antes de las 3:00 PM sale hoy mismo.\n\n📸 Te enviamos foto del paquete y la guía de rastreo.\n💰 Costo promedio: $18.000 (varía según ubicación)." },
+    { title: "📍 Pasar a Recoger", text: "Estamos en el Centro internacional, Bogotá (a media cuadra de la 34).\n\n🏢 *Calle 31 # 13A-51*\nEdificio Panorama, Oficina 223." },
+    { title: "⏰ Horarios", text: "Nuestros horarios de atención son:\n\n📅 Lunes a Viernes: 9:00 AM - 5:30 PM\n📅 Sábados: 10:00 AM - 3:00 PM" },
+    { title: "🟣 Cuentas Cobro", text: "Puedes realizar el pago a:\n\n🏦 *Bancolombia Ahorros* \n*PixelTech Col SAS* \n*NIT:* 901.561.037 \n*Cuenta:* 237-000046-12 \n\n📱 *Nequi / Daviplata*\n3003729020\nLina Gil\n\n🗝️ *Llave / Bre-B:*\n0041243528 \nPixelTech Col" },
+    { title: "📝 Pedir Datos", text: "Para procesar tu pedido, regálame por favor estos datos:\n\n🧑🏻 Nombre:\n🎫 C.C:\n📲 Cel:\n🏠 Dirección:\n🏭 Barrio:\n🌆 Ciudad:\n📩 Email:" },
 ];
 
 initManualSale(() => {
@@ -93,13 +96,74 @@ initManualSale(() => {
 });
 
 // ==========================================================================
-// 1. GESTIÓN DE CHATS
+// 1. GESTIÓN DE CHATS & ASIGNACIÓN
 // ==========================================================================
+
+function getAssignmentBadgeHTML(data) {
+    const myEmail = auth.currentUser?.email || '';
+
+    if (data.status === 'resolved') {
+        if (data.lastAttendedBy) {
+            // 🔥 Toma el nombre guardado, si no existe usa el correo cortado
+            const name = data.lastAttendedByName || data.lastAttendedBy.split('@')[0];
+            return `<span class="text-[9px] bg-gray-200 text-gray-600 px-2 py-0.5 rounded-full uppercase font-bold" title="Atendido por ${name}"><i class="fa-solid fa-lock mr-1"></i>${name}</span>`;
+        }
+        return '';
+    }
+    
+    if (data.assignedTo) {
+        if (data.assignedTo === myEmail) {
+            return `<span class="text-[9px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full uppercase font-bold border border-emerald-200"><i class="fa-solid fa-headset mr-1"></i>Mío</span>`;
+        } else {
+            // 🔥 Toma el nombre guardado del compañero
+            const name = data.assignedToName || data.assignedTo.split('@')[0];
+            return `<span class="text-[9px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full uppercase font-bold border border-blue-200" title="${data.assignedTo}"><i class="fa-solid fa-user mr-1"></i>${name}</span>`;
+        }
+    }
+    
+    return `<span class="text-[9px] bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full uppercase font-bold border border-yellow-200 animate-pulse"><i class="fa-solid fa-hand-paper mr-1"></i>Libre</span>`;
+}
+
+function updateHeaderAssignmentBadge(data) {
+    const badge = document.getElementById('active-chat-assignment');
+    if (!badge) return;
+    badge.innerHTML = getAssignmentBadgeHTML(data);
+    badge.classList.remove('hidden');
+    badge.className = "inline-block"; 
+}
+
+// Asignación automática al responder
+async function assignToMeIfNeeded() {
+    if (activeChatData && activeChatData.status === 'open' && !activeChatData.assignedTo && auth.currentUser) {
+        const myEmail = auth.currentUser.email;
+        const myName = auth.currentUser.displayName || myEmail.split('@')[0]; // 🔥 Capturamos el nombre en el frontend
+
+        try {
+            await updateDoc(doc(db, "chats", activeChatId), {
+                assignedTo: myEmail,
+                assignedToName: myName, // Guardamos el nombre en la BD del chat
+                lastAttendedBy: myEmail,
+                lastAttendedByName: myName
+            });
+            activeChatData.assignedTo = myEmail;
+            activeChatData.assignedToName = myName;
+            activeChatData.lastAttendedBy = myEmail;
+            activeChatData.lastAttendedByName = myName;
+            updateHeaderAssignmentBadge(activeChatData);
+        } catch(e) {
+            console.error("Error asignando chat:", e);
+        }
+    }
+}
 
 function initChatList() {
     if (unsubscribeChats) unsubscribeChats();
     const ref = collection(db, "chats");
-    let q = query(ref, where("status", "==", currentTab), orderBy("lastMessageAt", "desc"), limit(50));
+    
+    // Tanto en 'mine' como en 'open' consultamos los chats 'open'
+    const queryStatus = currentTab === 'resolved' ? 'resolved' : 'open';
+    let q = query(ref, where("status", "==", queryStatus), orderBy("lastMessageAt", "desc"), limit(50));
+    
     if (!els.chatSearchInput.value) { els.chatList.innerHTML = ""; }
 
     unsubscribeChats = onSnapshot(q, (snapshot) => {
@@ -108,50 +172,85 @@ function initChatList() {
             els.chatList.innerHTML = `<div class="p-10 text-center text-xs text-gray-400">No hay chats en esta bandeja.</div>`;
             return;
         }
+
+        const myEmail = auth.currentUser?.email || '';
+
         snapshot.docChanges().forEach(change => {
             const data = change.doc.data();
             const id = change.doc.id;
             const source = change.doc.metadata.hasPendingWrites ? "Local" : "Server";
 
+            // 🔥 LÓGICA DE FILTRO "MÍOS" 🔥
+            let isVisible = true;
+            if (currentTab === 'mine') {
+                // Ocultar el chat si está asignado a alguien que NO soy yo
+                if (data.assignedTo && data.assignedTo !== myEmail) {
+                    isVisible = false;
+                }
+            }
+
             if ((change.type === "added" || change.type === "modified") && source === "Server") {
                 if (data.unread && data.lastMessageAt && (Date.now() - data.lastMessageAt.toDate() < 10000)) {
                     if (document.hidden || activeChatId !== id) {
-                        playSound(); document.title = "🔔 Nuevo Mensaje!"; setTimeout(() => document.title = "WhatsApp CRM", 4000);
+                        // Solo suena si el chat te corresponde ver
+                        if (isVisible) {
+                            playSound(); document.title = "🔔 Nuevo Mensaje!"; setTimeout(() => document.title = "WhatsApp CRM", 4000);
+                        }
                     }
                 }
             }
 
             if (change.type === "added") {
-                const card = createChatCard(id, data);
-                els.chatList.appendChild(card);
-                if (change.newIndex === 0) els.chatList.prepend(card);
+                if (isVisible) {
+                    const card = createChatCard(id, data);
+                    els.chatList.appendChild(card);
+                    if (change.newIndex === 0) els.chatList.prepend(card);
+                }
             }
 
             if (change.type === "modified") {
                 const existingCard = document.getElementById(`chat-card-${id}`);
-                if (existingCard) {
-                    updateChatCardContent(existingCard, data);
-                    if (change.newIndex === 0) {
-                        els.chatList.prepend(existingCard);
-                        existingCard.classList.add('bg-blue-50'); 
-                        setTimeout(() => existingCard.classList.remove('bg-blue-50'), 500);
+                
+                if (isVisible) {
+                    if (existingCard) {
+                        updateChatCardContent(existingCard, data);
+                        if (change.newIndex === 0) {
+                            els.chatList.prepend(existingCard);
+                            existingCard.classList.add('bg-blue-50'); 
+                            setTimeout(() => existingCard.classList.remove('bg-blue-50'), 500);
+                        }
+                    } else {
+                        // Si no estaba pero ahora debe verse (ej: alguien lo soltó)
+                        const card = createChatCard(id, data);
+                        els.chatList.prepend(card);
                     }
                 } else {
-                    const card = createChatCard(id, data);
-                    els.chatList.prepend(card);
+                    // Magia: Si estaba visible pero alguien más lo tomó, se desaparece al instante
+                    if (existingCard) {
+                        existingCard.remove();
+                    }
                 }
-                if (activeChatId === id) startSessionTimer(data.lastCustomerInteraction);
+
+                if (activeChatId === id && isVisible) {
+                    activeChatData = data;
+                    updateHeaderAssignmentBadge(data);
+                    startSessionTimer(data.lastCustomerInteraction);
+                }
             }
 
             if (change.type === "removed") {
                 const card = document.getElementById(`chat-card-${id}`);
                 if (card) card.remove();
-                if (activeChatId === id && currentTab === 'open') {
-                    els.conversationPanel.classList.add('translate-x-full');
-                    activeChatId = null;
+                if (activeChatId === id && currentTab !== 'resolved') {
+                    closeActiveChat();
                 }
             }
         });
+
+        // Mostrar aviso si no quedó ningún chat visible
+        if (els.chatList.children.length === 0) {
+            els.chatList.innerHTML = `<div class="p-10 text-center text-xs text-gray-400">Todo al día, no hay chats libres ni asignados a ti.</div>`;
+        }
     });
 }
 
@@ -177,7 +276,10 @@ function createChatCard(id, data) {
                 <h4 id="name-${id}" class="text-sm font-bold text-gray-800 truncate ${data.unread ? 'font-black' : ''}">${data.clientName || id}</h4>
                 <span id="time-${id}" class="text-[10px] ${data.unread ? 'text-brand-cyan font-bold' : 'text-gray-400'}">${formatTime(data.lastMessageAt)}</span>
             </div>
-            <p id="msg-${id}" class="text-xs text-gray-500 truncate ${data.unread ? 'font-bold text-gray-700' : ''}">${formatPreview(data.lastMessage)}</p>
+            <div class="flex justify-between items-center">
+                <p id="msg-${id}" class="text-[11px] text-gray-500 truncate pr-2 ${data.unread ? 'font-bold text-gray-700' : ''}">${formatPreview(data.lastMessage)}</p>
+                <div id="assign-${id}" class="shrink-0">${getAssignmentBadgeHTML(data)}</div>
+            </div>
         </div>
     `;
     return div;
@@ -189,10 +291,12 @@ function updateChatCardContent(card, data) {
     const name = card.querySelector(`#name-${id}`);
     const time = card.querySelector(`#time-${id}`);
     const msg = card.querySelector(`#msg-${id}`);
+    const assignBadge = card.querySelector(`#assign-${id}`);
 
     if(name) name.textContent = data.clientName || id;
     if(time) time.textContent = formatTime(data.lastMessageAt);
     if(msg) msg.textContent = formatPreview(data.lastMessage);
+    if(assignBadge) assignBadge.innerHTML = getAssignmentBadgeHTML(data);
 
     if (data.unread) {
         badge.classList.remove('hidden'); name.classList.add('font-black');
@@ -220,24 +324,39 @@ function formatTime(timestamp) {
 
 function formatPreview(msg) {
     if (!msg) return "...";
-    if (msg.includes('image')) return '📷 Foto';
-    if (msg.includes('audio')) return '🎤 Audio';
+    if (msg.includes('image') || msg.includes('📷')) return '📷 Foto';
+    if (msg.includes('audio') || msg.includes('🎤')) return '🎤 Audio';
+    if (msg.includes('🌟 Sticker')) return '🌟 Sticker';
+    if (msg.includes('📍 Ubicación')) return '📍 Ubicación';
+    if (msg.includes('👤 Contacto')) return '👤 Contacto';
     return msg;
 }
 
-els.tabOpen.onclick = () => {
-    currentTab = 'open';
-    els.tabOpen.classList.add('bg-white', 'shadow-sm', 'text-brand-black'); els.tabOpen.classList.remove('text-gray-500');
-    els.tabResolved.classList.remove('bg-white', 'shadow-sm', 'text-brand-black'); els.tabResolved.classList.add('text-gray-500');
-    initChatList();
-};
-els.tabResolved.onclick = () => {
-    currentTab = 'resolved';
-    els.tabResolved.classList.add('bg-white', 'shadow-sm', 'text-brand-black'); els.tabResolved.classList.remove('text-gray-500');
-    els.tabOpen.classList.remove('bg-white', 'shadow-sm', 'text-brand-black'); els.tabOpen.classList.add('text-gray-500');
-    initChatList();
-};
+// --- GESTIÓN DE LAS PESTAÑAS (MÍOS, TODOS, RESUELTOS) ---
+function setActiveTab(tab) {
+    currentTab = tab;
+    
+    [els.tabMine, els.tabOpen, els.tabResolved].forEach(btn => {
+        if(btn) {
+            btn.classList.remove('bg-white', 'shadow-sm', 'text-brand-black');
+            btn.classList.add('text-gray-500');
+        }
+    });
 
+    const activeBtn = tab === 'mine' ? els.tabMine : (tab === 'open' ? els.tabOpen : els.tabResolved);
+    if(activeBtn) {
+        activeBtn.classList.add('bg-white', 'shadow-sm', 'text-brand-black');
+        activeBtn.classList.remove('text-gray-500');
+    }
+
+    initChatList();
+}
+
+if(els.tabMine) els.tabMine.onclick = () => setActiveTab('mine');
+if(els.tabOpen) els.tabOpen.onclick = () => setActiveTab('open');
+if(els.tabResolved) els.tabResolved.onclick = () => setActiveTab('resolved');
+
+// --- BÚSQUEDA ---
 els.chatSearchInput.oninput = (e) => {
     const term = e.target.value.toLowerCase().trim();
     if (!term) { initChatList(); return; }
@@ -299,6 +418,8 @@ async function openChat(chatId, data) {
     els.activePhone.textContent = `+${chatId}`;
     if (els.waLink) els.waLink.href = `https://wa.me/${chatId}`;
 
+    updateHeaderAssignmentBadge(data);
+
     els.infoName.textContent = data.clientName || "Usuario";
     els.infoPhone.textContent = `+${chatId}`;
     els.infoBadge.textContent = "Sin verificar";
@@ -333,12 +454,19 @@ els.btnResolve.onclick = async () => {
     
     els.btnResolve.disabled = true;
     try {
-        await updateDoc(doc(db, "chats", activeChatId), { status: newStatus });
-        if (currentTab === 'open' && newStatus === 'resolved') {
-            activeChatId = null;
-            els.conversationPanel.classList.add('translate-x-full');
+        const updates = { status: newStatus };
+        if (newStatus === 'resolved') {
+            updates.assignedTo = null; // Libera el chat al resolverlo
+        }
+        await updateDoc(doc(db, "chats", activeChatId), updates);
+        
+        if ((currentTab === 'open' || currentTab === 'mine') && newStatus === 'resolved') {
+            closeActiveChat();
         } else {
             updateResolveButton(newStatus);
+            activeChatData.status = newStatus;
+            if (newStatus === 'resolved') activeChatData.assignedTo = null;
+            updateHeaderAssignmentBadge(activeChatData);
         }
     } catch(e) { console.error(e); } 
     finally { els.btnResolve.disabled = false; }
@@ -455,30 +583,112 @@ async function loadOlderMessages() {
     finally { isChatLoading = false; }
 }
 
+// 🔥 NUEVO: Formateador de texto estilo WhatsApp
+function formatWhatsAppText(text) {
+    if (!text) return "";
+    
+    // 1. Escapar HTML por seguridad (evitar inyección de código)
+    let safeText = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    
+    // 2. Aplicar reglas de WhatsApp
+    return safeText
+        .replace(/\*(.*?)\*/g, '<strong class="font-black">$1</strong>') // Negrilla
+        .replace(/_(.*?)_/g, '<em class="italic">$1</em>')             // Cursiva
+        .replace(/~(.*?)~/g, '<del class="line-through">$1</del>');    // Tachado
+}
+
 function createMessageNode(m) {
     const inc = m.type === 'incoming';
     let contentHtml = "";
     
+    // Textos con ajuste forzado para que no rompan la burbuja
+    const textClasses = "text-[13px] md:text-sm text-gray-800 whitespace-pre-wrap break-words leading-relaxed";
+    
+    // 🔥 Pasamos el contenido por el traductor de WhatsApp
+    const formattedContent = formatWhatsAppText(m.content);
+    
     if (m.messageType === 'text' || m.type === 'text') {
-        contentHtml = `<p class="text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">${m.content}</p>`;
-    } else if ((m.messageType === 'image' || m.type === 'image') && m.mediaUrl) {
-        contentHtml = `<a href="${m.mediaUrl}" target="_blank"><img src="${m.mediaUrl}" loading="lazy" class="rounded-lg max-w-xs max-h-64 object-cover mb-1 border border-black/5 hover:opacity-90 transition"></a>${m.content ? `<p class="text-sm mt-1">${m.content}</p>` : ''}`;
-    } else if ((m.messageType === 'audio' || m.type === 'audio') && m.mediaUrl) {
-        contentHtml = `<audio controls class="max-w-[240px] mt-1 mb-1"><source src="${m.mediaUrl}"></audio>`;
-    } else {
-        contentHtml = `<p class="text-sm text-gray-800 italic">[Archivo no soportado]</p>`;
+        contentHtml = `<p class="${textClasses}">${formattedContent}</p>`;
+    } 
+    else if ((m.messageType === 'image' || m.type === 'image') && m.mediaUrl) {
+        contentHtml = `
+            <a href="${m.mediaUrl}" target="_blank" class="block w-full">
+                <img src="${m.mediaUrl}" loading="lazy" class="rounded-lg w-full max-w-[250px] md:max-w-xs object-cover border border-black/5 hover:opacity-90 transition">
+            </a>
+            ${m.content && m.content !== '📷 Imagen recibida' ? `<p class="${textClasses} mt-2">${formattedContent}</p>` : ''}
+        `;
+    } 
+    else if ((m.messageType === 'audio' || m.type === 'audio') && m.mediaUrl) {
+        contentHtml = `
+            <audio controls class="w-[200px] md:w-[260px] h-10 outline-none">
+                <source src="${m.mediaUrl}">
+            </audio>
+        `;
+    } 
+    else if (m.messageType === 'sticker' || m.type === 'sticker') {
+        contentHtml = `<img src="${m.mediaUrl}" loading="lazy" class="w-32 h-32 object-contain drop-shadow-md">`;
+    } 
+    else if (m.messageType === 'location' || m.type === 'location') {
+        contentHtml = `
+            <div class="flex flex-col items-center bg-slate-50/50 p-3 rounded-lg border border-gray-200 min-w-[200px]">
+                <i class="fa-solid fa-map-location-dot text-3xl text-red-500 mb-2"></i>
+                <p class="text-xs font-bold text-gray-700 text-center leading-tight mb-2 break-words">${m.content.replace('📍 Ubicación:', '').trim() || 'Ubicación compartida'}</p>
+                <a href="${m.mediaUrl}" target="_blank" class="w-full bg-brand-cyan text-brand-black text-[10px] font-black uppercase tracking-widest py-2 rounded-md text-center hover:shadow-md transition">Abrir en Mapa</a>
+            </div>`;
+    } 
+    else if (m.messageType === 'contacts' || m.type === 'contacts') {
+        const cName = m.content.replace('👤 Contacto:', '').trim();
+        const cPhone = m.mediaUrl;
+        contentHtml = `
+            <div class="flex flex-col bg-slate-50/50 p-3 rounded-lg border border-gray-200 min-w-[200px]">
+                <div class="flex items-center gap-3 mb-3">
+                    <div class="w-10 h-10 rounded-full bg-gray-300 flex items-center justify-center text-white shrink-0"><i class="fa-solid fa-user text-lg"></i></div>
+                    <div class="overflow-hidden">
+                        <p class="text-xs font-bold text-brand-black truncate">${cName}</p>
+                        <p class="text-[10px] text-gray-500 font-mono">+${cPhone}</p>
+                    </div>
+                </div>
+                <a href="https://wa.me/${cPhone}" target="_blank" class="w-full bg-brand-black text-white text-[10px] font-black uppercase tracking-widest py-2 rounded-md text-center hover:bg-brand-cyan hover:text-brand-black transition">Enviar Mensaje</a>
+            </div>`;
+    } 
+    else {
+        contentHtml = `<p class="text-sm text-gray-800 italic break-words">[Archivo no soportado: ${m.messageType || m.type}]</p>`;
     }
 
     const div = document.createElement('div');
-    div.className = `flex w-full ${inc ? 'justify-start' : 'justify-end'}`;
+    div.className = `flex w-full mb-1 ${inc ? 'justify-start' : 'justify-end'}`;
     const time = m.timestamp ? m.timestamp.toDate().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : '';
     
+    let authorTag = '';
+    if (!inc && m.sentBy) {
+        const shortName = m.sentBy.includes('@') ? m.sentBy.split('@')[0] : m.sentBy;
+        authorTag = `<span class="block text-[10px] font-bold text-emerald-700 mb-1 leading-none capitalize">${shortName}</span>`;
+    }
+    
+    // 🔥 NUEVO: Cargar el error si existe
+    let errorTag = '';
+    if (m.error) {
+        errorTag = `
+        <div class="bg-red-50 border border-red-200 text-red-600 text-[10px] p-2 rounded-md mt-2 font-bold leading-tight">
+            <i class="fa-solid fa-circle-exclamation mr-1"></i> Fallo de entrega: ${m.errorDetails}
+        </div>`;
+    }
+    
+    const isSticker = m.messageType === 'sticker' || m.type === 'sticker';
+    const bubbleClass = isSticker 
+        ? 'bg-transparent' 
+        : (inc ? 'chat-bubble-in border border-gray-200/50' : 'chat-bubble-out border border-green-200/50');
+    
     div.innerHTML = `
-        <div class="max-w-[75%] p-3 ${inc ? 'chat-bubble-in' : 'chat-bubble-out'} relative group shadow-sm mb-2">
-            ${contentHtml}
-            <div class="flex justify-end gap-1 mt-1 opacity-60">
-                <span class="text-[9px] font-bold">${time}</span>
-                ${!inc ? '<i class="fa-solid fa-check-double text-[10px] text-blue-500"></i>' : ''}
+        <div class="max-w-[85%] md:max-w-[70%] px-3 py-2 ${bubbleClass} relative group flex flex-col min-w-[100px]">
+            ${authorTag}
+            <div class="w-full overflow-hidden break-words">
+                ${contentHtml}
+            </div>
+            ${errorTag}
+            <div class="w-full flex justify-end items-end gap-1 mt-1 opacity-60 shrink-0">
+                <span class="text-[9px] font-bold leading-none ${isSticker ? 'text-gray-400 bg-white/80 px-1 rounded-md' : ''}">${time}</span>
+                ${!inc && !isSticker && !m.error ? `<i class="fa-solid fa-check-double text-[10px] leading-none text-blue-500"></i>` : ''}
             </div>
         </div>
     `;
@@ -489,13 +699,23 @@ async function sendMessage() {
     const text = els.txtInput.value.trim();
     if (!text || !activeChatId) return;
     
-    els.txtInput.value = ""; checkInputState(); els.txtInput.focus();
+    // 🔥 Resetear la caja de texto tras enviar
+    els.txtInput.value = ""; 
+    els.txtInput.style.height = 'auto'; 
+    els.txtInput.style.overflowY = 'hidden';
+    checkInputState(); 
+    els.txtInput.focus();
     
     try {
+        await assignToMeIfNeeded();
         const sendFn = httpsCallable(functions, 'sendWhatsappMessage');
         await sendFn({ phoneNumber: activeChatId, message: text, type: 'text' });
     } catch (e) {
-        console.error(e); alert("Error al enviar: " + e.message); els.txtInput.value = text; checkInputState();
+        console.error(e); alert("Error al enviar: " + e.message); 
+        // Recuperar el texto y el tamaño si falla
+        els.txtInput.value = text; 
+        els.txtInput.style.height = Math.min(els.txtInput.scrollHeight, 76) + 'px';
+        checkInputState();
     }
 }
 
@@ -510,12 +730,39 @@ els.txtInput.addEventListener('input', (e) => {
 function renderQuickReplies(filter) {
     els.quickReplyList.innerHTML = "";
     const filtered = QUICK_REPLIES.filter(r => r.title.toLowerCase().includes(filter) || r.text.toLowerCase().includes(filter));
-    if (filtered.length === 0) { els.quickReplyList.innerHTML = `<div class="p-3 text-xs text-gray-400">Sin resultados</div>`; return; }
+    
+    if (filtered.length === 0) { 
+        els.quickReplyList.innerHTML = `<div class="p-6 text-xs text-gray-400 font-bold text-center uppercase tracking-widest">Sin resultados</div>`; 
+        return; 
+    }
 
     filtered.forEach(r => {
-        const div = document.createElement('div'); div.className = "p-3 hover:bg-slate-50 cursor-pointer border-b border-gray-50 last:border-0";
-        div.innerHTML = `<p class="text-[10px] font-black uppercase text-brand-cyan mb-1">${r.title}</p><p class="text-xs text-gray-600 line-clamp-2">${r.text}</p>`;
-        div.onclick = () => { els.txtInput.value = r.text; els.quickReplyMenu.classList.add('hidden'); els.txtInput.focus(); };
+        const div = document.createElement('div'); 
+        div.className = "p-4 hover:bg-slate-50 cursor-pointer border-b border-gray-50 last:border-0 transition-colors group";
+        
+        // 🔥 Aplicar formato al atajo
+        const formattedPreview = formatWhatsAppText(r.text);
+
+        div.innerHTML = `
+            <p class="text-[11px] font-black uppercase text-brand-cyan mb-1.5 flex items-center gap-2 group-hover:translate-x-1 transition-transform">
+                <i class="fa-solid fa-bolt text-yellow-500"></i> ${r.title}
+            </p>
+            <p class="text-xs font-medium text-gray-600 line-clamp-2 leading-relaxed pr-2">${formattedPreview}</p>
+        `;
+        
+        div.onclick = () => {
+            els.txtInput.value = r.text; 
+            
+            // Autoajustar altura de la caja de texto al pegar la respuesta rápida
+            els.txtInput.style.height = 'auto';
+            const scrollHeight = els.txtInput.scrollHeight;
+            els.txtInput.style.height = Math.min(scrollHeight, 76) + 'px';
+            els.txtInput.style.overflowY = scrollHeight > 76 ? 'auto' : 'hidden';
+            
+            els.quickReplyMenu.classList.add('hidden'); 
+            els.txtInput.focus(); 
+            checkInputState();
+        };
         els.quickReplyList.appendChild(div);
     });
 }
@@ -636,6 +883,8 @@ async function sendProduct(p) {
     if (!confirm(`¿Enviar tarjeta de ${p.name}?`)) return;
     els.prodPicker.classList.add('hidden'); els.btnSend.disabled = true; els.btnSend.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
     
+    await assignToMeIfNeeded();
+
     const price = (p.price || 0).toLocaleString('es-CO');
     const isVariable = !p.isSimple;
     const priceText = isVariable ? `Desde $${price}` : `$${price}`;
@@ -654,9 +903,27 @@ async function sendProduct(p) {
     let imgUrl = p.mainImage || p.image || (p.images && p.images[0]) || "";
     if (p.variants && p.variants.length > 0 && p.variants[0].images && p.variants[0].images.length > 0 && !imgUrl) imgUrl = p.variants[0].images[0];
     
+    // 🔥 CORRECCIÓN CRÍTICA: Evitar enviar imágenes vacías o falsas a Meta
+    let msgType = 'image';
+    if (!imgUrl || imgUrl.includes('via.placeholder.com')) {
+        msgType = 'text';
+        imgUrl = null;
+    }
+    
     try {
-        await (httpsCallable(functions, 'sendWhatsappMessage'))({ phoneNumber: activeChatId, message: caption, type: 'image', mediaUrl: imgUrl });
-    } catch(e) { alert("Error: " + e.message); } finally { els.btnSend.disabled = false; els.btnSend.innerHTML = '<i class="fa-solid fa-paper-plane"></i>'; els.txtInput.focus(); }
+        await (httpsCallable(functions, 'sendWhatsappMessage'))({ 
+            phoneNumber: activeChatId, 
+            message: caption, 
+            type: msgType, 
+            mediaUrl: imgUrl 
+        });
+    } catch(e) { 
+        alert("Error: " + e.message); 
+    } finally { 
+        els.btnSend.disabled = false; 
+        els.btnSend.innerHTML = '<i class="fa-solid fa-paper-plane"></i>'; 
+        els.txtInput.focus(); 
+    }
 }
 
 els.btnAttach.onclick = () => els.fileInput.click();
@@ -666,6 +933,7 @@ els.fileInput.onchange = async (e) => {
     
     els.txtInput.disabled = true; els.btnSend.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
     try {
+        await assignToMeIfNeeded();
         const r = ref(storage, `chats/${activeChatId}/uploads/${Date.now()}_${f.name}`); 
         await uploadBytes(r, f); 
         await (httpsCallable(functions, 'sendWhatsappMessage'))({ phoneNumber: activeChatId, message: "", type: 'image', mediaUrl: await getDownloadURL(r) });
@@ -701,7 +969,29 @@ function checkInputState() {
         els.btnSend.disabled = true; els.btnSend.classList.add('opacity-50', 'cursor-not-allowed', 'bg-gray-200', 'text-gray-400'); els.btnSend.classList.remove('bg-brand-black', 'text-white', 'hover:bg-brand-cyan', 'hover:text-brand-black');
     }
 }
-els.txtInput.addEventListener('input', checkInputState);
+
+// 🔥 NUEVO: Listener consolidado para auto-expandir y buscar atajos
+els.txtInput.addEventListener('input', (e) => {
+    // 1. Auto-expandir textarea (Máximo ~3 líneas = 76px)
+    els.txtInput.style.height = 'auto'; // Reset temporal para calcular altura real
+    const scrollHeight = els.txtInput.scrollHeight;
+    els.txtInput.style.height = Math.min(scrollHeight, 76) + 'px';
+    els.txtInput.style.overflowY = scrollHeight > 76 ? 'auto' : 'hidden';
+
+    // 2. Verificar estado del botón de envío
+    checkInputState();
+
+    // 3. Lógica del menú de respuestas rápidas (atajo "/")
+    const val = e.target.value;
+    if (val.startsWith('/')) {
+        const filter = val.substring(1).toLowerCase();
+        renderQuickReplies(filter); 
+        els.quickReplyMenu.classList.remove('hidden');
+    } else { 
+        els.quickReplyMenu.classList.add('hidden'); 
+    }
+});
+
 
 // ==========================================================================
 // 4. PANEL DERECHO: PEDIDOS (HISTORIAL)
@@ -710,12 +1000,10 @@ els.txtInput.addEventListener('input', checkInputState);
 els.btnActions.onclick = (e) => { e.stopPropagation(); els.dropdownActions.classList.toggle('hidden'); };
 document.addEventListener('click', (e) => { if (!els.btnActions.contains(e.target) && !els.dropdownActions.contains(e.target)) els.dropdownActions.classList.add('hidden'); });
 
-// 🔥 CIERRE DEL PANEL CORREGIDO
 els.closeInfoBtn.onclick = () => { 
     els.infoPanel.style.display = 'none';
 };
 
-// 🔥 APERTURA DEL PANEL CORREGIDA
 els.btnActOrders.onclick = () => {
     els.dropdownActions.classList.add('hidden');
     els.infoPanel.style.display = 'flex';
@@ -817,73 +1105,41 @@ els.btnSearchOrder.onclick = async () => {
     } catch(e) { alert("Error"); }
 };
 
-// LISTENERS GLOBALES
 if(els.btnSend) els.btnSend.onclick = sendMessage;
 if(els.txtInput) els.txtInput.onkeypress = (e) => { if(e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }};
 if(els.btnLoadMore) els.btnLoadMore.onclick = () => loadOrders(false);
 if(els.inputSearchOrder) els.inputSearchOrder.onkeypress = (e) => { if(e.key === 'Enter') { e.preventDefault(); els.btnSearchOrder.click(); }};
 window.resetOrdersPagination = resetOrdersPagination;
 
-// 🔥 BOTÓN VOLVER CELULARES
-if(els.backBtn) els.backBtn.onclick = () => { 
-    els.conversationPanel.classList.add('translate-x-full'); 
-    activeChatId = null; 
-    els.infoPanel.style.display = 'none'; 
-};
-
-// PRUEBA DE PLANTILLA
-const btnTestTemplate = document.getElementById('btn-test-template');
-if (btnTestTemplate) {
-    btnTestTemplate.onclick = async () => {
-        const phone = prompt("🧪 PRUEBA DE CONEXIÓN\n\nIngresa tu número de WhatsApp con código de país (Ej: 573001234567):");
-        if (!phone) return;
-        const originalHtml = btnTestTemplate.innerHTML; btnTestTemplate.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>'; btnTestTemplate.disabled = true;
-        try {
-            await (httpsCallable(functions, 'sendTestTemplate'))({ phoneNumber: phone.trim() }); alert("✅ ¡ÉXITO!\nLa plantilla 'hello_world' fue enviada. Revisa tu celular.");
-        } catch (e) { alert("❌ ERROR DE META:\n" + e.message); } finally { btnTestTemplate.innerHTML = originalHtml; btnTestTemplate.disabled = false; }
-    };
-}
-
 // ==========================================================================
-// 6. CERRAR CHAT ACTIVO (Botón y tecla Esc)
+// 6. CERRAR CHAT ACTIVO
 // ==========================================================================
 
 function closeActiveChat() {
     if (!activeChatId) return;
 
-    // 1. Limpiar variables
     activeChatId = null;
     activeChatData = null;
     if (timerInterval) clearInterval(timerInterval);
 
-    // 2. Restaurar UI al estado vacío (Centro de Mensajes)
     els.emptyState.classList.remove('hidden');
-    
     els.chatHeader.classList.add('hidden');
     els.chatHeader.classList.remove('flex');
     els.msgArea.classList.add('hidden');
     els.inputArea.classList.add('hidden');
     
-    // 3. Ocultar el panel lateral flotante si estaba abierto
     els.infoPanel.style.display = 'none';
     els.dropdownActions.classList.add('hidden');
 
-    // 4. Quitar selección de la lista izquierda
     document.querySelectorAll('[id^="chat-card-"]').forEach(el => el.classList.remove('bg-gray-100'));
-
-    // 5. Si está en celular, deslizar el panel hacia la derecha
     els.conversationPanel.classList.add('translate-x-full');
 }
 
-// Asignar clics a los botones de cerrar
 if (els.btnCloseChat) els.btnCloseChat.onclick = closeActiveChat;
-if (els.backBtn) els.backBtn.onclick = closeActiveChat; // Reutilizamos la función para la flecha en celulares
+if (els.backBtn) els.backBtn.onclick = closeActiveChat; 
 
-// Detectar tecla ESC en toda la página
 document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && activeChatId) {
-        closeActiveChat();
-    }
+    if (e.key === 'Escape' && activeChatId) closeActiveChat();
 });
 
 // ==========================================================================
@@ -897,14 +1153,10 @@ function initMarketingCampaigns() {
         counter: document.getElementById('monthly-counter'),
         tplName: document.getElementById('camp-template-name'),
         customMsg: document.getElementById('camp-custom-msg'),
-        
-        // Imagen
         imgUrl: document.getElementById('camp-img-url'),
         imgPreview: document.getElementById('camp-img-preview'),
         fileInput: document.getElementById('camp-file-upload'),
         btnUploadImg: document.getElementById('btn-upload-camp-img'),
-        
-        // Link
         tabProd: document.getElementById('tab-link-product'),
         tabCustom: document.getElementById('tab-link-custom'),
         areaProd: document.getElementById('camp-link-product-area'),
@@ -915,25 +1167,20 @@ function initMarketingCampaigns() {
         selectedProdName: document.getElementById('camp-prod-name'),
         btnClearProd: document.getElementById('btn-clear-prod'),
         customUrl: document.getElementById('camp-custom-url'),
-        
-        // Audiencia y Envío
         btnCalc: document.getElementById('btn-calc-audience'),
         resText: document.getElementById('audience-result'),
         resCount: document.getElementById('audience-count'),
         btnSend: document.getElementById('btn-send-campaign'),
-
         audienceList: document.getElementById('audience-list-container'),
         btnUncheckAll: document.getElementById('btn-uncheck-all')
     };
 
-    // 🛑 SISTEMA ANTICAÍDAS: Si falta el modal en el HTML, cancela sin romper el resto del JS.
     if (!elsCamp.trigger || !elsCamp.modal) return;
 
     let currentAudience = [];
     let finalCampaignLink = ""; 
     let linkMode = 'product';
 
-    // --- ABRIR MODAL ---
     elsCamp.trigger.onclick = async () => {
         elsCamp.modal.classList.remove('hidden');
         elsCamp.resText.classList.add('hidden');
@@ -941,45 +1188,31 @@ function initMarketingCampaigns() {
         elsCamp.btnSend.classList.add('opacity-50', 'cursor-not-allowed');
         currentAudience = [];
         
-        // Cargar contador mensual
         const dateId = new Date().toISOString().slice(0, 7); 
         try {
             const statDoc = await getDoc(doc(db, "stats", `wa_${dateId}`));
             elsCamp.counter.innerText = statDoc.exists() ? statDoc.data().sentPromoCount || 0 : 0;
         } catch(e) {}
 
-        // Inicializar catálogo en memoria si no está cargado
-        if (chatProductsCache.length === 0 && typeof initSmartProductList === 'function') {
-            initSmartProductList();
-        }
+        if (chatProductsCache.length === 0 && typeof initSmartProductList === 'function') initSmartProductList();
     };
 
-    // --- SUBIDA DE IMAGEN ---
     elsCamp.btnUploadImg.onclick = () => elsCamp.fileInput.click();
     elsCamp.fileInput.onchange = async (e) => {
         const file = e.target.files[0];
         if (!file) return;
-
         elsCamp.btnUploadImg.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Subiendo...';
         elsCamp.btnUploadImg.disabled = true;
-
         try {
             const storageRef = ref(storage, `marketing/${Date.now()}_${file.name}`);
             await uploadBytes(storageRef, file);
             const url = await getDownloadURL(storageRef);
-            
             elsCamp.imgUrl.value = url;
             elsCamp.imgPreview.innerHTML = `<img src="${url}" class="w-full h-full object-cover">`;
-        } catch(err) {
-            alert("Error al subir imagen.");
-        } finally {
-            elsCamp.btnUploadImg.innerHTML = '<i class="fa-solid fa-cloud-arrow-up"></i> Cambiar Imagen';
-            elsCamp.btnUploadImg.disabled = false;
-            validateCampaignForm();
-        }
+        } catch(err) { alert("Error al subir imagen."); } 
+        finally { elsCamp.btnUploadImg.innerHTML = '<i class="fa-solid fa-cloud-arrow-up"></i> Cambiar Imagen'; elsCamp.btnUploadImg.disabled = false; validateCampaignForm(); }
     };
 
-    // --- CONTROL DE PESTAÑAS (TIPO DE LINK) ---
     elsCamp.tabProd.onclick = () => {
         linkMode = 'product';
         elsCamp.tabProd.classList.add('bg-white', 'shadow-sm', 'text-brand-black'); elsCamp.tabProd.classList.remove('text-gray-500');
@@ -996,42 +1229,27 @@ function initMarketingCampaigns() {
         validateCampaignForm();
     };
 
-    // --- BUSCADOR INTELIGENTE DE PRODUCTOS ---
     elsCamp.searchProd.oninput = (e) => {
         const term = normalizeText(e.target.value);
         if (term.length < 2) { elsCamp.resProd.classList.add('hidden'); return; }
-
         const results = chatProductsCache.filter(p => normalizeText(p.name).includes(term) || normalizeText(p.category).includes(term));
-        
         if (results.length === 0) {
             elsCamp.resProd.innerHTML = '<div class="p-3 text-xs text-center text-gray-400 font-bold">No encontrado</div>';
         } else {
             elsCamp.resProd.innerHTML = results.slice(0, 5).map(p => `
                 <div class="flex items-center gap-3 p-2 hover:bg-slate-50 cursor-pointer border-b border-gray-50 last:border-0" data-id="${p.id}" data-name="${p.name.replace(/"/g, '&quot;')}">
                     <img src="${p.mainImage || 'https://placehold.co/50'}" class="w-8 h-8 rounded object-cover border border-gray-100 shrink-0">
-                    <div class="min-w-0">
-                        <p class="text-[10px] font-black text-brand-black uppercase truncate">${p.name}</p>
-                        <p class="text-[9px] text-gray-400 font-bold">$${(p.price||0).toLocaleString('es-CO')}</p>
-                    </div>
+                    <div class="min-w-0"><p class="text-[10px] font-black text-brand-black uppercase truncate">${p.name}</p><p class="text-[9px] text-gray-400 font-bold">$${(p.price||0).toLocaleString('es-CO')}</p></div>
                 </div>
             `).join('');
 
-            // Eventos de selección de producto
             elsCamp.resProd.querySelectorAll('div[data-id]').forEach(row => {
                 row.onclick = () => {
-                    const pId = row.dataset.id;
-                    const pName = row.dataset.name;
-                    
-                    // Nota: Pasamos ruta relativa para que Meta concatene bien
+                    const pId = row.dataset.id; const pName = row.dataset.name;
                     finalCampaignLink = `shop/product.html?id=${pId}`;
                     elsCamp.selectedProdName.textContent = pName;
-                    
-                    elsCamp.resProd.classList.add('hidden');
-                    elsCamp.searchProd.value = "";
-                    elsCamp.searchProd.classList.add('hidden');
-                    elsCamp.selectedProdArea.classList.remove('hidden');
-                    elsCamp.selectedProdArea.classList.add('flex');
-                    
+                    elsCamp.resProd.classList.add('hidden'); elsCamp.searchProd.value = ""; elsCamp.searchProd.classList.add('hidden');
+                    elsCamp.selectedProdArea.classList.remove('hidden'); elsCamp.selectedProdArea.classList.add('flex');
                     validateCampaignForm();
                 };
             });
@@ -1040,51 +1258,28 @@ function initMarketingCampaigns() {
     };
 
     elsCamp.btnClearProd.onclick = () => {
-        finalCampaignLink = "";
-        elsCamp.selectedProdArea.classList.add('hidden');
-        elsCamp.selectedProdArea.classList.remove('flex');
-        elsCamp.searchProd.classList.remove('hidden');
-        elsCamp.searchProd.focus();
-        validateCampaignForm();
+        finalCampaignLink = ""; elsCamp.selectedProdArea.classList.add('hidden'); elsCamp.selectedProdArea.classList.remove('flex');
+        elsCamp.searchProd.classList.remove('hidden'); elsCamp.searchProd.focus(); validateCampaignForm();
     };
 
-    elsCamp.customUrl.oninput = () => {
-        finalCampaignLink = elsCamp.customUrl.value.trim();
-        validateCampaignForm();
-    };
-
+    elsCamp.customUrl.oninput = () => { finalCampaignLink = elsCamp.customUrl.value.trim(); validateCampaignForm(); };
     elsCamp.customMsg.addEventListener('input', validateCampaignForm);
 
-// --- VALIDAR FORMULARIO GENERAL ---
     function validateCampaignForm() {
-        const hasImg = elsCamp.imgUrl.value.trim().length > 0;
-        const hasLink = finalCampaignLink.length > 2;
-        const hasMsg = elsCamp.customMsg.value.trim().length > 0;
-        // Ahora contamos cuántos checks están marcados
+        const hasImg = elsCamp.imgUrl.value.trim().length > 0; const hasLink = finalCampaignLink.length > 2; const hasMsg = elsCamp.customMsg.value.trim().length > 0;
         const checkedCount = elsCamp.audienceList ? elsCamp.audienceList.querySelectorAll('.audience-checkbox:checked').length : 0;
-
-        if (hasImg && hasLink && checkedCount > 0 && hasMsg) {
-            elsCamp.btnSend.disabled = false;
-            elsCamp.btnSend.classList.remove('opacity-50', 'cursor-not-allowed');
-        } else {
-            elsCamp.btnSend.disabled = true;
-            elsCamp.btnSend.classList.add('opacity-50', 'cursor-not-allowed');
-        }
+        if (hasImg && hasLink && checkedCount > 0 && hasMsg) { elsCamp.btnSend.disabled = false; elsCamp.btnSend.classList.remove('opacity-50', 'cursor-not-allowed'); } 
+        else { elsCamp.btnSend.disabled = true; elsCamp.btnSend.classList.add('opacity-50', 'cursor-not-allowed'); }
     }
 
-    // --- CALCULAR Y RENDERIZAR AUDIENCIA ---
     elsCamp.btnCalc.onclick = async () => {
         const selectedSources = Array.from(document.querySelectorAll('.filter-source:checked')).map(cb => cb.value);
         if (selectedSources.length === 0) return alert("Selecciona al menos un origen.");
-        
         elsCamp.btnCalc.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Buscando...';
-        
         try {
             const snap = await getDocs(collection(db, "users")); 
-            
             currentAudience = snap.docs.map(d => d.data()).filter(u => {
                 if (!u.phone || u.phone.length < 10) return false;
-                
                 const source = (u.source || 'WEB').toUpperCase();
                 if (selectedSources.includes('MAYORISTA') && u.role === 'mayorista') return true;
                 if (selectedSources.includes('WEB') && (source !== 'MANUAL' && source !== 'MAYORISTA' && source !== 'EXCEL_IMPORT')) return true;
@@ -1092,44 +1287,26 @@ function initMarketingCampaigns() {
                 return false;
             });
 
-            // Llenar la lista interactiva
             elsCamp.audienceList.innerHTML = currentAudience.map((u, index) => `
                 <label class="flex items-center justify-between p-2 hover:bg-slate-50 rounded-lg cursor-pointer transition border border-transparent hover:border-gray-100">
-                    <div class="min-w-0 flex-1 pr-3">
-                        <p class="text-[10px] font-black text-brand-black uppercase truncate">${u.name || u.userName || 'Sin Nombre'}</p>
-                        <p class="text-[9px] text-gray-500 font-mono">${u.phone}</p>
-                    </div>
+                    <div class="min-w-0 flex-1 pr-3"><p class="text-[10px] font-black text-brand-black uppercase truncate">${u.name || u.userName || 'Sin Nombre'}</p><p class="text-[9px] text-gray-500 font-mono">${u.phone}</p></div>
                     <input type="checkbox" class="audience-checkbox w-4 h-4 text-brand-cyan rounded border-gray-300 focus:ring-brand-cyan" value="${index}" checked>
                 </label>
             `).join('');
 
-            // Función para actualizar contador al hacer clic en un check
-            const updateCount = () => {
-                elsCamp.resCount.innerText = elsCamp.audienceList.querySelectorAll('.audience-checkbox:checked').length;
-                validateCampaignForm();
-            };
-
+            const updateCount = () => { elsCamp.resCount.innerText = elsCamp.audienceList.querySelectorAll('.audience-checkbox:checked').length; validateCampaignForm(); };
             elsCamp.audienceList.querySelectorAll('.audience-checkbox').forEach(cb => cb.addEventListener('change', updateCount));
-
             elsCamp.btnUncheckAll.onclick = () => {
                 const allChecked = elsCamp.audienceList.querySelectorAll('.audience-checkbox:checked').length > 0;
                 elsCamp.audienceList.querySelectorAll('.audience-checkbox').forEach(cb => cb.checked = !allChecked);
-                elsCamp.btnUncheckAll.innerText = allChecked ? "Marcar Todos" : "Desmarcar Todos";
-                updateCount();
+                elsCamp.btnUncheckAll.innerText = allChecked ? "Marcar Todos" : "Desmarcar Todos"; updateCount();
             };
 
-            elsCamp.resCount.innerText = currentAudience.length;
-            elsCamp.resText.classList.remove('hidden');
-            validateCampaignForm();
-
-        } catch(e) {
-            alert("Error obteniendo clientes: " + e.message);
-        } finally {
-            elsCamp.btnCalc.innerHTML = '<i class="fa-solid fa-users mr-1"></i> Calcular Audiencia';
-        }
+            elsCamp.resCount.innerText = currentAudience.length; elsCamp.resText.classList.remove('hidden'); validateCampaignForm();
+        } catch(e) { alert("Error obteniendo clientes: " + e.message); } finally { elsCamp.btnCalc.innerHTML = '<i class="fa-solid fa-users mr-1"></i> Calcular Audiencia'; }
     };
 
-    // --- ENVIAR CAMPAÑA ---
+    // --- ENVIAR CAMPAÑA CON HISTORIAL (AUDITORÍA) ---
     elsCamp.btnSend.onclick = async () => {
         // Obtenemos SOLO los clientes que tienen el check marcado
         const finalAudience = Array.from(elsCamp.audienceList.querySelectorAll('.audience-checkbox:checked')).map(cb => currentAudience[parseInt(cb.value)]);
@@ -1145,9 +1322,19 @@ function initMarketingCampaigns() {
         let successCount = 0;
         const sendFn = httpsCallable(functions, 'sendMassTemplate'); 
 
+        // 🔥 DATOS DEL ASESOR PARA EL HISTORIAL
+        const currentUser = auth.currentUser;
+        const agentEmail = currentUser.email;
+        const agentName = currentUser.displayName || agentEmail.split('@')[0];
+        const monthId = new Date().toISOString().slice(0, 7); // Ej: "2026-04"
+
+        // 🔥 REGISTRO LIGERO DE LA AUDIENCIA
+        const audienceLog = [];
+
         for (let i = 0; i < finalAudience.length; i++) {
+            let clientRealName = finalAudience[i].name || finalAudience[i].userName || "Sin Nombre";
             try {
-                let firstName = (finalAudience[i].name || finalAudience[i].userName || "Amigo").split(' ')[0];
+                let firstName = clientRealName.split(' ')[0];
 
                 await sendFn({
                     phoneNumber: finalAudience[i].phone,
@@ -1159,24 +1346,48 @@ function initMarketingCampaigns() {
                 });
                 successCount++;
                 
+                // Guardar éxito en el reporte
+                audienceLog.push({ name: clientRealName, phone: finalAudience[i].phone, status: "Enviado" });
+                
                 await new Promise(r => setTimeout(r, 600)); 
                 elsCamp.btnSend.innerHTML = `<i class="fa-solid fa-paper-plane"></i> Enviando... (${successCount}/${finalAudience.length})`;
             } catch (e) {
                 console.error(`Fallo envío a ${finalAudience[i].phone}:`, e);
+                // Guardar fallo en el reporte
+                audienceLog.push({ name: clientRealName, phone: finalAudience[i].phone, status: "Fallido" });
             }
         }
 
-        if (successCount > 0) {
-            const dateId = new Date().toISOString().slice(0, 7);
+        if (successCount > 0 || audienceLog.length > 0) {
             try {
-                const statRef = doc(db, "stats", `wa_${dateId}`);
+                // 1. Actualizar el contador estadístico (Lo que ya tenías)
+                const statRef = doc(db, "stats", `wa_${monthId}`);
                 const statDoc = await getDoc(statRef);
                 if(statDoc.exists()) {
                     await updateDoc(statRef, { sentPromoCount: (statDoc.data().sentPromoCount || 0) + successCount });
                 } else {
                     await setDoc(statRef, { sentPromoCount: successCount });
                 }
-            } catch(e){}
+
+                // 2. 🔥 GUARDAR EL HISTORIAL DETALLADO DE LA CAMPAÑA
+                await addDoc(collection(db, "campaigns_history"), {
+                    month: monthId,
+                    templateName: templateName,
+                    customMessage: customMessage,
+                    linkPath: finalCampaignLink,
+                    imageUrl: elsCamp.imgUrl.value.trim(),
+                    configuredBy: agentName, // Quién preparó los textos e imagen
+                    sentBy: agentName,       // Quién hizo el envío real
+                    sentByEmail: agentEmail,
+                    targetCount: finalAudience.length,
+                    successCount: successCount,
+                    audience: audienceLog,   // Lista de destinatarios con su estado
+                    createdAt: Timestamp.now()
+                });
+
+            } catch(e) {
+                console.error("Error guardando historial de auditoría:", e);
+            }
         }
 
         alert(`✅ Campaña Finalizada.\nMensajes enviados: ${successCount} de ${finalAudience.length}`);
@@ -1194,7 +1405,374 @@ function initMarketingCampaigns() {
     };
 }
 
-// Inicializar módulo al arrancar
 initMarketingCampaigns();
+
+// ==========================================================================
+// 8. PRUEBA DE PLANTILLA (HELLO WORLD)
+// ==========================================================================
+const btnTestTemplate = document.getElementById('btn-test-template');
+if (btnTestTemplate) {
+    btnTestTemplate.onclick = async () => {
+        const phone = prompt("🧪 PRUEBA DE CONEXIÓN\n\nIngresa tu número de WhatsApp con código de país (Ej: 573001234567):");
+        if (!phone) return;
+        
+        const originalHtml = btnTestTemplate.innerHTML; 
+        btnTestTemplate.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>'; 
+        btnTestTemplate.disabled = true;
+        
+        try {
+            await (httpsCallable(functions, 'sendTestTemplate'))({ phoneNumber: phone.trim() }); 
+            alert("✅ ¡ÉXITO!\nLa plantilla 'hello_world' fue enviada. Revisa tu celular.");
+        } catch (e) { 
+            alert("❌ ERROR DE META:\n" + e.message); 
+        } finally { 
+            btnTestTemplate.innerHTML = originalHtml; 
+            btnTestTemplate.disabled = false; 
+        }
+    };
+}
+
+// ==========================================================================
+// 9. PANEL DE ESTADÍSTICAS (SOLO ADMINISTRADOR)
+// ==========================================================================
+import { getDoc } from "./firebase-init.js"; // Asegúrate de tener getDoc importado arriba
+
+async function loadAdminStats() {
+    if (!els.adminStatsSection || !auth.currentUser) return;
+
+    try {
+        // 1. Verificar Rol (Solo Admin)
+        const userDoc = await getDoc(doc(db, "users", auth.currentUser.uid));
+        if (!userDoc.exists() || userDoc.data().role !== 'admin') {
+            return; // Si no es admin, la tabla se queda oculta permanentemente
+        }
+
+        els.adminStatsSection.classList.remove('hidden');
+
+        // 2. Obtener nombres de los Asesores para mostrar sus nombres reales
+        const staffSnap = await getDocs(query(collection(db, "users"), where("role", "in", ["admin", "ventas", "logistica", "contabilidad"])));
+        const staffMap = {};
+        staffSnap.forEach(d => {
+            const data = d.data();
+            if (data.email) {
+                staffMap[data.email.toLowerCase()] = data.name || data.userName || data.email.split('@')[0];
+            }
+        });
+
+        // 3. Obtener chats de los últimos 30 días
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+        const chatsSnap = await getDocs(query(collection(db, "chats"), where("lastMessageAt", ">=", thirtyDaysAgo)));
+        
+        const stats = {};
+
+        // 4. Calcular métricas
+        chatsSnap.forEach(d => {
+            const chat = d.data();
+            let email = null;
+            let isActive = false;
+            let isResolved = false;
+
+            if (chat.status === 'open' && chat.assignedTo) {
+                email = chat.assignedTo.toLowerCase();
+                isActive = true;
+            } else if (chat.status === 'resolved' && chat.lastAttendedBy) {
+                email = chat.lastAttendedBy.toLowerCase();
+                isResolved = true;
+            }
+
+            if (email) {
+                if (!stats[email]) stats[email] = { active: 0, resolved: 0, total: 0 };
+                if (isActive) stats[email].active++;
+                if (isResolved) stats[email].resolved++;
+                stats[email].total++;
+            }
+        });
+
+        // 5. Renderizar Tabla
+        els.adminStatsTbody.innerHTML = "";
+        
+        // Ordenar asesores por quién tiene más chats en total
+        const emails = Object.keys(stats).sort((a, b) => stats[b].total - stats[a].total);
+
+        if (emails.length === 0) {
+            els.adminStatsTbody.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-[9px] font-bold text-gray-400 uppercase tracking-widest">Sin chats registrados en los últimos 30 días.</td></tr>`;
+            return;
+        }
+
+        emails.forEach(email => {
+            const name = staffMap[email] || email.split('@')[0];
+            const s = stats[email];
+            
+            const tr = document.createElement('tr');
+            tr.className = "hover:bg-slate-50 transition border-b border-gray-50 last:border-0";
+            tr.innerHTML = `
+                <td class="p-2 py-3 font-bold text-[10px] uppercase text-brand-black truncate max-w-[120px]">
+                    <div class="flex items-center gap-2">
+                        <div class="w-6 h-6 rounded-full bg-brand-cyan/20 text-brand-cyan flex items-center justify-center text-[10px] shrink-0"><i class="fa-solid fa-user-tie"></i></div>
+                        <span class="truncate">${name}</span>
+                    </div>
+                </td>
+                <td class="p-2 py-3 text-center font-black text-blue-500 text-xs">${s.active}</td>
+                <td class="p-2 py-3 text-center font-black text-emerald-500 text-xs">${s.resolved}</td>
+                <td class="p-2 py-3 text-center font-black text-brand-black text-xs bg-gray-50 rounded-r-md">${s.total}</td>
+            `;
+            els.adminStatsTbody.appendChild(tr);
+        });
+
+    } catch (error) {
+        console.error("Error al cargar stats:", error);
+        if(els.adminStatsTbody) els.adminStatsTbody.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-xs font-bold text-red-400">Error al cargar métricas.</td></tr>`;
+    }
+}
+
+// ==========================================================================
+// 10. LÓGICA DE AUDITORÍA DE CAMPAÑAS (VISTA EXTRACTO BANCARIO)
+// ==========================================================================
+
+const btnOpenAudit = document.getElementById('btn-open-audit');
+const auditModal = document.getElementById('audit-modal');
+const auditContainer = document.getElementById('audit-history-container');
+
+// Variables de estado para la paginación y vista
+let groupedMonths = {};
+let sortedMonths = [];
+let currentMonthIndex = 0;
+let lastAuditDoc = null;
+let isLoadingAudit = false;
+
+if (btnOpenAudit) {
+    btnOpenAudit.onclick = async () => {
+        auditModal.classList.remove('hidden');
+        auditContainer.innerHTML = `<div class="p-20 text-center"><i class="fa-solid fa-circle-notch fa-spin text-3xl text-brand-cyan"></i><p class="text-[10px] font-black uppercase text-gray-400 mt-4 tracking-widest">Generando estado de cuenta...</p></div>`;
+        
+        // Reset de datos
+        groupedMonths = {};
+        sortedMonths = [];
+        currentMonthIndex = 0;
+        lastAuditDoc = null;
+        
+        await loadMoreAuditData(true);
+    };
+}
+
+async function loadMoreAuditData(isInitial = false) {
+    if (isLoadingAudit) return;
+    isLoadingAudit = true;
+
+    try {
+        const historyRef = collection(db, "campaigns_history");
+        let q = query(historyRef, orderBy("createdAt", "desc"), limit(50)); // Traemos de 50 en 50
+
+        if (lastAuditDoc) {
+            q = query(historyRef, orderBy("createdAt", "desc"), startAfter(lastAuditDoc), limit(50));
+        }
+
+        const snap = await getDocs(q);
+
+        if (snap.empty && isInitial) {
+            auditContainer.innerHTML = `<div class="p-20 text-center text-gray-400 font-bold uppercase text-xs tracking-widest">No hay campañas registradas.</div>`;
+            isLoadingAudit = false;
+            return;
+        }
+
+        if (!snap.empty) {
+            lastAuditDoc = snap.docs[snap.docs.length - 1];
+
+            // Agrupar los resultados por Mes
+            snap.forEach(doc => {
+                const camp = { id: doc.id, ...doc.data() };
+                const monthId = camp.month || "Sin Mes";
+
+                if (!groupedMonths[monthId]) {
+                    groupedMonths[monthId] = {
+                        monthId: monthId,
+                        campaigns: [],
+                        totalSent: 0,
+                        totalSuccess: 0
+                    };
+                    // Mantener un arreglo ordenado de los meses disponibles
+                    if (!sortedMonths.includes(monthId)) {
+                        sortedMonths.push(monthId);
+                        sortedMonths.sort().reverse(); // Orden descendente (Más reciente primero)
+                    }
+                }
+                groupedMonths[monthId].campaigns.push(camp);
+                groupedMonths[monthId].totalSent += (camp.targetCount || 0);
+                groupedMonths[monthId].totalSuccess += (camp.successCount || 0);
+            });
+        }
+
+        renderCurrentMonthView();
+
+    } catch (e) {
+        console.error("Error Auditoría:", e);
+        if (isInitial) auditContainer.innerHTML = `<div class="p-10 text-center text-red-400 font-bold uppercase text-xs">Error al cargar datos.</div>`;
+    } finally {
+        isLoadingAudit = false;
+    }
+}
+
+function renderCurrentMonthView() {
+    if (sortedMonths.length === 0) return;
+
+    const currentMonthId = sortedMonths[currentMonthIndex];
+    const group = groupedMonths[currentMonthId];
+
+    // Formatear Nombre del Mes
+    let readableMonth = currentMonthId;
+    if(currentMonthId !== "Sin Mes") {
+        const [year, month] = currentMonthId.split('-');
+        const dateObj = new Date(year, month - 1);
+        readableMonth = dateObj.toLocaleString('es-CO', { month: 'long', year: 'numeric' });
+    }
+
+    const effectiveness = group.totalSent > 0 ? Math.round((group.totalSuccess / group.totalSent) * 100) : 0;
+
+    // Renderizar Cabecera de Navegación y Tabla
+    let html = `
+        <div class="flex items-center justify-between bg-slate-50 p-4 md:p-6 rounded-3xl mb-6 border border-gray-100 shadow-sm">
+            <button id="btn-prev-month" class="w-12 h-12 rounded-full bg-white border border-gray-200 text-gray-500 hover:text-brand-cyan hover:border-brand-cyan transition flex items-center justify-center shadow-sm disabled:opacity-30 disabled:cursor-not-allowed" ${currentMonthIndex >= sortedMonths.length - 1 ? (lastAuditDoc ? '' : 'disabled') : ''} title="Mes Anterior">
+                <i class="fa-solid fa-chevron-left"></i>
+            </button>
+            <div class="text-center">
+                <h3 class="text-xl md:text-2xl font-black uppercase text-brand-black tracking-tighter">${readableMonth}</h3>
+                <p class="text-[10px] md:text-xs font-bold text-gray-500 uppercase tracking-widest mt-1">
+                    ${group.campaigns.length} Campañas <span class="mx-1 text-gray-300">|</span> ${group.totalSent.toLocaleString('es-CO')} Mensajes <span class="mx-1 text-gray-300">|</span> <span class="${effectiveness >= 90 ? 'text-emerald-500' : 'text-orange-500'}">${effectiveness}% Efectividad</span>
+                </p>
+            </div>
+            <button id="btn-next-month" class="w-12 h-12 rounded-full bg-white border border-gray-200 text-gray-500 hover:text-brand-cyan hover:border-brand-cyan transition flex items-center justify-center shadow-sm disabled:opacity-30 disabled:cursor-not-allowed" ${currentMonthIndex === 0 ? 'disabled' : ''} title="Mes Siguiente">
+                <i class="fa-solid fa-chevron-right"></i>
+            </button>
+        </div>
+
+        <div class="bg-white border border-gray-200 rounded-3xl overflow-hidden shadow-sm">
+            <div class="overflow-x-auto custom-scroll">
+                <table class="w-full text-left whitespace-nowrap min-w-[800px]">
+                    <thead class="bg-slate-50 text-[9px] font-black text-gray-400 uppercase tracking-widest border-b border-gray-200">
+                        <tr>
+                            <th class="p-4 pl-6">Día / Hora</th>
+                            <th class="p-4">Detalle de Campaña</th>
+                            <th class="p-4">Asesor</th>
+                            <th class="p-4 text-center">Volumen</th>
+                            <th class="p-4 text-center">Estado</th>
+                            <th class="p-4 pr-6 text-center">Revisar</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-50 text-sm">
+                        ${group.campaigns.map((camp, idx) => renderCampaignRow(camp, idx)).join('')}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    `;
+
+    auditContainer.innerHTML = html;
+
+    // Controladores de Navegación
+    const btnPrev = document.getElementById('btn-prev-month');
+    const btnNext = document.getElementById('btn-next-month');
+
+    if (btnPrev) {
+        btnPrev.onclick = async () => {
+            if (currentMonthIndex < sortedMonths.length - 1) {
+                currentMonthIndex++;
+                renderCurrentMonthView();
+            } else if (lastAuditDoc) {
+                // Si llegamos al límite visual pero hay más en BD, los traemos
+                btnPrev.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+                await loadMoreAuditData();
+                if (currentMonthIndex < sortedMonths.length - 1) {
+                    currentMonthIndex++;
+                }
+                renderCurrentMonthView();
+            }
+        };
+    }
+
+    if (btnNext) {
+        btnNext.onclick = () => {
+            if (currentMonthIndex > 0) {
+                currentMonthIndex--;
+                renderCurrentMonthView();
+            }
+        };
+    }
+}
+
+function renderCampaignRow(camp, idx) {
+    const dateObj = camp.createdAt?.toDate() || new Date();
+    const day = dateObj.toLocaleDateString('es-CO', { day: '2-digit', month: 'short' }).toUpperCase();
+    const time = dateObj.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
+    const successRate = camp.targetCount > 0 ? Math.round((camp.successCount / camp.targetCount) * 100) : 0;
+
+    // HTML oculto con la lista de destinatarios
+    const audienceListHtml = (camp.audience || []).map(person => `
+        <div class="flex items-center justify-between bg-white shadow-sm p-2.5 rounded-lg border border-gray-100">
+            <div class="min-w-0 pr-2">
+                <p class="text-[10px] font-black text-brand-black uppercase truncate">${person.name || "Sin nombre"}</p>
+                <p class="text-[9px] text-gray-500 font-mono mt-0.5">${person.phone}</p>
+            </div>
+            <span class="text-[8px] font-black px-2 py-1 rounded uppercase ${person.status === 'Enviado' ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-500'}">
+                ${person.status}
+            </span>
+        </div>
+    `).join('');
+
+    return `
+        <tr class="hover:bg-slate-50/80 transition group">
+            <td class="p-4 pl-6 align-top">
+                <p class="font-black text-brand-black text-xs">${day}</p>
+                <p class="text-[9px] font-bold text-gray-400 mt-1">${time}</p>
+            </td>
+            <td class="p-4 align-top max-w-[280px] whitespace-normal">
+                <div class="flex items-center gap-2 mb-2">
+                    <span class="bg-brand-black text-white text-[8px] font-black px-2 py-0.5 rounded uppercase">${camp.templateName || "PROMO"}</span>
+                </div>
+                <p class="text-xs font-bold text-gray-700 line-clamp-2 italic leading-relaxed">"${camp.customMessage}"</p>
+                ${camp.linkPath ? `<p class="text-[9px] font-bold text-blue-500 mt-2"><i class="fa-solid fa-link mr-1"></i>/${camp.linkPath}</p>` : ''}
+            </td>
+            <td class="p-4 align-top">
+                <p class="text-[10px] font-black text-brand-black uppercase"><i class="fa-solid fa-user-tie text-gray-300 mr-2"></i> ${camp.sentBy || "Asesor"}</p>
+            </td>
+            <td class="p-4 align-top text-center">
+                <p class="font-black text-brand-black text-sm">${camp.targetCount}</p>
+                <p class="text-[8px] text-gray-400 font-bold uppercase mt-1">Contactos</p>
+            </td>
+            <td class="p-4 align-top text-center">
+                <span class="px-2 py-1 rounded-md text-[10px] font-black uppercase ${successRate >= 90 ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' : 'bg-orange-50 text-orange-600 border border-orange-100'}">
+                    ${successRate}% Éxito
+                </span>
+                <p class="text-[9px] text-gray-500 font-bold mt-2">${camp.successCount} Entregados</p>
+            </td>
+            <td class="p-4 pr-6 align-top text-center">
+                <button onclick="document.getElementById('det-${camp.id || idx}').classList.toggle('hidden')" class="w-10 h-10 rounded-full bg-white border border-gray-200 text-brand-cyan hover:bg-brand-cyan hover:text-white transition shadow-sm" title="Ver Lista de Clientes">
+                    <i class="fa-solid fa-users-viewfinder text-sm"></i>
+                </button>
+            </td>
+        </tr>
+        
+        <tr id="det-${camp.id || idx}" class="hidden bg-slate-50/50 border-b-2 border-brand-cyan/20">
+            <td colspan="6" class="p-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h4 class="text-[10px] font-black uppercase text-brand-black tracking-widest flex items-center gap-2">
+                        <i class="fa-solid fa-list-check text-brand-cyan"></i> Reporte de Entrega
+                    </h4>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 max-h-60 overflow-y-auto custom-scroll pr-2">
+                    ${audienceListHtml}
+                </div>
+            </td>
+        </tr>
+    `;
+}
+
+// Disparar la carga de estadísticas cuando el usuario inicie sesión
+onAuthStateChanged(auth, (user) => {
+    if (user) {
+        loadAdminStats();
+    }
+});
 
 initChatList();

@@ -1,6 +1,7 @@
 const { onRequest, onCall, HttpsError } = require("firebase-functions/v2/https");
 const admin = require("firebase-admin");
 const axios = require("axios");
+const sharp = require("sharp"); // 🔥 NUEVA LIBRERÍA DE CONVERSIÓN
 const db = admin.firestore();
 const storage = admin.storage();
 
@@ -9,9 +10,50 @@ const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN;
 const API_TOKEN = process.env.WHATSAPP_API_TOKEN;
 const PHONE_ID = process.env.WHATSAPP_PHONE_ID;
 
+// Memoria caché para no convertir la misma imagen 500 veces en campañas masivas
+const convertedImageCache = {}; 
+
 // --- HELPERS ---
 
-// 1. Enviar mensaje a Meta (Reutilizable - Actualizado con Templates)
+// 🔥 NUEVO: Convertidor sobre la marcha (WebP a JPG)
+async function getMetaCompatibleUrl(mediaUrl) {
+    if (!mediaUrl) return null;
+    
+    // Si la URL no contiene .webp, asumimos que es segura y la pasamos directo
+    if (!mediaUrl.includes('.webp')) return mediaUrl;
+
+    // Si ya la convertimos en esta sesión, devolvemos la URL convertida al instante
+    if (convertedImageCache[mediaUrl]) return convertedImageCache[mediaUrl];
+
+    console.log(`🔄 Convirtiendo imagen WebP a JPG para Meta: ${mediaUrl}`);
+    
+    try {
+        // 1. Descargar la imagen original
+        const response = await axios.get(mediaUrl, { responseType: 'arraybuffer' });
+        const buffer = Buffer.from(response.data, 'binary');
+
+        // 2. Convertir a JPEG
+        const jpegBuffer = await sharp(buffer).jpeg({ quality: 90 }).toBuffer();
+
+        // 3. Subir a una carpeta temporal en Storage
+        const fileName = `meta_cache/${Date.now()}_converted.jpg`;
+        const file = storage.bucket().file(fileName);
+        
+        await file.save(jpegBuffer, { metadata: { contentType: 'image/jpeg' } });
+        await file.makePublic();
+
+        const newUrl = file.publicUrl();
+        convertedImageCache[mediaUrl] = newUrl; // Guardar en caché local
+        
+        console.log(`✅ Imagen convertida con éxito: ${newUrl}`);
+        return newUrl;
+    } catch (error) {
+        console.error("❌ Error convirtiendo imagen para Meta:", error.message);
+        return mediaUrl; // Si algo falla, pasamos la original (plan de contingencia)
+    }
+}
+
+// 1. Enviar mensaje a Meta
 async function sendToMeta(phoneNumber, message, type = 'text', mediaUrl = null, templateName = null, templateLang = 'en_US') {
     const url = `https://graph.facebook.com/v17.0/${PHONE_ID}/messages`;
     let body = { 
@@ -42,7 +84,7 @@ async function sendToMeta(phoneNumber, message, type = 'text', mediaUrl = null, 
     }
 }
 
-// 2. Descargar y subir multimedia
+// 2. Descargar y subir multimedia entrante
 async function downloadAndUploadMedia(mediaId, mimeType, phoneNumber) {
     try {
         const metaRes = await axios.get(`https://graph.facebook.com/v17.0/${mediaId}`, {
@@ -68,54 +110,58 @@ async function downloadAndUploadMedia(mediaId, mimeType, phoneNumber) {
 
 // --- WEBHOOK (RECIBIR + BOT) ---
 exports.webhook = onRequest({ timeoutSeconds: 60 }, async (req, res) => {
-    // A. Verificación (GET) - Esto lo usa Meta cuando vinculas la app por primera vez
     if (req.method === "GET") {
         if (req.query["hub.mode"] === "subscribe" && req.query["hub.verify_token"] === VERIFY_TOKEN) {
             console.log("✅ Webhook verificado por Meta correctamente.");
             res.status(200).send(req.query["hub.challenge"]);
         } else {
-            console.error("❌ Fallo en la verificación del Webhook. Token incorrecto.");
             res.sendStatus(403);
         }
         return;
     }
 
-    // B. Recepción (POST) - Aquí entran los mensajes y alertas
     if (req.method === "POST") {
         const body = req.body;
-
-        // 🔥 LOG GIGANTE 1: Imprime absolutamente todo lo que Meta nos manda
-        console.log("📥 [META PAYLOAD CRUDO]:", JSON.stringify(body, null, 2));
 
         if (body.object) {
             const change = body.entry?.[0]?.changes?.[0]?.value;
 
-            // ESCENARIO 1: Llegó un mensaje de un cliente
+            // ESCENARIO 1: Mensaje entrante
             if (change?.messages) {
                 const message = change.messages[0];
                 const phoneNumber = message.from;
                 const userName = change.contacts?.[0]?.profile?.name || "Usuario";
                 const type = message.type;
                 
-                console.log(`💬 [MENSAJE ENTRANTE] De: ${phoneNumber} | Tipo: ${type}`);
-
                 let content = "";
                 let mediaUrl = null;
 
                 try {
-                    // 1. Procesar contenido entrante
-                    if (type === "text") content = message.text.body;
-                    else if (type === "image") {
+                    if (type === "text") {
+                        content = message.text.body;
+                    } else if (type === "image") {
                         content = message.image.caption || "📷 Imagen recibida";
                         mediaUrl = await downloadAndUploadMedia(message.image.id, message.image.mime_type, phoneNumber);
                     } else if (type === "audio") {
                         content = "🎤 Audio recibido";
                         mediaUrl = await downloadAndUploadMedia(message.audio.id, message.audio.mime_type, phoneNumber);
-                    } else content = `[Archivo: ${type}]`;
+                    } else if (type === "sticker") {
+                        content = "🌟 Sticker";
+                        mediaUrl = await downloadAndUploadMedia(message.sticker.id, message.sticker.mime_type, phoneNumber);
+                    } else if (type === "location") {
+                        const lat = message.location.latitude;
+                        const lng = message.location.longitude;
+                        content = `📍 Ubicación: ${message.location.name || ""} ${message.location.address || ""}`.trim();
+                        mediaUrl = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+                    } else if (type === "contacts") {
+                        const contactPhone = message.contacts[0].phones?.[0]?.wa_id || message.contacts[0].phones?.[0]?.phone || "0";
+                        content = `👤 Contacto: ${message.contacts[0].name?.formatted_name || "Contacto"}`;
+                        mediaUrl = contactPhone.replace(/[^0-9]/g, ''); 
+                    } else {
+                        content = `[Archivo no soportado: ${type}]`;
+                    }
 
                     const chatRef = db.collection('chats').doc(phoneNumber);
-                    
-                    // 2. 🤖 LÓGICA DEL BOT DE HORARIO 🤖
                     const now = new Date();
                     const bogotaHour = parseInt(now.toLocaleString("en-US", {timeZone: "America/Bogota", hour: "numeric", hour12: false}));
                     
@@ -128,71 +174,59 @@ exports.webhook = onRequest({ timeoutSeconds: 60 }, async (req, res) => {
                         const hoursSinceLast = lastAutoReply ? (now - lastAutoReply) / (1000 * 60 * 60) : 24;
 
                         if (hoursSinceLast > 12) {
-                            console.log(`🌙 [BOT] Fuera de horario. Enviando auto-respuesta a ${phoneNumber}...`);
                             const replyText = "Hola 👋, gracias por escribir a PixelTech.\n\n🌙 Nuestro equipo descansa en este momento, pero hemos recibido tu mensaje y te responderemos a primera hora de la mañana.";
-                            
                             const replyId = await sendToMeta(phoneNumber, replyText, 'text');
                             
                             await chatRef.collection('messages').add({
-                                type: 'outgoing', 
-                                content: replyText,
-                                messageType: 'text',
-                                whatsappId: replyId,
-                                isAutoReply: true, 
-                                timestamp: admin.firestore.Timestamp.now()
+                                type: 'outgoing', content: replyText, messageType: 'text',
+                                whatsappId: replyId, isAutoReply: true, timestamp: admin.firestore.Timestamp.now()
                             });
-
                             autoReplySent = true;
                         }
                     }
 
-                    // 3. Guardar el mensaje del cliente en Firestore
                     const updateData = {
-                        clientName: userName, 
-                        phoneNumber, 
-                        lastMessage: content,
+                        clientName: userName, phoneNumber, lastMessage: content,
                         lastMessageAt: admin.firestore.FieldValue.serverTimestamp(),
                         lastCustomerInteraction: admin.firestore.FieldValue.serverTimestamp(),
-                        unread: true, 
-                        platform: 'whatsapp',
-                        status: 'open'
+                        unread: true, platform: 'whatsapp', status: 'open'
                     };
 
-                    if (autoReplySent) {
-                        updateData.lastAutoReply = admin.firestore.FieldValue.serverTimestamp();
-                    }
+                    if (autoReplySent) updateData.lastAutoReply = admin.firestore.FieldValue.serverTimestamp();
 
                     await chatRef.set(updateData, { merge: true });
 
                     await chatRef.collection('messages').add({
-                        type: 'incoming', 
-                        content: content,
-                        mediaUrl: mediaUrl,
-                        messageType: type,
-                        whatsappId: message.id, 
-                        timestamp: admin.firestore.Timestamp.now()
+                        type: 'incoming', content: content, mediaUrl: mediaUrl, messageType: type,
+                        whatsappId: message.id, timestamp: admin.firestore.Timestamp.now()
                     });
                     
-                    console.log("✅ [MENSAJE GUARDADO] Firestore actualizado correctamente.");
-
                 } catch (e) { 
-                    // 🔥 LOG GIGANTE 2: Si el código falla internamente, lo atrapamos aquí
                     console.error("❌ [ERROR INTERNO PROCESANDO MENSAJE]:", e); 
                 }
             } 
-            // ESCENARIO 2: Reporte de Estado (Ej: El mensaje falló, se entregó, se leyó)
+            // ESCENARIO 2: Reporte de Estado (Fallos de Meta)
             else if (change?.statuses) {
                 const status = change.statuses[0];
-                console.log(`📊 [REPORTE DE ESTADO META] Mensaje ID: ${status.id} | Estado: ${status.status}`);
                 
                 if (status.errors) {
                     console.error("🚫 [META BLOQUEO/ERROR]:", JSON.stringify(status.errors, null, 2));
+                    try {
+                        const recipientId = status.recipient_id;
+                        const msgsSnapshot = await db.collection('chats').doc(recipientId).collection('messages').where('whatsappId', '==', status.id).get();
+                        
+                        if (!msgsSnapshot.empty) {
+                            msgsSnapshot.forEach(docRef => {
+                                docRef.ref.update({
+                                    error: true,
+                                    errorDetails: status.errors[0].message || status.errors[0].title || "Bloqueado por Meta"
+                                });
+                            });
+                        }
+                    } catch(e) { console.error("Error al actualizar BD con el fallo:", e); }
                 }
             }
         }
-        
-        // MUY IMPORTANTE: Siempre debes decirle a Meta "Recibido (200 OK)", sin importar si tu código falló.
-        // Si no haces esto rápido, Meta intentará reenviar el mensaje y luego suspenderá tu Webhook.
         res.sendStatus(200);
     }
 });
@@ -203,24 +237,46 @@ exports.sendMessage = onCall(async (request) => {
     
     const { phoneNumber, message, type, mediaUrl } = request.data;
     
+    let agentName = request.auth.token.name;
+    if (!agentName) {
+        try {
+            const userDoc = await db.collection('users').doc(request.auth.uid).get();
+            if (userDoc.exists && userDoc.data().name) agentName = userDoc.data().name;
+            else agentName = request.auth.token.email.split('@')[0];
+        } catch (e) { agentName = request.auth.token.email.split('@')[0]; }
+    }
+    
+    let finalType = type;
+    let finalMedia = mediaUrl;
+    
+    // Filtro 1: Si es un placeholder, mandarlo como texto normal
+    if (type === 'image' && (!mediaUrl || mediaUrl.includes('via.placeholder.com'))) {
+        finalType = 'text';
+        finalMedia = null;
+    } 
+    // Filtro 2: 🔥 PROCESAR WEBP A JPG SI ES NECESARIO
+    else if (type === 'image' && mediaUrl) {
+        finalMedia = await getMetaCompatibleUrl(mediaUrl);
+    }
+    
     try {
-        // Usamos el helper
-        const waId = await sendToMeta(phoneNumber, message, type, mediaUrl);
+        const waId = await sendToMeta(phoneNumber, message, finalType, finalMedia);
 
         const chatRef = db.collection('chats').doc(phoneNumber);
         await chatRef.set({
-            lastMessage: type === 'image' ? '📷 Imagen enviada' : `tú: ${message}`,
+            lastMessage: finalType === 'image' ? '📷 Imagen enviada' : `tú: ${message}`,
             lastMessageAt: admin.firestore.FieldValue.serverTimestamp(),
             unread: false 
         }, { merge: true });
 
         await chatRef.collection('messages').add({
             type: 'outgoing',
-            content: message || (type === 'image' ? 'Imagen enviada' : ''),
-            mediaUrl: mediaUrl || null,
-            messageType: type || 'text',
+            content: message || (finalType === 'image' ? 'Imagen enviada' : ''),
+            mediaUrl: finalMedia || null,
+            messageType: finalType || 'text',
             whatsappId: waId,
-            timestamp: admin.firestore.Timestamp.now()
+            timestamp: admin.firestore.Timestamp.now(),
+            sentBy: agentName
         });
 
         return { success: true };
@@ -229,19 +285,13 @@ exports.sendMessage = onCall(async (request) => {
     }
 });
 
-// --- FUNCIÓN DE PRUEBA: ENVIAR PLANTILLA HELLO_WORLD ---
+// --- PRUEBA DE PLANTILLA ---
 exports.sendTestTemplate = onCall(async (request) => {
     if (!request.auth) throw new HttpsError('unauthenticated', 'Login requerido.');
-    
-    const { phoneNumber } = request.data;
-    
     try {
-        // Disparamos la plantilla por defecto de Meta
-        const waId = await sendToMeta(phoneNumber, null, 'template', null, 'hello_world', 'en_US');
+        const waId = await sendToMeta(request.data.phoneNumber, null, 'template', null, 'hello_world', 'en_US');
         return { success: true, waId: waId };
-    } catch (error) {
-        throw new HttpsError('internal', error.message);
-    }
+    } catch (error) { throw new HttpsError('internal', error.message); }
 });
 
 // --- FUNCIÓN DE MARKETING MASIVO (CAMPAÑAS) ---
@@ -251,36 +301,38 @@ exports.sendMassTemplate = onCall(async (request) => {
     const { phoneNumber, templateName, imageUrl, clientName, customMessage, linkPath } = request.data;
     
     try {
+        // 🔥 PROCESAR LA IMAGEN DE LA CAMPAÑA (Solo se procesa 1 vez gracias a la caché)
+        const finalImageUrl = await getMetaCompatibleUrl(imageUrl);
+
         const url = `https://graph.facebook.com/v17.0/${PHONE_ID}/messages`;
         
-        // Estructura exacta que exige Meta para plantillas con variables
         const body = {
             messaging_product: 'whatsapp',
             to: phoneNumber,
             type: 'template',
             template: {
                 name: templateName,
-                language: { code: 'es' }, // Tu plantilla en Meta debe estar en Español (es)
+                language: { code: 'es' }, 
                 components: [
                     {
                         type: 'header',
                         parameters: [
-                            { type: 'image', image: { link: imageUrl } }
+                            { type: 'image', image: { link: finalImageUrl } }
                         ]
                     },
                     {
                         type: 'body',
                         parameters: [
-                            { type: 'text', text: clientName || "Cliente" }, // {{1}}
-                            { type: 'text', text: customMessage || "Promoción especial" } // {{2}}
+                            { type: 'text', text: clientName || "Cliente" }, 
+                            { type: 'text', text: customMessage || "Promoción especial" } 
                         ]
                     },
                     {
                         type: 'button',
                         sub_type: 'url',
-                        index: "0", // El primer botón de la plantilla
+                        index: "0", 
                         parameters: [
-                            { type: 'text', text: linkPath } // Lo que va después del dominio base
+                            { type: 'text', text: linkPath }
                         ]
                     }
                 ]
@@ -291,7 +343,6 @@ exports.sendMassTemplate = onCall(async (request) => {
             headers: { 'Authorization': `Bearer ${API_TOKEN}`, 'Content-Type': 'application/json' }
         });
 
-        // Opcional: Dejar un rastro en el chat del cliente para saber qué le enviamos
         const chatRef = db.collection('chats').doc(phoneNumber);
         await chatRef.set({
             lastMessage: '📢 [Campaña Enviada]',
@@ -302,7 +353,7 @@ exports.sendMassTemplate = onCall(async (request) => {
         await chatRef.collection('messages').add({
             type: 'outgoing',
             content: `📢 *Campaña Masiva:*\n${customMessage}\n🔗 URL: /${linkPath}`,
-            mediaUrl: imageUrl,
+            mediaUrl: finalImageUrl,
             messageType: 'template',
             whatsappId: response.data.messages[0].id,
             timestamp: admin.firestore.Timestamp.now()
@@ -310,7 +361,6 @@ exports.sendMassTemplate = onCall(async (request) => {
 
         return { success: true, waId: response.data.messages[0].id };
     } catch (error) {
-        // Log detallado para atrapar errores de políticas de Meta
         console.error("❌ Error Meta API (Campaña Masiva):", JSON.stringify(error.response?.data || error.message));
         throw new HttpsError('internal', error.response?.data?.error?.message || "Fallo al enviar campaña a Meta");
     }

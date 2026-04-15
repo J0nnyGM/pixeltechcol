@@ -47,7 +47,8 @@
                         </div>
                         
                         <div class="flex bg-gray-200 p-1 rounded-xl">
-                            <button id="tab-open" class="flex-1 py-1.5 text-[10px] font-black uppercase rounded-lg bg-white shadow-sm text-brand-black transition">Abiertos</button>
+                            <button id="tab-mine" class="flex-1 py-1.5 text-[10px] font-black uppercase rounded-lg bg-white shadow-sm text-brand-black transition">Míos</button>
+                            <button id="tab-open" class="flex-1 py-1.5 text-[10px] font-black uppercase rounded-lg text-gray-500 hover:text-brand-black transition">Todos</button>
                             <button id="tab-resolved" class="flex-1 py-1.5 text-[10px] font-black uppercase rounded-lg text-gray-500 hover:text-brand-black transition">Resueltos</button>
                         </div>
                     </div>
@@ -70,7 +71,10 @@
                                 <i class="fa-solid fa-user"></i>
                             </div>
                             <div>
-                                <h3 id="active-chat-name" class="font-black text-sm text-brand-black leading-tight cursor-pointer hover:underline">Nombre Cliente</h3>
+                                <div class="flex items-center gap-2">
+                                    <h3 id="active-chat-name" class="font-black text-sm text-brand-black leading-tight cursor-pointer hover:underline">Nombre Cliente</h3>
+                                    <span id="active-chat-assignment"></span>
+                                </div>
                                 <p id="active-chat-phone" class="text-[10px] font-mono text-gray-500">+57 300 000 0000</p>
                             </div>
                         </div>
@@ -146,6 +150,32 @@
                             </div>
                         </div>
 
+                        <div id="admin-stats-section" class="hidden w-full max-w-md mt-6 bg-white border border-gray-100 rounded-2xl p-5 shadow-xl relative z-10 animate-in fade-in zoom-in duration-500">
+                            <div class="flex justify-between items-center mb-3 border-b border-gray-100 pb-3">
+                                <h3 class="text-[10px] font-black text-brand-black uppercase tracking-widest flex items-center gap-2">
+                                    <i class="fa-solid fa-chart-pie text-brand-cyan text-sm"></i> Rendimiento del Equipo
+                                </h3>
+                                <button id="btn-open-audit" class="text-[9px] font-black text-brand-cyan bg-cyan-50 hover:bg-brand-cyan hover:text-brand-black px-3 py-1.5 rounded-lg transition uppercase tracking-widest border border-brand-cyan/20">
+                                    <i class="fa-solid fa-history mr-1"></i> Auditar Campañas
+                                </button>
+                            </div>
+                            <div class="overflow-x-auto custom-scroll max-h-40">
+                                <table class="w-full text-left">
+                                    <thead class="text-[8px] font-black text-gray-400 uppercase tracking-widest bg-gray-50 sticky top-0 z-20">
+                                        <tr>
+                                            <th class="p-2 rounded-l-md">Asesor</th>
+                                            <th class="p-2 text-center text-blue-500">Activos</th>
+                                            <th class="p-2 text-center text-emerald-500">Resueltos</th>
+                                            <th class="p-2 text-center rounded-r-md">Total</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="admin-stats-tbody" class="divide-y divide-gray-50">
+                                        <tr><td colspan="4" class="p-6 text-center"><i class="fa-solid fa-circle-notch fa-spin text-brand-cyan text-xl"></i></td></tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
                         <div class="absolute bottom-8 flex items-center gap-2 text-[9px] font-black text-gray-400 uppercase tracking-widest">
                             <i class="fa-solid fa-lock text-emerald-500"></i> Conexión Segura de PixelTech
                         </div>
@@ -155,7 +185,7 @@
                         
                         <div id="quick-reply-menu" class="hidden absolute bottom-full left-4 mb-2 w-72 bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden z-50 animate-in slide-in-from-bottom-2">
                             <div class="bg-gray-50 p-2 text-[9px] font-black uppercase text-gray-400 tracking-widest border-b border-gray-100">Respuestas Rápidas</div>
-                            <div id="quick-reply-list" class="max-h-60 overflow-y-auto custom-scroll"></div>
+                            <div id="quick-reply-list" class="max-h-96 md:max-h-[50vh] overflow-y-auto custom-scroll"></div>
                         </div>
 
                         <div id="product-picker-popover" class="hidden absolute bottom-full left-0 mb-2 ml-2 w-80 bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden z-50 flex flex-col h-96 animate-in slide-in-from-bottom-5">
@@ -202,7 +232,8 @@
                         </div>
                     </div>
                 </div>
-                </div>
+
+            </div>
         </main>
     </div>
 
@@ -372,7 +403,7 @@
                                     <span>Incluir</span>
                                 </div>
                                 <div id="audience-list-container" class="max-h-48 overflow-y-auto custom-scroll p-1 space-y-1">
-                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -386,6 +417,21 @@
                     <i class="fa-solid fa-paper-plane mr-1"></i> Iniciar Envío Masivo
                 </button>
             </div>
+        </div>
+    </div>
+
+    <div id="audit-modal" class="fixed inset-0 z-[100] hidden flex items-center justify-center p-4">
+        <div class="absolute inset-0 bg-slate-900/90 backdrop-blur-sm" onclick="document.getElementById('audit-modal').classList.add('hidden')"></div>
+        <div class="relative bg-white w-full max-w-4xl rounded-[2.5rem] shadow-2xl flex flex-col max-h-[90vh] overflow-hidden animate-in zoom-in duration-300">
+            <div class="p-6 border-b border-gray-100 flex justify-between items-center bg-slate-50">
+                <div>
+                    <h3 class="font-black text-xl uppercase tracking-tighter text-brand-black">Auditoría de <span class="text-brand-cyan">Campañas</span></h3>
+                    <p class="text-[9px] font-bold text-gray-400 uppercase tracking-widest mt-1">Registro histórico de envíos masivos</p>
+                </div>
+                <button onclick="document.getElementById('audit-modal').classList.add('hidden')" class="w-10 h-10 rounded-full bg-white border border-gray-200 text-gray-400 hover:text-brand-red transition flex items-center justify-center"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="p-6 overflow-y-auto custom-scroll flex-1 space-y-4" id="audit-history-container">
+                </div>
         </div>
     </div>
 
