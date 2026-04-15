@@ -107,11 +107,11 @@
             <div class="hidden lg:flex items-center gap-3 md:gap-6 shrink-0">
                 <a href="https://wa.me/573009046450" target="_blank" class="flex flex-col items-center gap-1 group w-14">
                     <div class="w-12 h-12 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center group-hover:bg-green-500 group-hover:text-white transition duration-300"><i class="fa-brands fa-whatsapp text-xl"></i></div>
-                    <span class="text-[8px] font-black uppercase tracking-widest text-gray-400 group-hover:text-green-500 text-center">Chat</span>
+                    <span class="text-[8px] font-black uppercase tracking-widest text-gray-400 group-hover:text-green-500 text-center">Chat 1</span>
                 </a>
                 <a href="https://wa.me/573174534353" target="_blank" class="flex flex-col items-center gap-1 group w-14">
                     <div class="w-12 h-12 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center group-hover:bg-green-500 group-hover:text-white transition duration-300"><i class="fa-brands fa-whatsapp text-xl"></i></div>
-                    <span class="text-[8px] font-black uppercase tracking-widest text-gray-400 group-hover:text-green-500 text-center">Chat</span>
+                    <span class="text-[8px] font-black uppercase tracking-widest text-gray-400 group-hover:text-green-500 text-center">Chat 2</span>
                 </a>
 
                 <div id="user-info-desktop" class="w-14"></div>
