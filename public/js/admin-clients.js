@@ -1,4 +1,4 @@
-import { db, collection, addDoc, query, orderBy, Timestamp, limit, startAfter, where, doc, getDoc,getDocs, updateDoc, onSnapshot } from "./firebase-init.js";
+import { db, collection, addDoc, query, orderBy, Timestamp, doc, updateDoc, onSnapshot, where } from "./firebase-init.js";
 
 // --- REFERENCIAS DOM ---
 const modal = document.getElementById('client-modal');
@@ -6,125 +6,254 @@ const btnOpen = document.getElementById('btn-add-client');
 const btnCloseList = document.querySelectorAll('.close-modal');
 const btnSave = document.getElementById('save-client');
 const searchInput = document.getElementById('search-client');
-const filterType = document.getElementById('filter-client-type'); // Dropdown filtro
+const filterType = document.getElementById('filter-client-type');
 const listContainer = document.getElementById('clients-table-body');
 const loadMoreBtn = document.getElementById('load-more-container');
 
 const inpDept = document.getElementById('new-client-dept');
 const inpCity = document.getElementById('new-client-city');
 
-// --- ESTADO GLOBAL ---
-let lastVisible = null;
-let isLoading = false;
-const DOCS_PER_PAGE = 50;
+// --- ESTADO GLOBAL (PAGINACIÓN EN RAM) ---
+const PAGE_SIZE = 50;
+let currentPage = 1;
+let currentFilter = 'ALL';
+let editingClientId = null;
 
-let unsubscribeClientsList = null;
-let adminClientsCache = []; // RAM Cache 
-let editingClientId = null; // Para saber si creamos o editamos
+let adminClientsCache = []; // Base de datos maestra en RAM
 
 const normalizeText = (str) => str ? str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "") : "";
-let masterClientsCache = []; 
-let isMasterLoaded = false;
-let unsubscribeMasterCache = null;
 
 // ==========================================================================
-// 🧠 SMART REAL-TIME CACHE: LISTA DE CLIENTES
+// 🧠 SMART CACHE: MOTOR CENTRAL DE CLIENTES (ANTI-QUOTA)
 // ==========================================================================
-function startClientsListener(isNextPage = false) {
-    if (isLoading) return;
-    isLoading = true;
+const SmartAdminClientsSync = {
+    STORAGE_KEY: 'pixeltech_admin_master_clients',
+    runtimeMap: {},
+    lastSyncTime: 0,
+    unsubscribeClients: null,
 
-    if (!isNextPage) {
-        listContainer.innerHTML = `<tr><td colspan="5" class="p-10 text-center"><i class="fa-solid fa-circle-notch fa-spin text-2xl text-brand-cyan"></i><p class="mt-2 text-xs font-bold text-gray-400">Cargando clientes...</p></td></tr>`;
-        loadMoreBtn.classList.add('hidden');
-        if (unsubscribeClientsList) unsubscribeClientsList();
-    } else {
-        const btn = loadMoreBtn.querySelector('button');
-        btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Cargando...`;
-    }
-
-    try {
-        const usersRef = collection(db, "users");
-        let constraints = [];
-        constraints.push(orderBy("createdAt", "desc"));
-
-        if (isNextPage && lastVisible) {
-            constraints.push(startAfter(lastVisible));
-            constraints.push(limit(DOCS_PER_PAGE));
-            
-            const q = query(usersRef, ...constraints);
-            getDocs(q).then(snapshot => handleSnapshotResult(snapshot, true)).catch(e => {
-                console.error("Error Paginación Clientes:", e);
-                isLoading = false;
-            });
-            
-        } else {
-            constraints.push(limit(DOCS_PER_PAGE));
-            const q = query(usersRef, ...constraints);
-            
-            unsubscribeClientsList = onSnapshot(q, (snapshot) => {
-                handleSnapshotResult(snapshot, false);
-            }, (error) => {
-                console.error("Error Live Clientes:", error);
-                listContainer.innerHTML = `<tr><td colspan="5" class="text-center text-red-400 font-bold p-10">Error de conexión en vivo.</td></tr>`;
-            });
+    async init() {
+        // 1. CARGA INICIAL DESDE CACHÉ (Instantánea)
+        const cachedRaw = localStorage.getItem(this.STORAGE_KEY);
+        if (cachedRaw) {
+            try {
+                const parsed = JSON.parse(cachedRaw);
+                if (parsed.map && parsed.lastSync) {
+                    this.runtimeMap = parsed.map;
+                    this.lastSyncTime = parsed.lastSync;
+                    
+                    this.updateGlobalArray();
+                    if (adminClientsCache.length > 0) {
+                        console.log(`⚡ [Clientes] Cargados ${adminClientsCache.length} de caché local.`);
+                        renderClientsFromMemory();
+                    }
+                }
+            } catch (e) {
+                console.warn("Caché corrupto, limpiando...");
+                localStorage.removeItem(this.STORAGE_KEY);
+            }
         }
-    } catch (e) {
-        console.error("Error configurando query de clientes:", e);
-        isLoading = false;
-    }
-}
 
-function handleSnapshotResult(snapshot, isNextPage) {
-    if (!isNextPage) {
-        adminClientsCache = [];
-    }
+        // 2. CONEXIÓN EN TIEMPO REAL (Solo Deltas)
+        this.listenForUpdates();
+    },
 
-    if (snapshot.empty && !isNextPage) {
-        listContainer.innerHTML = `<tr><td colspan="5" class="p-10 text-center text-gray-400 font-bold uppercase text-xs">No hay clientes registrados.</td></tr>`;
+    updateGlobalArray() {
+        adminClientsCache = Object.values(this.runtimeMap).sort((a, b) => {
+            const dateA = a.createdAt?.seconds || new Date(a.createdAt).getTime();
+            const dateB = b.createdAt?.seconds || new Date(b.createdAt).getTime();
+            return dateB - dateA;
+        });
+        
+        // Exportar a window para que manual-sale lo pueda usar si ambos archivos se abren
+        window.adminClientsCache = adminClientsCache;
+        sessionStorage.setItem('pixeltech_admin_clients_master', JSON.stringify(adminClientsCache));
+    },
+
+    saveStateSafe() {
+        try {
+            // Guardado ligero para no reventar el LocalStorage
+            const lightweightMap = {};
+            for (const key in this.runtimeMap) {
+                const c = this.runtimeMap[key];
+                lightweightMap[key] = {
+                    id: c.id,
+                    name: c.name,
+                    userName: c.userName || '',
+                    phone: c.phone || '',
+                    email: c.email || '',
+                    document: c.document || '',
+                    source: c.source || 'WEB',
+                    role: c.role || 'client',
+                    adminNotes: c.adminNotes || '',
+                    address: c.address || '',
+                    dept: c.dept || '',
+                    city: c.city || '',
+                    addresses: c.addresses || [],
+                    searchStr: c.searchStr || '',
+                    createdAt: c.createdAt
+                };
+            }
+
+            localStorage.setItem(this.STORAGE_KEY, JSON.stringify({
+                map: lightweightMap,
+                lastSync: Date.now()
+            }));
+            
+        } catch (e) {
+            console.warn("⚠️ LocalStorage de clientes lleno. Operando desde RAM.", e);
+        }
+    },
+
+    listenForUpdates() {
+        if (this.unsubscribeClients) this.unsubscribeClients();
+
+        const colRef = collection(db, "users");
+        let q;
+
+        // Si es la primera vez que abre el panel en este PC
+        if (this.lastSyncTime === 0 || Object.keys(this.runtimeMap).length === 0) {
+            console.log("☁️ [Clientes] Descarga inicial de base de datos...");
+            q = query(colRef); 
+        } else {
+            console.log("🔄 [Clientes] Buscando cambios desde:", new Date(this.lastSyncTime).toLocaleString());
+            // 🔥 CLAVE: Solo pedimos clientes nuevos o modificados
+            q = query(colRef, where("updatedAt", ">", new Date(this.lastSyncTime)));
+        }
+
+        if (adminClientsCache.length === 0) {
+            listContainer.innerHTML = `<tr><td colspan="5" class="p-10 text-center"><i class="fa-solid fa-circle-notch fa-spin text-2xl text-brand-cyan"></i><p class="mt-2 text-xs font-bold text-gray-400">Sincronizando clientes...</p></td></tr>`;
+        }
+
+        this.unsubscribeClients = onSnapshot(q, (snapshot) => {
+            if (snapshot.empty) {
+                if (this.lastSyncTime !== 0) console.log("✅ [Clientes] Caché al día.");
+                else listContainer.innerHTML = `<tr><td colspan="5" class="p-10 text-center text-gray-400 font-bold uppercase text-xs">No hay clientes registrados.</td></tr>`;
+                return;
+            }
+
+            let hasChanges = false;
+
+            snapshot.docChanges().forEach(change => {
+                const data = change.doc.data();
+                const id = change.doc.id;
+                
+                // Si no tiene fecha de creación, la asignamos
+                if (!data.createdAt) data.createdAt = new Date();
+                
+                // Creamos el String de búsqueda
+                data.searchStr = normalizeText(`${data.name || data.userName || ''} ${data.phone || ''} ${data.document || ''} ${data.email || ''}`);
+
+                if (change.type === 'added' || change.type === 'modified') {
+                    this.runtimeMap[id] = { id, ...data };
+                    hasChanges = true;
+                } else if (change.type === 'removed') {
+                    if (this.runtimeMap[id]) {
+                        delete this.runtimeMap[id];
+                        hasChanges = true;
+                    }
+                }
+            });
+
+            if (hasChanges) {
+                console.log(`🔥 [Clientes] Actualizaciones en vivo: ${snapshot.docChanges().length} registros.`);
+                this.updateGlobalArray();
+                this.saveStateSafe();
+                
+                // Forzamos re-render si no estamos buscando nada específico, 
+                // o relanzamos la búsqueda si estábamos escribiendo
+                if (searchInput.value.trim().length > 0) {
+                    searchInput.dispatchEvent(new Event('input'));
+                } else {
+                    renderClientsFromMemory();
+                }
+            }
+        }, (error) => {
+            console.error("Error Live Clients:", error);
+            if (adminClientsCache.length === 0) {
+                listContainer.innerHTML = `<tr><td colspan="5" class="text-center text-red-500 py-4">Error de conexión.</td></tr>`;
+            }
+        });
+    }
+};
+
+// ==========================================================================
+// 1. FILTRADO, BÚSQUEDA Y PAGINACIÓN LOCAL
+// ==========================================================================
+
+function renderClientsFromMemory() {
+    if (!listContainer) return;
+    
+    let filtered = [];
+    const term = normalizeText(searchInput.value.trim());
+
+    // A. APLICAR FILTROS (Búsqueda y Tipo combinados)
+    filtered = adminClientsCache.filter(c => {
+        let matchesSearch = true;
+        if (term.length > 1) {
+            matchesSearch = c.searchStr && c.searchStr.includes(term);
+        }
+
+        let matchesType = true;
+        const rawSource = (c.source || 'WEB').toUpperCase();
+        if (currentFilter === 'WEB') matchesType = (rawSource !== 'MANUAL' && rawSource !== 'MAYORISTA' && rawSource !== 'EXCEL_IMPORT');
+        else if (currentFilter === 'MANUAL') matchesType = (rawSource === 'MANUAL' || rawSource === 'EXCEL_IMPORT');
+        else if (currentFilter === 'MAYORISTA') matchesType = (rawSource === 'MAYORISTA');
+
+        return matchesSearch && matchesType;
+    });
+
+    listContainer.innerHTML = "";
+
+    if (filtered.length === 0) {
+        listContainer.innerHTML = `<tr><td colspan="5" class="p-10 text-center text-xs font-bold text-gray-400 uppercase">No se encontraron clientes.</td></tr>`;
         loadMoreBtn.classList.add('hidden');
-        isLoading = false;
         return;
     }
 
-    if (snapshot.docs.length > 0 && !snapshot.metadata.hasPendingWrites) {
-         lastVisible = snapshot.docs[snapshot.docs.length - 1];
-    }
+    // B. PAGINACIÓN (Slice del Array)
+    const startIdx = 0; // Siempre mostramos desde 0
+    const endIdx = currentPage * PAGE_SIZE; // Cortamos hasta donde diga la página actual
+    const pageClients = filtered.slice(startIdx, endIdx);
 
-    if (snapshot.docs.length === DOCS_PER_PAGE) {
+    pageClients.forEach(c => renderClientRow(c));
+
+    // C. CONTROL BOTÓN "CARGAR MÁS"
+    if (endIdx < filtered.length) {
         loadMoreBtn.classList.remove('hidden');
-        loadMoreBtn.querySelector('button').innerHTML = `<i class="fa-solid fa-circle-plus"></i> Cargar siguientes 50`;
+        loadMoreBtn.querySelector('button').innerHTML = `<i class="fa-solid fa-circle-plus"></i> Mostrar más resultados (${endIdx}/${filtered.length})`;
     } else {
         loadMoreBtn.classList.add('hidden');
     }
-
-    snapshot.forEach(docSnap => {
-        const clientData = { id: docSnap.id, ...docSnap.data() };
-        
-        // 1. Actualiza el caché de la vista (50 en 50)
-        const index = adminClientsCache.findIndex(c => c.id === docSnap.id);
-        if (index > -1) adminClientsCache[index] = clientData;
-        else adminClientsCache.push(clientData);
-
-        // 2. 🔥 Mantiene el Caché Maestro actualizado en tiempo real
-        if (isMasterLoaded) {
-            const mIndex = masterClientsCache.findIndex(c => c.id === docSnap.id);
-            if (mIndex > -1) masterClientsCache[mIndex] = clientData;
-            else masterClientsCache.unshift(clientData); // Lo pone de primero
-            window.adminClientsCache = masterClientsCache; // Lo comparte con Ventas Manuales
-        }
-    });
-
-    applyFilters(); 
-    isLoading = false;
 }
 
-window.loadMoreClients = () => startClientsListener(true);
+window.loadMoreClients = () => {
+    currentPage++;
+    renderClientsFromMemory();
+};
+
+if (searchInput) {
+    searchInput.addEventListener('input', () => {
+        currentPage = 1; // Si busco algo nuevo, vuelvo a la pag. 1
+        renderClientsFromMemory();
+    });
+}
+
+if (filterType) {
+    filterType.addEventListener('change', (e) => {
+        currentFilter = e.target.value;
+        currentPage = 1;
+        renderClientsFromMemory();
+    });
+}
 
 function renderClientRow(c) {
-    const date = c.createdAt?.toDate ? c.createdAt.toDate().toLocaleDateString('es-CO') : '---';
+    let dateStr = '---';
+    if (c.createdAt) {
+        const d = c.createdAt.seconds ? new Date(c.createdAt.seconds * 1000) : new Date(c.createdAt);
+        dateStr = d.toLocaleDateString('es-CO');
+    }
     
-    // Insignias de origen según el "Tipo" de cliente
     let sourceTag = '';
     const rawSource = (c.source || 'WEB').toUpperCase();
 
@@ -141,8 +270,8 @@ function renderClientRow(c) {
     row.innerHTML = `
         <td class="px-4 md:px-8 py-4">
             <div class="flex items-center gap-3">
-                <div class="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center shrink-0 font-black text-brand-cyan text-xs group-hover:bg-brand-cyan group-hover:text-white transition">
-                    ${(c.name || c.userName || 'U').substring(0,1).toUpperCase()}
+                <div class="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center shrink-0 font-black text-brand-cyan text-xs group-hover:bg-brand-cyan group-hover:text-white transition uppercase">
+                    ${(c.name || c.userName || 'U').substring(0,1)}
                 </div>
                 <div class="min-w-0"> <div class="font-black text-brand-black text-sm uppercase truncate max-w-[200px]">${c.name || c.userName || 'Sin nombre'}</div>
                     ${c.document ? `<span class="text-[9px] text-gray-400 font-bold uppercase truncate block">DOC: ${c.document}</span>` : ''}
@@ -154,7 +283,7 @@ function renderClientRow(c) {
             <div class="text-[10px] text-gray-400 font-medium truncate max-w-[150px]">${c.email || ''}</div>
         </td>
         <td class="px-4 md:px-8 py-4">${sourceTag}</td>
-        <td class="px-4 md:px-8 py-4 text-xs text-gray-400 font-bold whitespace-nowrap">${date}</td>
+        <td class="px-4 md:px-8 py-4 text-xs text-gray-400 font-bold whitespace-nowrap">${dateStr}</td>
         <td class="px-4 md:px-8 py-4">
             <div class="flex items-center justify-center gap-2">
                 <button onclick="window.editClient('${c.id}')" class="flex items-center justify-center w-8 h-8 rounded-lg bg-emerald-50 text-emerald-500 hover:bg-emerald-500 hover:text-white transition shadow-sm shrink-0" title="Edición Rápida">
@@ -169,126 +298,10 @@ function renderClientRow(c) {
     listContainer.appendChild(row);
 }
 
-// --- 2. BÚSQUEDA Y FILTRADO HÍBRIDO ---
-function applyFilters() {
-    listContainer.innerHTML = "";
-    const type = filterType ? filterType.value : 'ALL';
 
-    const results = adminClientsCache.filter(c => {
-        let matchesType = true;
-        const rawSource = (c.source || 'WEB').toUpperCase();
-        if (type === 'WEB') matchesType = (rawSource !== 'MANUAL' && rawSource !== 'MAYORISTA' && rawSource !== 'EXCEL_IMPORT');
-        else if (type === 'MANUAL') matchesType = (rawSource === 'MANUAL' || rawSource === 'EXCEL_IMPORT');
-        else if (type === 'MAYORISTA') matchesType = (rawSource === 'MAYORISTA');
-        return matchesType;
-    });
-
-    if (results.length === 0) {
-        listContainer.innerHTML = `<tr><td colspan="5" class="p-10 text-center text-xs font-bold text-gray-400 uppercase">No hay clientes de este tipo.</td></tr>`;
-    } else {
-        results.forEach(c => renderClientRow(c));
-    }
-}
-
-if (searchInput) {
-    searchInput.addEventListener('input', async (e) => { // 🔥 CAMBIO: Busca mientras escribes ('input')
-        const term = normalizeText(e.target.value.trim());
-
-        if (term.length === 0) {
-            applyFilters(); // Vuelve a la paginación normal
-            loadMoreBtn.classList.remove('hidden'); 
-            return;
-        }
-
-        if (term.length < 2) return;
-
-        // Si el caché maestro aún no ha bajado, lo forzamos
-        if (!isMasterLoaded) {
-            listContainer.innerHTML = `<tr><td colspan="5" class="p-10 text-center"><i class="fa-solid fa-circle-notch fa-spin text-brand-cyan"></i> Descargando base de datos completa...</td></tr>`;
-            await loadMasterCache();
-        }
-
-        loadMoreBtn.classList.add('hidden'); // Anula la paginación
-        listContainer.innerHTML = "";
-
-        const type = filterType ? filterType.value : 'ALL';
-
-        // Filtramos sobre TODO EL UNIVERSO DE CLIENTES
-        const results = masterClientsCache.filter(c => {
-            const nameMatch = normalizeText(c.name || c.userName || "").includes(term);
-            const phoneMatch = (c.phone || "").includes(term);
-            const docMatch = (c.document || "").includes(term);
-            const emailMatch = normalizeText(c.email || "").includes(term);
-            
-            const matchesSearch = nameMatch || phoneMatch || docMatch || emailMatch;
-
-            let matchesType = true;
-            const rawSource = (c.source || 'WEB').toUpperCase();
-            if (type === 'WEB') matchesType = (rawSource !== 'MANUAL' && rawSource !== 'MAYORISTA' && rawSource !== 'EXCEL_IMPORT');
-            else if (type === 'MANUAL') matchesType = (rawSource === 'MANUAL' || rawSource === 'EXCEL_IMPORT');
-            else if (type === 'MAYORISTA') matchesType = (rawSource === 'MAYORISTA');
-
-            return matchesSearch && matchesType;
-        });
-
-        if (results.length === 0) {
-            listContainer.innerHTML = `<tr><td colspan="5" class="p-10 text-center text-xs font-bold text-gray-400 uppercase">No se encontraron coincidencias para "${e.target.value}".</td></tr>`;
-        } else {
-            // Renderizamos máximo 100 para no trabar el navegador si buscan la letra "a"
-            results.slice(0, 100).forEach(c => renderClientRow(c));
-        }
-    });
-}
-
-if (filterType) {
-    filterType.addEventListener('change', () => {
-        // Si hay texto en el buscador, disparamos la búsqueda, si no, aplicamos filtros normales
-        if (searchInput && searchInput.value.trim().length > 0) {
-            searchInput.dispatchEvent(new Event('input'));
-        } else {
-            applyFilters();
-        }
-    });
-}
-
-// 🔥 NUEVO: Descarga y MANTIENE VIVO el caché maestro en segundo plano
-function loadMasterCache() {
-    if (isMasterLoaded) return;
-    
-    if (unsubscribeMasterCache) unsubscribeMasterCache();
-    
-    // Al usar onSnapshot, Firebase actualizará esto automáticamente si alguien más hace un cambio
-    unsubscribeMasterCache = onSnapshot(collection(db, "users"), (snap) => {
-        masterClientsCache = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        
-        // Ordenamos por fecha
-        masterClientsCache.sort((a, b) => {
-            const dateA = a.createdAt?.seconds || 0;
-            const dateB = b.createdAt?.seconds || 0;
-            return dateB - dateA;
-        });
-
-        isMasterLoaded = true;
-        window.adminClientsCache = masterClientsCache; 
-        sessionStorage.setItem('pixeltech_admin_clients_master', JSON.stringify(masterClientsCache));
-        
-        console.log(`📡 Caché Maestro Sincronizado: ${masterClientsCache.length} clientes actualizados en vivo.`);
-        
-        // MAGIA: Si estás buscando algo justo en el momento en que tu empleado editó el cliente,
-        // la lista de resultados se actualizará frente a tus ojos sin tocar nada.
-        const searchInput = document.getElementById('search-client');
-        if (searchInput && searchInput.value.trim().length >= 2) {
-            searchInput.dispatchEvent(new Event('input'));
-        }
-    }, (error) => {
-        console.error("Error en Caché Maestro:", error);
-    });
-}
-
-
-// --- 3. API COLOMBIA (CARGA DE CIUDADES INDEPENDIENTE) ---
+// --- 3. API COLOMBIA (CARGA DE CIUDADES) ---
 let deptsLoaded = false;
-let globalDeptsData = []; // Guardamos los departamentos para el Excel
+let globalDeptsData = [];
 
 async function loadDepartments() {
     if (deptsLoaded) return; 
@@ -335,17 +348,14 @@ async function loadCitiesForDept(deptId) {
     } catch (e) { console.error("Error Ciudades:", e); }
 }
 
-if(inpDept) {
-    inpDept.addEventListener('change', (e) => loadCitiesForDept(e.target.value));
-}
+if(inpDept) inpDept.addEventListener('change', (e) => loadCitiesForDept(e.target.value));
 
 // --- 4. LÓGICA DEL MODAL (CREAR / EDITAR) ---
 if (btnOpen) {
     btnOpen.onclick = () => {
-        editingClientId = null; // Limpiamos ID
+        editingClientId = null; 
         document.getElementById('modal-title').innerHTML = `Registrar <span class="text-brand-cyan">Cliente</span>`;
         
-        // Reset Tipo
         const typeSelect = document.getElementById('new-client-type');
         typeSelect.disabled = false;
         typeSelect.value = 'MANUAL';
@@ -372,7 +382,6 @@ const closeModal = () => {
 };
 btnCloseList.forEach(btn => btn.onclick = closeModal);
 
-// FUNCIÓN DE EDICIÓN RÁPIDA
 window.editClient = async (id) => {
     const c = adminClientsCache.find(x => x.id === id);
     if(!c) return;
@@ -380,21 +389,19 @@ window.editClient = async (id) => {
     editingClientId = id;
     document.getElementById('modal-title').innerHTML = `Editar <span class="text-emerald-500">Cliente</span>`;
     
-    // Proteger si es cliente Web
     const typeSelect = document.getElementById('new-client-type');
     const webWarning = document.getElementById('web-client-warning');
     const rawSource = (c.source || 'WEB').toUpperCase();
     
     if (rawSource !== 'MANUAL' && rawSource !== 'MAYORISTA' && rawSource !== 'EXCEL_IMPORT') {
-        // Es cliente Web puro
-        typeSelect.querySelector('option[value="WEB"]').classList.remove('hidden'); // Mostrar opcion Web
+        typeSelect.querySelector('option[value="WEB"]').classList.remove('hidden');
         typeSelect.value = "WEB";
-        typeSelect.disabled = true; // Bloqueado
+        typeSelect.disabled = true; 
         webWarning.classList.remove('hidden');
     } else {
         typeSelect.querySelector('option[value="WEB"]').classList.add('hidden');
         typeSelect.value = rawSource === 'MAYORISTA' ? 'MAYORISTA' : 'MANUAL';
-        typeSelect.disabled = false; // Permitir cambiar entre Normal y Mayorista
+        typeSelect.disabled = false; 
         webWarning.classList.add('hidden');
     }
     
@@ -406,11 +413,9 @@ window.editClient = async (id) => {
     document.getElementById('new-client-notes').value = c.adminNotes || '';
 
     btnSave.innerHTML = "Actualizar Cliente";
-    
     await loadDepartments();
     
     if (c.dept) {
-        // Buscamos el ID del departamento por su nombre
         const option = [...inpDept.options].find(o => o.dataset.name === c.dept);
         if (option) {
             inpDept.value = option.value;
@@ -427,7 +432,7 @@ window.editClient = async (id) => {
 }
 
 
-// --- 5. GUARDAR O ACTUALIZAR CLIENTE ---
+// --- 5. GUARDAR O ACTUALIZAR CLIENTE (Con Fecha Modificada) ---
 if (btnSave) {
     btnSave.onclick = async () => {
         const btnOriginalText = btnSave.innerHTML;
@@ -455,14 +460,13 @@ if (btnSave) {
 
         try {
             if (editingClientId) {
-                // ACTUALIZAR EXISTENTE
                 const clientRef = doc(db, "users", editingClientId);
                 let updateData = {
                     name, phone, email, document: documentVal,
-                    adminNotes: notes, address, dept: deptName, city
+                    adminNotes: notes, address, dept: deptName, city,
+                    updatedAt: Timestamp.now() // 🔥 Nuevo: Fuerza al caché a detectar el cambio
                 };
                 
-                // Si NO estaba bloqueado (no era Web), actualizamos su tipo
                 if (!typeSelect.disabled) {
                     updateData.source = typeSelect.value;
                 }
@@ -470,13 +474,13 @@ if (btnSave) {
                 await updateDoc(clientRef, updateData);
                 alert("✅ Cliente actualizado con éxito");
             } else {
-                // CREAR NUEVO
                 const newClientData = {
                     name, phone, email, document: documentVal,
                     adminNotes: notes, 
                     source: typeSelect.value, 
                     role: 'client',
                     createdAt: Timestamp.now(),
+                    updatedAt: Timestamp.now(), // 🔥 Nuevo
                     address, dept: deptName, city,
                     addresses: address ? [{ alias: "Principal", address, dept: deptName, city, isDefault: true }] : []
                 };
@@ -521,11 +525,8 @@ if (btnOpenImport) {
 if (btnDownloadTemplate) {
     btnDownloadTemplate.onclick = async () => {
         btnDownloadTemplate.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Generando...';
-        
-        // 1. Descargamos los departamentos para crear la hoja de ayuda
         await loadDepartments();
 
-        // 2. Hoja 1: Datos a llenar. Cambiamos la cabecera para ser súper explícitos
         const ws_data = [
             ['Tipo_Cliente (Solo: MANUAL o MAYORISTA)', 'Nombre_Completo', 'Telefono', 'Cedula_NIT', 'Email', 'Departamento', 'Ciudad', 'Direccion_Entrega', 'Notas'],
             ['MAYORISTA', 'Empresa Tech SAS', '3001234567', '900123456-7', 'ventas@tech.com', 'Bogotá D.C.', 'Bogotá, D.C.', 'Calle Principal 10', 'Cliente frecuente'],
@@ -535,33 +536,25 @@ if (btnDownloadTemplate) {
         const ws1 = XLSX.utils.aoa_to_sheet(ws_data);
         ws1['!cols'] = [ { wch: 38 }, { wch: 25 }, { wch: 15 }, { wch: 15 }, { wch: 25 }, { wch: 15 }, { wch: 15 }, { wch: 30 }, { wch: 30 } ];
 
-        // 3. Hoja 2: Valores Permitidos (El "Diccionario" para el usuario)
         const dict_data = [
             ['Tipos_de_Cliente_Validos', 'Departamentos_Validos'],
             ['MANUAL', '']
         ];
         
-        // Llenamos los departamentos reales desde la API
         globalDeptsData.forEach((d, idx) => {
-            if(idx === 0) {
-                dict_data[1][1] = d.name; // Al lado de MANUAL
-            } else if (idx === 1) {
-                dict_data.push(['MAYORISTA', d.name]);
-            } else {
-                dict_data.push(['', d.name]);
-            }
+            if(idx === 0) dict_data[1][1] = d.name;
+            else if (idx === 1) dict_data.push(['MAYORISTA', d.name]);
+            else dict_data.push(['', d.name]);
         });
 
         const ws2 = XLSX.utils.aoa_to_sheet(dict_data);
         ws2['!cols'] = [ { wch: 25 }, { wch: 30 } ];
 
-        // Construir archivo
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws1, "Registros");
         XLSX.utils.book_append_sheet(wb, ws2, "Valores_Permitidos");
         
         XLSX.writeFile(wb, "Plantilla_Importar_Clientes.xlsx");
-        
         btnDownloadTemplate.innerHTML = '<i class="fa-solid fa-download mr-2"></i> Descargar Plantilla .XLSX';
     };
 }
@@ -582,7 +575,6 @@ if (fileInput) {
             try {
                 const data = new Uint8Array(evt.target.result);
                 const workbook = XLSX.read(data, { type: 'array' });
-                // Leemos siempre la hoja 0 que es "Registros"
                 const firstSheetName = workbook.SheetNames[0];
                 const worksheet = workbook.Sheets[firstSheetName];
                 
@@ -612,16 +604,13 @@ if (btnProcessImport) {
         btnProcessImport.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Subiendo a BD...';
         importStatus.classList.remove('hidden');
 
-        let added = 0;
-        let skipped = 0;
-        let errors = 0;
-
+        let added = 0; let skipped = 0; let errors = 0;
         const elAdded = document.getElementById('res-added');
         const elSkipped = document.getElementById('res-skipped');
         const elErrors = document.getElementById('res-errors');
 
+        // Nota: El array ya se actualiza solo en vivo gracias a onSnapshot.
         for (const row of parsedExcelData) {
-            // Buscamos la columna por su nombre exacto.
             const rawTypeKey = Object.keys(row).find(key => key.includes('Tipo_Cliente'));
             const rawType = String(row[rawTypeKey] || '').trim().toUpperCase();
             
@@ -634,65 +623,45 @@ if (btnProcessImport) {
             const address = String(row['Direccion_Entrega'] || '').trim();
             const notes = String(row['Notas'] || '').trim();
 
-            // Validaciones estrictas
-            if (!name) {
-                skipped++;
-                elSkipped.textContent = skipped;
-                continue;
-            }
+            if (!name) { skipped++; elSkipped.textContent = skipped; continue; }
 
-            // Si el Excel trae un tipo inválido o vacío, se marca como Error
             if (rawType !== 'MAYORISTA' && rawType !== 'MANUAL') {
-                errors++;
-                elErrors.textContent = errors;
-                console.warn(`Error en Fila: El tipo de cliente debe ser MANUAL o MAYORISTA. Recibido: ${rawType}`);
-                continue;
+                errors++; elErrors.textContent = errors; continue;
             }
 
             let isDuplicate = false;
-
+            // 🔥 Busqueda en RAM para evitar cientos de peticiones a BD en cada fila
             if (documentVal) {
-                try {
-                    const q = query(collection(db, "users"), where("document", "==", documentVal));
-                    const snap = await getDocs(q);
-                    if (!snap.empty) isDuplicate = true; 
-                } catch (e) { console.error(e); }
+                const found = adminClientsCache.find(c => c.document === documentVal);
+                if(found) isDuplicate = true;
             }
 
             if (isDuplicate) {
-                skipped++;
-                elSkipped.textContent = skipped;
+                skipped++; elSkipped.textContent = skipped;
             } else {
                 try {
                     const newClientData = {
                         name, phone, email, document: documentVal,
-                        adminNotes: notes, 
-                        source: rawType, // Será MAYORISTA o MANUAL
-                        role: 'client',
-                        createdAt: Timestamp.now(),
+                        adminNotes: notes, source: rawType, role: 'client',
+                        createdAt: Timestamp.now(), updatedAt: Timestamp.now(),
                         address, dept, city,
                         addresses: address ? [{ alias: "Principal", address, dept, city, isDefault: true }] : []
                     };
                     await addDoc(collection(db, "users"), newClientData);
-                    added++;
-                    elAdded.textContent = added;
+                    added++; elAdded.textContent = added;
                 } catch (err) {
-                    errors++;
-                    elErrors.textContent = errors;
+                    errors++; elErrors.textContent = errors;
                 }
             }
         } 
 
         btnProcessImport.innerHTML = '<i class="fa-solid fa-check-double"></i> Importación Finalizada';
         setTimeout(() => {
-            alert(`Resumen:\n✅ ${added} Nuevos creados\n⏭️ ${skipped} Omitidos (Duplicados o sin nombre)\n❌ ${errors} Errores (Tipo de Cliente inválido o error BD)`);
+            alert(`Resumen:\n✅ ${added} Nuevos creados\n⏭️ ${skipped} Omitidos\n❌ ${errors} Errores`);
             closeModal();
-            // Recargamos los clientes en la tabla
-            startClientsListener(false);
         }, 500);
     };
 }
 
-startClientsListener(false);
-
-loadMasterCache(); // 🔥 Descarga los datos silenciosamente al abrir la página
+// 🔥 INICIO DE LA MAGIA
+SmartAdminClientsSync.init();
