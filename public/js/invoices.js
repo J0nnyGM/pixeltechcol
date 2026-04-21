@@ -1,4 +1,5 @@
-import { db, storage, collection, query, where, getDocs, doc, updateDoc, ref, uploadBytes, getDownloadURL, orderBy, limit, startAfter, getDoc, onSnapshot } from './firebase-init.js';
+import { db, storage, doc, updateDoc, ref, uploadBytes, getDownloadURL, getDoc } from './firebase-init.js';
+import { AdminStore } from './admin-store.js'; // 🔥 IMPORTAMOS EL CEREBRO
 
 // DOM Elements
 const listContainer = document.getElementById('invoices-list');
@@ -33,126 +34,76 @@ const dtEls = {
 };
 
 // --- ESTADO GLOBAL ---
+const PAGE_SIZE = 50;
+let currentPage = 1;
 let currentFilter = 'PENDING';
-let lastVisible = null;
-let isLoading = false;
-const DOCS_PER_PAGE = 50;
-
-let unsubscribeInvoicesList = null; // Controlador del tiempo real
-let adminInvoicesCache = []; // Caché en memoria para filtrar rápido localmente
+let adminInvoicesCache = []; // Caché en memoria sincronizado con el Store
 
 // ==========================================================================
-// 🧠 SMART REAL-TIME CACHE: LISTA DE FACTURAS
+// 🔥 CONEXIÓN AL STORE CENTRAL
 // ==========================================================================
+AdminStore.subscribeToInvoices((invoices) => {
+    adminInvoicesCache = invoices;
+    renderInvoicesFromMemory();
+});
 
-function startInvoicesListener(isNextPage = false) {
-    if (isLoading) return;
-    isLoading = true;
+// ==========================================================================
+// 1. FILTRADO, BÚSQUEDA Y PAGINACIÓN LOCAL
+// ==========================================================================
+function renderInvoicesFromMemory() {
+    if (!listContainer) return;
 
-    // UI Loading
-    if (!isNextPage) {
-        listContainer.innerHTML = `<div class="text-center py-20"><i class="fa-solid fa-circle-notch fa-spin text-4xl text-gray-200"></i><p class="mt-4 text-xs font-bold text-gray-400">Cargando facturas...</p></div>`;
+    let filtered = adminInvoicesCache;
+    const term = searchInput ? searchInput.value.toLowerCase().trim() : '';
+
+    // A. Filtrar por Pestaña
+    if (currentFilter === 'PENDING') {
+        filtered = filtered.filter(inv => inv.billingStatus !== 'COMPLETED');
+    } else if (currentFilter === 'COMPLETED') {
+        filtered = filtered.filter(inv => inv.billingStatus === 'COMPLETED');
+    }
+
+    // B. Filtrar por Búsqueda (RAM)
+    if (term.length > 0) {
+        filtered = filtered.filter(inv => 
+            inv.id.toLowerCase().includes(term) ||
+            (inv.billingInfo?.name || inv.userName || "").toLowerCase().includes(term) ||
+            (inv.billingInfo?.taxId || inv.clientDoc || "").toLowerCase().includes(term)
+        );
+    }
+
+    listContainer.innerHTML = "";
+
+    if (filtered.length === 0) {
+        listContainer.innerHTML = `<div class="text-center py-16 opacity-50"><i class="fa-solid fa-folder-open text-4xl mb-4 text-gray-300"></i><p class="text-xs font-bold text-gray-400 uppercase">No hay facturas en esta vista</p></div>`;
         loadMoreBtn.classList.add('hidden');
-        
-        // Si empezamos de cero (página 1), apagamos el listener viejo
-        if (unsubscribeInvoicesList) unsubscribeInvoicesList();
-    } else {
-        const btn = loadMoreBtn.querySelector('button');
-        btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Cargando...`;
-    }
-
-    try {
-        const ordersRef = collection(db, "orders");
-        let constraints = [];
-
-        // A. FILTROS DE SERVIDOR
-        constraints.push(where("requiresInvoice", "==", true));
-
-        if (currentFilter === 'PENDING') {
-            constraints.push(where("billingStatus", "!=", "COMPLETED"));
-        } else if (currentFilter === 'COMPLETED') {
-            constraints.push(where("billingStatus", "==", "COMPLETED"));
-        } 
-
-        constraints.push(orderBy("createdAt", "desc"));
-
-        // B. EJECUCIÓN HÍBRIDA (getDocs para paginación, onSnapshot para página 1)
-        if (isNextPage && lastVisible) {
-            constraints.push(startAfter(lastVisible));
-            constraints.push(limit(DOCS_PER_PAGE));
-            
-            const q = query(ordersRef, ...constraints);
-            getDocs(q).then(snapshot => handleSnapshotResult(snapshot, true)).catch(e => {
-                console.error("Error Paginación:", e);
-                isLoading = false;
-            });
-            
-        } else {
-            constraints.push(limit(DOCS_PER_PAGE));
-            const q = query(ordersRef, ...constraints);
-            
-            unsubscribeInvoicesList = onSnapshot(q, (snapshot) => {
-                handleSnapshotResult(snapshot, false);
-            }, (error) => {
-                console.error("Error Live Invoices:", error);
-                listContainer.innerHTML = `<div class="text-center py-10"><p class="text-red-400 font-bold text-xs">Error de conexión.</p><p class="text-[9px] text-gray-400 mt-2">Revisa que los índices de Firestore estén creados (F12).</p></div>`;
-            });
-        }
-
-    } catch (e) {
-        console.error("Error configurando query de facturas:", e);
-        isLoading = false;
-    }
-}
-
-function handleSnapshotResult(snapshot, isNextPage) {
-    if (!isNextPage) {
-        listContainer.innerHTML = "";
-        // Reiniciamos el caché RAM en la página 1
-        adminInvoicesCache = [];
-    }
-
-    if (snapshot.empty) {
-        if (!isNextPage) listContainer.innerHTML = `<div class="text-center py-16 opacity-50"><i class="fa-solid fa-folder-open text-4xl mb-4 text-gray-300"></i><p class="text-xs font-bold text-gray-400 uppercase">No hay facturas en esta sección</p></div>`;
-        loadMoreBtn.classList.add('hidden');
-        isLoading = false;
         return;
     }
 
-    // Actualizamos lastVisible solo si NO es un repintado en vivo (evitar saltos extraños)
-    if (snapshot.docs.length > 0 && !snapshot.metadata.hasPendingWrites) {
-         lastVisible = snapshot.docs[snapshot.docs.length - 1];
-    }
+    // C. Paginación
+    const endIdx = currentPage * PAGE_SIZE;
+    const pageData = filtered.slice(0, endIdx);
 
-    // UI del botón "Cargar más"
-    if (snapshot.docs.length === DOCS_PER_PAGE) {
+    pageData.forEach(inv => renderInvoiceCard(inv));
+
+    if (endIdx < filtered.length) {
         loadMoreBtn.classList.remove('hidden');
-        loadMoreBtn.querySelector('button').innerHTML = `<i class="fa-solid fa-circle-plus"></i> Cargar siguientes 50`;
+        loadMoreBtn.querySelector('button').innerHTML = `<i class="fa-solid fa-circle-plus"></i> Mostrar más (${endIdx}/${filtered.length})`;
     } else {
         loadMoreBtn.classList.add('hidden');
     }
-
-    // Renderizar y guardar en RAM para el buscador
-    snapshot.forEach(d => {
-        const invoiceData = { id: d.id, ...d.data() };
-        adminInvoicesCache.push(invoiceData);
-        renderInvoiceCard(invoiceData);
-    });
-
-    isLoading = false;
 }
 
-// Global para el botón HTML
-window.loadMoreInvoices = () => startInvoicesListener(true);
+window.loadMoreInvoices = () => {
+    currentPage++;
+    renderInvoicesFromMemory();
+};
 
-// --- 2. FILTROS (TABS) ---
 window.filterTab = (status) => {
-    if(isLoading) return;
     currentFilter = status;
-    lastVisible = null; // Reset paginación
-    searchInput.value = ""; // Limpiar busqueda
+    currentPage = 1;
+    if(searchInput) searchInput.value = ""; 
     
-    // UI Tabs
     document.querySelectorAll('.filter-tab').forEach(btn => {
         btn.classList.remove('border-b-2', 'border-brand-cyan', 'text-brand-black', 'bg-white');
         btn.classList.add('border-transparent', 'text-gray-400');
@@ -163,84 +114,17 @@ window.filterTab = (status) => {
         activeBtn.classList.add('border-b-2', 'border-brand-cyan', 'text-brand-black', 'bg-white');
     }
     
-    startInvoicesListener(false);
+    renderInvoicesFromMemory();
 };
 
-// --- 3. BÚSQUEDA INTELIGENTE ---
-searchInput.addEventListener('keyup', (e) => {
-    const term = searchInput.value.toLowerCase().trim();
-
-    // Si el usuario borró todo
-    if (term.length === 0) {
-        if (e.key === 'Backspace' || e.key === 'Delete') {
-            // Restaurar desde la RAM en milisegundos (0 lecturas)
-            listContainer.innerHTML = "";
-            adminInvoicesCache.forEach(inv => renderInvoiceCard(inv));
-        }
-        return;
-    }
-
-    // Si da ENTER, buscamos en servidor (Búsqueda Profunda)
-    if (e.key === 'Enter' && term.length > 0) {
-        performServerSearch(term);
-        return;
-    }
-
-    // Búsqueda Local en RAM (Para lo que ya cargó en las 50 facturas)
-    listContainer.innerHTML = "";
-    const results = adminInvoicesCache.filter(inv => {
-        const idMatch = inv.id.toLowerCase().includes(term);
-        const nameMatch = (inv.billingInfo?.name || inv.userName || "").toLowerCase().includes(term);
-        const docMatch = (inv.billingInfo?.taxId || inv.clientDoc || "").toLowerCase().includes(term);
-        return idMatch || nameMatch || docMatch;
+if (searchInput) {
+    searchInput.addEventListener('input', () => {
+        currentPage = 1;
+        renderInvoicesFromMemory();
     });
-
-    if (results.length === 0) {
-        listContainer.innerHTML = `<div class="text-center py-10"><p class="text-xs font-bold text-gray-400 uppercase">No visible en caché. Pulsa Enter para buscar a fondo.</p></div>`;
-    } else {
-        results.forEach(inv => renderInvoiceCard(inv));
-    }
-});
-
-async function performServerSearch(term) {
-    if(isLoading) return;
-    isLoading = true;
-
-    // Apagamos live listener para no interferir con la vista de búsqueda
-    if(unsubscribeInvoicesList) unsubscribeInvoicesList();
-
-    listContainer.innerHTML = `<div class="text-center py-10"><i class="fa-solid fa-search fa-bounce text-brand-cyan"></i> Buscando a fondo...</div>`;
-    loadMoreBtn.classList.add('hidden');
-    
-    try {
-        // Intento 1: Buscar por ID exacto de pedido
-        const docRef = doc(db, "orders", term);
-        const docSnap = await getDoc(docRef);
-
-        listContainer.innerHTML = "";
-        
-        if(docSnap.exists() && (docSnap.data().requiresInvoice || docSnap.data().needsInvoice)) {
-            renderInvoiceCard({ id: docSnap.id, ...docSnap.data() });
-        } else {
-            // Intento 2: Buscar por NIT/CC del cliente
-            const qNit = query(collection(db, "orders"), where("billingInfo.taxId", "==", term), limit(10));
-            const nitSnap = await getDocs(qNit);
-            
-            if(!nitSnap.empty) {
-                nitSnap.forEach(d => renderInvoiceCard({ id: d.id, ...d.data() }));
-            } else {
-                listContainer.innerHTML = `<div class="text-center py-10"><p class="text-xs font-bold text-red-400 uppercase">No se encontraron facturas para: "${term}"</p><p class="text-[9px] text-gray-400 mt-2 cursor-pointer hover:underline" onclick="window.filterTab('${currentFilter}')">Borrar búsqueda para volver</p></div>`;
-            }
-        }
-    } catch(e) {
-        console.error(e);
-        window.filterTab(currentFilter); // Restaurar si falla
-    } finally {
-        isLoading = false;
-    }
 }
 
-// --- 4. RENDER CARD ---
+// --- 2. RENDER CARD ---
 function renderInvoiceCard(order) {
     const billing = order.billingInfo || order.billingData || {};
     const isCompleted = order.invoiceUrl || order.billingStatus === 'COMPLETED';
@@ -296,11 +180,10 @@ function renderInvoiceCard(order) {
     listContainer.appendChild(div);
 }
 
-// --- 5. MODALES (DETALLES Y UPLOAD) - Lógica de Negocio ---
+// --- 3. MODALES (DETALLES Y UPLOAD) - Lógica de Negocio ---
 
-// A. Abrir Detalles
+// A. Abrir Detalles (Leemos 1 doc de Firebase para traer los items pesados que no están en caché)
 window.openDetailsModal = async (orderId) => {
-    // Leemos directo de Firebase porque es un detalle preciso y necesitamos info completa (items)
     const docSnap = await getDoc(doc(db, "orders", orderId));
     if (!docSnap.exists()) return;
     
@@ -395,19 +278,16 @@ uploadForm.addEventListener('submit', async (e) => {
 
         const updateData = {
             invoiceNumber: invoiceNum,
-            billingStatus: 'COMPLETED', // Esto mueve la orden a la pestaña "Facturados"
-            updatedAt: new Date(), // Vital para que onSnapshot lo detecte en orders.js y dashboard
+            billingStatus: 'COMPLETED',
+            updatedAt: new Date(), // 🔥 Dispara el onSnapshot del Store
             invoicedAt: new Date()
         };
         if (downloadURL) updateData.invoiceUrl = downloadURL;
 
-        const orderRef = doc(db, "orders", orderId);
-        await updateDoc(orderRef, updateData);
+        await updateDoc(doc(db, "orders", orderId), updateData);
 
         alert("✅ Factura guardada correctamente.");
         closeUploadModal();
-        
-        // No necesitamos llamar a fetchOrders(), el onSnapshot actualizará la lista solo!
 
     } catch (error) {
         console.error("Error:", error);
@@ -417,6 +297,3 @@ uploadForm.addEventListener('submit', async (e) => {
         btn.innerHTML = originalText;
     }
 });
-
-// Iniciar
-startInvoicesListener();

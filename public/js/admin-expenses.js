@@ -1,9 +1,10 @@
-import { db, collection, addDoc, updateDoc, deleteDoc, doc, getDocs, getDoc, query, orderBy, Timestamp, runTransaction, limit, startAfter, startAt, endAt, where, getAggregateFromServer, sum, onSnapshot } from './firebase-init.js';
+import { db, collection, doc, getDocs, getDoc, query, orderBy, Timestamp, runTransaction, limit, startAt, endAt } from './firebase-init.js';
 import { loadAdminSidebar } from './admin-ui.js';
+import { AdminStore } from './admin-store.js'; // 🔥 IMPORTAMOS EL CEREBRO
 
 loadAdminSidebar();
 
-// DOM
+// --- DOM ---
 const listContainer = document.getElementById('expenses-list');
 const loadMoreBtn = document.getElementById('load-more-container');
 const modal = document.getElementById('expense-modal');
@@ -21,45 +22,53 @@ const lblPeriodTotal = document.getElementById('lbl-period-total');
 const trashModal = document.getElementById('trash-modal');
 const trashList = document.getElementById('trash-list');
 
-// Estado
-let lastDoc = null;
-let isLoading = false;
-let accountsList = [];
+// --- ESTADO ---
+const PAGE_SIZE = 50;
+let currentPage = 1;
 let currentFilterDate = null;
-const DOCS_PER_PAGE = 50;
+let adminExpensesCache = []; // Base de datos maestra de gastos en RAM
+let accountsList = [];
 
-// Estado Smart Cache
-let unsubscribeExpensesList = null;
-let adminExpensesCache = [];
-
-// Obtener nombre del admin actual
 const getCurrentAdminName = () => document.getElementById('admin-name')?.textContent || 'Admin Desconocido';
-
 const cleanNumber = (val) => {
     if (typeof val === 'number') return val;
     if (!val) return 0;
     return parseFloat(val.toString().replace(/[^\d-]/g, '')) || 0;
 };
 
-// Init
-async function init() {
+// ==========================================================================
+// 🔥 CONEXIÓN AL STORE CENTRAL
+// ==========================================================================
+
+AdminStore.subscribeToAccounts((accs) => {
+    accountsList = accs;
+    const previousSelection = accountSelect.value;
+    accountSelect.innerHTML = '<option value="">Seleccione Cuenta...</option>';
+    accountsList.forEach(a => {
+        accountSelect.innerHTML += `<option value="${a.id}">${a.name} ($${(a.balance || 0).toLocaleString()})</option>`;
+    });
+    if (previousSelection) accountSelect.value = previousSelection;
+});
+
+AdminStore.subscribeToExpenses((expenses) => {
+    adminExpensesCache = expenses;
+    renderExpensesFromMemory();
+});
+
+// ==========================================================================
+// 1. INICIALIZACIÓN Y FILTROS LOCALES (RAM)
+// ==========================================================================
+
+function init() {
     const now = new Date();
     const yyyy = now.getFullYear();
     const mm = String(now.getMonth() + 1).padStart(2, '0');
     filterMonthInput.value = `${yyyy}-${mm}`;
     currentFilterDate = new Date(yyyy, now.getMonth(), 1); 
-
-    await loadAccounts();
-    reloadAll();
+    
+    // AdminStore ya inicializó la descarga en background, solo esperamos a que llame al render.
 }
 
-function reloadAll() {
-    lastDoc = null; 
-    startExpensesListener(false);
-    loadStats();
-}
-
-// Filtros Fecha
 filterMonthInput.addEventListener('change', (e) => {
     if(e.target.value) {
         const [y, m] = e.target.value.split('-');
@@ -67,121 +76,72 @@ filterMonthInput.addEventListener('change', (e) => {
     } else {
         currentFilterDate = null;
     }
-    reloadAll();
+    currentPage = 1;
+    renderExpensesFromMemory();
 });
 
 btnClearDate.addEventListener('click', () => {
     filterMonthInput.value = "";
     currentFilterDate = null;
-    reloadAll();
+    currentPage = 1;
+    renderExpensesFromMemory();
 });
 
+searchInput.addEventListener('input', () => {
+    currentPage = 1;
+    renderExpensesFromMemory();
+});
 
-// ==========================================================================
-// 🧠 SMART REAL-TIME CACHE: LISTA DE GASTOS
-// ==========================================================================
+window.loadMoreExpenses = () => {
+    currentPage++;
+    renderExpensesFromMemory();
+};
 
-function startExpensesListener(isNextPage = false) {
-    if (isLoading) return;
-    isLoading = true;
+function renderExpensesFromMemory() {
+    if (!listContainer) return;
 
-    if (!isNextPage) {
-        listContainer.innerHTML = `<tr><td colspan="7" class="p-8 text-center"><i class="fa-solid fa-circle-notch fa-spin text-brand-cyan"></i> Cargando...</td></tr>`;
-        loadMoreBtn.classList.add('hidden');
-        if (unsubscribeExpensesList) unsubscribeExpensesList();
+    let filtered = adminExpensesCache;
+    const term = searchInput.value.toLowerCase().trim();
+
+    // 1. Aplicar Filtro de Mes
+    if (currentFilterDate) {
+        const start = currentFilterDate;
+        const end = new Date(currentFilterDate.getFullYear(), currentFilterDate.getMonth() + 1, 0, 23, 59, 59);
+        filtered = filtered.filter(e => e.dateObj >= start && e.dateObj <= end);
+    }
+
+    // 2. Aplicar Búsqueda por Texto
+    if (term.length > 0) {
+        filtered = filtered.filter(e => 
+            (e.supplierName || "").toLowerCase().includes(term) || 
+            (e.description || "").toLowerCase().includes(term)
+        );
+    }
+
+    // 3. Actualizar Estadísticas (KPI Superior)
+    const totalPeriod = filtered.reduce((sum, item) => sum + cleanNumber(item.amount), 0);
+    document.getElementById('stats-total').textContent = `$${Math.round(totalPeriod).toLocaleString('es-CO')}`;
+    
+    if (currentFilterDate) {
+        const monthName = currentFilterDate.toLocaleString('es-CO', { month: 'long' });
+        lblPeriodTotal.textContent = `Total ${monthName}`.toUpperCase();
     } else {
-        loadMoreBtn.querySelector('button').innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Cargando...`;
+        lblPeriodTotal.textContent = "TOTAL HISTÓRICO";
     }
 
-    try {
-        const coll = collection(db, "expenses");
-        let constraints = [];
-
-        constraints.push(where("type", "==", "EXPENSE"));
-
-        if (currentFilterDate) {
-            const start = Timestamp.fromDate(currentFilterDate);
-            const nextMonth = new Date(currentFilterDate.getFullYear(), currentFilterDate.getMonth() + 1, 0, 23, 59, 59);
-            const end = Timestamp.fromDate(nextMonth);
-            
-            constraints.push(where("date", ">=", start));
-            constraints.push(where("date", "<=", end));
-        }
-
-        constraints.push(orderBy("date", "desc"));
-
-        // EJECUCIÓN HÍBRIDA
-        if (isNextPage && lastDoc) {
-            constraints.push(startAfter(lastDoc));
-            constraints.push(limit(DOCS_PER_PAGE));
-            
-            const q = query(coll, ...constraints);
-            getDocs(q).then(snapshot => handleSnapshotResult(snapshot, true)).catch(e => {
-                console.error("Error Paginación Gastos:", e);
-                isLoading = false;
-            });
-            
-        } else {
-            constraints.push(limit(DOCS_PER_PAGE));
-            const q = query(coll, ...constraints);
-            
-            unsubscribeExpensesList = onSnapshot(q, (snapshot) => {
-                handleSnapshotResult(snapshot, false);
-                // Si hay un cambio en vivo en la página 1, también actualizamos el KPI total en background
-                if (!snapshot.metadata.fromCache && !snapshot.empty) loadStats();
-            }, (error) => {
-                console.error(error);
-                const msg = error.message.includes("index") ? "Falta índice (type + date)" : "Error de conexión en vivo";
-                listContainer.innerHTML = `<tr><td colspan="7" class="text-center text-red-400 font-bold p-10 text-xs">${msg}</td></tr>`;
-            });
-        }
-
-    } catch (error) {
-        console.error("Error configurando query gastos:", error);
-        isLoading = false;
-    }
-}
-
-function handleSnapshotResult(snapshot, isNextPage) {
-    if (!isNextPage) {
-        listContainer.innerHTML = "";
-        adminExpensesCache = []; 
-    }
-
-    if (snapshot.empty) {
-        if (!isNextPage) listContainer.innerHTML = `<tr><td colspan="7" class="p-10 text-center text-gray-400 text-xs font-bold uppercase">No hay gastos en este periodo.</td></tr>`;
+    // 4. Paginación y Renderizado
+    listContainer.innerHTML = "";
+    
+    if (filtered.length === 0) {
+        listContainer.innerHTML = `<tr><td colspan="7" class="p-8 text-center text-gray-400 text-xs font-bold uppercase">No se encontraron gastos.</td></tr>`;
         loadMoreBtn.classList.add('hidden');
-        isLoading = false;
         return;
     }
 
-    if (snapshot.docs.length > 0 && !snapshot.metadata.hasPendingWrites) {
-        lastDoc = snapshot.docs[snapshot.docs.length - 1];
-    }
+    const endIdx = currentPage * PAGE_SIZE;
+    const pageExpenses = filtered.slice(0, endIdx);
 
-    if (snapshot.docs.length === DOCS_PER_PAGE) {
-        loadMoreBtn.classList.remove('hidden');
-        loadMoreBtn.querySelector('button').innerHTML = `<i class="fa-solid fa-circle-plus"></i> Cargar siguientes 50`;
-    } else {
-        loadMoreBtn.classList.add('hidden');
-    }
-
-    const expenses = snapshot.docs.map(d => {
-        const data = d.data();
-        const dateObj = data.date && data.date.toDate ? data.date.toDate() : new Date(data.date);
-        const item = { id: d.id, ...data, dateObj };
-        adminExpensesCache.push(item);
-        return item;
-    });
-
-    renderTable(expenses);
-    isLoading = false;
-}
-
-window.loadMoreExpenses = () => startExpensesListener(true);
-
-function renderTable(data) {
-    const html = data.map(item => `
+    const html = pageExpenses.map(item => `
         <tr class="hover:bg-slate-50 transition border-b border-gray-50 last:border-0 group fade-in">
             <td class="px-6 py-4 text-gray-500 font-mono text-xs">${item.dateObj.toLocaleDateString('es-CO')}</td>
             <td class="px-6 py-4 font-bold text-xs uppercase">${item.supplierName || 'General'}</td>
@@ -196,36 +156,20 @@ function renderTable(data) {
             </td>
         </tr>`).join('');
 
-    listContainer.insertAdjacentHTML('beforeend', html);
+    listContainer.innerHTML = html;
+
+    if (endIdx < filtered.length) {
+        loadMoreBtn.classList.remove('hidden');
+        loadMoreBtn.querySelector('button').innerHTML = `<i class="fa-solid fa-circle-plus"></i> Cargar siguientes 50 (${endIdx}/${filtered.length})`;
+    } else {
+        loadMoreBtn.classList.add('hidden');
+    }
 }
 
+// ==========================================================================
+// ELIMINAR GASTOS Y PAPELERA
+// ==========================================================================
 
-// --- BUSCADOR LOCAL EN RAM ---
-searchInput.addEventListener('keyup', (e) => {
-    const term = e.target.value.toLowerCase().trim();
-
-    if (term.length === 0) {
-        listContainer.innerHTML = "";
-        renderTable(adminExpensesCache);
-        return;
-    }
-
-    const results = adminExpensesCache.filter(item => {
-        const suppMatch = (item.supplierName || "").toLowerCase().includes(term);
-        const descMatch = (item.description || "").toLowerCase().includes(term);
-        return suppMatch || descMatch;
-    });
-
-    listContainer.innerHTML = "";
-    if (results.length === 0) {
-        listContainer.innerHTML = `<tr><td colspan="7" class="p-8 text-center text-gray-400 text-xs font-bold uppercase">No encontrado en la página actual. (Busca cargando más registros primero)</td></tr>`;
-    } else {
-        renderTable(results);
-    }
-});
-
-
-// 2. ELIMINACIÓN MAESTRA (Reembolso Banco + Reversión Deuda + Auditoría)
 window.deleteExpense = async (id) => {
     if (!confirm("⚠️ ¿Estás seguro?\n\n1. Se devolverá el dinero a la cuenta.\n2. Si es pago a proveedor, la deuda volverá a aparecer.\n3. El registro irá a la papelera.")) return;
 
@@ -240,19 +184,13 @@ window.deleteExpense = async (id) => {
         
         const isSupplierPayment = expenseData.category === "Pago Proveedores" || expenseData.category === "Logística" || expenseData.category === "Inventario"; 
 
-        const accQuery = query(collection(db, "accounts"), where("name", "==", accountName), limit(1));
-        const accSnapshot = await getDocs(accQuery);
-        let accountRef = null;
-        if (!accSnapshot.empty) accountRef = accSnapshot.docs[0].ref;
+        const accountRef = accountsList.find(a => a.name === accountName)?.id;
+        if (!accountRef) throw "La cuenta bancaria vinculada a este gasto ya no existe.";
 
         let payablesToReopen = [];
         if (isSupplierPayment && supplierName) {
-            const payQuerySimple = query(
-                collection(db, "payables"), 
-                where("provider", "==", supplierName),
-                where("amountPaid", ">", 0)
-            );
-            
+            // Buscamos directamente en Firebase, porque las deudas de proveedores tienen una paginación especial.
+            const payQuerySimple = query(collection(db, "payables"), where("provider", "==", supplierName), where("amountPaid", ">", 0));
             const pSnap = await getDocs(payQuerySimple);
             
             const docs = pSnap.docs.map(d => ({...d.data(), id: d.id, ref: d.ref}));
@@ -282,12 +220,12 @@ window.deleteExpense = async (id) => {
         }
 
         await runTransaction(db, async (t) => {
-            if (accountRef) {
-                const accDoc = await t.get(accountRef);
-                if (accDoc.exists()) {
-                    const currentBal = Number(accDoc.data().balance);
-                    t.update(accountRef, { balance: currentBal + amountToReverse });
-                }
+            const accRefDoc = doc(db, "accounts", accountRef);
+            const accDoc = await t.get(accRefDoc);
+            
+            if (accDoc.exists()) {
+                const currentBal = Number(accDoc.data().balance);
+                t.update(accRefDoc, { balance: currentBal + amountToReverse });
             }
 
             for (const item of payablesToReopen) {
@@ -298,6 +236,7 @@ window.deleteExpense = async (id) => {
                     amountPaid: newPaid,
                     balance: newBalance,
                     status: newPaid === 0 ? 'PENDING' : 'PARTIAL', 
+                    updatedAt: new Date() // Trigger al caché central
                 });
             }
 
@@ -319,17 +258,13 @@ window.deleteExpense = async (id) => {
         }
         alert(msg);
         
-        // NO hacemos reloadAll(). El onSnapshot repintará la tabla.
-
     } catch (e) {
         console.error(e);
-        let errText = e.message;
-        if(errText.includes("index")) errText = "Falta índice compuesto en Firebase (payables). Abre la consola.";
+        let errText = e.message || e;
         alert("Error al reversar: " + errText);
     }
 };
 
-// 3. VER PAPELERA
 window.openTrashModal = async () => {
     trashModal.classList.remove('hidden');
     trashList.innerHTML = `<tr><td colspan="4" class="p-8 text-center"><i class="fa-solid fa-circle-notch fa-spin"></i> Cargando logs...</td></tr>`;
@@ -355,7 +290,7 @@ window.openTrashModal = async () => {
                         <div class="font-bold text-brand-red">${delDate}</div>
                         <div class="text-[9px] text-gray-300">ID: ${d.id.slice(0,6)}</div>
                     </td>
-                    <td class="p-3 text-xs font-bold text-brand-black uppercase">${item.deletedBy}</td>
+                    <td class="p-3 text-xs font-bold text-brand-black uppercase">${item.deletedBy || 'Desconocido'}</td>
                     <td class="p-3">
                         <p class="text-xs font-bold text-gray-600">${item.description}</p>
                         <p class="text-[9px] text-gray-400">Prov: ${item.supplierName} • Fecha Orig: ${origDate}</p>
@@ -373,40 +308,10 @@ window.openTrashModal = async () => {
     }
 };
 
-// 4. STATS (1 Lectura usando AggregateFromServer)
-async function loadStats() {
-    try {
-        const coll = collection(db, "expenses");
-        let constraints = [where("type", "==", "EXPENSE")];
+// ==========================================================================
+// FORMULARIO Y CREACIÓN DE GASTOS
+// ==========================================================================
 
-        let labelText = "Total Histórico";
-
-        if (currentFilterDate) {
-            const start = Timestamp.fromDate(currentFilterDate);
-            const nextMonth = new Date(currentFilterDate.getFullYear(), currentFilterDate.getMonth() + 1, 0, 23, 59, 59);
-            const end = Timestamp.fromDate(nextMonth);
-            
-            constraints.push(where("date", ">=", start));
-            constraints.push(where("date", "<=", end));
-            
-            const monthName = currentFilterDate.toLocaleString('es-CO', { month: 'long' });
-            labelText = `Total ${monthName}`;
-        }
-
-        const q = query(coll, ...constraints);
-        const snap = await getAggregateFromServer(q, { total: sum('amount') });
-        const total = snap.data().total || 0;
-
-        document.getElementById('stats-total').textContent = `$${Math.round(total).toLocaleString('es-CO')}`;
-        lblPeriodTotal.textContent = labelText.toUpperCase();
-
-    } catch (e) {
-        console.error("Error Stats:", e);
-    }
-}
-
-
-// --- FORMULARIO Y CREACIÓN ---
 let supplierTimeout = null;
 supplierSearch.addEventListener('input', (e) => {
     const term = e.target.value.trim();
@@ -450,20 +355,6 @@ supplierSearch.addEventListener('input', (e) => {
     }, 300);
 });
 
-async function loadAccounts() {
-    try {
-        const q = query(collection(db, "accounts"), orderBy("name", "asc"));
-        const snap = await getDocs(q);
-        accountSelect.innerHTML = '<option value="">Seleccione Cuenta...</option>';
-        accountsList = [];
-        snap.forEach(d => {
-            const acc = { id: d.id, ...d.data() };
-            accountsList.push(acc);
-            accountSelect.innerHTML += `<option value="${d.id}">${acc.name} ($${(acc.balance || 0).toLocaleString()})</option>`;
-        });
-    } catch(e) { console.error(e); }
-}
-
 amountDisplay.addEventListener('input', (e) => {
     let value = e.target.value.replace(/\D/g, "");
     if (value === "") { e.target.value = ""; checkTax(); return; }
@@ -504,7 +395,7 @@ form.addEventListener('submit', async (e) => {
     const accountId = accountSelect.value;
     const accountName = accountSelect.options[accountSelect.selectedIndex].text.split(' (')[0];
 
-    if(!supplierName || amount <= 0 || !accountId) { alert("Datos incompletos"); btn.disabled=false; return; }
+    if(!supplierName || amount <= 0 || !accountId) { alert("Datos incompletos"); btn.disabled=false; btn.innerText = "Registrar Gasto"; return; }
 
     const dateParts = dateVal.split('-');
     const localDate = new Date(dateParts[0], dateParts[1] - 1, dateParts[2]);
@@ -532,7 +423,7 @@ form.addEventListener('submit', async (e) => {
                     category: "Impuestos",
                     paymentMethod: accountName,
                     date: Timestamp.fromDate(localDate),
-                    createdAt: Timestamp.now(),
+                    createdAt: Timestamp.now(), // Store escucha esto
                     supplierName: "DIAN / Banco"
                 });
             }
@@ -546,14 +437,12 @@ form.addEventListener('submit', async (e) => {
                 type: 'EXPENSE',
                 paymentMethod: accountName,
                 date: Timestamp.fromDate(localDate),
-                createdAt: Timestamp.now()
+                createdAt: Timestamp.now() // Store escucha esto
             });
         });
 
         alert("✅ Gasto registrado");
         window.closeModal();
-        // El onSnapshot de la tabla se encarga del update visual.
-        loadAccounts(); // Recargamos select para actualizar saldos visuales en el modal.
 
     } catch (error) { alert("Error: " + error.message); } 
     finally { btn.disabled = false; btn.innerText = "Registrar Gasto"; }

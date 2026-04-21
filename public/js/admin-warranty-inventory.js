@@ -1,5 +1,6 @@
-import { db, collection, getDocs, orderBy, query, doc, updateDoc, addDoc, limit, startAfter, where, onSnapshot } from './firebase-init.js';
+import { db, collection, addDoc, doc, updateDoc, getDoc } from './firebase-init.js';
 import { loadAdminSidebar } from './admin-ui.js';
+import { AdminStore } from './admin-store.js'; // 🔥 IMPORTAMOS EL CEREBRO
 
 loadAdminSidebar();
 
@@ -10,150 +11,103 @@ const statusModal = document.getElementById('status-modal');
 const tabActive = document.getElementById('tab-active');
 const tabHistory = document.getElementById('tab-history');
 
-// Estado
+// Estado Local
+const PAGE_SIZE = 50;
+let currentPage = 1;
 let currentView = 'active'; // 'active' | 'history'
 let currentItem = null;
-let lastVisible = null;
-let isLoading = false;
-const DOCS_PER_PAGE = 50;
-
-let unsubscribeInventoryList = null;
-let adminRmaCache = []; // Caché en RAM para buscador
+let adminRmaCache = []; // RAM Cache recibido del Store
 
 // ==========================================================================
-// 🧠 SMART REAL-TIME CACHE: LISTA DE RMA
+// 🔥 CONEXIÓN AL STORE CENTRAL
 // ==========================================================================
-function startInventoryListener(isNextPage = false) {
-    if (isLoading) return;
-    isLoading = true;
+AdminStore.subscribeToRma((rmaItems) => {
+    adminRmaCache = rmaItems;
+    renderInventoryFromMemory();
+});
 
-    if (!isNextPage) {
-        container.innerHTML = `<div class="text-center py-20"><i class="fa-solid fa-circle-notch fa-spin text-4xl text-brand-cyan/50"></i><p class="mt-2 text-xs font-bold text-gray-400">Cargando inventario...</p></div>`;
-        loadMoreBtn.classList.add('hidden');
-        
-        if (unsubscribeInventoryList) unsubscribeInventoryList();
+// ==========================================================================
+// 1. FILTRADO, BÚSQUEDA Y PAGINACIÓN LOCAL
+// ==========================================================================
+function renderInventoryFromMemory() {
+    if (!container) return;
+
+    let filtered = adminRmaCache;
+    const term = searchInput ? searchInput.value.toLowerCase().trim() : '';
+
+    // A. Filtrar por Vista (Activos vs Historial)
+    if (currentView === 'active') {
+        filtered = filtered.filter(item => item.status !== 'ENTREGADO' && item.status !== 'FINALIZADO');
     } else {
-        loadMoreBtn.querySelector('button').innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i> Cargando...`;
-    }
-    
-    try {
-        const refColl = collection(db, "warranty_inventory");
-        let constraints = [];
-
-        // A. FILTROS DE ESTADO 
-        if (currentView === 'active') {
-            constraints.push(where("status", "not-in", ["ENTREGADO", "FINALIZADO"]));
-            constraints.push(orderBy("status")); 
-            constraints.push(orderBy("entryDate", "desc"));
-        } else {
-            constraints.push(where("status", "in", ["ENTREGADO", "FINALIZADO"]));
-            constraints.push(orderBy("entryDate", "desc"));
-        }
-
-        // B. EJECUCIÓN HÍBRIDA (Paginación = getDocs, Página 1 = onSnapshot)
-        if (isNextPage && lastVisible) {
-            constraints.push(startAfter(lastVisible));
-            constraints.push(limit(DOCS_PER_PAGE));
-            
-            const q = query(refColl, ...constraints);
-            getDocs(q).then(snapshot => handleSnapshotResult(snapshot, true)).catch(e => {
-                console.error("Error Paginación RMA:", e);
-                isLoading = false;
-            });
-            
-        } else {
-            constraints.push(limit(DOCS_PER_PAGE));
-            const q = query(refColl, ...constraints);
-            
-            unsubscribeInventoryList = onSnapshot(q, (snapshot) => {
-                handleSnapshotResult(snapshot, false);
-            }, (error) => {
-                console.error("Error Live RMA:", error);
-                const msg = error.message.includes("indexes") 
-                    ? "Falta índice compuesto. Abre la consola (F12) y crea el índice." 
-                    : "Error de conexión en vivo.";
-                if(!isNextPage) container.innerHTML = `<p class="text-center text-red-400 font-bold p-10 text-xs">${msg}</p>`;
-            });
-        }
-
-    } catch (e) {
-        console.error("Error configurando query RMA:", e);
-        isLoading = false;
-    }
-}
-
-function handleSnapshotResult(snapshot, isNextPage) {
-    if (!isNextPage) {
-        container.innerHTML = "";
-        adminRmaCache = []; 
+        filtered = filtered.filter(item => item.status === 'ENTREGADO' || item.status === 'FINALIZADO');
     }
 
-    if (snapshot.empty) {
-        if (!isNextPage) container.innerHTML = `<div class="text-center py-10 text-gray-400 text-xs font-bold uppercase">No hay registros en esta sección.</div>`;
+    // B. Filtrar por Búsqueda (RAM)
+    if (term.length > 0) {
+        filtered = filtered.filter(item => 
+            (item.productName || "").toLowerCase().includes(term) ||
+            (item.sn || "").toLowerCase().includes(term) ||
+            (item.notes || "").toLowerCase().includes(term)
+        );
+    }
+
+    container.innerHTML = "";
+
+    if (filtered.length === 0) {
+        container.innerHTML = `<div class="text-center py-10 text-gray-400 text-xs font-bold uppercase">No hay registros en esta vista.</div>`;
         loadMoreBtn.classList.add('hidden');
-        isLoading = false;
         return;
     }
 
-    // Actualizamos lastVisible solo si NO es un docChange en vivo
-    if (snapshot.docs.length > 0 && !snapshot.metadata.hasPendingWrites) {
-        lastVisible = snapshot.docs[snapshot.docs.length - 1];
-    }
+    // C. Paginación y Agrupación
+    const endIdx = currentPage * PAGE_SIZE;
+    const pageData = filtered.slice(0, endIdx);
 
-    // Botón Ver Más
-    if (snapshot.docs.length === DOCS_PER_PAGE) {
+    renderGroupedInventory(pageData);
+
+    if (endIdx < filtered.length) {
         loadMoreBtn.classList.remove('hidden');
-        loadMoreBtn.querySelector('button').innerHTML = `<i class="fa-solid fa-circle-plus"></i> Cargar siguientes 50`;
+        loadMoreBtn.querySelector('button').innerHTML = `<i class="fa-solid fa-circle-plus"></i> Mostrar más (${endIdx}/${filtered.length})`;
     } else {
         loadMoreBtn.classList.add('hidden');
     }
-
-    // Guardar en RAM para buscador
-    const items = snapshot.docs.map(d => {
-        const data = { id: d.id, ...d.data() };
-        adminRmaCache.push(data);
-        return data;
-    });
-
-    renderGroupedInventory(items, isNextPage);
-    isLoading = false;
 }
 
-// Global para botón
-window.loadMoreInventory = () => startInventoryListener(true);
-
-// --- 2. SISTEMA DE TABS ---
-window.setView = (mode) => {
-    if(isLoading) return;
-    currentView = mode;
-    lastVisible = null; // Reset paginación
-    searchInput.value = ""; // Limpiar busqueda local
-
-    if(mode === 'active') {
-        tabActive.classList.add('active');
-        tabHistory.classList.remove('active');
-        tabActive.classList.remove('text-gray-400', 'border-transparent');
-        tabActive.classList.add('text-brand-cyan', 'border-brand-cyan');
-        tabHistory.classList.add('text-gray-400', 'border-transparent');
-        tabHistory.classList.remove('text-brand-cyan', 'border-brand-cyan');
-    } else {
-        tabActive.classList.remove('active');
-        tabHistory.classList.add('active');
-        tabHistory.classList.remove('text-gray-400', 'border-transparent');
-        tabHistory.classList.add('text-brand-cyan', 'border-brand-cyan');
-        tabActive.classList.add('text-gray-400', 'border-transparent');
-        tabActive.classList.remove('text-brand-cyan', 'border-brand-cyan');
-    }
-    
-    startInventoryListener(false);
+window.loadMoreInventory = () => {
+    currentPage++;
+    renderInventoryFromMemory();
 };
 
-tabActive.onclick = () => window.setView('active');
-tabHistory.onclick = () => window.setView('history');
+window.setView = (mode) => {
+    currentView = mode;
+    currentPage = 1;
+    if(searchInput) searchInput.value = ""; 
 
-// --- 3. RENDERIZADO ---
-function renderGroupedInventory(items, isAppend) {
+    if(mode === 'active') {
+        tabActive.classList.add('active', 'text-brand-cyan', 'border-brand-cyan');
+        tabActive.classList.remove('text-gray-400', 'border-transparent');
+        tabHistory.classList.add('text-gray-400', 'border-transparent');
+        tabHistory.classList.remove('active', 'text-brand-cyan', 'border-brand-cyan');
+    } else {
+        tabHistory.classList.add('active', 'text-brand-cyan', 'border-brand-cyan');
+        tabHistory.classList.remove('text-gray-400', 'border-transparent');
+        tabActive.classList.add('text-gray-400', 'border-transparent');
+        tabActive.classList.remove('active', 'text-brand-cyan', 'border-brand-cyan');
+    }
+    
+    renderInventoryFromMemory();
+};
+
+if (searchInput) {
+    searchInput.addEventListener('input', () => {
+        currentPage = 1;
+        renderInventoryFromMemory();
+    });
+}
+
+function renderGroupedInventory(items) {
     const groups = {};
+    
     items.forEach(item => {
         const key = item.productName || "Desconocido";
         if (!groups[key]) { groups[key] = { name: key, count: 0, units: [] }; }
@@ -179,11 +133,13 @@ function renderGroupedInventory(items, isAppend) {
                 historyInfo = `<br><span class="text-[8px] font-bold text-brand-red uppercase">Salida: ${unit.exitDestination.replace(/_/g, ' ')}</span>`;
             }
 
+            const dateStr = unit.entryDate?.toDate ? unit.entryDate.toDate().toLocaleDateString() : '---';
+
             return `
             <tr class="border-b border-gray-50 last:border-0 hover:bg-slate-50 transition item-row-searchable">
                 <td class="p-4 w-48">
                     <p class="font-mono text-[10px] font-bold text-brand-cyan bg-brand-cyan/5 px-2 py-1 rounded w-fit select-all searchable-sn">${unit.sn}</p>
-                    <p class="text-[9px] text-gray-400 mt-1">${unit.entryDate?.toDate().toLocaleDateString()}</p>
+                    <p class="text-[9px] text-gray-400 mt-1">${dateStr}</p>
                 </td>
                 <td class="p-4">
                     <p class="text-[10px] font-bold text-gray-600 uppercase mb-1">Estado Físico:</p>
@@ -223,47 +179,16 @@ function renderGroupedInventory(items, isAppend) {
         `;
     }).join('');
 
-    if(isAppend) {
-        container.insertAdjacentHTML('beforeend', htmlBuffer);
-    } else {
-        container.innerHTML = htmlBuffer;
-    }
+    container.innerHTML = htmlBuffer;
 }
-
-// --- 4. BÚSQUEDA LOCAL EN RAM (Cero Lecturas Extra) ---
-searchInput.addEventListener('keyup', (e) => {
-    const term = e.target.value.toLowerCase().trim();
-    
-    if (term.length === 0) {
-        // Restaurar estado limpio usando caché en RAM
-        container.innerHTML = "";
-        renderGroupedInventory(adminRmaCache, false);
-        return;
-    }
-
-    // Filtrar localmente
-    const results = adminRmaCache.filter(unit => {
-        const nameMatch = (unit.productName || "").toLowerCase().includes(term);
-        const snMatch = (unit.sn || "").toLowerCase().includes(term);
-        const notesMatch = (unit.notes || "").toLowerCase().includes(term);
-        return nameMatch || snMatch || notesMatch;
-    });
-
-    container.innerHTML = "";
-    if (results.length === 0) {
-        container.innerHTML = `<div class="text-center py-10 text-gray-400 text-xs font-bold uppercase">No se encontraron coincidencias en esta página.</div>`;
-    } else {
-        renderGroupedInventory(results, false);
-    }
-});
 
 // --- 5. MODAL GESTIÓN Y LÓGICA DE NEGOCIO ---
 window.openStatusModal = async (id) => {
-    // Al abrir un detalle específico, leemos directo para asegurar datos precisos
     try {
-        const snap = await import('./firebase-init.js').then(m => m.getDoc(m.doc(db, "warranty_inventory", id)));
-        
+        // Pedimos datos frescos por si otro admin modificó el RMA al mismo tiempo
+        const snap = await getDoc(doc(db, "warranty_inventory", id));
         if (!snap.exists()) return alert("Item no encontrado");
+        
         currentItem = { id: snap.id, ...snap.data() };
 
         document.getElementById('m-prod-name').textContent = currentItem.productName;
@@ -297,10 +222,12 @@ window.togglePartsInput = () => {
 window.updateStatus = async () => {
     const newStatus = document.getElementById('m-new-status').value;
     try {
-        await updateDoc(doc(db, "warranty_inventory", currentItem.id), { status: newStatus });
+        await updateDoc(doc(db, "warranty_inventory", currentItem.id), { 
+            status: newStatus,
+            updatedAt: new Date() // 🔥 Trigger al Store Central
+        });
         alert("✅ Estado actualizado.");
         closeStatusModal();
-        // NO hace falta recargar, el onSnapshot redibujará la tabla solo!
     } catch (e) { alert("Error: " + e.message); }
 };
 
@@ -317,7 +244,8 @@ window.finalizeExit = async () => {
             status: 'ENTREGADO',
             exitDestination: destination,
             exitNotes: notes,
-            exitDate: new Date()
+            exitDate: new Date(),
+            updatedAt: new Date() // 🔥 Trigger
         });
 
         if (keepParts) {
@@ -332,25 +260,22 @@ window.finalizeExit = async () => {
                 componentsReceived: "Extraído de unidad entregada/desguazada",
                 notes: partNotes || "Pieza rescatada.",
                 status: 'EN_STOCK_REPUESTOS', 
-                entryDate: new Date()
+                entryDate: new Date(),
+                updatedAt: new Date() // 🔥 Trigger
             });
             alert("✅ Salida registrada Y repuesto guardado.");
         } else {
             alert("✅ Salida registrada.");
         }
 
+        // Intentar cerrar garantía padre
         if (currentItem.warrantyId) {
-            // Intentar cerrar garantía padre
             try {
                 const wRef = doc(db, "warranties", currentItem.warrantyId);
-                await updateDoc(wRef, { status: 'FINALIZADO', resolvedAt: new Date() });
+                await updateDoc(wRef, { status: 'FINALIZADO', resolvedAt: new Date(), updatedAt: new Date() });
             } catch(e) { console.warn("No se pudo cerrar garantía padre", e); }
         }
 
         closeStatusModal();
-        // El onSnapshot moverá el item mágicamente de "Activos" a "Historial"
     } catch (e) { alert("Error: " + e.message); }
 };
-
-// Start
-startInventoryListener(false);

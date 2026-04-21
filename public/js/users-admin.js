@@ -1,5 +1,6 @@
 // public/js/users-admin.js
-import { db, collection, getDocs, updateDoc, doc, query, orderBy, onSnapshot } from './firebase-init.js';
+import { db, updateDoc, doc } from './firebase-init.js';
+import { AdminStore } from './admin-store.js'; // 🔥 IMPORTAMOS EL CEREBRO CENTRAL
 
 const tableBody = document.getElementById('staff-table-body');
 const searchInput = document.getElementById('search-staff');
@@ -11,28 +12,30 @@ const modalUsersList = document.getElementById('modal-users-list');
 let allUsersCache = []; // Caché total de usuarios
 let staffCache = [];    // Caché filtrado solo para la tabla (Empleados)
 
-// --- 1. CARGAR USUARIOS EN TIEMPO REAL ---
-function initUsersListener() {
-    const q = query(collection(db, "users"), orderBy("createdAt", "desc"));
+// ==========================================================================
+// 🔥 CONEXIÓN AL STORE CENTRAL
+// ==========================================================================
+AdminStore.subscribeToClients((usersArray) => {
+    allUsersCache = usersArray;
     
-    onSnapshot(q, (snapshot) => {
-        allUsersCache = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        
-        // 🔥 EXCLUIR 'customer' (web), 'cliente'/'client' (manual) o sin rol
-        staffCache = allUsersCache.filter(u => {
-            const role = u.role ? u.role.toLowerCase() : '';
-            return role !== 'customer' && role !== 'cliente' && role !== 'client' && role !== '';
-        });
-        
-        if (searchInput.value.trim().length > 0) {
-            searchInput.dispatchEvent(new Event('input'));
-        } else {
-            renderStaffTable(staffCache);
-        }
-    }, (error) => {
-        tableBody.innerHTML = `<tr><td colspan="5" class="p-10 text-center text-red-500 font-bold">Error de conexión: ${error.message}</td></tr>`;
+    // Filtramos para obtener solo a los empleados (excluir clientes)
+    staffCache = allUsersCache.filter(u => {
+        const role = u.role ? u.role.toLowerCase() : '';
+        return role !== 'customer' && role !== 'cliente' && role !== 'client' && role !== '';
     });
-}
+    
+    // Repintar la tabla principal
+    if (searchInput.value.trim().length > 0) {
+        searchInput.dispatchEvent(new Event('input'));
+    } else {
+        renderStaffTable(staffCache);
+    }
+
+    // Si el modal de agregar empleado está abierto y buscando, repintar sus resultados en vivo
+    if (!modal.classList.contains('hidden') && searchAllUsers.value.trim().length >= 2) {
+        searchAllUsers.dispatchEvent(new Event('input'));
+    }
+});
 
 // --- 2. RENDERIZAR TABLA DE EMPLEADOS ---
 function renderStaffTable(staffList) {
@@ -98,6 +101,18 @@ btnOpenModal.onclick = () => {
     searchAllUsers.focus();
 };
 
+const btnClose = document.getElementById('btn-close-modal');
+if (btnClose) {
+    btnClose.onclick = () => {
+        modal.classList.add('hidden');
+    };
+} else {
+    // Plan B: Si tu botón usa la clase genérica de tu plantilla
+    document.querySelectorAll('.close-modal').forEach(btn => {
+        btn.addEventListener('click', () => modal.classList.add('hidden'));
+    });
+}
+
 searchAllUsers.addEventListener('input', (e) => {
     const term = e.target.value.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
     
@@ -146,7 +161,11 @@ window.updateUserRole = async (uid, newRole) => {
     }
     
     try {
-        await updateDoc(doc(db, "users", uid), { role: newRole });
+        // 🔥 CRÍTICO: Añadimos updatedAt para que AdminStore detecte el cambio en el "Delta Sync"
+        await updateDoc(doc(db, "users", uid), { 
+            role: newRole,
+            updatedAt: new Date()
+        });
         modal.classList.add('hidden'); // Cerrar modal si estaba abierto
         showToast(`Rol actualizado a ${newRole.toUpperCase()}`);
     } catch (e) {
@@ -158,7 +177,11 @@ window.updateUserRole = async (uid, newRole) => {
 window.revokeAccess = async (uid) => {
     if(!confirm("¿Estás seguro de revocar el acceso? El usuario volverá a ser un Cliente (customer) y será expulsado del panel.")) return;
     try {
-        await updateDoc(doc(db, "users", uid), { role: 'customer' });
+        // 🔥 CRÍTICO: Añadimos updatedAt
+        await updateDoc(doc(db, "users", uid), { 
+            role: 'customer',
+            updatedAt: new Date()
+        });
         showToast("Acceso revocado");
     } catch (e) {
         alert("Error al revocar: " + e.message);
@@ -172,6 +195,3 @@ function showToast(msg) {
     document.body.appendChild(toast);
     setTimeout(() => toast.remove(), 3000);
 }
-
-// Iniciar
-initUsersListener();

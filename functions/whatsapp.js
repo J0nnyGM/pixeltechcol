@@ -64,11 +64,16 @@ async function sendToMeta(phoneNumber, message, type = 'text', mediaUrl = null, 
 
     if (type === 'image') {
         body.image = { link: mediaUrl, caption: message || "" };
+    } else if (type === 'document') {
+        // 🔥 NUEVO: Soporte para PDFs y Archivos
+        body.document = { link: mediaUrl, filename: message || "Documento" };
     } else if (type === 'template') {
         body.template = { 
             name: templateName, 
             language: { code: templateLang } 
         };
+    } else if (type === 'audio') {
+        body.audio = { link: mediaUrl };
     } else {
         body.text = { body: message };
     }
@@ -148,6 +153,10 @@ exports.webhook = onRequest({ timeoutSeconds: 60 }, async (req, res) => {
                     } else if (type === "sticker") {
                         content = "🌟 Sticker";
                         mediaUrl = await downloadAndUploadMedia(message.sticker.id, message.sticker.mime_type, phoneNumber);
+                    } else if (type === "document") {
+                        // 🔥 NUEVO: Recibir PDFs de clientes
+                        content = message.document.filename || "📄 Documento recibido";
+                        mediaUrl = await downloadAndUploadMedia(message.document.id, message.document.mime_type, phoneNumber);
                     } else if (type === "location") {
                         const lat = message.location.latitude;
                         const lng = message.location.longitude;
@@ -263,8 +272,14 @@ exports.sendMessage = onCall(async (request) => {
         const waId = await sendToMeta(phoneNumber, message, finalType, finalMedia);
 
         const chatRef = db.collection('chats').doc(phoneNumber);
+        
+        // 🔥 Dinámico según el tipo
+        let previewTxt = `tú: ${message}`;
+        if (finalType === 'image') previewTxt = '📷 Imagen enviada';
+        if (finalType === 'document') previewTxt = '📄 Documento enviado';
+
         await chatRef.set({
-            lastMessage: finalType === 'image' ? '📷 Imagen enviada' : `tú: ${message}`,
+            lastMessage: previewTxt,
             lastMessageAt: admin.firestore.FieldValue.serverTimestamp(),
             unread: false 
         }, { merge: true });

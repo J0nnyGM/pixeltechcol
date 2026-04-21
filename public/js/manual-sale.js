@@ -1,5 +1,6 @@
-import { db, collection, doc, runTransaction, addDoc, setDoc, getDocs, query, orderBy, where, onSnapshot } from './firebase-init.js';
+import { db, collection, doc, runTransaction, addDoc, setDoc, getDocs, query, orderBy } from './firebase-init.js';
 import { adjustStock } from './inventory-core.js';
+import { AdminStore } from './admin-store.js'; // 🔥 IMPORTAMOS EL CEREBRO CENTRAL
 
 // --- HTML DEL MODAL (PLANTILLA INTEGRADA - SIN SUB-MODALES) ---
 const MODAL_HTML = `
@@ -167,9 +168,7 @@ const MODAL_HTML = `
 
 // --- VARIABLES GLOBALES DEL MÓDULO ---
 let manualProductsCache = []; 
-let manualProductsMap = {}; 
 let manualClientsCache = [];
-let manualClientsMap = {}; // 🔥 Nuevo: Mapa para caché de clientes
 
 // Estado del Cliente
 let isCreatingNewClient = false;
@@ -193,6 +192,34 @@ function setupCurrencyInput(input) {
     });
     input.addEventListener('focus', (e) => e.target.select());
 }
+
+// ==========================================================================
+// 🔥 CONEXIÓN AL STORE CENTRAL
+// ==========================================================================
+AdminStore.subscribeToProducts((products) => {
+    manualProductsCache = products;
+    // Si el modal está abierto, actualizamos en vivo el stock de las filas
+    const modal = document.getElementById('manual-modal');
+    if (modal && !modal.classList.contains('hidden')) {
+        document.querySelectorAll('.item-row-container').forEach(row => {
+            const pId = row.querySelector('.p-id').value;
+            if (pId) {
+                const updatedProd = manualProductsCache.find(p => p.id === pId);
+                if (updatedProd) updateRowStock(row, updatedProd);
+            }
+        });
+    }
+});
+
+AdminStore.subscribeToClients((clients) => {
+    manualClientsCache = clients;
+    // Si el usuario estaba buscando un cliente justo cuando se sincronizó, refresca la búsqueda
+    const searchInput = document.getElementById('m-cust-search');
+    if (searchInput && searchInput.value.trim().length >= 2 && !isCreatingNewClient && !selectedUserId) {
+        searchInput.dispatchEvent(new Event('input'));
+    }
+});
+
 
 // --- INICIALIZAR ---
 export function initManualSale(onSuccess) {
@@ -233,152 +260,16 @@ export async function openManualSaleModal() {
     document.getElementById('m-address-manual').value = "";
     container.innerHTML = "";
 
+    // 🔥 Ya no llamamos a loadCaches() porque AdminStore lo maneja en segundo plano
     await Promise.all([
         loadPaymentAccounts(), 
-        loadManualDepartments(), 
-        loadCaches() // 🔥 Se ejecuta la nueva carga ultra optimizada
+        loadManualDepartments()
     ]);
     
     addManualItemRow();
     setupCurrencyInput(document.getElementById('m-shipping-cost'));
 
     modal.classList.remove('hidden');
-}
-
-let unsubscribeManualClients = null;
-let unsubscribeManualProducts = null;
-
-// ==========================================================================
-// 🧠 SMART REAL-TIME CACHE: CERO LECTURAS INNECESARIAS
-// ==========================================================================
-async function loadCaches() {
-    // ---------------------------------------------------
-    // 1. CACHÉ INTELIGENTE DE PRODUCTOS
-    // ---------------------------------------------------
-    try {
-        let lastProdSync = 0;
-        const prodCacheStr = localStorage.getItem('pixeltech_admin_master_inventory');
-        if (prodCacheStr) {
-            const parsed = JSON.parse(prodCacheStr);
-            if (parsed.map && parsed.lastSync) {
-                manualProductsMap = parsed.map;
-                lastProdSync = parsed.lastSync;
-                manualProductsCache = Object.values(manualProductsMap).filter(p => p.status === 'active');
-            }
-        }
-        
-        if (unsubscribeManualProducts) unsubscribeManualProducts();
-        
-        const colProd = collection(db, "products");
-        // 🔥 MAGIA: Solo pedimos los productos que cambiaron desde la última vez
-        const qProd = lastProdSync === 0 
-            ? query(colProd) 
-            : query(colProd, where("updatedAt", ">", new Date(lastProdSync)));
-
-        unsubscribeManualProducts = onSnapshot(qProd, (snapshot) => {
-            if (snapshot.empty) return;
-            let hasChanges = false;
-            
-            snapshot.docChanges().forEach(change => {
-                const data = change.doc.data(); 
-                const id = change.doc.id;
-                
-                if (change.type === 'added' || change.type === 'modified') { 
-                    manualProductsMap[id] = { id, ...data }; 
-                    hasChanges = true; 
-                } else if (change.type === 'removed') { 
-                    if (manualProductsMap[id]) { 
-                        delete manualProductsMap[id]; 
-                        hasChanges = true; 
-                    } 
-                }
-            });
-
-            if (hasChanges) {
-                manualProductsCache = Object.values(manualProductsMap).filter(p => p.status === 'active');
-                
-                // Guardado ligero para no romper memoria
-                const lightMapProd = {};
-                for (const k in manualProductsMap) {
-                    const p = manualProductsMap[k];
-                    lightMapProd[k] = {
-                        id: p.id, name: p.name, price: p.price, originalPrice: p.originalPrice || 0, stock: p.stock || 0, status: p.status, sku: p.sku || '', category: p.category || '', brand: p.brand || '', mainImage: p.mainImage || p.image || (p.images && p.images.length > 0 ? p.images[0] : ''), combinations: p.combinations || [], capacities: p.capacities || [], promoEndsAt: p.promoEndsAt || null, searchStr: p.searchStr || '', createdAt: p.createdAt, updatedAt: p.updatedAt
-                    };
-                }
-                localStorage.setItem('pixeltech_admin_master_inventory', JSON.stringify({ map: lightMapProd, lastSync: Date.now() }));
-                
-                // Si alguien editó stock, actualizar en vivo en la pantalla de venta
-                document.querySelectorAll('.item-row-container').forEach(row => {
-                    const pId = row.querySelector('.p-id').value;
-                    if (pId && manualProductsMap[pId]) updateRowStock(row, manualProductsMap[pId]);
-                });
-            }
-        });
-    } catch(e) { console.error("Error cacheando productos:", e); }
-
-    // ---------------------------------------------------
-    // 2. CACHÉ INTELIGENTE DE CLIENTES
-    // ---------------------------------------------------
-    try {
-        let lastClientSync = 0;
-        const clientCacheStr = localStorage.getItem('pixeltech_admin_master_clients');
-        if (clientCacheStr) {
-            const parsed = JSON.parse(clientCacheStr);
-            if (parsed.map && parsed.lastSync) {
-                manualClientsMap = parsed.map;
-                lastClientSync = parsed.lastSync;
-                manualClientsCache = Object.values(manualClientsMap);
-            }
-        }
-
-        if (unsubscribeManualClients) unsubscribeManualClients();
-        
-        const colClient = collection(db, "users");
-        // 🔥 MAGIA: Solo pedimos clientes nuevos o editados, no toda la base de datos
-        const qClient = lastClientSync === 0 
-            ? query(colClient) 
-            : query(colClient, where("updatedAt", ">", new Date(lastClientSync)));
-
-        unsubscribeManualClients = onSnapshot(qClient, (snapshot) => {
-            if (snapshot.empty) return;
-            let hasChanges = false;
-            
-            snapshot.docChanges().forEach(change => {
-                const data = change.doc.data(); 
-                const id = change.doc.id;
-                
-                if (change.type === 'added' || change.type === 'modified') { 
-                    manualClientsMap[id] = { id, ...data }; 
-                    hasChanges = true; 
-                } else if (change.type === 'removed') { 
-                    if (manualClientsMap[id]) { 
-                        delete manualClientsMap[id]; 
-                        hasChanges = true; 
-                    } 
-                }
-            });
-
-            if (hasChanges) {
-                manualClientsCache = Object.values(manualClientsMap);
-                
-                // Guardamos el mismo esquema ligero que usa admin-clients.js para que ambos archivos cooperen
-                const lightMapClient = {};
-                for (const k in manualClientsMap) {
-                    const c = manualClientsMap[k];
-                    lightMapClient[k] = {
-                        id: c.id, name: c.name, userName: c.userName || '', phone: c.phone || '', email: c.email || '', document: c.document || '', source: c.source || 'WEB', role: c.role || 'client', adminNotes: c.adminNotes || '', address: c.address || '', dept: c.dept || '', city: c.city || '', addresses: c.addresses || [], searchStr: c.searchStr || '', createdAt: c.createdAt, updatedAt: c.updatedAt
-                    };
-                }
-                localStorage.setItem('pixeltech_admin_master_clients', JSON.stringify({ map: lightMapClient, lastSync: Date.now() }));
-                
-                // Si estaba buscando un cliente mientras se sincronizó, refrescar búsqueda
-                const searchInput = document.getElementById('m-cust-search');
-                if (searchInput && searchInput.value.trim().length >= 2 && !isCreatingNewClient && !selectedUserId) {
-                    searchInput.dispatchEvent(new Event('input'));
-                }
-            }
-        });
-    } catch(e) { console.error("Error cacheando clientes:", e); }
 }
 
 function setupEventListeners() {
@@ -914,6 +805,7 @@ async function saveOrder() {
                 source: 'MANUAL',
                 role: 'client',
                 createdAt: new Date(),
+                updatedAt: new Date(),
                 dept: clientDept,
                 city: clientCity,
                 address: clientAddr,
@@ -922,10 +814,6 @@ async function saveOrder() {
 
             const docRef = await addDoc(collection(db, "users"), newClientData);
             finalUserId = docRef.id;
-            
-            // Agregarlo a la memoria local por si acaso
-            newClientData.id = docRef.id;
-            manualClientsCache.unshift(newClientData);
         }
 
         // 5. CÁLCULOS FINALES

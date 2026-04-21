@@ -1,9 +1,12 @@
-import { db, collection, addDoc, updateDoc, doc, getDocs, query, where, orderBy, Timestamp, runTransaction, limit, startAfter, onSnapshot } from './firebase-init.js';
+import { db, collection, addDoc, doc, getDocs, query, where, orderBy, runTransaction, limit, startAfter } from './firebase-init.js';
 import { loadAdminSidebar } from './admin-ui.js';
+import { AdminStore } from './admin-store.js'; // 🔥 IMPORTAMOS EL CEREBRO
 
 loadAdminSidebar();
 
 // --- ESTADO GLOBAL ---
+let rawReceivables = [];
+let rawPayables = [];
 let groupedReceivables = [];
 let groupedPayables = [];
 let accounts = [];
@@ -12,11 +15,6 @@ let accounts = [];
 let currentDetailEntity = null; // { id, name, type }
 let lastDetailDoc = null;
 const DETAILS_PAGE_SIZE = 10;
-
-// Listeners de Tiempo Real
-let unsubscribeOrders = null;
-let unsubscribePayables = null;
-let unsubscribeAccounts = null;
 
 // DOM Elements
 const listReceivable = document.getElementById('list-receivable');
@@ -31,7 +29,6 @@ const dtLoadMore = document.getElementById('dt-load-more');
 
 // Helpers
 const formatMoney = (amount) => `$${Math.round(amount).toLocaleString('es-CO')}`;
-
 const cleanNumber = (val) => {
     if (typeof val === 'number') return val;
     if (!val) return 0;
@@ -48,250 +45,87 @@ document.querySelectorAll('.currency-input').forEach(input => {
 });
 
 // ==========================================================================
-// 🧠 SMART REAL-TIME CACHE: CARTERA Y TESORERÍA
+// 🔥 CONEXIÓN AL STORE CENTRAL
 // ==========================================================================
 
-const SmartCarteraSync = {
-    REC_KEY: 'pixeltech_admin_receivables_cache',
-    PAY_KEY: 'pixeltech_admin_payables_cache',
-    ACC_KEY: 'pixeltech_admin_accounts_cache',
+AdminStore.subscribeToAccounts((accs) => {
+    accounts = accs;
+    accountSelect.innerHTML = '<option value="">Seleccione...</option>';
+    accounts.forEach(acc => accountSelect.innerHTML += `<option value="${acc.id}">${acc.name}</option>`);
+});
 
-    runtimeRecMap: {},
-    runtimePayMap: {},
-    lastRecSync: 0,
-    lastPaySync: 0,
+AdminStore.subscribeToReceivables((recs) => {
+    rawReceivables = recs;
+    calculateAndRender();
+});
 
-    init() {
-        this.loadCaches();
-        this.listenForAccounts();
-        this.listenForReceivables();
-        this.listenForPayables();
-    },
-
-    loadCaches() {
-        // Cuentas (Caché rápido visual)
-        try {
-            const accCached = sessionStorage.getItem(this.ACC_KEY);
-            if (accCached) {
-                accounts = JSON.parse(accCached);
-                this.renderAccountsDropdown();
-            }
-        } catch(e) {}
-
-        // Cartera Clientes (Órdenes)
-        try {
-            const recCached = localStorage.getItem(this.REC_KEY);
-            if (recCached) {
-                const parsed = JSON.parse(recCached);
-                if (parsed.map && parsed.lastSync) {
-                    this.runtimeRecMap = parsed.map;
-                    this.lastRecSync = parsed.lastSync;
-                    this.calculateAndRender();
-                }
-            }
-        } catch (e) { localStorage.removeItem(this.REC_KEY); }
-
-        // Deudas Proveedores (Payables)
-        try {
-            const payCached = localStorage.getItem(this.PAY_KEY);
-            if (payCached) {
-                const parsed = JSON.parse(payCached);
-                if (parsed.map && parsed.lastSync) {
-                    this.runtimePayMap = parsed.map;
-                    this.lastPaySync = parsed.lastSync;
-                    this.calculateAndRender();
-                }
-            }
-        } catch (e) { localStorage.removeItem(this.PAY_KEY); }
-
-        if (Object.keys(this.runtimeRecMap).length === 0) {
-            listReceivable.innerHTML = `<tr><td colspan="4" class="p-10 text-center"><i class="fa-solid fa-circle-notch fa-spin text-brand-cyan"></i> Auditando clientes...</td></tr>`;
-        }
-        if (Object.keys(this.runtimePayMap).length === 0) {
-            listPayable.innerHTML = `<tr><td colspan="4" class="p-10 text-center"><i class="fa-solid fa-circle-notch fa-spin text-brand-cyan"></i> Auditando proveedores...</td></tr>`;
-        }
-    },
-
-    listenForAccounts() {
-        if (unsubscribeAccounts) unsubscribeAccounts();
-        const q = query(collection(db, "accounts"), orderBy("name", "asc"));
-        unsubscribeAccounts = onSnapshot(q, (snap) => {
-            accounts = [];
-            snap.forEach(d => accounts.push({ id: d.id, ...d.data() }));
-            sessionStorage.setItem(this.ACC_KEY, JSON.stringify(accounts));
-            this.renderAccountsDropdown();
-        });
-    },
-
-    renderAccountsDropdown() {
-        accountSelect.innerHTML = '<option value="">Seleccione...</option>';
-        accounts.forEach(acc => {
-            accountSelect.innerHTML += `<option value="${acc.id}">${acc.name}</option>`;
-        });
-    },
-
-    listenForReceivables() {
-        if (unsubscribeOrders) unsubscribeOrders();
-
-        const colRef = collection(db, "orders");
-        let q;
-
-        if (this.lastRecSync === 0 || Object.keys(this.runtimeRecMap).length === 0) {
-            console.log("☁️ [Cartera] Descargando deudas completas de clientes...");
-            q = query(colRef, where("paymentStatus", "in", ["PENDING", "PARTIAL"]));
-        } else {
-            console.log("🔄 [Cartera] Buscando actualizaciones en cobros a clientes...");
-            q = query(colRef, where("updatedAt", ">", new Date(this.lastRecSync)));
-        }
-
-        unsubscribeOrders = onSnapshot(q, (snapshot) => {
-            if (snapshot.empty) return;
-
-            let hasChanges = false;
-
-            snapshot.docChanges().forEach(change => {
-                const data = change.doc.data();
-                const id = change.doc.id;
-
-                // Si se canceló/rechazó o se pagó completamente, lo sacamos del mapa de deudas
-                const isCanceled = data.status === 'CANCELADO' || data.status === 'RECHAZADO';
-                const isPaid = data.paymentStatus === 'PAID' || cleanNumber(data.amountPaid) >= cleanNumber(data.total);
-
-                if (change.type === 'removed' || isCanceled || isPaid) {
-                    if (this.runtimeRecMap[id]) {
-                        delete this.runtimeRecMap[id];
-                        hasChanges = true;
-                    }
-                } else if (change.type === 'added' || change.type === 'modified') {
-                    // Si aún debe plata y no está cancelado, lo actualizamos/agregamos
-                    if (!data.updatedAt) data.updatedAt = data.createdAt || new Date();
-                    
-                    this.runtimeRecMap[id] = { 
-                        id, 
-                        userId: data.userId,
-                        userName: data.userName,
-                        billingInfo: data.billingInfo,
-                        shippingData: data.shippingData,
-                        total: data.total,
-                        amountPaid: data.amountPaid
-                    };
-                    hasChanges = true;
-                }
-            });
-
-            if (hasChanges) {
-                console.log(`🔥 [Cartera] ${snapshot.docChanges().length} cambios en deudas de clientes.`);
-                localStorage.setItem(this.REC_KEY, JSON.stringify({ map: this.runtimeRecMap, lastSync: Date.now() }));
-                this.calculateAndRender();
-            }
-        });
-    },
-
-    listenForPayables() {
-        if (unsubscribePayables) unsubscribePayables();
-
-        const colRef = collection(db, "payables");
-        let q;
-
-        if (this.lastPaySync === 0 || Object.keys(this.runtimePayMap).length === 0) {
-            console.log("☁️ [Cartera] Descargando deudas a proveedores...");
-            q = query(colRef, where("status", "==", "PENDING"));
-        } else {
-            console.log("🔄 [Cartera] Buscando pagos a proveedores...");
-            q = query(colRef, where("createdAt", ">", new Date(this.lastPaySync))); // Asumiendo que las creas o editas recientemente
-        }
-
-        unsubscribePayables = onSnapshot(q, (snapshot) => {
-            if (snapshot.empty) return;
-
-            let hasChanges = false;
-
-            snapshot.docChanges().forEach(change => {
-                const data = change.doc.data();
-                const id = change.doc.id;
-
-                if (change.type === 'removed' || data.status === 'PAID' || cleanNumber(data.amountPaid) >= cleanNumber(data.total)) {
-                    if (this.runtimePayMap[id]) {
-                        delete this.runtimePayMap[id];
-                        hasChanges = true;
-                    }
-                } else if (change.type === 'added' || change.type === 'modified') {
-                    this.runtimePayMap[id] = { id, ...data };
-                    hasChanges = true;
-                }
-            });
-
-            if (hasChanges) {
-                console.log(`🔥 [Cartera] ${snapshot.docChanges().length} cambios en deudas de proveedores.`);
-                localStorage.setItem(this.PAY_KEY, JSON.stringify({ map: this.runtimePayMap, lastSync: Date.now() }));
-                this.calculateAndRender();
-            }
-        });
-    },
-
-    calculateAndRender() {
-        // Agrupación de Clientes en Memoria RAM
-        const clientMap = {};
-        let totalRecAmount = 0;
-
-        Object.values(this.runtimeRecMap).forEach(o => {
-            const total = cleanNumber(o.total);
-            const paid = cleanNumber(o.amountPaid);
-            const balance = total - paid;
-
-            if (balance > 0) {
-                let name = o.userName;
-                if (!name && o.billingInfo) name = o.billingInfo.name;
-                if (!name && o.shippingData) name = o.shippingData.name;
-                if (!name) name = `Cliente (ID: ${o.id.slice(0,4)})`;
-
-                const key = o.userId || name; 
-                
-                if (!clientMap[key]) {
-                    clientMap[key] = { id: key, realUserId: o.userId, name: name, count: 0, totalDebt: 0 };
-                }
-                clientMap[key].count++;
-                clientMap[key].totalDebt += balance;
-                totalRecAmount += balance;
-            }
-        });
-        groupedReceivables = Object.values(clientMap).sort((a, b) => b.totalDebt - a.totalDebt);
-
-        // Agrupación de Proveedores en Memoria RAM
-        const providerMap = {};
-        let totalPayAmount = 0;
-
-        Object.values(this.runtimePayMap).forEach(p => {
-            const total = cleanNumber(p.total);
-            const paid = cleanNumber(p.amountPaid);
-            const balance = total - paid;
-
-            if (balance > 0) {
-                const key = p.provider || "Varios";
-                if (!providerMap[key]) {
-                    providerMap[key] = { name: key, count: 0, totalDebt: 0 };
-                }
-                providerMap[key].count++;
-                providerMap[key].totalDebt += balance;
-                totalPayAmount += balance;
-            }
-        });
-        groupedPayables = Object.values(providerMap).sort((a, b) => b.totalDebt - a.totalDebt);
-
-        // Actualizar KPIs de la UI
-        const bal = totalRecAmount - totalPayAmount;
-        document.getElementById('total-receivable').textContent = formatMoney(totalRecAmount);
-        document.getElementById('total-payable').textContent = formatMoney(totalPayAmount);
-        document.getElementById('total-balance').textContent = formatMoney(bal);
-        document.getElementById('total-balance').className = `text-2xl font-black ${bal >= 0 ? 'text-green-400' : 'text-red-400'}`;
-
-        renderTables();
-    }
-};
+AdminStore.subscribeToPayables((pays) => {
+    rawPayables = pays;
+    calculateAndRender();
+});
 
 // ==========================================================================
-// RENDERIZADO VISUAL
+// CÁLCULOS Y RENDERIZADO VISUAL
 // ==========================================================================
+
+function calculateAndRender() {
+    // 1. Agrupar Clientes (Cartera)
+    const clientMap = {};
+    let totalRecAmount = 0;
+
+    rawReceivables.forEach(o => {
+        const total = cleanNumber(o.total);
+        const paid = cleanNumber(o.amountPaid);
+        const balance = total - paid;
+
+        if (balance > 0) {
+            let name = o.userName;
+            if (!name && o.billingInfo) name = o.billingInfo.name;
+            if (!name && o.shippingData) name = o.shippingData.name;
+            if (!name) name = `Cliente (ID: ${o.id.slice(0,4)})`;
+
+            const key = o.userId || name; 
+            
+            if (!clientMap[key]) {
+                clientMap[key] = { id: key, realUserId: o.userId, name: name, count: 0, totalDebt: 0 };
+            }
+            clientMap[key].count++;
+            clientMap[key].totalDebt += balance;
+            totalRecAmount += balance;
+        }
+    });
+    groupedReceivables = Object.values(clientMap).sort((a, b) => b.totalDebt - a.totalDebt);
+
+    // 2. Agrupar Proveedores (Deudas)
+    const providerMap = {};
+    let totalPayAmount = 0;
+
+    rawPayables.forEach(p => {
+        const total = cleanNumber(p.total);
+        const paid = cleanNumber(p.amountPaid);
+        const balance = total - paid;
+
+        if (balance > 0) {
+            const key = p.provider || "Varios";
+            if (!providerMap[key]) {
+                providerMap[key] = { name: key, count: 0, totalDebt: 0 };
+            }
+            providerMap[key].count++;
+            providerMap[key].totalDebt += balance;
+            totalPayAmount += balance;
+        }
+    });
+    groupedPayables = Object.values(providerMap).sort((a, b) => b.totalDebt - a.totalDebt);
+
+    // 3. Actualizar KPIs de la UI
+    const bal = totalRecAmount - totalPayAmount;
+    document.getElementById('total-receivable').textContent = formatMoney(totalRecAmount);
+    document.getElementById('total-payable').textContent = formatMoney(totalPayAmount);
+    document.getElementById('total-balance').textContent = formatMoney(bal);
+    document.getElementById('total-balance').className = `text-2xl font-black ${bal >= 0 ? 'text-green-400' : 'text-red-400'}`;
+
+    renderTables();
+}
 
 function renderTables() {
     const term = searchInput.value.toLowerCase();
@@ -354,7 +188,7 @@ function renderTables() {
 searchInput.addEventListener('input', renderTables);
 
 // ==========================================================================
-// DETALLES Y PAGINACIÓN DEL MODAL
+// DETALLES Y PAGINACIÓN DEL MODAL (Consulta directa a BD para no cachear historial infinito)
 // ==========================================================================
 
 window.openDetails = (id, name, type, totalDebt) => {
@@ -389,11 +223,8 @@ async function loadEntityDetails() {
                 limit(DETAILS_PAGE_SIZE)
             ];
             
-            if (id.length > 20 && !id.includes(" ")) { 
-                constraints.unshift(where("userId", "==", id));
-            } else {
-                constraints.unshift(where("userName", "==", name));
-            }
+            if (id.length > 20 && !id.includes(" ")) constraints.unshift(where("userId", "==", id));
+            else constraints.unshift(where("userName", "==", name));
 
             if (lastDetailDoc) constraints.push(startAfter(lastDetailDoc));
             q = query(collectionRef, ...constraints);
@@ -457,7 +288,7 @@ async function loadEntityDetails() {
 
     } catch (e) {
         console.error(e);
-        dtList.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-red-400 text-xs">Error cargando detalles (Verifica índices).</td></tr>`;
+        dtList.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-red-400 text-xs">Error cargando detalles.</td></tr>`;
     }
 }
 
@@ -476,7 +307,6 @@ window.openPaymentModalGlobal = () => {
 window.openPaymentModalSingle = (docId, balance) => {
     document.getElementById('pay-target-id').value = docId;
     document.getElementById('pay-target-mode').value = 'single';
-    // Autocompletamos con la deuda exacta de ese documento
     document.getElementById('pay-amount').value = formatMoney(balance); 
     document.getElementById('pay-modal-title').textContent = `Pagar Documento Específico`;
     paymentModal.classList.remove('hidden');
@@ -567,7 +397,8 @@ paymentForm.onsubmit = async (e) => {
                 const newPaid = currentPaid + apply;
                 const isPaid = newPaid >= total - 100; 
 
-                const updates = { amountPaid: newPaid, lastPaymentDate: new Date(), updatedAt: new Date() }; // <-- updatedAt vital para el onSnapshot
+                // 🔥 CRÍTICO: Agregar updatedAt para que el Store detecte la actualización y refresque la pantalla de atrás automáticamente.
+                const updates = { amountPaid: newPaid, lastPaymentDate: new Date(), updatedAt: new Date() }; 
                 if (type === 'client') {
                     updates.paymentStatus = isPaid ? 'PAID' : 'PARTIAL';
                 } else {
@@ -608,8 +439,8 @@ paymentForm.onsubmit = async (e) => {
             lastDetailDoc = null;
             loadEntityDetails(); // Recargar el modal interior
         }
-        
-        // No necesitamos recargar las tablas globales, el onSnapshot lo hará al detectar los `updatedAt` modificados.
+
+        // 🔥 OJO: No necesitamos recargar las tablas globales, el AdminStore lo hará solo al detectar los `updatedAt`.
 
     } catch (e) {
         console.error(e);
@@ -631,11 +462,11 @@ document.getElementById('create-payable-form').onsubmit = async (e) => {
     try {
         await addDoc(collection(db, "payables"), {
             provider, description: desc, total, dueDate: date,
-            amountPaid: 0, balance: total, status: 'PENDING', createdAt: new Date()
+            amountPaid: 0, balance: total, status: 'PENDING', 
+            createdAt: new Date(), updatedAt: new Date() // Agregado updatedAt
         });
         alert("✅ Deuda registrada");
         window.closeModal('create-payable-modal');
-        // El onSnapshot de payables agregará esta deuda al instante
     } catch (e) { alert("Error: " + e.message); }
     finally { btn.disabled = false; }
 };
@@ -658,6 +489,3 @@ window.openCreatePayable = () => {
 };
 
 window.closeModal = (id) => document.getElementById(id).classList.add('hidden');
-
-// Iniciar Motor
-SmartCarteraSync.init();

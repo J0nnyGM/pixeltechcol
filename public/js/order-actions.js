@@ -2,14 +2,14 @@ import { db, doc, getDoc, updateDoc, Timestamp, collection, getDocs, runTransact
 import { adjustStock } from './inventory-core.js'; 
 
 // --- CACHÉ DE OPTIMIZACIÓN ---
-let currentOrderData = null; // Guardamos la orden completa en memoria
+let currentOrderData = null; 
 let currentOrderId = null;
-let accountsCache = null;    // Guardamos las cuentas para no releerlas
+let accountsCache = null;    
 
 const getEl = (id) => document.getElementById(id);
 const safeSetText = (id, text) => { const el = getEl(id); if (el) el.textContent = text; };
 
-// Helper para cargar cuentas solo una vez (Ahorro de lecturas)
+// Helper para cargar cuentas
 async function loadAccountsCached() {
     if (accountsCache) return accountsCache;
     try {
@@ -26,16 +26,14 @@ async function loadAccountsCached() {
 // --- 1. VER DETALLE (Optimizado) ---
 export async function viewOrderDetail(orderId) {
     currentOrderId = orderId;
-    currentOrderData = null; // Reset caché local
+    currentOrderData = null; 
     const modal = getEl('order-modal');
     
     try {
-        // Lectura Principal (Inevitable si es la primera vez)
         const snap = await getDoc(doc(db, "orders", orderId));
         if (!snap.exists()) return;
         const o = snap.data();
         
-        // Guardamos en caché para usar en Devolución/Pago sin releer
         currentOrderData = { id: snap.id, ...o };
 
         // 1. Icono Canal
@@ -63,27 +61,24 @@ export async function viewOrderDetail(orderId) {
             badge.className = `px-3 py-1 rounded-full text-[10px] font-black uppercase border ${bClass}`;
         }
 
-        // --- NUEVO: INFORMACIÓN DE PAGO ---
+        // --- INFORMACIÓN DE PAGO ---
         const paymentSection = getEl('modal-payment-info');
         if (paymentSection) {
-            // Diccionario de Métodos
             const methods = {
                 'MERCADOPAGO': { label: 'MercadoPago', icon: 'fa-regular fa-credit-card', color: 'text-blue-500' },
-                'ONLINE': { label: 'MercadoPago', icon: 'fa-regular fa-credit-card', color: 'text-blue-500' }, // Alias de MP
+                'ONLINE': { label: 'MercadoPago', icon: 'fa-regular fa-credit-card', color: 'text-blue-500' }, 
                 'CONTRAENTREGA': { label: 'Contra Entrega', icon: 'fa-solid fa-truck-fast', color: 'text-brand-black' },
-                'COD': { label: 'Contra Entrega', icon: 'fa-solid fa-truck-fast', color: 'text-brand-black' }, // Alias de Contra Entrega
+                'COD': { label: 'Contra Entrega', icon: 'fa-solid fa-truck-fast', color: 'text-brand-black' }, 
                 'ADDI': { label: 'Crédito ADDI', icon: 'fa-solid fa-hand-holding-dollar', color: 'text-[#00D6D6]' },
                 'SISTECREDITO': { label: 'Sistecrédito', icon: 'fa-solid fa-money-check-dollar', color: 'text-emerald-500' },
-                'PSE': { label: 'Pago con PSE', icon: 'fa-solid fa-building-columns', color: 'text-blue-600' }, // 🔥 AQUÍ ESTÁ LA SOLUCIÓN
+                'PSE': { label: 'Pago con PSE', icon: 'fa-solid fa-building-columns', color: 'text-blue-600' },
                 'MANUAL': { label: 'Venta Manual', icon: 'fa-solid fa-cash-register', color: 'text-gray-500' }
             };
             
-            // Convertimos a mayúsculas por seguridad antes de buscar en el diccionario
             const methodKey = (o.paymentMethod || 'MANUAL').toUpperCase();
             const mInfo = methods[methodKey] || methods['MANUAL'];
 
-            // Estado del Pago
-            const isPaid = o.paymentStatus === 'PAID' || o.status === 'PAGADO'; // Compatibilidad
+            const isPaid = o.paymentStatus === 'PAID' || o.status === 'PAGADO'; 
             const statusHtml = isPaid 
                 ? `<span class="px-2 py-1 rounded bg-green-50 text-green-600 border border-green-100 text-[9px] font-black uppercase"><i class="fa-solid fa-check"></i> Pagado</span>`
                 : `<span class="px-2 py-1 rounded bg-orange-50 text-orange-600 border border-orange-100 text-[9px] font-black uppercase"><i class="fa-regular fa-clock"></i> Pendiente</span>`;
@@ -122,7 +117,6 @@ export async function viewOrderDetail(orderId) {
         safeSetText('modal-delivery-address', addr);
         safeSetText('modal-delivery-city', `${city}${dept ? ', ' + dept : ''}`);
 
-        // --- NUEVO: Mostrar Rastreo si está despachado ---
         const trackingContainer = getEl('modal-tracking-info');
         if (trackingContainer) {
             if (o.shippingCarrier && o.shippingTracking) {
@@ -158,7 +152,7 @@ export async function viewOrderDetail(orderId) {
             }
         }
 
-        // 7. Items (CON VALIDACIÓN DE SERIALES Y AUTO-TAB DE PISTOLA)
+        // 7. Items (CON VALIDACIÓN DE SERIALES)
         const isLocked = ['DESPACHADO', 'ENTREGADO', 'CANCELADO', 'RECHAZADO', 'DEVUELTO', 'DEVOLUCION_PARCIAL'].includes(o.status);
         const itemsList = getEl('modal-items-list-responsive');
         
@@ -187,48 +181,38 @@ export async function viewOrderDetail(orderId) {
                 return `<div class="p-6 border-b border-gray-100 last:border-0 flex flex-col md:flex-row gap-6 items-start"><div class="w-16 h-16 rounded-xl bg-white border border-gray-100 p-2 shrink-0 flex items-center justify-center"><img src="${img}" class="max-w-full max-h-full object-contain"></div><div class="flex-grow w-full"><div class="flex justify-between mb-2"><h5 class="font-black text-xs uppercase text-brand-black">${item.name || item.title}</h5><span class="text-xs font-black text-brand-cyan">x${item.quantity}</span></div><div class="flex gap-2 mb-4">${item.color ? `<span class="text-[8px] font-black uppercase bg-slate-100 px-2 py-1 rounded text-brand-black border border-gray-200">${item.color}</span>` : ''}</div><div class="bg-slate-100/50 p-3 rounded-xl border border-dashed border-gray-200"><p class="text-[8px] font-black text-brand-black uppercase tracking-widest mb-2">Seriales</p><div class="grid grid-cols-1 sm:grid-cols-2 gap-2">${snInputs}</div></div></div></div>`;
             }).join('');
 
-            // --- MAGIA PARA LA PISTOLA Y VALIDACIÓN ---
             if (!isLocked) {
-                // Pequeño timeout para asegurar que el HTML ya se inyectó
                 setTimeout(() => {
                     const allInputs = Array.from(document.querySelectorAll('.sn-input'));
                     
                     allInputs.forEach((input, currentIndex) => {
-                        
-                        // 1. Evento para validar duplicados cuando sale del input (blur) o cambia (change)
                         input.addEventListener('change', function(e) {
                             const val = this.value.trim().toUpperCase();
-                            if (!val) return; // Si está vacío, no pasa nada
+                            if (!val) return; 
 
-                            // Buscar si este mismo serial ya está escrito en otro input de esta orden
                             const isDuplicate = allInputs.some(otherInput => {
                                 return otherInput !== this && otherInput.value.trim().toUpperCase() === val;
                             });
 
                             if (isDuplicate) {
                                 alert(`⚠️ ERROR: El serial "${val}" ya fue escaneado en esta orden. Por favor revisa.`);
-                                this.value = ""; // Borramos el texto duplicado
-                                this.focus();    // Le devolvemos el foco para que lo intente de nuevo
+                                this.value = ""; 
+                                this.focus();    
                                 this.classList.add('border-red-500', 'bg-red-50');
                                 setTimeout(() => this.classList.remove('border-red-500', 'bg-red-50'), 2000);
                             }
                         });
 
-                        // 2. Evento para la Pistola (Keydown: Atrapar el Enter)
                         input.addEventListener('keydown', function(e) {
                             if (e.key === 'Enter') {
-                                e.preventDefault(); // Evitamos que envíe un formulario fantasma
-                                
-                                // Disparamos manualmente el 'change' para validar el duplicado YA mismo
+                                e.preventDefault(); 
                                 this.dispatchEvent(new Event('change'));
 
-                                // Si después de validar sigue teniendo texto (no fue borrado por duplicado)
                                 if (this.value.trim() !== "") {
                                     const nextInput = allInputs[currentIndex + 1];
                                     if (nextInput) {
-                                        nextInput.focus(); // Saltamos al siguiente cuadro automáticamente
+                                        nextInput.focus(); 
                                     } else {
-                                        // Si era el último, enfocamos el botón de guardar
                                         const btnSave = getEl('btn-save-alistado');
                                         if(btnSave && !btnSave.classList.contains('hidden')) {
                                             btnSave.focus();
@@ -238,11 +222,11 @@ export async function viewOrderDetail(orderId) {
                             }
                         });
                     });
-                }, 100); // 100ms de espera
+                }, 100); 
             }
         }
 
-        // 8. Totales (CORREGIDO Y BLINDADO)
+        // 8. Totales 
         const subtotal = o.subtotal || o.total;
         const shipping = o.shippingCost || 0;
         const totalOriginal = o.total || 0;
@@ -252,12 +236,10 @@ export async function viewOrderDetail(orderId) {
         safeSetText('modal-order-subtotal', `$${subtotal.toLocaleString('es-CO')}`);
         safeSetText('modal-order-shipping', shipping === 0 ? "GRATIS" : `$${shipping.toLocaleString('es-CO')}`);
         
-        // Referencia al contenedor padre (que acabamos de nombrar en el HTML)
         const totalContainer = getEl('modal-total-container');
         
         if (totalContainer) {
             if (refunded > 0) {
-                // Caso con Devolución: Mostramos desglose
                 totalContainer.innerHTML = `
                     <div class="flex flex-col items-end">
                         <p class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Total Original</p>
@@ -273,7 +255,6 @@ export async function viewOrderDetail(orderId) {
                     </div>
                 `;
             } else {
-                // Caso Normal: Restauramos vista estándar
                 totalContainer.innerHTML = `
                     <p class="text-[9px] font-black text-brand-black uppercase tracking-widest">Total Neto</p>
                     <h4 id="modal-order-total" class="text-3xl font-black text-brand-black leading-none">$${totalOriginal.toLocaleString('es-CO')}</h4>
@@ -281,11 +262,10 @@ export async function viewOrderDetail(orderId) {
             }
         }
 
-        // 9. Lógica de Botones (CORREGIDA)
+        // 9. Lógica de Botones 
         const footerActions = getEl('modal-footer-actions');
         const footerMsg = getEl('modal-footer-msg');
         
-        // Limpiar botón previo
         const oldRefundBtn = document.getElementById('btn-refund-action');
         if(oldRefundBtn) oldRefundBtn.remove();
 
@@ -305,7 +285,6 @@ export async function viewOrderDetail(orderId) {
             if (footerActions) footerActions.classList.remove('hidden');
             if (btnDespachar) btnDespachar.classList.remove('hidden');
         } else if (['DESPACHADO', 'ENTREGADO', 'DEVOLUCION_PARCIAL'].includes(o.status)) { 
-             // ^^^ AQUÍ: Agregamos DEVOLUCION_PARCIAL para permitir seguir devolviendo
              if (footerActions) {
                  footerActions.classList.remove('hidden');
                  
@@ -313,15 +292,10 @@ export async function viewOrderDetail(orderId) {
                  btnRefund.id = 'btn-refund-action';
                  btnRefund.className = "flex-1 md:flex-none bg-white text-red-500 border border-red-200 px-6 py-4 rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-red-50 transition-all shadow-sm flex items-center gap-2";
                  btnRefund.innerHTML = `<i class="fa-solid fa-rotate-left"></i> Gestionar Devolución`;
-                 
-                 // OPTIMIZACIÓN CLAVE: Pasamos el objeto completo en memoria
-                 // Esto evita una lectura adicional en openRefundModal
                  btnRefund.onclick = () => openRefundModal(currentOrderData);
-                 
                  footerActions.prepend(btnRefund);
              }
         } else {
-            // PENDIENTE o PAGADO
             if (footerActions) footerActions.classList.remove('hidden');
             if (btnAlistar) btnAlistar.classList.remove('hidden');
         }
@@ -343,7 +317,8 @@ export async function saveAlistamiento(onSuccess) {
             const inputs = document.querySelectorAll(`.sn-input[data-item-index="${idx}"]`);
             return { ...item, sns: Array.from(inputs).map(i => i.value.trim()) };
         });
-        await updateDoc(doc(db, "orders", currentOrderId), { items: updatedItems, status: 'ALISTADO' });
+        // 🔥 Trigger al Store (updatedAt)
+        await updateDoc(doc(db, "orders", currentOrderId), { items: updatedItems, status: 'ALISTADO', updatedAt: new Date() });
         alert("✅ Orden Alistada");
         getEl('order-modal').classList.add('hidden');
         if(onSuccess) onSuccess();
@@ -362,8 +337,9 @@ export async function confirmDispatch(onSuccess) {
     
     btn.disabled = true;
     try {
+        // 🔥 Trigger al Store (updatedAt)
         await updateDoc(doc(db, "orders", currentOrderId), { 
-            status: 'DESPACHADO', shippingCarrier: carrier, shippingTracking: tracking, shippedAt: new Date() 
+            status: 'DESPACHADO', shippingCarrier: carrier, shippingTracking: tracking, shippedAt: new Date(), updatedAt: new Date() 
         });
         alert("🚚 Despachado");
         getEl('dispatch-modal').classList.add('hidden');
@@ -372,7 +348,6 @@ export async function confirmDispatch(onSuccess) {
     } catch(e) { console.error(e); } finally { btn.disabled = false; }
 }
 
-// --- 3. IMPRIMIR PDF ---
 // --- 3. IMPRIMIR PDF (REMISIÓN PROFESIONAL) ---
 export async function printRemission(orderId) {
     try {
@@ -381,24 +356,19 @@ export async function printRemission(orderId) {
         
         const o = snap.data();
         
-        // 1. Fechas y Números
         const dateStr = o.createdAt?.toDate ? o.createdAt.toDate().toLocaleString('es-CO') : '--';
         const remissionNumber = o.internalOrderNumber ? `#${o.internalOrderNumber}` : 'S/N';
         const shortId = snap.id.slice(0, 8).toUpperCase();
         
-        // 2. Dirección
         let address = o.shippingData?.address || o.address || 'Retiro en Local';
         if (o.shippingData?.city) address += `, ${o.shippingData.city}`;
         if (o.shippingData?.department) address += ` - ${o.shippingData.department}`;
 
-        // 3. Datos del cliente (Validando compatibilidad con ventas web/manuales)
         const clientName = o.userName || o.buyerInfo?.name || 'N/A';
         const clientPhone = o.phone || o.buyerInfo?.phone || 'N/A';
         const clientDoc = o.clientDoc || o.buyerInfo?.document || 'N/A';
 
-        // 4. Tabla de Items (SIN SERIALES)
         const itemsHtml = (o.items || []).map(i => {
-            // Mostramos si tiene variante de color/capacidad
             let variantText = '';
             if(i.color || i.capacity) {
                 variantText = `<br><span style="color:#6b7280; font-size:11px;">${i.capacity ? i.capacity + ' ' : ''}${i.color ? i.color : ''}</span>`;
@@ -413,12 +383,10 @@ export async function printRemission(orderId) {
             </tr>`;
         }).join('');
 
-        // 5. Totales
         const total = o.total || 0;
         const shipping = o.shippingCost || 0;
         const subtotal = total - shipping;
 
-        // 6. Generación del Documento
         const w = window.open('', '_blank', 'width=800,height=800');
         w.document.write(`
             <!DOCTYPE html>
@@ -465,7 +433,7 @@ export async function printRemission(orderId) {
                     .footer { margin-top: 50px; text-align: center; color: #4b5563; font-size: 11px; border-top: 1px solid #e5e7eb; padding-top: 20px; line-height: 1.6; }
                     .footer strong { color: #111827; font-size: 12px;}
                     
-                    /* Evitar que se corte en páginas en la impresora */
+                    /* Evitar cortes */
                     @media print {
                         body { padding: 0; }
                         table { page-break-inside: auto; }
@@ -552,22 +520,19 @@ export async function printRemission(orderId) {
     } catch(e) { console.error(e); }
 }
 
-// --- 4. SOLICITAR FACTURA (CORREGIDO) ---
+// --- 4. SOLICITAR FACTURA ---
 export async function requestInvoice(orderId) {
     if(!confirm("¿Marcar este pedido para Facturación Electrónica?")) return;
     
     try {
-        // Solo actualizamos la orden. No usamos addDoc.
-        // Invoices.js ya lee orders donde requiresInvoice == true.
+        // 🔥 Trigger al Store (updatedAt)
         await updateDoc(doc(db, "orders", orderId), { 
             requiresInvoice: true,
-            billingStatus: 'PENDING', // Aseguramos que tenga estado
+            billingStatus: 'PENDING', 
             updatedAt: new Date()
         });
 
         alert("✅ Solicitud enviada al Módulo de Facturación.");
-        
-        // Recargar para actualizar icono en tabla
         location.reload();
 
     } catch (e) {
@@ -584,7 +549,7 @@ window.saveAlistamiento = saveAlistamiento;
 window.openDispatchModal = openDispatchModal;
 window.confirmDispatch = confirmDispatch;
 
-// --- 5. REGISTRAR PAGO MANUAL (NUEVO) ---
+// --- 6. REGISTRAR PAGO MANUAL ---
 export async function openPaymentModal(orderId, amountDue) {
     const modal = getEl('payment-modal');
     const idDisplay = getEl('pay-modal-order-id');
@@ -594,16 +559,12 @@ export async function openPaymentModal(orderId, amountDue) {
 
     if(!modal) return console.error("No modal");
 
-    // Reset UI
     idDisplay.textContent = `Orden #${orderId.slice(0,8).toUpperCase()}`;
     inputId.value = orderId;
     
-    // Mostramos el saldo pendiente calculado
     inputAmount.value = `$${Number(amountDue).toLocaleString('es-CO')}`;
-    // Guardamos el máximo permitido en un atributo data para validación
     inputAmount.dataset.max = amountDue;
     
-    // Cargar Cuentas (Optimizado con Caché)
     try {
         if (selectAcc.options.length <= 1) { 
             selectAcc.innerHTML = '<option value="">Cargando...</option>';
@@ -622,7 +583,6 @@ export async function openPaymentModal(orderId, amountDue) {
 
     modal.classList.remove('hidden');
     
-    // Auto-focus y formateo moneda
     inputAmount.oninput = (e) => {
         let val = e.target.value.replace(/\D/g, "");
         e.target.value = val ? "$" + parseInt(val, 10).toLocaleString('es-CO') : "";
@@ -633,17 +593,15 @@ export async function openPaymentModal(orderId, amountDue) {
 // LÓGICA DEVOLUCIONES (OPTIMIZADA)
 // =============================================================================
 
-// Ahora acepta el OBJETO completo o el ID. Si es objeto, ahorra lectura.
 async function openRefundModal(orderInput) {
     if (!orderInput) return;
 
     let o = orderInput;
-    // Si recibimos un ID (string), intentamos usar caché o descargamos
     if (typeof orderInput === 'string') {
         if (currentOrderData && currentOrderData.id === orderInput) {
-            o = currentOrderData; // Usar memoria (0 lecturas)
+            o = currentOrderData; 
         } else {
-            const snap = await getDoc(doc(db, "orders", orderInput)); // Fallback lectura
+            const snap = await getDoc(doc(db, "orders", orderInput)); 
             if (!snap.exists()) return;
             o = { id: snap.id, ...snap.data() };
             currentOrderData = o; 
@@ -660,19 +618,16 @@ async function openRefundModal(orderInput) {
     const financialSection = getEl('refund-financial-section');
     const noPaymentMsg = getEl('refund-no-payment-msg');
 
-    // 1. Reset UI
     idDisplay.textContent = `Orden #${o.id.slice(0,8).toUpperCase()}`;
     inputId.value = o.id;
     inputAmount.value = "$ 0";
     container.innerHTML = '<div class="text-center py-4"><i class="fa-solid fa-circle-notch fa-spin text-gray-300"></i></div>';
     
     try {
-        // 2. Calcular Dinero Disponible
         const totalPaid = o.total || 0;
         const alreadyRefunded = o.refundedAmount || 0;
         const moneyAvailable = totalPaid - alreadyRefunded;
 
-        // Validar si fue pagada
         const isPaid = (o.paymentStatus === 'PAID') || (o.status === 'PAGADO') || ((o.amountPaid || 0) >= totalPaid);
         
         wasPaidInput.value = isPaid ? "true" : "false";
@@ -681,7 +636,6 @@ async function openRefundModal(orderInput) {
             financialSection.classList.remove('hidden');
             noPaymentMsg.classList.add('hidden');
             
-            // Mostrar Info Financiera
             const existingInfo = financialSection.querySelector('.info-badge');
             if(existingInfo) existingInfo.remove();
             
@@ -694,7 +648,6 @@ async function openRefundModal(orderInput) {
             `;
             financialSection.prepend(infoDiv);
 
-            // Cargar Cuentas (Usando Caché)
             if (selectAcc.options.length <= 1) {
                 const accounts = await loadAccountsCached();
                 let html = '<option value="">Seleccione Cuenta de Origen...</option>';
@@ -708,7 +661,6 @@ async function openRefundModal(orderInput) {
             noPaymentMsg.classList.remove('hidden');
         }
 
-        // 3. Render Items (Lógica de Stock Restante)
         const items = o.items || [];
         container.innerHTML = "";
         
@@ -717,12 +669,11 @@ async function openRefundModal(orderInput) {
         items.forEach((item, index) => {
             const img = item.mainImage || item.image || '[https://placehold.co/50](https://placehold.co/50)';
             
-            // Calcular Disponibilidad
             const originalQty = item.quantity || 0;
             const alreadyReturnedQty = item.returnedQty || 0; 
             const availableQty = originalQty - alreadyReturnedQty;
 
-            if (availableQty <= 0) return; // Ya devuelto totalmente
+            if (availableQty <= 0) return; 
 
             hasItemsToReturn = true;
             
@@ -767,7 +718,6 @@ async function openRefundModal(orderInput) {
     modal.classList.remove('hidden');
 }
 
-// Función auxiliar de cálculo
 function recalcRefundTotal(items) {
     let total = 0;
     document.querySelectorAll('.refund-item-row').forEach(row => {
@@ -783,8 +733,6 @@ function recalcRefundTotal(items) {
     input.value = `$ ${total.toLocaleString('es-CO')}`;
 }
 
-
-// PROCESAR DEVOLUCIÓN
 const refundForm = getEl('refund-form');
 if (refundForm) {
     refundForm.onsubmit = async (e) => {
@@ -814,7 +762,6 @@ if (refundForm) {
         }
 
         try {
-            // Variable temporal para sacar datos de la transacción
             let itemsToRestoreStock = [];
 
             await runTransaction(db, async (t) => {
@@ -824,14 +771,12 @@ if (refundForm) {
                 
                 const oData = orderDoc.data();
                 
-                // Validaciones financieras
                 if (wasPaid && amount > 0) {
                     const currentRefunded = oData.refundedAmount || 0;
                     const maxRefundable = (oData.total || 0) - currentRefunded;
                     if (amount > maxRefundable) throw `El monto excede el saldo disponible ($${maxRefundable.toLocaleString()}).`;
                 }
 
-                // Lógica de Items (Actualizar array en BD)
                 const originalItems = oData.items || [];
                 const updatedItems = JSON.parse(JSON.stringify(originalItems)); 
                 
@@ -846,11 +791,9 @@ if (refundForm) {
                         const qtyToReturn = parseInt(row.querySelector('.refund-qty').value);
                         
                         if (qtyToReturn > 0) {
-                            // Sumar al contador de devueltos de este item
                             const currentReturned = updatedItems[idx].returnedQty || 0;
                             updatedItems[idx].returnedQty = currentReturned + qtyToReturn;
                             
-                            // Guardar para adjustStock (post-transacción)
                             itemsToRestoreStock.push({ 
                                 id: updatedItems[idx].id, 
                                 qty: qtyToReturn, 
@@ -861,7 +804,6 @@ if (refundForm) {
                     }
                 });
 
-                // Calcular nuevo estado global de la orden
                 updatedItems.forEach(i => {
                     totalOriginalQty += (i.quantity || 0);
                     totalReturnedQtySoFar += (i.returnedQty || 0);
@@ -873,7 +815,6 @@ if (refundForm) {
                     else newStatus = 'DEVOLUCION_PARCIAL';
                 }
 
-                // Transacción Financiera (Solo si hubo pago y hay monto)
                 if (wasPaid && amount > 0) {
                     const accRef = doc(db, "accounts", accountId);
                     const accDoc = await t.get(accRef);
@@ -898,18 +839,18 @@ if (refundForm) {
                     });
                 }
 
-                // Update Orden
+                // 🔥 Trigger al Store (updatedAt)
                 t.update(orderRef, {
                     items: updatedItems,
                     status: newStatus,
                     refundedAmount: (oData.refundedAmount || 0) + amount,
                     hasRefunds: true,
                     lastRefundDate: serverTimestamp(),
-                    refundReason: reason
+                    refundReason: reason,
+                    updatedAt: serverTimestamp() 
                 });
             });
 
-            // 4. Restaurar Inventario (Fuera de transacción)
             if (itemsToRestoreStock.length > 0) {
                 for (const item of itemsToRestoreStock) {
                     await adjustStock(item.id, item.qty, item.color, item.capacity);
@@ -918,15 +859,14 @@ if (refundForm) {
 
             alert("✅ Devolución procesada correctamente.");
             
-            // Invalidar cachés
             currentOrderData = null; 
             accountsCache = null;
 
             getEl('refund-modal').classList.add('hidden');
             getEl('order-modal').classList.add('hidden');
             
-            if(window.fetchOrders) window.fetchOrders(); 
-            else location.reload();
+            // Si la vista local tiene función fetchOrders (Como dashboard.js), usarla. Si no, reload.
+            // OJO: Como ahora tenemos AdminStore, ni siquiera hace falta recargar, el Store repintará solo.
 
         } catch (e) {
             console.error(e);
@@ -938,7 +878,6 @@ if (refundForm) {
     };
 }
 
-// Lógica del Submit del Formulario
 const payForm = document.getElementById('payment-form');
 if (payForm) {
     payForm.onsubmit = async (e) => {
@@ -953,7 +892,6 @@ if (payForm) {
         const amountStr = document.getElementById('pay-amount').value.replace(/\D/g, "");
         const amount = parseInt(amountStr, 10);
         
-        // Validación contra el máximo permitido (data-max)
         const maxAmount = parseInt(document.getElementById('pay-amount').dataset.max || 0);
 
         if (!accId || amount <= 0) {
@@ -970,13 +908,11 @@ if (payForm) {
 
         try {
             await runTransaction(db, async (t) => {
-                // 1. Leer Datos (Lectura Fresca para seguridad)
                 const orderRef = doc(db, "orders", orderId);
                 const orderDoc = await t.get(orderRef);
                 if (!orderDoc.exists()) throw "La orden no existe.";
                 const oData = orderDoc.data();
 
-                // Validación de servidor (Doble seguridad)
                 const currentPending = (oData.total || 0) - (oData.amountPaid || 0) - (oData.refundedAmount || 0);
                 if (amount > currentPending) throw `El monto excede el saldo real pendiente ($${currentPending.toLocaleString()}).`;
 
@@ -984,11 +920,9 @@ if (payForm) {
                 const accDoc = await t.get(accRef);
                 if (!accDoc.exists()) throw "La cuenta no existe.";
 
-                // 3. Actualizar Saldo Cuenta
                 const newBalance = (accDoc.data().balance || 0) + amount;
                 t.update(accRef, { balance: newBalance });
 
-                // 4. Crear Registro Historial
                 const expenseRef = doc(collection(db, "expenses"));
                 t.set(expenseRef, {
                     amount: amount,
@@ -1002,38 +936,31 @@ if (payForm) {
                     orderId: orderId
                 });
 
-                // 5. Actualizar Orden (CON CORRECCIÓN DE ESTADO)
                 const newAmountPaid = (oData.amountPaid || 0) + amount;
                 const isFullyPaid = newAmountPaid >= ((oData.total || 0) - (oData.refundedAmount || 0));
                 
-                // Determinar el nuevo estado
                 let nextStatus = oData.status; 
-                
-                // Si se paga completo y estaba PENDIENTE o CANCELADO, lo pasamos a PAGADO
                 if (isFullyPaid && ['PENDIENTE', 'PENDIENTE_PAGO', 'CANCELADO'].includes(oData.status)) {
                     nextStatus = 'PAGADO';
                 }
 
+                // 🔥 Trigger al Store (updatedAt)
                 t.update(orderRef, {
                     status: nextStatus,
                     paymentStatus: isFullyPaid ? 'PAID' : 'PARTIAL',
                     amountPaid: newAmountPaid, 
-                    // Conservamos el método original (ADDI/SC) si existía, si no, es MANUAL
                     paymentMethod: oData.paymentMethod || 'MANUAL', 
                     paymentAccountId: accId,
-                    paymentDate: serverTimestamp()
+                    paymentDate: serverTimestamp(),
+                    updatedAt: serverTimestamp() 
                 });
             });
 
             alert("✅ Pago registrado exitosamente.");
             document.getElementById('payment-modal').classList.add('hidden');
             
-            // Invalidar caché
             currentOrderData = null; 
             accountsCache = null;
-
-            if(window.fetchOrders) window.fetchOrders(); 
-            else location.reload();
 
         } catch (error) {
             console.error(error);
@@ -1045,11 +972,10 @@ if (payForm) {
     };
 }
 
-// --- 6. GENERAR RÓTULOS DE ENVÍO (4 POR PÁGINA: 2x2) ---
+// --- 6. GENERAR RÓTULOS DE ENVÍO ---
 export function generateLabels(ordersArray) {
     const w = window.open('', '_blank', 'width=900,height=800');
     
-    // 1. FUNCIÓN DE AGRUPACIÓN (CHUNKING)
     const chunkArray = (arr, size) => {
         const chunks = [];
         for (let i = 0; i < arr.length; i += size) {
@@ -1058,13 +984,9 @@ export function generateLabels(ordersArray) {
         return chunks;
     };
 
-    // 🔥 CAMBIO: Dividimos las órdenes en páginas de 4
     const pagesOfOrders = chunkArray(ordersArray, 4);
 
-    // 2. CONSTRUIR EL HTML POR PÁGINAS
     const allPagesHtml = pagesOfOrders.map(pageGroup => {
-        
-        // Construimos los rótulos individuales
         const labelsHtml = pageGroup.map(o => {
             const clientName = o.shippingData?.name || o.buyerInfo?.name || o.userName || '';
             const clientDoc = o.shippingData?.clientDoc || o.clientDoc || o.buyerInfo?.document || '';
@@ -1125,7 +1047,6 @@ export function generateLabels(ordersArray) {
         
     }).join(''); 
 
-    // 3. INYECTAR EL DOCUMENTO PARA IMPRIMIR
     w.document.write(`
         <!DOCTYPE html>
         <html lang="es">
@@ -1135,7 +1056,7 @@ export function generateLabels(ordersArray) {
             <style>
                 @page {
                     size: letter;
-                    margin: 8mm; /* Margen un poco más amplio al tener menos rótulos */
+                    margin: 8mm; 
                 }
                 
                 body { 
@@ -1145,14 +1066,13 @@ export function generateLabels(ordersArray) {
                     background: white; 
                 }
                 
-                /* 🔥 CAMBIO: CSS Grid para 2 columnas y 2 filas */
                 .print-page {
                     display: grid;
                     grid-template-columns: repeat(2, 1fr); 
                     grid-template-rows: repeat(2, 1fr);    
-                    gap: 8mm; /* Más espacio para respirar entre etiquetas */
+                    gap: 8mm; 
                     width: 100%;
-                    height: 255mm; /* Ajustado para tamaño carta */
+                    height: 255mm; 
                     box-sizing: border-box;
                     page-break-after: always; 
                 }
@@ -1161,11 +1081,10 @@ export function generateLabels(ordersArray) {
                     page-break-after: auto; 
                 }
                 
-                /* Caja individual de cada rótulo */
                 .label-box { 
-                    border: 3px solid #111827; /* Borde un poco más grueso */
+                    border: 3px solid #111827; 
                     border-radius: 16px; 
-                    padding: 25px; /* Más espacio interno */
+                    padding: 25px; 
                     box-sizing: border-box; 
                     color: #111827;
                     display: flex;
@@ -1175,19 +1094,19 @@ export function generateLabels(ordersArray) {
                 }
                 
                 .header-logo { text-align: center; margin-bottom: 25px; }
-                .header-logo img { height: 60px; object-fit: contain; } /* 🔥 CAMBIO: Logo más grande */
+                .header-logo img { height: 60px; object-fit: contain; }
                 
                 .company-info { 
                     display: flex; 
                     justify-content: space-between; 
-                    font-size: 11px; /* 🔥 CAMBIO: Letra más grande */
+                    font-size: 11px; 
                     font-weight: 900; 
                     margin-bottom: 35px; 
                     line-height: 1.5;
                 }
                 
                 .dest-title { 
-                    font-size: 18px; /* 🔥 CAMBIO: Título más grande */
+                    font-size: 18px; 
                     font-weight: 900; 
                     margin: 0 0 15px 0; 
                 }
@@ -1203,7 +1122,6 @@ export function generateLabels(ordersArray) {
                 .info-line strong { font-weight: 900; margin-right: 8px; font-size: 13px;}
                 .info-line span { flex-grow: 1; font-weight: 700; font-size: 13px; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
                 .info-row { display: flex; gap: 15px; }
-
             </style>
         </head>
         <body>
@@ -1218,7 +1136,7 @@ export function generateLabels(ordersArray) {
 }
 
 // =============================================================================
-// 7. LÓGICA DE ACCIONES MASIVAS (BULK ACTIONS - 0 LECTURAS EN RAM)
+// 7. LÓGICA DE ACCIONES MASIVAS
 // =============================================================================
 
 let currentBulkOrdersToPay = []; 
@@ -1234,7 +1152,6 @@ export async function openBulkPackingModal() {
     currentBulkOrdersToPack = [];
     let omittedCount = 0;
 
-    // 🔥 MAGIA: Leemos directamente de la Memoria RAM (0 Lecturas, 0ms de espera)
     const cachedOrders = window.adminOrdersCache || [];
 
     for (const id of selectedIds) {
@@ -1277,11 +1194,12 @@ export async function processBulkPacking() {
     btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Procesando...';
 
     try {
-        let batch = writeBatch(db); // 🔥 CORREGIDO
+        let batch = writeBatch(db); 
         let opsCount = 0;
 
         for (const order of currentBulkOrdersToPack) {
             const oRef = doc(db, "orders", order.id);
+            // 🔥 Trigger al Store
             batch.update(oRef, {
                 status: 'ALISTADO',
                 updatedAt: serverTimestamp()
@@ -1290,7 +1208,7 @@ export async function processBulkPacking() {
 
             if (opsCount >= 450) {
                 await batch.commit();
-                batch = writeBatch(db); // 🔥 CORREGIDO
+                batch = writeBatch(db); 
                 opsCount = 0;
             }
         }
@@ -1300,9 +1218,6 @@ export async function processBulkPacking() {
         alert(`✅ ${currentBulkOrdersToPack.length} pedidos marcados como ALISTADOS.`);
         getEl('bulk-packing-modal').classList.add('hidden');
         document.querySelectorAll('.order-cb').forEach(cb => cb.checked = false);
-        
-        if(window.switchTab) window.switchTab('ACTIONABLE'); 
-        else location.reload();
 
     } catch (e) {
         console.error(e);
@@ -1322,7 +1237,6 @@ export async function openBulkPaymentModal() {
     let totalToCollect = 0;
     let omittedCount = 0;
 
-    // 🔥 MAGIA: Leemos desde la memoria RAM viva (0 Lecturas)
     const cachedOrders = window.adminOrdersCache || [];
 
     for (const id of selectedIds) {
@@ -1361,7 +1275,6 @@ export async function openBulkPaymentModal() {
     getEl('bulk-pay-count').textContent = currentBulkOrdersToPay.length;
     getEl('bulk-pay-total').textContent = `$${totalToCollect.toLocaleString('es-CO')}`;
     
-    // Cargar cuentas en el selector
     const selectAcc = getEl('bulk-pay-account-select');
     const accounts = await loadAccountsCached();
     let ops = '<option value="">Seleccione Cuenta...</option>';
@@ -1382,8 +1295,6 @@ export async function processBulkPayment() {
     btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Procesando Transacción...';
 
     try {
-        // 🔥 AQUÍ SÍ LEEMOS AL SERVIDOR (runTransaction): 
-        // Porque el dinero es crítico y debemos bloquear la base de datos milisegundos para evitar fraudes.
         await runTransaction(db, async (t) => {
             const accRef = doc(db, "accounts", accId);
             const accDoc = await t.get(accRef);
@@ -1419,13 +1330,15 @@ export async function processBulkPayment() {
                     nextStatus = 'PAGADO';
                 }
 
+                // 🔥 Trigger al Store (updatedAt)
                 t.update(o.ref, {
                     status: nextStatus,
                     paymentStatus: 'PAID',
                     amountPaid: newAmountPaid, 
                     paymentMethod: o.data.paymentMethod || 'MANUAL', 
                     paymentAccountId: accId,
-                    paymentDate: serverTimestamp()
+                    paymentDate: serverTimestamp(),
+                    updatedAt: serverTimestamp()
                 });
 
                 const expenseRef = doc(collection(db, "expenses"));
@@ -1446,8 +1359,6 @@ export async function processBulkPayment() {
         alert("✅ Cobro masivo registrado exitosamente.");
         getEl('bulk-payment-modal').classList.add('hidden');
         document.querySelectorAll('.order-cb').forEach(cb => cb.checked = false);
-        if(window.switchTab) window.switchTab('ACTIONABLE'); 
-        else location.reload();
 
     } catch (e) {
         console.error(e);
@@ -1469,7 +1380,6 @@ export async function openBulkDispatchModal() {
     const listContainer = getEl('bulk-dispatch-list');
     getEl('bulk-dispatch-modal').classList.remove('hidden');
 
-    // 🔥 MAGIA: Leemos directamente de la Memoria RAM (0 Lecturas, 0ms de espera)
     const cachedOrders = window.adminOrdersCache || [];
     let htmlList = '';
 
@@ -1538,11 +1448,12 @@ export async function processBulkDispatch() {
     btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Despachando...';
 
     try {
-        let batch = writeBatch(db); // 🔥 CORREGIDO
+        let batch = writeBatch(db); 
         let opsCount = 0;
 
         for (const update of updatesToApply) {
             const oRef = doc(db, "orders", update.id);
+            // 🔥 Trigger al Store
             batch.update(oRef, {
                 status: 'DESPACHADO', 
                 shippingCarrier: carrier, 
@@ -1554,7 +1465,7 @@ export async function processBulkDispatch() {
 
             if (opsCount >= 450) {
                 await batch.commit();
-                batch = writeBatch(db); // 🔥 CORREGIDO
+                batch = writeBatch(db); 
                 opsCount = 0;
             }
         }
@@ -1564,9 +1475,6 @@ export async function processBulkDispatch() {
         alert("🚚 ¡Despacho Masivo Exitoso!");
         getEl('bulk-dispatch-modal').classList.add('hidden');
         document.querySelectorAll('.order-cb').forEach(cb => cb.checked = false); 
-        
-        if(window.switchTab) window.switchTab('ACTIONABLE'); 
-        else location.reload();
 
     } catch (e) {
         console.error(e);
@@ -1583,7 +1491,5 @@ window.openBulkDispatchModal = openBulkDispatchModal;
 window.processBulkDispatch = processBulkDispatch;
 window.openBulkPackingModal = openBulkPackingModal;
 window.processBulkPacking = processBulkPacking;
-
-// Exportar al window para usar en HTML
 window.openPaymentModal = openPaymentModal;
-window.generateLabels = generateLabels; // <-- Añadir esta línea
+window.generateLabels = generateLabels;

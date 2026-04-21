@@ -1,6 +1,7 @@
 import { auth, db, collection, onAuthStateChanged, query, orderBy, onSnapshot, doc, updateDoc, setDoc, functions, httpsCallable, limitToLast, storage, ref, uploadBytes, getDownloadURL, where, getDocs, limit, startAt, endAt, startAfter, addDoc, Timestamp } from "./firebase-init.js";
 import { viewOrderDetail } from "./order-actions.js";
 import { initManualSale, openManualSaleModal } from "./manual-sale.js";
+import { AdminStore } from "./admin-store.js"; // 🔥 IMPORTAMOS EL CEREBRO
 
 // --- REFERENCIAS DOM ---
 const els = {
@@ -71,7 +72,7 @@ let activeChatData = null;
 let unsubscribeMessages = null;
 let unsubscribeChats = null;
 let timerInterval = null;
-let currentTab = 'mine'; // 🔥 Pestaña por defecto
+let currentTab = 'mine'; 
 let chatSearchTimeout = null;
 let oldestMessageDoc = null; 
 let isChatLoading = false;   
@@ -79,6 +80,9 @@ let ordersLoadedForCurrentChat = false;
 let lastOrderSnapshot = null;
 let currentPhoneNumbers = [];
 const ORDERS_PER_PAGE = 3;
+
+let chatProductsCache = []; // RAM de Productos
+let allClientsCache = [];   // RAM de Clientes
 
 const TIME_UNITS = { 'months': 'Meses', 'years': 'Años', 'days': 'Días' };
 const QUICK_REPLIES = [
@@ -95,6 +99,24 @@ initManualSale(() => {
     if (els.infoPanel.style.display === 'flex') resetOrdersPagination(activeChatId);
 });
 
+function normalizeText(text) { return text ? text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "") : ""; }
+
+// ==========================================================================
+// 🔥 CONEXIÓN AL STORE CENTRAL (CERO LECTURAS EXTRAS)
+// ==========================================================================
+AdminStore.subscribeToProducts((products) => {
+    chatProductsCache = products;
+    // Repintar catálogo si está abierto
+    if (els.prodPicker && !els.prodPicker.classList.contains('hidden') && els.prodSearch.value.trim() === "") {
+        renderProductList(chatProductsCache.slice(0, 20));
+    }
+});
+
+AdminStore.subscribeToClients((clients) => {
+    allClientsCache = clients;
+});
+
+
 // ==========================================================================
 // 1. GESTIÓN DE CHATS & ASIGNACIÓN
 // ==========================================================================
@@ -104,7 +126,6 @@ function getAssignmentBadgeHTML(data) {
 
     if (data.status === 'resolved') {
         if (data.lastAttendedBy) {
-            // 🔥 Toma el nombre guardado, si no existe usa el correo cortado
             const name = data.lastAttendedByName || data.lastAttendedBy.split('@')[0];
             return `<span class="text-[9px] bg-gray-200 text-gray-600 px-2 py-0.5 rounded-full uppercase font-bold" title="Atendido por ${name}"><i class="fa-solid fa-lock mr-1"></i>${name}</span>`;
         }
@@ -115,7 +136,6 @@ function getAssignmentBadgeHTML(data) {
         if (data.assignedTo === myEmail) {
             return `<span class="text-[9px] bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full uppercase font-bold border border-emerald-200"><i class="fa-solid fa-headset mr-1"></i>Mío</span>`;
         } else {
-            // 🔥 Toma el nombre guardado del compañero
             const name = data.assignedToName || data.assignedTo.split('@')[0];
             return `<span class="text-[9px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full uppercase font-bold border border-blue-200" title="${data.assignedTo}"><i class="fa-solid fa-user mr-1"></i>${name}</span>`;
         }
@@ -136,12 +156,12 @@ function updateHeaderAssignmentBadge(data) {
 async function assignToMeIfNeeded() {
     if (activeChatData && activeChatData.status === 'open' && !activeChatData.assignedTo && auth.currentUser) {
         const myEmail = auth.currentUser.email;
-        const myName = auth.currentUser.displayName || myEmail.split('@')[0]; // 🔥 Capturamos el nombre en el frontend
+        const myName = auth.currentUser.displayName || myEmail.split('@')[0]; 
 
         try {
             await updateDoc(doc(db, "chats", activeChatId), {
                 assignedTo: myEmail,
-                assignedToName: myName, // Guardamos el nombre en la BD del chat
+                assignedToName: myName,
                 lastAttendedBy: myEmail,
                 lastAttendedByName: myName
             });
@@ -158,11 +178,10 @@ async function assignToMeIfNeeded() {
 
 function initChatList() {
     if (unsubscribeChats) unsubscribeChats();
-    const ref = collection(db, "chats");
+    const refChat = collection(db, "chats");
     
-    // Tanto en 'mine' como en 'open' consultamos los chats 'open'
     const queryStatus = currentTab === 'resolved' ? 'resolved' : 'open';
-    let q = query(ref, where("status", "==", queryStatus), orderBy("lastMessageAt", "desc"), limit(50));
+    let q = query(refChat, where("status", "==", queryStatus), orderBy("lastMessageAt", "desc"), limit(50));
     
     if (!els.chatSearchInput.value) { els.chatList.innerHTML = ""; }
 
@@ -180,19 +199,14 @@ function initChatList() {
             const id = change.doc.id;
             const source = change.doc.metadata.hasPendingWrites ? "Local" : "Server";
 
-            // 🔥 LÓGICA DE FILTRO "MÍOS" 🔥
             let isVisible = true;
             if (currentTab === 'mine') {
-                // Ocultar el chat si está asignado a alguien que NO soy yo
-                if (data.assignedTo && data.assignedTo !== myEmail) {
-                    isVisible = false;
-                }
+                if (data.assignedTo && data.assignedTo !== myEmail) isVisible = false;
             }
 
             if ((change.type === "added" || change.type === "modified") && source === "Server") {
                 if (data.unread && data.lastMessageAt && (Date.now() - data.lastMessageAt.toDate() < 10000)) {
                     if (document.hidden || activeChatId !== id) {
-                        // Solo suena si el chat te corresponde ver
                         if (isVisible) {
                             playSound(); document.title = "🔔 Nuevo Mensaje!"; setTimeout(() => document.title = "WhatsApp CRM", 4000);
                         }
@@ -220,15 +234,11 @@ function initChatList() {
                             setTimeout(() => existingCard.classList.remove('bg-blue-50'), 500);
                         }
                     } else {
-                        // Si no estaba pero ahora debe verse (ej: alguien lo soltó)
                         const card = createChatCard(id, data);
                         els.chatList.prepend(card);
                     }
                 } else {
-                    // Magia: Si estaba visible pero alguien más lo tomó, se desaparece al instante
-                    if (existingCard) {
-                        existingCard.remove();
-                    }
+                    if (existingCard) existingCard.remove();
                 }
 
                 if (activeChatId === id && isVisible) {
@@ -241,13 +251,10 @@ function initChatList() {
             if (change.type === "removed") {
                 const card = document.getElementById(`chat-card-${id}`);
                 if (card) card.remove();
-                if (activeChatId === id && currentTab !== 'resolved') {
-                    closeActiveChat();
-                }
+                if (activeChatId === id && currentTab !== 'resolved') closeActiveChat();
             }
         });
 
-        // Mostrar aviso si no quedó ningún chat visible
         if (els.chatList.children.length === 0) {
             els.chatList.innerHTML = `<div class="p-10 text-center text-xs text-gray-400">Todo al día, no hay chats libres ni asignados a ti.</div>`;
         }
@@ -307,11 +314,6 @@ function updateChatCardContent(card, data) {
         time.classList.replace('text-brand-cyan', 'text-gray-400'); time.classList.remove('font-bold');
         msg.classList.remove('font-bold', 'text-gray-700');
     }
-    card.onclick = () => {
-        document.querySelectorAll('[id^="chat-card-"]').forEach(el => el.classList.remove('bg-gray-100'));
-        card.classList.add('bg-gray-100');
-        openChat(id, data);
-    };
 }
 
 function formatTime(timestamp) {
@@ -327,28 +329,19 @@ function formatPreview(msg) {
     if (msg.includes('image') || msg.includes('📷')) return '📷 Foto';
     if (msg.includes('audio') || msg.includes('🎤')) return '🎤 Audio';
     if (msg.includes('🌟 Sticker')) return '🌟 Sticker';
+    if (msg.includes('document') || msg.includes('📄')) return '📄 Archivo'; // 🔥 NUEVO
     if (msg.includes('📍 Ubicación')) return '📍 Ubicación';
     if (msg.includes('👤 Contacto')) return '👤 Contacto';
     return msg;
 }
 
-// --- GESTIÓN DE LAS PESTAÑAS (MÍOS, TODOS, RESUELTOS) ---
 function setActiveTab(tab) {
     currentTab = tab;
-    
     [els.tabMine, els.tabOpen, els.tabResolved].forEach(btn => {
-        if(btn) {
-            btn.classList.remove('bg-white', 'shadow-sm', 'text-brand-black');
-            btn.classList.add('text-gray-500');
-        }
+        if(btn) { btn.classList.remove('bg-white', 'shadow-sm', 'text-brand-black'); btn.classList.add('text-gray-500'); }
     });
-
     const activeBtn = tab === 'mine' ? els.tabMine : (tab === 'open' ? els.tabOpen : els.tabResolved);
-    if(activeBtn) {
-        activeBtn.classList.add('bg-white', 'shadow-sm', 'text-brand-black');
-        activeBtn.classList.remove('text-gray-500');
-    }
-
+    if(activeBtn) { activeBtn.classList.add('bg-white', 'shadow-sm', 'text-brand-black'); activeBtn.classList.remove('text-gray-500'); }
     initChatList();
 }
 
@@ -356,7 +349,6 @@ if(els.tabMine) els.tabMine.onclick = () => setActiveTab('mine');
 if(els.tabOpen) els.tabOpen.onclick = () => setActiveTab('open');
 if(els.tabResolved) els.tabResolved.onclick = () => setActiveTab('resolved');
 
-// --- BÚSQUEDA ---
 els.chatSearchInput.oninput = (e) => {
     const term = e.target.value.toLowerCase().trim();
     if (!term) { initChatList(); return; }
@@ -365,7 +357,7 @@ els.chatSearchInput.oninput = (e) => {
     chatSearchTimeout = setTimeout(async () => {
         els.chatList.innerHTML = `<div class="p-10 text-center"><i class="fa-solid fa-circle-notch fa-spin text-brand-cyan"></i></div>`;
         try {
-            const ref = collection(db, "chats");
+            const refChat = collection(db, "chats");
             if (!isNaN(term) && term.length > 5) {
                const docSnap = await getDoc(doc(db, "chats", term));
                const docSnap57 = await getDoc(doc(db, "chats", "57"+term));
@@ -376,14 +368,11 @@ els.chatSearchInput.oninput = (e) => {
                return;
             }
             const termCap = term.charAt(0).toUpperCase() + term.slice(1);
-            const q = query(ref, orderBy('clientName'), startAt(termCap), endAt(termCap + '\uf8ff'), limit(10));
+            const q = query(refChat, orderBy('clientName'), startAt(termCap), endAt(termCap + '\uf8ff'), limit(10));
             const snap = await getDocs(q);
             els.chatList.innerHTML = "";
-            if (snap.empty) {
-                els.chatList.innerHTML = `<div class="p-4 text-center text-xs text-gray-400">Sin resultados.</div>`;
-            } else {
-                snap.forEach(d => els.chatList.appendChild(createChatCard(d.id, d.data())));
-            }
+            if (snap.empty) els.chatList.innerHTML = `<div class="p-4 text-center text-xs text-gray-400">Sin resultados.</div>`;
+            else snap.forEach(d => els.chatList.appendChild(createChatCard(d.id, d.data())));
         } catch (e) { console.error(e); initChatList(); }
     }, 600); 
 };
@@ -455,9 +444,8 @@ els.btnResolve.onclick = async () => {
     els.btnResolve.disabled = true;
     try {
         const updates = { status: newStatus };
-        if (newStatus === 'resolved') {
-            updates.assignedTo = null; // Libera el chat al resolverlo
-        }
+        if (newStatus === 'resolved') updates.assignedTo = null; 
+        
         await updateDoc(doc(db, "chats", activeChatId), updates);
         
         if ((currentTab === 'open' || currentTab === 'mine') && newStatus === 'resolved') {
@@ -583,28 +571,20 @@ async function loadOlderMessages() {
     finally { isChatLoading = false; }
 }
 
-// 🔥 NUEVO: Formateador de texto estilo WhatsApp
 function formatWhatsAppText(text) {
     if (!text) return "";
-    
-    // 1. Escapar HTML por seguridad (evitar inyección de código)
     let safeText = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    
-    // 2. Aplicar reglas de WhatsApp
     return safeText
-        .replace(/\*(.*?)\*/g, '<strong class="font-black">$1</strong>') // Negrilla
-        .replace(/_(.*?)_/g, '<em class="italic">$1</em>')             // Cursiva
-        .replace(/~(.*?)~/g, '<del class="line-through">$1</del>');    // Tachado
+        .replace(/\*(.*?)\*/g, '<strong class="font-black">$1</strong>')
+        .replace(/_(.*?)_/g, '<em class="italic">$1</em>')             
+        .replace(/~(.*?)~/g, '<del class="line-through">$1</del>');    
 }
 
 function createMessageNode(m) {
     const inc = m.type === 'incoming';
     let contentHtml = "";
     
-    // Textos con ajuste forzado para que no rompan la burbuja
     const textClasses = "text-[13px] md:text-sm text-gray-800 whitespace-pre-wrap break-words leading-relaxed";
-    
-    // 🔥 Pasamos el contenido por el traductor de WhatsApp
     const formattedContent = formatWhatsAppText(m.content);
     
     if (m.messageType === 'text' || m.type === 'text') {
@@ -628,6 +608,19 @@ function createMessageNode(m) {
     else if (m.messageType === 'sticker' || m.type === 'sticker') {
         contentHtml = `<img src="${m.mediaUrl}" loading="lazy" class="w-32 h-32 object-contain drop-shadow-md">`;
     } 
+    else if ((m.messageType === 'document' || m.type === 'document') && m.mediaUrl) {
+        contentHtml = `
+            <div class="flex items-center gap-3 bg-white/50 p-3 rounded-lg border border-gray-200 mt-1 mb-1 min-w-[200px]">
+                <div class="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center text-red-500 shrink-0 shadow-inner">
+                    <i class="fa-solid fa-file-pdf text-lg"></i>
+                </div>
+                <div class="min-w-0 flex-1">
+                    <p class="text-xs font-bold text-gray-800 truncate">${m.content || "Documento Adjunto"}</p>
+                    <a href="${m.mediaUrl}" target="_blank" class="text-[10px] font-black text-brand-cyan uppercase hover:underline mt-1 block">Descargar Archivo</a>
+                </div>
+            </div>
+        `;
+    }
     else if (m.messageType === 'location' || m.type === 'location') {
         contentHtml = `
             <div class="flex flex-col items-center bg-slate-50/50 p-3 rounded-lg border border-gray-200 min-w-[200px]">
@@ -665,7 +658,6 @@ function createMessageNode(m) {
         authorTag = `<span class="block text-[10px] font-bold text-emerald-700 mb-1 leading-none capitalize">${shortName}</span>`;
     }
     
-    // 🔥 NUEVO: Cargar el error si existe
     let errorTag = '';
     if (m.error) {
         errorTag = `
@@ -699,7 +691,6 @@ async function sendMessage() {
     const text = els.txtInput.value.trim();
     if (!text || !activeChatId) return;
     
-    // 🔥 Resetear la caja de texto tras enviar
     els.txtInput.value = ""; 
     els.txtInput.style.height = 'auto'; 
     els.txtInput.style.overflowY = 'hidden';
@@ -712,7 +703,6 @@ async function sendMessage() {
         await sendFn({ phoneNumber: activeChatId, message: text, type: 'text' });
     } catch (e) {
         console.error(e); alert("Error al enviar: " + e.message); 
-        // Recuperar el texto y el tamaño si falla
         els.txtInput.value = text; 
         els.txtInput.style.height = Math.min(els.txtInput.scrollHeight, 76) + 'px';
         checkInputState();
@@ -720,11 +710,21 @@ async function sendMessage() {
 }
 
 els.txtInput.addEventListener('input', (e) => {
+    els.txtInput.style.height = 'auto'; 
+    const scrollHeight = els.txtInput.scrollHeight;
+    els.txtInput.style.height = Math.min(scrollHeight, 76) + 'px';
+    els.txtInput.style.overflowY = scrollHeight > 76 ? 'auto' : 'hidden';
+
+    checkInputState();
+
     const val = e.target.value;
     if (val.startsWith('/')) {
         const filter = val.substring(1).toLowerCase();
-        renderQuickReplies(filter); els.quickReplyMenu.classList.remove('hidden');
-    } else { els.quickReplyMenu.classList.add('hidden'); }
+        renderQuickReplies(filter); 
+        els.quickReplyMenu.classList.remove('hidden');
+    } else { 
+        els.quickReplyMenu.classList.add('hidden'); 
+    }
 });
 
 function renderQuickReplies(filter) {
@@ -738,11 +738,9 @@ function renderQuickReplies(filter) {
 
     filtered.forEach(r => {
         const div = document.createElement('div'); 
-        div.className = "p-4 hover:bg-slate-50 cursor-pointer border-b border-gray-50 last:border-0 transition-colors group";
-        
-        // 🔥 Aplicar formato al atajo
         const formattedPreview = formatWhatsAppText(r.text);
 
+        div.className = "p-4 hover:bg-slate-50 cursor-pointer border-b border-gray-50 last:border-0 transition-colors group";
         div.innerHTML = `
             <p class="text-[11px] font-black uppercase text-brand-cyan mb-1.5 flex items-center gap-2 group-hover:translate-x-1 transition-transform">
                 <i class="fa-solid fa-bolt text-yellow-500"></i> ${r.title}
@@ -752,8 +750,6 @@ function renderQuickReplies(filter) {
         
         div.onclick = () => {
             els.txtInput.value = r.text; 
-            
-            // Autoajustar altura de la caja de texto al pegar la respuesta rápida
             els.txtInput.style.height = 'auto';
             const scrollHeight = els.txtInput.scrollHeight;
             els.txtInput.style.height = Math.min(scrollHeight, 76) + 'px';
@@ -768,58 +764,19 @@ function renderQuickReplies(filter) {
 }
 
 // ==========================================================================
-// 5. CATALOGO RÁPIDO
+// 5. CATALOGO RÁPIDO (CERO LECTURAS EXTRAS)
 // ==========================================================================
-
-let chatProductsCache = [];
-let unsubscribeChatProducts = null;
-
-function normalizeText(text) { return text ? text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase() : ""; }
 
 els.btnProducts.onclick = () => {
     els.prodPicker.classList.toggle('hidden');
-    if (!els.prodPicker.classList.contains('hidden')) { els.prodSearch.value = ""; els.prodSearch.focus(); initSmartProductList(); }
-};
-els.closeProdBtn.onclick = () => els.prodPicker.classList.add('hidden');
-
-function initSmartProductList() {
-    const STORAGE_KEY = 'pixeltech_admin_quick_catalog'; let lastSyncTime = 0; let runtimeMap = {};
-    const cachedRaw = localStorage.getItem(STORAGE_KEY);
-    if (cachedRaw) {
-        try {
-            const parsed = JSON.parse(cachedRaw);
-            if (parsed.map && parsed.lastSync) {
-                runtimeMap = parsed.map; lastSyncTime = parsed.lastSync;
-                chatProductsCache = Object.values(runtimeMap).sort((a,b) => b.createdAt?.seconds - a.createdAt?.seconds);
-                if (chatProductsCache.length > 0) renderProductList(chatProductsCache.slice(0, 20));
-            }
-        } catch (e) { localStorage.removeItem(STORAGE_KEY); }
+    if (!els.prodPicker.classList.contains('hidden')) { 
+        els.prodSearch.value = ""; 
+        els.prodSearch.focus(); 
+        renderProductList(chatProductsCache.slice(0, 20)); 
     }
+};
 
-    if (chatProductsCache.length === 0) els.prodList.innerHTML = `<div class="p-4 text-center"><i class="fa-solid fa-circle-notch fa-spin text-brand-cyan"></i></div>`;
-    if (unsubscribeChatProducts) return; 
-
-    const colRef = collection(db, "products"); let q;
-    if (lastSyncTime === 0 || Object.keys(runtimeMap).length === 0) q = query(colRef); 
-    else q = query(colRef, where("updatedAt", ">", new Date(lastSyncTime)));
-
-    unsubscribeChatProducts = onSnapshot(q, (snapshot) => {
-        if (snapshot.empty) return; 
-        let hasChanges = false;
-        snapshot.docChanges().forEach(change => {
-            const data = change.doc.data(); const id = change.doc.id;
-            if (change.type === 'added' || change.type === 'modified') { runtimeMap[id] = { id, ...data }; hasChanges = true; } 
-            else if (change.type === 'removed') { if (runtimeMap[id]) { delete runtimeMap[id]; hasChanges = true; } }
-        });
-
-        if (hasChanges) {
-            chatProductsCache = Object.values(runtimeMap).sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-            localStorage.setItem(STORAGE_KEY, JSON.stringify({ map: runtimeMap, lastSync: Date.now() }));
-            if (els.prodSearch.value.trim() === "") renderProductList(chatProductsCache.slice(0, 20));
-            else executeSearch(els.prodSearch.value);
-        }
-    }, (error) => console.error("Error SmartSync Productos:", error));
-}
+els.closeProdBtn.onclick = () => els.prodPicker.classList.add('hidden');
 
 els.prodSearch.oninput = (e) => executeSearch(e.target.value);
 
@@ -903,7 +860,6 @@ async function sendProduct(p) {
     let imgUrl = p.mainImage || p.image || (p.images && p.images[0]) || "";
     if (p.variants && p.variants.length > 0 && p.variants[0].images && p.variants[0].images.length > 0 && !imgUrl) imgUrl = p.variants[0].images[0];
     
-    // 🔥 CORRECCIÓN CRÍTICA: Evitar enviar imágenes vacías o falsas a Meta
     let msgType = 'image';
     if (!imgUrl || imgUrl.includes('via.placeholder.com')) {
         msgType = 'text';
@@ -934,10 +890,21 @@ els.fileInput.onchange = async (e) => {
     els.txtInput.disabled = true; els.btnSend.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
     try {
         await assignToMeIfNeeded();
+        
+        // 🔥 Detectar si es documento o imagen
+        const isDoc = f.type.includes('pdf') || f.type.includes('document') || f.name.endsWith('.pdf') || f.name.endsWith('.docx');
+        const msgType = isDoc ? 'document' : 'image';
+
         const r = ref(storage, `chats/${activeChatId}/uploads/${Date.now()}_${f.name}`); 
         await uploadBytes(r, f); 
-        await (httpsCallable(functions, 'sendWhatsappMessage'))({ phoneNumber: activeChatId, message: "", type: 'image', mediaUrl: await getDownloadURL(r) });
-    } catch (e) { alert("Error al subir imagen"); } 
+        
+        await (httpsCallable(functions, 'sendMessage'))({ 
+            phoneNumber: activeChatId, 
+            message: isDoc ? f.name : "", // Meta usa el message como nombre del archivo en docs
+            type: msgType, 
+            mediaUrl: await getDownloadURL(r) 
+        });
+    } catch (e) { alert("Error al subir archivo: " + e.message); } 
     finally { els.fileInput.value = ""; els.txtInput.disabled = false; els.btnSend.innerHTML = '<i class="fa-solid fa-paper-plane"></i>'; els.txtInput.focus(); }
 };
 
@@ -970,29 +937,6 @@ function checkInputState() {
     }
 }
 
-// 🔥 NUEVO: Listener consolidado para auto-expandir y buscar atajos
-els.txtInput.addEventListener('input', (e) => {
-    // 1. Auto-expandir textarea (Máximo ~3 líneas = 76px)
-    els.txtInput.style.height = 'auto'; // Reset temporal para calcular altura real
-    const scrollHeight = els.txtInput.scrollHeight;
-    els.txtInput.style.height = Math.min(scrollHeight, 76) + 'px';
-    els.txtInput.style.overflowY = scrollHeight > 76 ? 'auto' : 'hidden';
-
-    // 2. Verificar estado del botón de envío
-    checkInputState();
-
-    // 3. Lógica del menú de respuestas rápidas (atajo "/")
-    const val = e.target.value;
-    if (val.startsWith('/')) {
-        const filter = val.substring(1).toLowerCase();
-        renderQuickReplies(filter); 
-        els.quickReplyMenu.classList.remove('hidden');
-    } else { 
-        els.quickReplyMenu.classList.add('hidden'); 
-    }
-});
-
-
 // ==========================================================================
 // 4. PANEL DERECHO: PEDIDOS (HISTORIAL)
 // ==========================================================================
@@ -1017,9 +961,15 @@ els.btnActOrders.onclick = () => {
 els.btnActSale.onclick = async () => {
     els.dropdownActions.classList.add('hidden'); if(!activeChatId) return;
     const cleanPhone = activeChatId.replace(/^57/, '');
-    const snap = await getDocs(query(collection(db, "users"), where("phone", "==", cleanPhone), limit(1)));
+    
+    // 🔥 USAR RAM EN LUGAR DE GETDOCS (0 Lecturas)
+    const foundUser = allClientsCache.find(c => c.phone === cleanPhone || c.phone === `+57${cleanPhone}`);
+    
     await openManualSaleModal();
-    if (!snap.empty) { const u = snap.docs[0].data(); document.getElementById('m-cust-search').value = u.name; document.getElementById('m-cust-phone').value = u.phone; } 
+    if (foundUser) { 
+        document.getElementById('m-cust-search').value = foundUser.name; 
+        document.getElementById('m-cust-phone').value = foundUser.phone; 
+    } 
     else document.getElementById('m-cust-phone').value = cleanPhone;
 };
 
@@ -1048,7 +998,7 @@ els.btnSaveClient.onclick = async () => {
     try {
         const deptName = els.inpClientDept.options[els.inpClientDept.selectedIndex]?.dataset.name || "";
         const city = els.inpClientCity.value; const address = els.inpClientAddr.value;
-        await addDoc(collection(db, "users"), { name, phone, email: els.inpClientEmail.value.trim(), document: els.inpClientDoc.value.trim(), source: 'MANUAL', role: 'client', createdAt: Timestamp.now(), address, dept: deptName, city, addresses: address ? [{ alias: "Principal", address, dept: deptName, city, isDefault: true }] : [] });
+        await addDoc(collection(db, "users"), { name, phone, email: els.inpClientEmail.value.trim(), document: els.inpClientDoc.value.trim(), source: 'MANUAL', role: 'client', createdAt: Timestamp.now(), updatedAt: Timestamp.now(), address, dept: deptName, city, addresses: address ? [{ alias: "Principal", address, dept: deptName, city, isDefault: true }] : [] });
         alert("✅ Cliente guardado"); els.clientModal.classList.add('hidden'); els.activeName.textContent = name; els.infoName.textContent = name;
     } catch(e) { alert(e.message); } finally { els.btnSaveClient.disabled = false; els.btnSaveClient.innerText = "Guardar Cliente"; }
 };
@@ -1064,15 +1014,15 @@ async function loadOrders(isInitial = false) {
     else els.btnLoadMore.disabled = true;
 
     try {
-        const ref = collection(db, "orders");
-        let q = query(ref, where("buyerInfo.phone", "in", currentPhoneNumbers), orderBy("createdAt", "desc"), limit(ORDERS_PER_PAGE));
-        if (!isInitial && lastOrderSnapshot) q = query(ref, where("buyerInfo.phone", "in", currentPhoneNumbers), orderBy("createdAt", "desc"), startAfter(lastOrderSnapshot), limit(ORDERS_PER_PAGE));
+        const refOrd = collection(db, "orders");
+        let q = query(refOrd, where("buyerInfo.phone", "in", currentPhoneNumbers), orderBy("createdAt", "desc"), limit(ORDERS_PER_PAGE));
+        if (!isInitial && lastOrderSnapshot) q = query(refOrd, where("buyerInfo.phone", "in", currentPhoneNumbers), orderBy("createdAt", "desc"), startAfter(lastOrderSnapshot), limit(ORDERS_PER_PAGE));
         
         const snap = await getDocs(q); if (isInitial) els.ordersContainer.innerHTML = "";
 
         if (snap.empty) {
             if (isInitial) {
-                const snap2 = await getDocs(query(ref, where("shippingData.phone", "in", currentPhoneNumbers), limit(3)));
+                const snap2 = await getDocs(query(refOrd, where("shippingData.phone", "in", currentPhoneNumbers), limit(3)));
                 if (snap2.empty) { els.ordersContainer.innerHTML = `<div class="text-center py-6 border border-dashed border-gray-200 rounded-xl"><p class="text-xs text-gray-400">Sin pedidos.</p></div>`; els.infoBadge.textContent = "Visitante"; return; }
                 renderOrders(snap2.docs);
             } else els.btnLoadMore.classList.add('hidden');
@@ -1193,8 +1143,6 @@ function initMarketingCampaigns() {
             const statDoc = await getDoc(doc(db, "stats", `wa_${dateId}`));
             elsCamp.counter.innerText = statDoc.exists() ? statDoc.data().sentPromoCount || 0 : 0;
         } catch(e) {}
-
-        if (chatProductsCache.length === 0 && typeof initSmartProductList === 'function') initSmartProductList();
     };
 
     elsCamp.btnUploadImg.onclick = () => elsCamp.fileInput.click();
@@ -1276,9 +1224,10 @@ function initMarketingCampaigns() {
         const selectedSources = Array.from(document.querySelectorAll('.filter-source:checked')).map(cb => cb.value);
         if (selectedSources.length === 0) return alert("Selecciona al menos un origen.");
         elsCamp.btnCalc.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Buscando...';
+        
         try {
-            const snap = await getDocs(collection(db, "users")); 
-            currentAudience = snap.docs.map(d => d.data()).filter(u => {
+            // 🔥 USAR RAM EN LUGAR DE GETDOCS
+            currentAudience = allClientsCache.filter(u => {
                 if (!u.phone || u.phone.length < 10) return false;
                 const source = (u.source || 'WEB').toUpperCase();
                 if (selectedSources.includes('MAYORISTA') && u.role === 'mayorista') return true;
@@ -1303,15 +1252,14 @@ function initMarketingCampaigns() {
             };
 
             elsCamp.resCount.innerText = currentAudience.length; elsCamp.resText.classList.remove('hidden'); validateCampaignForm();
-        } catch(e) { alert("Error obteniendo clientes: " + e.message); } finally { elsCamp.btnCalc.innerHTML = '<i class="fa-solid fa-users mr-1"></i> Calcular Audiencia'; }
+        } catch(e) { alert("Error calculando audiencia: " + e.message); } finally { elsCamp.btnCalc.innerHTML = '<i class="fa-solid fa-users mr-1"></i> Calcular Audiencia'; }
     };
 
     // --- ENVIAR CAMPAÑA CON HISTORIAL (AUDITORÍA) ---
     elsCamp.btnSend.onclick = async () => {
-        // Obtenemos SOLO los clientes que tienen el check marcado
         const finalAudience = Array.from(elsCamp.audienceList.querySelectorAll('.audience-checkbox:checked')).map(cb => currentAudience[parseInt(cb.value)]);
         
-        const templateName = "promo_pixeltech_v1"; // FIJO
+        const templateName = "promo_pixeltech_v1"; 
         const customMessage = elsCamp.customMsg.value.trim();
         
         if (!confirm(`¿Enviar esta promoción a ${finalAudience.length} clientes?`)) return;
@@ -1322,13 +1270,11 @@ function initMarketingCampaigns() {
         let successCount = 0;
         const sendFn = httpsCallable(functions, 'sendMassTemplate'); 
 
-        // 🔥 DATOS DEL ASESOR PARA EL HISTORIAL
         const currentUser = auth.currentUser;
         const agentEmail = currentUser.email;
         const agentName = currentUser.displayName || agentEmail.split('@')[0];
-        const monthId = new Date().toISOString().slice(0, 7); // Ej: "2026-04"
+        const monthId = new Date().toISOString().slice(0, 7); 
 
-        // 🔥 REGISTRO LIGERO DE LA AUDIENCIA
         const audienceLog = [];
 
         for (let i = 0; i < finalAudience.length; i++) {
@@ -1346,21 +1292,18 @@ function initMarketingCampaigns() {
                 });
                 successCount++;
                 
-                // Guardar éxito en el reporte
                 audienceLog.push({ name: clientRealName, phone: finalAudience[i].phone, status: "Enviado" });
                 
                 await new Promise(r => setTimeout(r, 600)); 
                 elsCamp.btnSend.innerHTML = `<i class="fa-solid fa-paper-plane"></i> Enviando... (${successCount}/${finalAudience.length})`;
             } catch (e) {
                 console.error(`Fallo envío a ${finalAudience[i].phone}:`, e);
-                // Guardar fallo en el reporte
                 audienceLog.push({ name: clientRealName, phone: finalAudience[i].phone, status: "Fallido" });
             }
         }
 
         if (successCount > 0 || audienceLog.length > 0) {
             try {
-                // 1. Actualizar el contador estadístico (Lo que ya tenías)
                 const statRef = doc(db, "stats", `wa_${monthId}`);
                 const statDoc = await getDoc(statRef);
                 if(statDoc.exists()) {
@@ -1369,19 +1312,18 @@ function initMarketingCampaigns() {
                     await setDoc(statRef, { sentPromoCount: successCount });
                 }
 
-                // 2. 🔥 GUARDAR EL HISTORIAL DETALLADO DE LA CAMPAÑA
                 await addDoc(collection(db, "campaigns_history"), {
                     month: monthId,
                     templateName: templateName,
                     customMessage: customMessage,
                     linkPath: finalCampaignLink,
                     imageUrl: elsCamp.imgUrl.value.trim(),
-                    configuredBy: agentName, // Quién preparó los textos e imagen
-                    sentBy: agentName,       // Quién hizo el envío real
+                    configuredBy: agentName, 
+                    sentBy: agentName,       
                     sentByEmail: agentEmail,
                     targetCount: finalAudience.length,
                     successCount: successCount,
-                    audience: audienceLog,   // Lista de destinatarios con su estado
+                    audience: audienceLog,   
                     createdAt: Timestamp.now()
                 });
 
@@ -1394,7 +1336,6 @@ function initMarketingCampaigns() {
         elsCamp.modal.classList.add('hidden');
         elsCamp.btnSend.innerHTML = '<i class="fa-solid fa-paper-plane mr-1"></i> Iniciar Envío Masivo';
         
-        // Reset form
         elsCamp.imgUrl.value = "";
         elsCamp.customMsg.value = "";
         elsCamp.imgPreview.innerHTML = '<i class="fa-regular fa-image text-gray-300 text-2xl"></i>';
@@ -1435,21 +1376,19 @@ if (btnTestTemplate) {
 // ==========================================================================
 // 9. PANEL DE ESTADÍSTICAS (SOLO ADMINISTRADOR)
 // ==========================================================================
-import { getDoc } from "./firebase-init.js"; // Asegúrate de tener getDoc importado arriba
+import { getDoc } from "./firebase-init.js"; 
 
 async function loadAdminStats() {
     if (!els.adminStatsSection || !auth.currentUser) return;
 
     try {
-        // 1. Verificar Rol (Solo Admin)
         const userDoc = await getDoc(doc(db, "users", auth.currentUser.uid));
         if (!userDoc.exists() || userDoc.data().role !== 'admin') {
-            return; // Si no es admin, la tabla se queda oculta permanentemente
+            return; 
         }
 
         els.adminStatsSection.classList.remove('hidden');
 
-        // 2. Obtener nombres de los Asesores para mostrar sus nombres reales
         const staffSnap = await getDocs(query(collection(db, "users"), where("role", "in", ["admin", "ventas", "logistica", "contabilidad"])));
         const staffMap = {};
         staffSnap.forEach(d => {
@@ -1459,7 +1398,6 @@ async function loadAdminStats() {
             }
         });
 
-        // 3. Obtener chats de los últimos 30 días
         const thirtyDaysAgo = new Date();
         thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
@@ -1467,7 +1405,6 @@ async function loadAdminStats() {
         
         const stats = {};
 
-        // 4. Calcular métricas
         chatsSnap.forEach(d => {
             const chat = d.data();
             let email = null;
@@ -1490,10 +1427,8 @@ async function loadAdminStats() {
             }
         });
 
-        // 5. Renderizar Tabla
         els.adminStatsTbody.innerHTML = "";
         
-        // Ordenar asesores por quién tiene más chats en total
         const emails = Object.keys(stats).sort((a, b) => stats[b].total - stats[a].total);
 
         if (emails.length === 0) {
@@ -1535,7 +1470,6 @@ const btnOpenAudit = document.getElementById('btn-open-audit');
 const auditModal = document.getElementById('audit-modal');
 const auditContainer = document.getElementById('audit-history-container');
 
-// Variables de estado para la paginación y vista
 let groupedMonths = {};
 let sortedMonths = [];
 let currentMonthIndex = 0;
@@ -1547,7 +1481,6 @@ if (btnOpenAudit) {
         auditModal.classList.remove('hidden');
         auditContainer.innerHTML = `<div class="p-20 text-center"><i class="fa-solid fa-circle-notch fa-spin text-3xl text-brand-cyan"></i><p class="text-[10px] font-black uppercase text-gray-400 mt-4 tracking-widest">Generando estado de cuenta...</p></div>`;
         
-        // Reset de datos
         groupedMonths = {};
         sortedMonths = [];
         currentMonthIndex = 0;
@@ -1563,7 +1496,7 @@ async function loadMoreAuditData(isInitial = false) {
 
     try {
         const historyRef = collection(db, "campaigns_history");
-        let q = query(historyRef, orderBy("createdAt", "desc"), limit(50)); // Traemos de 50 en 50
+        let q = query(historyRef, orderBy("createdAt", "desc"), limit(50)); 
 
         if (lastAuditDoc) {
             q = query(historyRef, orderBy("createdAt", "desc"), startAfter(lastAuditDoc), limit(50));
@@ -1580,7 +1513,6 @@ async function loadMoreAuditData(isInitial = false) {
         if (!snap.empty) {
             lastAuditDoc = snap.docs[snap.docs.length - 1];
 
-            // Agrupar los resultados por Mes
             snap.forEach(doc => {
                 const camp = { id: doc.id, ...doc.data() };
                 const monthId = camp.month || "Sin Mes";
@@ -1592,10 +1524,9 @@ async function loadMoreAuditData(isInitial = false) {
                         totalSent: 0,
                         totalSuccess: 0
                     };
-                    // Mantener un arreglo ordenado de los meses disponibles
                     if (!sortedMonths.includes(monthId)) {
                         sortedMonths.push(monthId);
-                        sortedMonths.sort().reverse(); // Orden descendente (Más reciente primero)
+                        sortedMonths.sort().reverse(); 
                     }
                 }
                 groupedMonths[monthId].campaigns.push(camp);
@@ -1620,7 +1551,6 @@ function renderCurrentMonthView() {
     const currentMonthId = sortedMonths[currentMonthIndex];
     const group = groupedMonths[currentMonthId];
 
-    // Formatear Nombre del Mes
     let readableMonth = currentMonthId;
     if(currentMonthId !== "Sin Mes") {
         const [year, month] = currentMonthId.split('-');
@@ -1630,7 +1560,6 @@ function renderCurrentMonthView() {
 
     const effectiveness = group.totalSent > 0 ? Math.round((group.totalSuccess / group.totalSent) * 100) : 0;
 
-    // Renderizar Cabecera de Navegación y Tabla
     let html = `
         <div class="flex items-center justify-between bg-slate-50 p-4 md:p-6 rounded-3xl mb-6 border border-gray-100 shadow-sm">
             <button id="btn-prev-month" class="w-12 h-12 rounded-full bg-white border border-gray-200 text-gray-500 hover:text-brand-cyan hover:border-brand-cyan transition flex items-center justify-center shadow-sm disabled:opacity-30 disabled:cursor-not-allowed" ${currentMonthIndex >= sortedMonths.length - 1 ? (lastAuditDoc ? '' : 'disabled') : ''} title="Mes Anterior">
@@ -1670,7 +1599,6 @@ function renderCurrentMonthView() {
 
     auditContainer.innerHTML = html;
 
-    // Controladores de Navegación
     const btnPrev = document.getElementById('btn-prev-month');
     const btnNext = document.getElementById('btn-next-month');
 
@@ -1680,7 +1608,6 @@ function renderCurrentMonthView() {
                 currentMonthIndex++;
                 renderCurrentMonthView();
             } else if (lastAuditDoc) {
-                // Si llegamos al límite visual pero hay más en BD, los traemos
                 btnPrev.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
                 await loadMoreAuditData();
                 if (currentMonthIndex < sortedMonths.length - 1) {
@@ -1707,7 +1634,6 @@ function renderCampaignRow(camp, idx) {
     const time = dateObj.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
     const successRate = camp.targetCount > 0 ? Math.round((camp.successCount / camp.targetCount) * 100) : 0;
 
-    // HTML oculto con la lista de destinatarios
     const audienceListHtml = (camp.audience || []).map(person => `
         <div class="flex items-center justify-between bg-white shadow-sm p-2.5 rounded-lg border border-gray-100">
             <div class="min-w-0 pr-2">
@@ -1768,7 +1694,6 @@ function renderCampaignRow(camp, idx) {
     `;
 }
 
-// Disparar la carga de estadísticas cuando el usuario inicie sesión
 onAuthStateChanged(auth, (user) => {
     if (user) {
         loadAdminStats();
