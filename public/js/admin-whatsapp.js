@@ -898,7 +898,8 @@ els.fileInput.onchange = async (e) => {
         const r = ref(storage, `chats/${activeChatId}/uploads/${Date.now()}_${f.name}`); 
         await uploadBytes(r, f); 
         
-        await (httpsCallable(functions, 'sendMessage'))({ 
+        // 🔥 CORRECCIÓN: El nombre correcto de la función en la nube es 'sendWhatsappMessage'
+        await (httpsCallable(functions, 'sendWhatsappMessage'))({ 
             phoneNumber: activeChatId, 
             message: isDoc ? f.name : "", // Meta usa el message como nombre del archivo en docs
             type: msgType, 
