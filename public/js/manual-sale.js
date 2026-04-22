@@ -797,7 +797,7 @@ async function saveOrder() {
         if (isCreatingNewClient) {
             custName = document.getElementById('m-nc-name').value.trim();
             custPhone = document.getElementById('m-nc-phone').value.trim();
-            custDoc = document.getElementById('m-nc-doc').value.trim(); // 🔥 SI ES NUEVO, LA LEEMOS DEL INPUT
+            custDoc = document.getElementById('m-nc-doc').value.trim(); 
             emailVal = document.getElementById('m-nc-email').value.trim();
 
             if (!custName || !custPhone) throw new Error("🚨 El Nombre y Teléfono del nuevo cliente son obligatorios.");
@@ -806,7 +806,7 @@ async function saveOrder() {
                 name: custName,
                 phone: custPhone,
                 email: emailVal,
-                document: docVal,
+                document: custDoc, // 🔥 CORRECCIÓN: Aquí decía docVal, ya dice custDoc
                 source: 'MANUAL',
                 role: 'client',
                 createdAt: new Date(),
@@ -883,7 +883,7 @@ async function saveOrder() {
             createdAt: new Date(), 
             updatedAt: new Date(),
             shippingData,
-            buyerInfo: { name: custName, email: emailVal || "", phone: custPhone, document: custDoc } // 🔥 Y AQUÍ TAMBIÉN
+            buyerInfo: { name: custName, email: emailVal || "", phone: custPhone, document: custDoc }
         };
         const orderRef = await addDoc(collection(db, "orders"), orderData);
         
