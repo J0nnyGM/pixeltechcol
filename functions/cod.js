@@ -82,7 +82,12 @@ exports.createCODOrder = async (data, context) => {
                 // Guardar la actualización para la Fase 2 (NO EJECUTAR AÚN)
                 pendingUpdates.push({
                     ref: pRef,
-                    data: { stock: newStock, combinations: newCombinations }
+                    // 🔥 NUEVO: Agregamos updatedAt al producto para que el inventario lo detecte
+                    data: { 
+                        stock: newStock, 
+                        combinations: newCombinations,
+                        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                    }
                 });
 
                 subtotal += price * qty;
@@ -98,13 +103,15 @@ exports.createCODOrder = async (data, context) => {
             const shippingData = extraData.shippingData || {};
             
             orderDataToSave = {
-                source: 'TIENDA_WEB', createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                source: 'TIENDA_WEB', 
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(), // 🔥 NUEVO
                 userId: uid, userEmail: email, userName: extraData.userName || "Cliente",
                 phone: extraData.phone || shippingData.phone || "", clientDoc: extraData.clientDoc || "",
                 shippingData, billingData: extraData.billingData || null, requiresInvoice: extraData.needsInvoice || false,
                 items: dbItems, subtotal, shippingCost, total,
                 status: 'PENDIENTE', paymentStatus: 'PENDING', 
-                paymentMethod: paymentMethod, // 🔥 AQUÍ ASIGNAMOS LA VARIABLE DINÁMICA 🔥
+                paymentMethod: paymentMethod, 
                 isStockDeducted: true,
                 buyerInfo: { name: extraData.userName, email, phone: extraData.phone }
             };
@@ -114,7 +121,8 @@ exports.createCODOrder = async (data, context) => {
                 clientName: orderDataToSave.userName, clientPhone: orderDataToSave.phone, clientDoc: orderDataToSave.clientDoc,
                 clientAddress: `${shippingData.address}, ${shippingData.city}`,
                 items: dbItems, total, status: 'PENDIENTE_ALISTAMIENTO', type: 'VENTA_WEB',
-                createdAt: admin.firestore.FieldValue.serverTimestamp()
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                updatedAt: admin.firestore.FieldValue.serverTimestamp() // 🔥 NUEVO
             };
 
             // --- FASE 2: ESCRITURAS (Solo .update() y .set()) ---

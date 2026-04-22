@@ -175,6 +175,7 @@ let isCreatingNewClient = false;
 let selectedUserId = null;
 let selectedUserName = "";
 let selectedUserPhone = "";
+let selectedUserDoc = ""; // 🔥 NUEVA VARIABLE PARA LA CÉDULA
 let currentUserAddresses = [];
 
 let onSuccessCallback = null;
@@ -630,6 +631,7 @@ async function setupCustomerSearch() {
                     selectedUserId = u.id;
                     selectedUserName = displayName;
                     selectedUserPhone = u.phone || "";
+                    selectedUserDoc = u.document || ""; // 🔥 CAPTURAMOS LA CÉDULA
                     currentUserAddresses = u.addresses || [];
                     
                     // Cambiar UI
@@ -665,6 +667,7 @@ async function setupCustomerSearch() {
         selectedUserId = null;
         selectedUserName = "";
         selectedUserPhone = "";
+        selectedUserDoc = ""; // 🔥 LIMPIAMOS LA CÉDULA
         currentUserAddresses = [];
         
         search.value = "";
@@ -787,13 +790,15 @@ async function saveOrder() {
         let finalUserId = selectedUserId;
         let custName = selectedUserName;
         let custPhone = selectedUserPhone;
+        let custDoc = selectedUserDoc; // 🔥 TRAEMOS LA CÉDULA
+        let emailVal = "";
 
         // 4. SI ESTÁ CREANDO UN CLIENTE NUEVO EN LÍNEA -> GUARDARLO EN FIREBASE PRIMERO
         if (isCreatingNewClient) {
             custName = document.getElementById('m-nc-name').value.trim();
             custPhone = document.getElementById('m-nc-phone').value.trim();
-            const docVal = document.getElementById('m-nc-doc').value.trim();
-            const emailVal = document.getElementById('m-nc-email').value.trim();
+            custDoc = document.getElementById('m-nc-doc').value.trim(); // 🔥 SI ES NUEVO, LA LEEMOS DEL INPUT
+            emailVal = document.getElementById('m-nc-email').value.trim();
 
             if (!custName || !custPhone) throw new Error("🚨 El Nombre y Teléfono del nuevo cliente son obligatorios.");
 
@@ -863,6 +868,7 @@ async function saveOrder() {
             userId: finalUserId, 
             userName: custName, 
             phone: custPhone,
+            clientDoc: custDoc, // 🔥 GUARDAMOS LA CÉDULA EN LA ORDEN
             items, 
             total, 
             subtotal, 
@@ -876,9 +882,9 @@ async function saveOrder() {
             paymentMethodName,
             createdAt: new Date(), 
             updatedAt: new Date(),
-            shippingData
+            shippingData,
+            buyerInfo: { name: custName, email: emailVal || "", phone: custPhone, document: custDoc } // 🔥 Y AQUÍ TAMBIÉN
         };
-
         const orderRef = await addDoc(collection(db, "orders"), orderData);
         
         await setDoc(doc(db, "remissions", orderRef.id), { 
