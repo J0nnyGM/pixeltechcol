@@ -1112,15 +1112,31 @@ export function generateLabels(ordersArray) {
                 }
                 
                 .dest-info { font-size: 14px; line-height: 1.6; }
+                
+                /* 🔥 CORRECCIÓN DE CORTES (TEXTO MULTILÍNEA) 🔥 */
                 .info-line { 
                     margin-bottom: 12px; 
                     border-bottom: 2px solid #111827; 
                     display: flex; 
-                    align-items: flex-end;
+                    align-items: flex-start; /* Cambiado a flex-start para que el título no se baje */
                     padding-bottom: 3px;
                 }
-                .info-line strong { font-weight: 900; margin-right: 8px; font-size: 13px;}
-                .info-line span { flex-grow: 1; font-weight: 700; font-size: 13px; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+                .info-line strong { 
+                    font-weight: 900; 
+                    margin-right: 8px; 
+                    font-size: 13px; 
+                    white-space: nowrap; /* El título "DIRECCIÓN:" nunca se rompe */
+                    margin-top: 2px;
+                }
+                .info-line span { 
+                    flex-grow: 1; 
+                    font-weight: 700; 
+                    font-size: 13px; 
+                    text-align: left; 
+                    white-space: normal; /* 🔥 Permite múltiples líneas */
+                    word-break: break-word; /* 🔥 Rompe la palabra si es exageradamente larga */
+                    line-height: 1.2;
+                }
                 .info-row { display: flex; gap: 15px; }
             </style>
         </head>
