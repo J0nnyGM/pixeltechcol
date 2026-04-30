@@ -1,15 +1,21 @@
-import { db, doc, getDoc, updateDoc, Timestamp, collection, getDocs, runTransaction, serverTimestamp, writeBatch } from './firebase-init.js';
+import { db, doc, getDoc, updateDoc, Timestamp, collection, getDocs, runTransaction, serverTimestamp, writeBatch, auth } from './firebase-init.js';
 import { adjustStock } from './inventory-core.js'; 
+import { AdminStore } from './admin-store.js';
 
 // --- CACHÉ DE OPTIMIZACIÓN ---
 let currentOrderData = null; 
 let currentOrderId = null;
 let accountsCache = null;    
+let editProductsCache = []; 
+let isProductsSubscribed = false; // 🔥 VARIABLE DE CONTROL AÑADIDA AQUÍ
 
 const getEl = (id) => document.getElementById(id);
 const safeSetText = (id, text) => { const el = getEl(id); if (el) el.textContent = text; };
 
-// Helper para cargar cuentas
+const formatCurrency = (num) => '$ ' + Number(num).toLocaleString('es-CO');
+const parseCurrency = (str) => Number(String(str).replace(/[^0-9-]/g, '')) || 0;
+const normalizeText = (str) => str ? str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "") : "";
+
 async function loadAccountsCached() {
     if (accountsCache) return accountsCache;
     try {
@@ -23,20 +29,27 @@ async function loadAccountsCached() {
     }
 }
 
-// --- 1. VER DETALLE (Optimizado) ---
+// ==========================================================================
+// 1. VER DETALLE DE LA ORDEN
+// ==========================================================================
 export async function viewOrderDetail(orderId) {
     currentOrderId = orderId;
     currentOrderData = null; 
     const modal = getEl('order-modal');
     
     try {
+        // 🔥 VERIFICAR SI ES ADMIN
+        let isAdmin = false;
+        if (auth.currentUser) {
+            const uDoc = await getDoc(doc(db, "users", auth.currentUser.uid));
+            if (uDoc.exists() && uDoc.data().role === 'admin') isAdmin = true;
+        }
+
         const snap = await getDoc(doc(db, "orders", orderId));
         if (!snap.exists()) return;
         const o = snap.data();
-        
         currentOrderData = { id: snap.id, ...o };
 
-        // 1. Icono Canal
         const isWeb = o.source === 'TIENDA' || o.source === 'TIENDA_WEB';
         const iconContainer = getEl('modal-source-icon');
         if (iconContainer) {
@@ -44,11 +57,9 @@ export async function viewOrderDetail(orderId) {
             iconContainer.className = `w-16 h-16 bg-white rounded-2xl flex items-center justify-center text-2xl shadow-sm border border-gray-100 ${isWeb ? 'text-brand-cyan' : 'text-brand-black'}`;
         }
 
-        // 2. Datos Cabecera
-        safeSetText('modal-order-id', `#${snap.id.slice(0, 8).toUpperCase()}`);
+        safeSetText('modal-order-id', `#${o.internalOrderNumber || snap.id.slice(0, 8).toUpperCase()}`);
         safeSetText('modal-order-date', o.createdAt?.toDate ? o.createdAt.toDate().toLocaleString('es-CO') : '---');
 
-        // 3. Estado Logístico (Badge)
         const badge = getEl('modal-order-status-badge');
         if (badge) {
             badge.textContent = o.status || 'PENDIENTE';
@@ -58,10 +69,10 @@ export async function viewOrderDetail(orderId) {
             if (o.status === 'PAGADO') bClass = 'bg-green-100 text-green-700 border-green-200'; 
             if (o.status === 'DEVOLUCION_PARCIAL') bClass = 'bg-orange-100 text-orange-700 border-orange-200';
             if (o.status === 'DEVUELTO') bClass = 'bg-purple-100 text-purple-700 border-purple-200';
+            if (['CANCELADO', 'RECHAZADO'].includes(o.status)) bClass = 'bg-red-100 text-red-700 border-red-200';
             badge.className = `px-3 py-1 rounded-full text-[10px] font-black uppercase border ${bClass}`;
         }
 
-        // --- INFORMACIÓN DE PAGO ---
         const paymentSection = getEl('modal-payment-info');
         if (paymentSection) {
             const methods = {
@@ -74,43 +85,18 @@ export async function viewOrderDetail(orderId) {
                 'PSE': { label: 'Pago con PSE', icon: 'fa-solid fa-building-columns', color: 'text-blue-600' },
                 'MANUAL': { label: 'Venta Manual', icon: 'fa-solid fa-cash-register', color: 'text-gray-500' }
             };
-            
             const methodKey = (o.paymentMethod || 'MANUAL').toUpperCase();
             const mInfo = methods[methodKey] || methods['MANUAL'];
-
             const isPaid = o.paymentStatus === 'PAID' || o.status === 'PAGADO'; 
-            const statusHtml = isPaid 
-                ? `<span class="px-2 py-1 rounded bg-green-50 text-green-600 border border-green-100 text-[9px] font-black uppercase"><i class="fa-solid fa-check"></i> Pagado</span>`
-                : `<span class="px-2 py-1 rounded bg-orange-50 text-orange-600 border border-orange-100 text-[9px] font-black uppercase"><i class="fa-regular fa-clock"></i> Pendiente</span>`;
-
-            const refHtml = o.paymentId 
-                ? `<div class="mt-2 pt-2 border-t border-gray-100 text-[9px] text-gray-400 font-mono">Ref: ${o.paymentId}</div>` 
-                : '';
-
-            paymentSection.innerHTML = `
-                <div class="flex justify-between items-start">
-                    <div class="flex items-center gap-3">
-                        <div class="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center ${mInfo.color} text-lg">
-                            <i class="${mInfo.icon}"></i>
-                        </div>
-                        <div>
-                            <p class="text-[10px] font-black uppercase text-gray-400 leading-none mb-1">Método de Pago</p>
-                            <p class="text-xs font-black text-brand-black uppercase">${mInfo.label}</p>
-                        </div>
-                    </div>
-                    ${statusHtml}
-                </div>
-                ${refHtml}
-            `;
+            const statusHtml = isPaid ? `<span class="px-2 py-1 rounded bg-green-50 text-green-600 border border-green-100 text-[9px] font-black uppercase"><i class="fa-solid fa-check"></i> Pagado</span>` : `<span class="px-2 py-1 rounded bg-orange-50 text-orange-600 border border-orange-100 text-[9px] font-black uppercase"><i class="fa-regular fa-clock"></i> Pendiente</span>`;
+            paymentSection.innerHTML = `<div class="flex justify-between items-start"><div class="flex items-center gap-3"><div class="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center ${mInfo.color} text-lg"><i class="${mInfo.icon}"></i></div><div><p class="text-[10px] font-black uppercase text-gray-400 leading-none mb-1">Método de Pago</p><p class="text-xs font-black text-brand-black uppercase">${mInfo.label}</p></div></div>${statusHtml}</div>${o.paymentId ? `<div class="mt-2 pt-2 border-t border-gray-100 text-[9px] text-gray-400 font-mono">Ref: ${o.paymentId}</div>` : ''}`;
             paymentSection.classList.remove('hidden');
         }
 
-        // 4. Datos Cliente
         safeSetText('modal-client-name', o.userName || 'Cliente');
         safeSetText('modal-client-doc', o.clientDoc || '---');
         safeSetText('modal-client-contact', o.phone || o.userEmail || '');
 
-        // 5. Dirección, Notas y RASTREO
         const addr = o.shippingData?.address || o.address || 'Retiro en Tienda / Local';
         const city = o.shippingData?.city || o.city || 'Bogotá';
         const dept = o.shippingData?.department || "";
@@ -123,22 +109,15 @@ export async function viewOrderDetail(orderId) {
                 safeSetText('modal-carrier', o.shippingCarrier);
                 safeSetText('modal-tracking-number', o.shippingTracking);
                 trackingContainer.classList.remove('hidden');
-            } else {
-                trackingContainer.classList.add('hidden');
-            }
+            } else trackingContainer.classList.add('hidden');
         }
 
         const notesEl = getEl('modal-order-notes');
         if(notesEl) {
-            if (o.notes || o.shippingData?.notes) { 
-                getEl('note-text').textContent = o.notes || o.shippingData.notes; 
-                notesEl.classList.remove('hidden'); 
-            } else { 
-                notesEl.classList.add('hidden'); 
-            }
+            if (o.notes || o.shippingData?.notes) { getEl('note-text').textContent = o.notes || o.shippingData.notes; notesEl.classList.remove('hidden'); } 
+            else notesEl.classList.add('hidden'); 
         }
 
-        // 6. Facturación
         const billingSec = getEl('modal-billing-section');
         if (billingSec) {
             const bill = o.billingInfo || o.billingData;
@@ -147,12 +126,9 @@ export async function viewOrderDetail(orderId) {
                 safeSetText('bill-modal-name', bill.name);
                 safeSetText('bill-modal-id', bill.taxId);
                 safeSetText('bill-modal-email', bill.email);
-            } else {
-                billingSec.classList.add('hidden');
-            }
+            } else billingSec.classList.add('hidden');
         }
 
-        // 7. Items (CON VALIDACIÓN DE SERIALES)
         const isLocked = ['DESPACHADO', 'ENTREGADO', 'CANCELADO', 'RECHAZADO', 'DEVUELTO', 'DEVOLUCION_PARCIAL'].includes(o.status);
         const itemsList = getEl('modal-items-list-responsive');
         
@@ -162,21 +138,8 @@ export async function viewOrderDetail(orderId) {
                 let snInputs = '';
                 for (let i = 0; i < (item.quantity || 1); i++) {
                     const val = (item.sns && item.sns[i]) ? item.sns[i] : '';
-                    const lockClass = isLocked 
-                        ? 'bg-gray-100 text-gray-500 cursor-not-allowed border-gray-200' 
-                        : 'bg-white text-brand-black border-gray-200 focus:border-brand-cyan focus:ring-1 focus:ring-brand-cyan/20';
-                    
-                    snInputs += `
-                    <div class="relative mb-2">
-                        <i class="fa-solid fa-barcode absolute left-3 top-3 text-brand-black text-xs"></i>
-                        <input type="text" 
-                               placeholder="${isLocked ? (val || 'No registrado') : 'Escanea Serial'}" 
-                               value="${val}" 
-                               data-item-index="${idx}" 
-                               data-unit-index="${i}" 
-                               class="sn-input w-full rounded-xl py-2 pl-8 pr-3 text-xs font-mono font-bold outline-none transition-all uppercase border ${lockClass}" 
-                               ${isLocked ? 'readonly' : ''}>
-                    </div>`;
+                    const lockClass = isLocked ? 'bg-gray-100 text-gray-500 cursor-not-allowed border-gray-200' : 'bg-white text-brand-black border-gray-200 focus:border-brand-cyan focus:ring-1 focus:ring-brand-cyan/20';
+                    snInputs += `<div class="relative mb-2"><i class="fa-solid fa-barcode absolute left-3 top-3 text-brand-black text-xs"></i><input type="text" placeholder="${isLocked ? (val || 'No registrado') : 'Escanea Serial'}" value="${val}" data-item-index="${idx}" data-unit-index="${i}" class="sn-input w-full rounded-xl py-2 pl-8 pr-3 text-xs font-mono font-bold outline-none transition-all uppercase border ${lockClass}" ${isLocked ? 'readonly' : ''}></div>`;
                 }
                 return `<div class="p-6 border-b border-gray-100 last:border-0 flex flex-col md:flex-row gap-6 items-start"><div class="w-16 h-16 rounded-xl bg-white border border-gray-100 p-2 shrink-0 flex items-center justify-center"><img src="${img}" class="max-w-full max-h-full object-contain"></div><div class="flex-grow w-full"><div class="flex justify-between mb-2"><h5 class="font-black text-xs uppercase text-brand-black">${item.name || item.title}</h5><span class="text-xs font-black text-brand-cyan">x${item.quantity}</span></div><div class="flex gap-2 mb-4">${item.color ? `<span class="text-[8px] font-black uppercase bg-slate-100 px-2 py-1 rounded text-brand-black border border-gray-200">${item.color}</span>` : ''}</div><div class="bg-slate-100/50 p-3 rounded-xl border border-dashed border-gray-200"><p class="text-[8px] font-black text-brand-black uppercase tracking-widest mb-2">Seriales</p><div class="grid grid-cols-1 sm:grid-cols-2 gap-2">${snInputs}</div></div></div></div>`;
             }).join('');
@@ -184,40 +147,24 @@ export async function viewOrderDetail(orderId) {
             if (!isLocked) {
                 setTimeout(() => {
                     const allInputs = Array.from(document.querySelectorAll('.sn-input'));
-                    
                     allInputs.forEach((input, currentIndex) => {
                         input.addEventListener('change', function(e) {
                             const val = this.value.trim().toUpperCase();
                             if (!val) return; 
-
-                            const isDuplicate = allInputs.some(otherInput => {
-                                return otherInput !== this && otherInput.value.trim().toUpperCase() === val;
-                            });
-
+                            const isDuplicate = allInputs.some(otherInput => otherInput !== this && otherInput.value.trim().toUpperCase() === val);
                             if (isDuplicate) {
                                 alert(`⚠️ ERROR: El serial "${val}" ya fue escaneado en esta orden. Por favor revisa.`);
-                                this.value = ""; 
-                                this.focus();    
-                                this.classList.add('border-red-500', 'bg-red-50');
+                                this.value = ""; this.focus(); this.classList.add('border-red-500', 'bg-red-50');
                                 setTimeout(() => this.classList.remove('border-red-500', 'bg-red-50'), 2000);
                             }
                         });
-
                         input.addEventListener('keydown', function(e) {
                             if (e.key === 'Enter') {
-                                e.preventDefault(); 
-                                this.dispatchEvent(new Event('change'));
-
+                                e.preventDefault(); this.dispatchEvent(new Event('change'));
                                 if (this.value.trim() !== "") {
                                     const nextInput = allInputs[currentIndex + 1];
-                                    if (nextInput) {
-                                        nextInput.focus(); 
-                                    } else {
-                                        const btnSave = getEl('btn-save-alistado');
-                                        if(btnSave && !btnSave.classList.contains('hidden')) {
-                                            btnSave.focus();
-                                        }
-                                    }
+                                    if (nextInput) nextInput.focus(); 
+                                    else { const btnSave = getEl('btn-save-alistado'); if(btnSave && !btnSave.classList.contains('hidden')) btnSave.focus(); }
                                 }
                             }
                         });
@@ -226,7 +173,6 @@ export async function viewOrderDetail(orderId) {
             }
         }
 
-        // 8. Totales 
         const subtotal = o.subtotal || o.total;
         const shipping = o.shippingCost || 0;
         const totalOriginal = o.total || 0;
@@ -237,39 +183,29 @@ export async function viewOrderDetail(orderId) {
         safeSetText('modal-order-shipping', shipping === 0 ? "GRATIS" : `$${shipping.toLocaleString('es-CO')}`);
         
         const totalContainer = getEl('modal-total-container');
-        
         if (totalContainer) {
             if (refunded > 0) {
-                totalContainer.innerHTML = `
-                    <div class="flex flex-col items-end">
-                        <p class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Total Original</p>
-                        <p class="text-xs font-bold text-gray-400 line-through decoration-red-300">$${totalOriginal.toLocaleString('es-CO')}</p>
-                        
-                        <p class="text-[9px] font-black text-red-500 uppercase tracking-widest mt-1">Devolución</p>
-                        <p class="text-xs font-bold text-red-500">-$${refunded.toLocaleString('es-CO')}</p>
-                        
-                        <div class="w-full h-px bg-gray-200 my-2"></div>
-                        
-                        <p class="text-[9px] font-black text-brand-black uppercase tracking-widest">Total Neto</p>
-                        <h4 class="text-3xl font-black text-brand-black leading-none">$${netTotal.toLocaleString('es-CO')}</h4>
-                    </div>
-                `;
+                totalContainer.innerHTML = `<div class="flex flex-col items-end"><p class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Total Original</p><p class="text-xs font-bold text-gray-400 line-through decoration-red-300">$${totalOriginal.toLocaleString('es-CO')}</p><p class="text-[9px] font-black text-red-500 uppercase tracking-widest mt-1">Devolución</p><p class="text-xs font-bold text-red-500">-$${refunded.toLocaleString('es-CO')}</p><div class="w-full h-px bg-gray-200 my-2"></div><p class="text-[9px] font-black text-brand-black uppercase tracking-widest">Total Neto</p><h4 class="text-3xl font-black text-brand-black leading-none">$${netTotal.toLocaleString('es-CO')}</h4></div>`;
             } else {
-                totalContainer.innerHTML = `
-                    <p class="text-[9px] font-black text-brand-black uppercase tracking-widest">Total Neto</p>
-                    <h4 id="modal-order-total" class="text-3xl font-black text-brand-black leading-none">$${totalOriginal.toLocaleString('es-CO')}</h4>
-                `;
+                totalContainer.innerHTML = `<p class="text-[9px] font-black text-brand-black uppercase tracking-widest">Total Neto</p><h4 id="modal-order-total" class="text-3xl font-black text-brand-black leading-none">$${totalOriginal.toLocaleString('es-CO')}</h4>`;
             }
         }
 
-        // 9. Lógica de Botones 
         const footerActions = getEl('modal-footer-actions');
         const footerMsg = getEl('modal-footer-msg');
         
-        const oldRefundBtn = document.getElementById('btn-refund-action');
-        if(oldRefundBtn) oldRefundBtn.remove();
+// Limpieza de botones
+        ['btn-refund-action', 'btn-cancel-action', 'btn-edit-action'].forEach(id => {
+            const btn = document.getElementById(id); if(btn) btn.remove();
+        });
 
-        if (footerActions) footerActions.classList.add('hidden');
+        if (footerActions) {
+            footerActions.classList.add('hidden');
+            // 🔥 DISEÑO RESPONSIVE: En móvil ya no se apilan hacia abajo (flex-col). 
+            // Se acomodan en fila (flex-row) con wrap, permitiendo que los iconos queden al lado del botón principal.
+            footerActions.classList.remove('flex-col');
+            footerActions.classList.add('flex-row', 'flex-wrap', 'justify-end', 'items-center');
+        }
         if (footerMsg) footerMsg.classList.add('hidden');
         
         const btnAlistar = getEl('btn-save-alistado');
@@ -277,9 +213,11 @@ export async function viewOrderDetail(orderId) {
         if(btnAlistar) btnAlistar.classList.add('hidden');
         if(btnDespachar) btnDespachar.classList.add('hidden');
 
+        const isFinished = ['CANCELADO', 'RECHAZADO', 'DEVUELTO'].includes(o.status);
+
         if (o.status === 'PENDIENTE_PAGO') {
             if (footerMsg) { footerMsg.innerHTML = '<span class="text-orange-500 font-bold flex items-center gap-2"><i class="fa-solid fa-clock"></i> Esperando pago...</span>'; footerMsg.classList.remove('hidden'); }
-        } else if (['RECHAZADO', 'CANCELADO', 'DEVUELTO'].includes(o.status)) {
+        } else if (isLocked && !['DESPACHADO', 'ENTREGADO', 'DEVOLUCION_PARCIAL'].includes(o.status)) {
             if (footerMsg) { footerMsg.innerHTML = `<span class="text-red-500 font-bold flex items-center gap-2"><i class="fa-solid fa-ban"></i> Pedido ${o.status}</span>`; footerMsg.classList.remove('hidden'); }
         } else if (o.status === 'ALISTADO') {
             if (footerActions) footerActions.classList.remove('hidden');
@@ -287,11 +225,10 @@ export async function viewOrderDetail(orderId) {
         } else if (['DESPACHADO', 'ENTREGADO', 'DEVOLUCION_PARCIAL'].includes(o.status)) { 
              if (footerActions) {
                  footerActions.classList.remove('hidden');
-                 
                  const btnRefund = document.createElement('button');
                  btnRefund.id = 'btn-refund-action';
-                 btnRefund.className = "flex-1 md:flex-none bg-white text-red-500 border border-red-200 px-6 py-4 rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-red-50 transition-all shadow-sm flex items-center gap-2";
-                 btnRefund.innerHTML = `<i class="fa-solid fa-rotate-left"></i> Gestionar Devolución`;
+                 btnRefund.className = "h-12 flex-1 md:flex-none md:w-auto bg-white text-red-500 border border-red-200 px-4 rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-red-50 transition-all shadow-sm flex items-center justify-center gap-2 shrink-0";
+                 btnRefund.innerHTML = `<i class="fa-solid fa-rotate-left text-sm"></i> <span class="">Devolución</span>`;
                  btnRefund.onclick = () => openRefundModal(currentOrderData);
                  footerActions.prepend(btnRefund);
              }
@@ -300,10 +237,429 @@ export async function viewOrderDetail(orderId) {
             if (btnAlistar) btnAlistar.classList.remove('hidden');
         }
 
+        // 🔥 CONTROLES EXCLUSIVOS PARA ADMINISTRADOR (Ventas Manuales)
+        if (isAdmin && o.source === 'MANUAL' && !isFinished) {
+            if (footerActions) {
+                footerActions.classList.remove('hidden');
+
+                // Botón Editar (Solo si está en PENDIENTE / Por Atender)
+                if (o.status === 'PENDIENTE') {
+                    const btnEdit = document.createElement('button');
+                    btnEdit.id = 'btn-edit-action';
+                    // 🔥 DISEÑO: Solo Ícono (Cuadrado de 48x48px)
+                    btnEdit.className = "w-12 h-12 bg-brand-cyan text-brand-black border border-brand-cyan rounded-xl hover:bg-cyan-400 transition-all shadow-sm flex items-center justify-center shrink-0";
+                    btnEdit.innerHTML = `<i class="fa-solid fa-pen-to-square text-lg"></i>`;
+                    btnEdit.title = "Editar Orden";
+                    btnEdit.onclick = () => openEditOrderModal(currentOrderData);
+                    footerActions.prepend(btnEdit); // Pone el botón al inicio
+                }
+
+                // Botón Anular
+                const btnCancel = document.createElement('button');
+                btnCancel.id = 'btn-cancel-action';
+                // 🔥 DISEÑO: Solo Ícono (Cuadrado de 48x48px)
+                btnCancel.className = "w-12 h-12 bg-white text-red-500 border border-red-200 rounded-xl hover:bg-red-50 transition-all shadow-sm flex items-center justify-center shrink-0";
+                btnCancel.innerHTML = `<i class="fa-solid fa-ban text-lg"></i>`;
+                btnCancel.title = "Anular Venta";
+                btnCancel.onclick = () => cancelManualOrder(currentOrderData);
+                footerActions.prepend(btnCancel); // Pone el botón al inicio
+            }
+        }
+
         modal.classList.remove('hidden');
 
     } catch (e) { console.error(e); }
 }
+
+// ==========================================================================
+// ANULAR ORDEN MANUAL (ADMIN)
+// ==========================================================================
+async function cancelManualOrder(order) {
+    if (!confirm("ATENCIÓN \n\n¿Estás seguro de ANULAR esta venta manual?\n\n- Los productos regresarán automáticamente al inventario.\n- El dinero se restará de la cuenta de tesorería.\n- La orden quedará como CANCELADA.\n\nEsta acción es irreversible.")) return;
+
+    const btn = getEl('btn-cancel-action');
+    if(btn) { btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Anulando...'; btn.disabled = true; }
+
+    try {
+        await runTransaction(db, async (t) => {
+            // ===========================================================
+            // FASE 1: TODAS LAS LECTURAS (Obligatorio hacerlas primero)
+            // ===========================================================
+            
+            // A. Leer la orden
+            const oRef = doc(db, "orders", order.id);
+            const oSnap = await t.get(oRef);
+            if (!oSnap.exists()) throw new Error("La orden no existe.");
+            const oData = oSnap.data();
+
+            if (oData.status === 'CANCELADO') throw new Error("La orden ya estaba cancelada.");
+
+            // B. Leer la cuenta (si hubo pago)
+            let accSnap = null;
+            let accRef = null;
+            if (oData.amountPaid > 0 && oData.paymentAccountId) {
+                accRef = doc(db, "accounts", oData.paymentAccountId);
+                accSnap = await t.get(accRef);
+            }
+
+            // C. Leer la Remisión
+            const remRef = doc(db, "remissions", order.id);
+            const remSnap = await t.get(remRef);
+
+
+            // ===========================================================
+            // FASE 2: TODAS LAS ESCRITURAS (Solo cuando terminamos de leer)
+            // ===========================================================
+
+            // 1. Revertir dinero si ya fue pagada total o parcialmente
+            if (accSnap && accSnap.exists()) {
+                const newBalance = (accSnap.data().balance || 0) - oData.amountPaid;
+                t.update(accRef, { balance: newBalance });
+
+                const expenseRef = doc(collection(db, "expenses"));
+                t.set(expenseRef, {
+                    amount: oData.amountPaid,
+                    category: "Anulación de Venta",
+                    description: `Reverso por anulación de Orden Manual #${order.id.slice(0,8)}`,
+                    paymentMethod: accSnap.data().name,
+                    supplierName: oData.userName || "Cliente",
+                    date: serverTimestamp(),
+                    createdAt: serverTimestamp(),
+                    type: 'EXPENSE',
+                    orderId: order.id,
+                    isRefund: true
+                });
+            }
+
+            // 2. Actualizar la orden a Cancelado
+            t.update(oRef, {
+                status: 'CANCELADO',
+                paymentStatus: oData.amountPaid > 0 ? 'REFUNDED' : 'CANCELLED',
+                refundedAmount: (oData.refundedAmount || 0) + (oData.amountPaid || 0),
+                cancelReason: 'Anulada por Administrador',
+                updatedAt: serverTimestamp()
+            });
+
+            // 3. Cancelar la Remisión si existía
+            if (remSnap.exists()) {
+                t.update(remRef, { status: 'CANCELADO', updatedAt: serverTimestamp() });
+            }
+        });
+
+        // ===========================================================
+        // FASE 3: INVENTARIO (Fuera de la transacción por ser dinámico)
+        // ===========================================================
+        if (order.items && order.items.length > 0) {
+            for (const item of order.items) {
+                await safeAdjustStock(item.id, item.quantity, item.color, item.capacity);
+            }
+        }
+
+        alert("✅ Venta anulada exitosamente. \nEl stock fue devuelto al catálogo y el dinero fue revertido de la cuenta.");
+        getEl('order-modal').classList.add('hidden');
+        currentOrderData = null;
+
+    } catch (error) {
+        console.error(error); alert("Error al anular: " + error.message);
+        if(btn) { btn.innerHTML = '<i class="fa-solid fa-ban"></i> Anular Venta'; btn.disabled = false; }
+    }
+}
+
+// ==========================================================================
+// 🔥 NUEVO: EDITAR ORDEN MANUAL (ADMIN)
+// ==========================================================================
+let editOrderOriginal = null;
+let editItems = [];
+
+// Helper para reintentos de Firebase si choca con el SyncWatcher
+async function safeAdjustStock(id, delta, color, capacity, retries = 3) {
+    for (let i = 0; i < retries; i++) {
+        try {
+            await adjustStock(id, delta, color, capacity);
+            return; 
+        } catch(e) {
+            if (i === retries - 1) throw e;
+            console.warn(`[Stock] Reintento por choque con Centinela para ${id}...`);
+            await new Promise(r => setTimeout(r, 800)); // Esperar a que el Centinela suelte el documento
+        }
+    }
+}
+
+function injectEditModalHtml() {
+    if (getEl('edit-order-modal')) return;
+    const html = `
+    <div id="edit-order-modal" class="fixed inset-0 z-[100] hidden flex items-center justify-center p-4 sm:p-6 bg-slate-900/90 backdrop-blur-sm">
+        <div class="relative bg-white w-full max-w-4xl rounded-[2.5rem] shadow-2xl flex flex-col max-h-[95vh] overflow-hidden">
+            <div class="px-8 py-6 border-b border-gray-100 flex justify-between items-center bg-brand-cyan shrink-0">
+                <h3 class="text-xl font-black uppercase text-brand-black"><i class="fa-solid fa-pen-to-square"></i> Editar Orden Manual</h3>
+                <button onclick="document.getElementById('edit-order-modal').classList.add('hidden')" class="w-8 h-8 rounded-full bg-black/10 hover:bg-black/20 text-brand-black transition flex items-center justify-center"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            
+            <div class="p-8 flex-1 overflow-y-auto custom-scroll space-y-6">
+                
+                <div class="relative">
+                    <label class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-2 block">Agregar Producto al Pedido</label>
+                    <input type="text" id="eo-search-prod" placeholder="Buscar por nombre o SKU..." class="w-full bg-slate-50 border border-gray-200 rounded-xl p-3 text-xs font-bold outline-none focus:border-brand-cyan">
+                    <div id="eo-search-results" class="absolute top-full left-0 w-full mt-1 bg-white border border-gray-200 rounded-xl shadow-xl hidden max-h-48 overflow-y-auto z-50 p-2"></div>
+                </div>
+
+                <div class="bg-slate-50 rounded-2xl border border-gray-100 p-4">
+                    <h4 class="text-[9px] font-black text-brand-black uppercase tracking-widest mb-3 border-b border-gray-200 pb-2">Contenido de la Orden</h4>
+                    <div id="eo-items-list" class="space-y-3"></div>
+                </div>
+
+                <div class="flex justify-end gap-6 items-center pt-4">
+                    <div>
+                        <label class="text-[9px] font-black text-gray-400 uppercase tracking-widest block mb-1">Costo de Envío</label>
+                        <input type="text" id="eo-shipping-cost" class="w-32 bg-slate-50 border border-gray-200 rounded-lg p-2 text-sm font-black text-right outline-none focus:border-brand-cyan">
+                    </div>
+                    <div class="text-right">
+                        <p class="text-[9px] font-black text-brand-black uppercase tracking-widest mb-1">Nuevo Total</p>
+                        <h4 id="eo-total-display" class="text-3xl font-black text-brand-cyan leading-none">$0</h4>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="p-6 bg-slate-50 border-t border-gray-100 flex justify-end gap-3 shrink-0">
+                <button onclick="document.getElementById('edit-order-modal').classList.add('hidden')" class="px-6 py-3 text-[10px] font-black text-gray-500 uppercase tracking-widest hover:text-brand-black transition">Cancelar</button>
+                <button id="btn-save-edited-order" class="px-8 py-3 bg-brand-black text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:shadow-lg hover:bg-brand-cyan hover:text-brand-black transition flex items-center gap-2">
+                    <i class="fa-solid fa-save"></i> Guardar Cambios
+                </button>
+            </div>
+        </div>
+    </div>`;
+    document.body.insertAdjacentHTML('beforeend', html);
+    
+    getEl('eo-shipping-cost').addEventListener('input', (e) => {
+        const val = parseCurrency(e.target.value);
+        e.target.value = formatCurrency(val);
+        calculateEditTotals();
+    });
+    getEl('btn-save-edited-order').onclick = saveEditedOrder;
+
+    const sInp = getEl('eo-search-prod');
+    const sRes = getEl('eo-search-results');
+    sInp.addEventListener('input', (e) => {
+        const term = normalizeText(e.target.value);
+        sRes.innerHTML = "";
+        if(term.length < 2) { sRes.classList.add('hidden'); return; }
+        const filtered = editProductsCache.filter(p => (p.searchStr || normalizeText(p.name)).includes(term));
+        if(filtered.length === 0) sRes.innerHTML = `<p class="p-3 text-[10px] font-bold text-gray-400 text-center uppercase">No encontrado</p>`;
+        else {
+            filtered.slice(0,10).forEach(p => {
+                const isOutOfStock = p.stock <= 0;
+                const d = document.createElement('div');
+                d.className = `p-2 flex items-center justify-between border-b border-gray-50 last:border-0 ${isOutOfStock ? 'opacity-50' : 'hover:bg-cyan-50 cursor-pointer'}`;
+                d.innerHTML = `<div class="text-[10px] font-black uppercase text-brand-black truncate">${p.name} <span class="text-[9px] text-gray-400 font-bold block">Stock: ${p.stock||0}</span></div><div class="text-[10px] font-bold">${formatCurrency(p.price)}</div>`;
+                if(!isOutOfStock) {
+                    d.onmousedown = () => {
+                        editItems.push({
+                            id: p.id, name: p.name, price: p.price, quantity: 1, 
+                            image: p.mainImage || p.image || (p.images ? p.images[0] : ''),
+                            color: p.definedColors && p.definedColors.length > 0 ? p.definedColors[0] : null,
+                            capacity: p.definedCapacities && p.definedCapacities.length > 0 ? p.definedCapacities[0] : null
+                        });
+                        sInp.value = ""; sRes.classList.add('hidden');
+                        renderEditItems();
+                    };
+                }
+                sRes.appendChild(d);
+            });
+        }
+        sRes.classList.remove('hidden');
+    });
+    document.addEventListener('click', (e) => { if (!sInp.contains(e.target) && !sRes.contains(e.target)) sRes.classList.add('hidden'); });
+}
+
+function openEditOrderModal(order) {
+    // 🔥 SOLUCIÓN: Carga perezosa del Store cuando el administrador entra a editar
+    if (!isProductsSubscribed) {
+        AdminStore.subscribeToProducts(p => editProductsCache = p);
+        isProductsSubscribed = true;
+    }
+
+    injectEditModalHtml();
+    editOrderOriginal = JSON.parse(JSON.stringify(order));
+    editItems = JSON.parse(JSON.stringify(order.items || []));
+    
+    getEl('eo-shipping-cost').value = formatCurrency(order.shippingCost || 0);
+    renderEditItems();
+    getEl('edit-order-modal').classList.remove('hidden');
+}
+
+function renderEditItems() {
+    const list = getEl('eo-items-list');
+    list.innerHTML = "";
+    if(editItems.length === 0) list.innerHTML = `<p class="text-xs text-gray-400 text-center py-4 font-bold">No hay productos. Busca uno arriba para agregar.</p>`;
+    
+    editItems.forEach((item, idx) => {
+        const product = editProductsCache.find(p => p.id === item.id);
+        
+        // Generar Selector de Color
+        let colorHtml = '';
+        if (product) {
+            let colors = product.definedColors || [];
+            if (colors.length === 0 && product.combinations) colors = product.combinations.map(c => c.color).filter(c=>c);
+            colors = [...new Set(colors)];
+            
+            if (colors.length > 0) {
+                colorHtml = `<select data-idx="${idx}" class="e-color w-full bg-slate-50 border border-gray-200 rounded p-1.5 text-[9px] font-bold text-gray-600 outline-none focus:border-brand-cyan mb-1 cursor-pointer appearance-none">
+                    <option value="">Color...</option>
+                    ${colors.map(c => `<option value="${c}" ${c === item.color ? 'selected' : ''}>${c}</option>`).join('')}
+                </select>`;
+            }
+        }
+
+        // Generar Selector de Capacidad
+        let capHtml = '';
+        if (product) {
+            let caps = product.definedCapacities || [];
+            if (caps.length === 0 && product.capacities) caps = product.capacities.map(c => c.label);
+            caps = [...new Set(caps)];
+            
+            if (caps.length > 0) {
+                capHtml = `<select data-idx="${idx}" class="e-capacity w-full bg-slate-50 border border-gray-200 rounded p-1.5 text-[9px] font-bold text-gray-600 outline-none focus:border-brand-cyan cursor-pointer appearance-none">
+                    <option value="">Capacidad...</option>
+                    ${caps.map(c => `<option value="${c}" ${c === item.capacity ? 'selected' : ''}>${c}</option>`).join('')}
+                </select>`;
+            }
+        }
+
+        const div = document.createElement('div');
+        div.className = "flex items-start gap-3 bg-white p-3 rounded-xl border border-gray-200 shadow-sm";
+        div.innerHTML = `
+            <img src="${item.image || item.mainImage || 'https://placehold.co/40'}" class="w-12 h-12 rounded border border-gray-100 object-cover shrink-0">
+            <div class="flex-1 min-w-0">
+                <p class="text-[10px] font-black uppercase text-brand-black truncate mb-2">${item.name}</p>
+                <div class="grid grid-cols-2 gap-2">
+                    ${colorHtml}
+                    ${capHtml}
+                </div>
+            </div>
+            <div class="flex items-center gap-2 shrink-0 self-center">
+                <div>
+                    <label class="text-[8px] text-gray-400 font-bold block text-center mb-1">Cant.</label>
+                    <input type="number" min="1" value="${item.quantity}" data-idx="${idx}" class="e-qty w-12 bg-slate-50 border border-gray-200 rounded p-2 text-xs font-black text-center outline-none focus:border-brand-cyan">
+                </div>
+                <div>
+                    <label class="text-[8px] text-gray-400 font-bold block text-center mb-1">Precio Uni.</label>
+                    <input type="text" value="${formatCurrency(item.price)}" data-idx="${idx}" class="e-price w-24 bg-slate-50 border border-gray-200 rounded p-2 text-xs font-bold text-right outline-none focus:border-brand-cyan">
+                </div>
+                <button class="e-remove w-8 h-8 mt-[18px] bg-red-50 text-red-500 rounded hover:bg-red-500 hover:text-white transition flex items-center justify-center shadow-sm" data-idx="${idx}"><i class="fa-solid fa-trash-can text-xs"></i></button>
+            </div>
+        `;
+        list.appendChild(div);
+    });
+
+    // Eventos UI
+    document.querySelectorAll('.e-color').forEach(sel => sel.onchange = (e) => editItems[e.target.dataset.idx].color = e.target.value);
+    document.querySelectorAll('.e-capacity').forEach(sel => sel.onchange = (e) => editItems[e.target.dataset.idx].capacity = e.target.value);
+
+    document.querySelectorAll('.e-qty').forEach(inp => inp.onchange = (e) => {
+        const val = parseInt(e.target.value);
+        editItems[e.target.dataset.idx].quantity = val > 0 ? val : 1;
+        e.target.value = editItems[e.target.dataset.idx].quantity;
+        calculateEditTotals();
+    });
+
+    document.querySelectorAll('.e-price').forEach(inp => {
+        inp.oninput = (e) => {
+            const val = parseCurrency(e.target.value);
+            e.target.value = formatCurrency(val);
+            editItems[e.target.dataset.idx].price = val;
+            calculateEditTotals();
+        };
+        inp.onfocus = (e) => e.target.select();
+    });
+
+    document.querySelectorAll('.e-remove').forEach(btn => btn.onclick = (e) => {
+        const idx = e.currentTarget.dataset.idx;
+        editItems.splice(idx, 1);
+        renderEditItems();
+    });
+
+    calculateEditTotals();
+}
+
+function calculateEditTotals() {
+    const shipping = parseCurrency(getEl('eo-shipping-cost').value);
+    const subtotal = editItems.reduce((acc, i) => acc + (i.price * i.quantity), 0);
+    getEl('eo-total-display').textContent = formatCurrency(subtotal + shipping);
+}
+
+// 🔥 GUARDADO E INVENTARIO CONSOLIDADO (A PRUEBA DE ERRORES)
+async function saveEditedOrder() {
+    if(editItems.length === 0) return alert("La orden debe tener al menos un producto.");
+    if(!confirm("¿Estás seguro de modificar esta orden?\n\nEl stock de los productos y los valores se ajustarán automáticamente.")) return;
+
+    const btn = getEl('btn-save-edited-order');
+    const originalText = btn.innerHTML;
+    btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Ajustando Inventario...';
+    btn.disabled = true;
+
+    try {
+        const oldItems = editOrderOriginal.items || [];
+        const newItems = editItems;
+        const newShipping = parseCurrency(getEl('eo-shipping-cost').value);
+        const newSubtotal = newItems.reduce((acc, i) => acc + (i.price * i.quantity), 0);
+        const newTotal = newSubtotal + newShipping;
+
+        // 1. Agrupar Sumas y Restas (Deltas) para no pelear con el SyncWatcher de Firebase
+        const deltaMap = {};
+        
+        oldItems.forEach(item => {
+            const k = `${item.id}|${item.color||''}|${item.capacity||''}`;
+            if(!deltaMap[k]) deltaMap[k] = { id: item.id, color: item.color, capacity: item.capacity, delta: 0 };
+            deltaMap[k].delta += item.quantity; // Sumamos lo viejo (reingresa a bodega)
+        });
+
+        newItems.forEach(item => {
+            const k = `${item.id}|${item.color||''}|${item.capacity||''}`;
+            if(!deltaMap[k]) deltaMap[k] = { id: item.id, color: item.color, capacity: item.capacity, delta: 0 };
+            deltaMap[k].delta -= item.quantity; // Restamos lo nuevo (sale de bodega)
+        });
+
+        // 2. Aplicar los ajustes netos de stock
+        for (const key in deltaMap) {
+            const sd = deltaMap[key];
+            if (sd.delta !== 0) {
+                // Función blindada con reintentos si choca con el Centinela
+                await safeAdjustStock(sd.id, sd.delta, sd.color, sd.capacity);
+            }
+        }
+
+        // 3. Lógica Financiera
+        const updates = {
+            items: newItems,
+            subtotal: newSubtotal,
+            shippingCost: newShipping,
+            total: newTotal,
+            updatedAt: serverTimestamp(),
+            lastEditedBy: auth.currentUser?.email || 'admin'
+        };
+
+        // 4. Actualizar Base de Datos (Orden y Remisión)
+        await updateDoc(doc(db, "orders", editOrderOriginal.id), updates);
+        
+        const remRef = doc(db, "remissions", editOrderOriginal.id);
+        const remSnap = await getDoc(remRef);
+        if(remSnap.exists()) await updateDoc(remRef, { items: newItems, total: newTotal, updatedAt: serverTimestamp() });
+
+        alert("✅ Orden editada y stock cuadrado con éxito.");
+        getEl('edit-order-modal').classList.add('hidden');
+        getEl('order-modal').classList.add('hidden'); 
+
+        currentOrderData = null;
+
+    } catch(e) {
+        console.error(e);
+        alert("Error al editar la orden: " + e.message);
+    } finally {
+        btn.innerHTML = originalText;
+        btn.disabled = false;
+    }
+}
+
 
 // --- 2. ACCIONES (ALISTAR / DESPACHAR) ---
 export async function saveAlistamiento(onSuccess) {
@@ -317,7 +673,6 @@ export async function saveAlistamiento(onSuccess) {
             const inputs = document.querySelectorAll(`.sn-input[data-item-index="${idx}"]`);
             return { ...item, sns: Array.from(inputs).map(i => i.value.trim()) };
         });
-        // 🔥 Trigger al Store (updatedAt)
         await updateDoc(doc(db, "orders", currentOrderId), { items: updatedItems, status: 'ALISTADO', updatedAt: new Date() });
         alert("✅ Orden Alistada");
         getEl('order-modal').classList.add('hidden');
@@ -337,7 +692,6 @@ export async function confirmDispatch(onSuccess) {
     
     btn.disabled = true;
     try {
-        // 🔥 Trigger al Store (updatedAt)
         await updateDoc(doc(db, "orders", currentOrderId), { 
             status: 'DESPACHADO', shippingCarrier: carrier, shippingTracking: tracking, shippedAt: new Date(), updatedAt: new Date() 
         });
@@ -348,7 +702,7 @@ export async function confirmDispatch(onSuccess) {
     } catch(e) { console.error(e); } finally { btn.disabled = false; }
 }
 
-// --- 3. IMPRIMIR PDF (REMISIÓN PROFESIONAL) ---
+// --- 3. IMPRIMIR PDF ---
 export async function printRemission(orderId) {
     try {
         const snap = await getDoc(doc(db, "orders", orderId));
@@ -397,48 +751,55 @@ export async function printRemission(orderId) {
                 <style>
                     body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; padding: 40px; font-size: 13px; color: #111827; max-width: 800px; margin: 0 auto; }
                     h1, h2, h3, h4 { color: #111827; margin: 0 0 5px 0; line-height: 1.2; }
-                    
-                    /* Cabecera */
                     .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 30px; border-bottom: 2px solid #111827; padding-bottom: 20px; }
                     .store-info h1 { font-size: 28px; font-weight: 900; letter-spacing: -1px; margin-bottom: 2px; }
                     .store-info p { margin: 0; color: #4b5563; font-size: 12px; }
-                    
                     .remission-info { text-align: right; }
                     .remission-info h2 { font-size: 22px; font-weight: 900; letter-spacing: 2px; }
                     .remission-info .consecutivo { font-size: 18px; font-weight: 900; color: #00AEC7; margin-bottom: 5px; display: block;}
                     .remission-info p { margin: 2px 0; font-size: 12px; color: #4b5563; }
                     .badge { display: inline-block; background: #f3f4f6; padding: 4px 8px; border-radius: 4px; font-family: monospace; margin-top: 5px; font-weight: bold; font-size: 11px;}
-                    
                     .section-title { font-size: 10px; font-weight: 900; color: #9ca3af; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 10px; border-bottom: 1px solid #e5e7eb; padding-bottom: 5px;}
-                    
-                    /* Información Cliente */
                     .customer-info { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 30px; background: #f9fafb; padding: 20px; border-radius: 12px; }
                     .customer-box p { margin: 0; font-size: 13px; font-weight: bold;}
                     .customer-box label { font-size: 9px; font-weight: 900; color: #9ca3af; text-transform: uppercase; display: block; margin-bottom: 2px; letter-spacing: 0.5px;}
-
-                    /* Tabla de Productos */
                     table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
                     th { text-align: left; background: #f9fafb; padding: 12px; font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: 1px; color: #6b7280; border-bottom: 2px solid #e5e7eb; }
                     td { padding: 15px 12px; border-bottom: 1px solid #f3f4f6; vertical-align: top; }
-                    
-                    /* Totales */
                     .totals-container { display: flex; justify-content: flex-end; margin-bottom: 40px; }
                     .totals-table { width: 300px; border-collapse: collapse; }
                     .totals-table td { padding: 10px; border-bottom: 1px solid #f3f4f6; }
                     .totals-table tr:last-child td { border-bottom: none; font-size: 16px; font-weight: 900; border-top: 2px solid #111827; }
                     .totals-table td:last-child { text-align: right; font-weight: bold; color: #111827; }
                     .totals-table td:first-child { text-align: left; color: #6b7280; font-weight: bold; }
-
-                    /* Pie de página */
                     .footer { margin-top: 50px; text-align: center; color: #4b5563; font-size: 11px; border-top: 1px solid #e5e7eb; padding-top: 20px; line-height: 1.6; }
                     .footer strong { color: #111827; font-size: 12px;}
-                    
-                    /* Evitar cortes */
-                    @media print {
-                        body { padding: 0; }
-                        table { page-break-inside: auto; }
-                        tr { page-break-inside: avoid; page-break-after: auto; }
+                    /* 🔥 CORRECCIÓN DE CORTES (TEXTO MULTILÍNEA) 🔥 */
+                    .info-line { 
+                        margin-bottom: 12px; 
+                        border-bottom: 2px solid #111827; 
+                        display: flex; 
+                        align-items: flex-start;
+                        padding-bottom: 3px;
                     }
+                    .info-line strong { 
+                        font-weight: 900; 
+                        margin-right: 8px; 
+                        font-size: 13px; 
+                        white-space: nowrap; 
+                        margin-top: 2px;
+                    }
+                    .info-line span { 
+                        flex-grow: 1; 
+                        font-weight: 700; 
+                        font-size: 13px; 
+                        text-align: left; 
+                        white-space: normal;
+                        word-break: break-word; 
+                        line-height: 1.2;
+                    }
+                    .info-row { display: flex; gap: 15px; }
+                    @media print { body { padding: 0; } table { page-break-inside: auto; } tr { page-break-inside: avoid; page-break-after: auto; } }
                 </style>
             </head>
             <body>
@@ -455,63 +816,25 @@ export async function printRemission(orderId) {
                         <div class="badge">Pedido ID: ${shortId}</div>
                     </div>
                 </div>
-
                 <div class="section-title">Información del Cliente</div>
                 <div class="customer-info">
-                    <div class="customer-box">
-                        <label>Cliente</label>
-                        <p>${clientName}</p>
-                    </div>
-                    <div class="customer-box">
-                        <label>Teléfono</label>
-                        <p>${clientPhone}</p>
-                    </div>
-                    <div class="customer-box">
-                        <label>Identificación</label>
-                        <p>${clientDoc}</p>
-                    </div>
-                    <div class="customer-box">
-                        <label>Dirección de Entrega</label>
-                        <p>${address}</p>
-                    </div>
+                    <div class="customer-box"><label>Cliente</label><p>${clientName}</p></div>
+                    <div class="customer-box"><label>Teléfono</label><p>${clientPhone}</p></div>
+                    <div class="customer-box"><label>Identificación</label><p>${clientDoc}</p></div>
+                    <div class="customer-box"><label>Dirección de Entrega</label><p>${address}</p></div>
                 </div>
-
                 <table>
-                    <thead>
-                        <tr>
-                            <th>Descripción</th>
-                            <th style="text-align:center">Cant</th>
-                            <th style="text-align:right">Unitario</th>
-                            <th style="text-align:right">Total</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${itemsHtml}
-                    </tbody>
+                    <thead><tr><th>Descripción</th><th style="text-align:center">Cant</th><th style="text-align:right">Unitario</th><th style="text-align:right">Total</th></tr></thead>
+                    <tbody>${itemsHtml}</tbody>
                 </table>
-
                 <div class="totals-container">
                     <table class="totals-table">
-                        <tr>
-                            <td>Subtotal</td>
-                            <td>$${subtotal.toLocaleString('es-CO')}</td>
-                        </tr>
-                        <tr>
-                            <td>Envío</td>
-                            <td>$${shipping.toLocaleString('es-CO')}</td>
-                        </tr>
-                        <tr>
-                            <td>TOTAL</td>
-                            <td>$${total.toLocaleString('es-CO')}</td>
-                        </tr>
+                        <tr><td>Subtotal</td><td>$${subtotal.toLocaleString('es-CO')}</td></tr>
+                        <tr><td>Envío</td><td>$${shipping.toLocaleString('es-CO')}</td></tr>
+                        <tr><td>TOTAL</td><td>$${total.toLocaleString('es-CO')}</td></tr>
                     </table>
                 </div>
-
-                <div class="footer">
-                    Este documento es una remisión de entrega y soporte de garantía.<br>
-                    <strong>Para solicitud de factura con código CUFE contáctanos al 3009046450</strong>
-                </div>
-
+                <div class="footer">Este documento es una remisión de entrega y soporte de garantía.<br><strong>Para solicitud de factura con código CUFE contáctanos al 3009046450</strong></div>
                 <script>setTimeout(() => { window.print(); window.close(); }, 800);</script>
             </body>
             </html>
@@ -523,22 +846,11 @@ export async function printRemission(orderId) {
 // --- 4. SOLICITAR FACTURA ---
 export async function requestInvoice(orderId) {
     if(!confirm("¿Marcar este pedido para Facturación Electrónica?")) return;
-    
     try {
-        // 🔥 Trigger al Store (updatedAt)
-        await updateDoc(doc(db, "orders", orderId), { 
-            requiresInvoice: true,
-            billingStatus: 'PENDING', 
-            updatedAt: new Date()
-        });
-
+        await updateDoc(doc(db, "orders", orderId), { requiresInvoice: true, billingStatus: 'PENDING', updatedAt: new Date() });
         alert("✅ Solicitud enviada al Módulo de Facturación.");
         location.reload();
-
-    } catch (e) {
-        console.error(e);
-        alert("Error al actualizar: " + e.message);
-    }
+    } catch (e) { alert("Error al actualizar: " + e.message); }
 }
 
 // --- 5. EXPORTAR AL WINDOW ---
@@ -552,55 +864,39 @@ window.confirmDispatch = confirmDispatch;
 // --- 6. REGISTRAR PAGO MANUAL ---
 export async function openPaymentModal(orderId, amountDue) {
     const modal = getEl('payment-modal');
-    const idDisplay = getEl('pay-modal-order-id');
-    const inputId = getEl('pay-target-id');
-    const inputAmount = getEl('pay-amount');
-    const selectAcc = getEl('pay-account-select');
-
-    if(!modal) return console.error("No modal");
-
-    idDisplay.textContent = `Orden #${orderId.slice(0,8).toUpperCase()}`;
-    inputId.value = orderId;
-    
-    inputAmount.value = `$${Number(amountDue).toLocaleString('es-CO')}`;
-    inputAmount.dataset.max = amountDue;
+    getEl('pay-modal-order-id').textContent = `Orden #${orderId.slice(0,8).toUpperCase()}`;
+    getEl('pay-target-id').value = orderId;
+    getEl('pay-amount').value = `$${Number(amountDue).toLocaleString('es-CO')}`;
+    getEl('pay-amount').dataset.max = amountDue;
     
     try {
+        const selectAcc = getEl('pay-account-select');
         if (selectAcc.options.length <= 1) { 
             selectAcc.innerHTML = '<option value="">Cargando...</option>';
             const accounts = await loadAccountsCached();
-            
             let ops = '<option value="">Seleccione Cuenta...</option>';
-            accounts.forEach(acc => {
-                ops += `<option value="${acc.id}">${acc.name} (${acc.type})</option>`;
-            });
+            accounts.forEach(acc => ops += `<option value="${acc.id}">${acc.name} (${acc.type})</option>`);
             selectAcc.innerHTML = ops;
         }
-    } catch (e) {
-        console.error("Error cuentas:", e);
-        selectAcc.innerHTML = '<option value="">Error al cargar</option>';
-    }
+    } catch (e) {}
 
     modal.classList.remove('hidden');
-    
-    inputAmount.oninput = (e) => {
+    getEl('pay-amount').oninput = (e) => {
         let val = e.target.value.replace(/\D/g, "");
         e.target.value = val ? "$" + parseInt(val, 10).toLocaleString('es-CO') : "";
     };
 }
 
 // =============================================================================
-// LÓGICA DEVOLUCIONES (OPTIMIZADA)
+// LÓGICA DEVOLUCIONES
 // =============================================================================
-
 async function openRefundModal(orderInput) {
     if (!orderInput) return;
 
     let o = orderInput;
     if (typeof orderInput === 'string') {
-        if (currentOrderData && currentOrderData.id === orderInput) {
-            o = currentOrderData; 
-        } else {
+        if (currentOrderData && currentOrderData.id === orderInput) o = currentOrderData; 
+        else {
             const snap = await getDoc(doc(db, "orders", orderInput)); 
             if (!snap.exists()) return;
             o = { id: snap.id, ...snap.data() };
@@ -609,92 +905,60 @@ async function openRefundModal(orderInput) {
     }
 
     const modal = getEl('refund-modal');
-    const idDisplay = getEl('refund-modal-order-id');
-    const inputId = getEl('refund-target-id');
-    const wasPaidInput = getEl('refund-was-paid');
-    const container = getEl('refund-items-container');
-    const inputAmount = getEl('refund-amount');
-    const selectAcc = getEl('refund-account-select');
-    const financialSection = getEl('refund-financial-section');
-    const noPaymentMsg = getEl('refund-no-payment-msg');
-
-    idDisplay.textContent = `Orden #${o.id.slice(0,8).toUpperCase()}`;
-    inputId.value = o.id;
-    inputAmount.value = "$ 0";
-    container.innerHTML = '<div class="text-center py-4"><i class="fa-solid fa-circle-notch fa-spin text-gray-300"></i></div>';
+    getEl('refund-modal-order-id').textContent = `Orden #${o.id.slice(0,8).toUpperCase()}`;
+    getEl('refund-target-id').value = o.id;
+    getEl('refund-amount').value = "$ 0";
+    getEl('refund-items-container').innerHTML = '<div class="text-center py-4"><i class="fa-solid fa-circle-notch fa-spin text-gray-300"></i></div>';
     
     try {
         const totalPaid = o.total || 0;
         const alreadyRefunded = o.refundedAmount || 0;
         const moneyAvailable = totalPaid - alreadyRefunded;
-
         const isPaid = (o.paymentStatus === 'PAID') || (o.status === 'PAGADO') || ((o.amountPaid || 0) >= totalPaid);
         
-        wasPaidInput.value = isPaid ? "true" : "false";
+        getEl('refund-was-paid').value = isPaid ? "true" : "false";
 
         if (isPaid) {
-            financialSection.classList.remove('hidden');
-            noPaymentMsg.classList.add('hidden');
+            getEl('refund-financial-section').classList.remove('hidden');
+            getEl('refund-no-payment-msg').classList.add('hidden');
             
-            const existingInfo = financialSection.querySelector('.info-badge');
+            const existingInfo = getEl('refund-financial-section').querySelector('.info-badge');
             if(existingInfo) existingInfo.remove();
             
             const infoDiv = document.createElement('div');
             infoDiv.className = "info-badge mb-4 p-3 bg-blue-50 rounded-xl border border-blue-100 text-[10px] text-blue-800 flex justify-between";
-            infoDiv.innerHTML = `
-                <span><strong>Total:</strong> $${totalPaid.toLocaleString()}</span>
-                <span><strong>Devuelto:</strong> $${alreadyRefunded.toLocaleString()}</span>
-                <span class="font-black text-brand-cyan"><strong>Disponible:</strong> $${moneyAvailable.toLocaleString()}</span>
-            `;
-            financialSection.prepend(infoDiv);
+            infoDiv.innerHTML = `<span><strong>Total:</strong> $${totalPaid.toLocaleString()}</span><span><strong>Devuelto:</strong> $${alreadyRefunded.toLocaleString()}</span><span class="font-black text-brand-cyan"><strong>Disponible:</strong> $${moneyAvailable.toLocaleString()}</span>`;
+            getEl('refund-financial-section').prepend(infoDiv);
 
+            const selectAcc = getEl('refund-account-select');
             if (selectAcc.options.length <= 1) {
                 const accounts = await loadAccountsCached();
                 let html = '<option value="">Seleccione Cuenta de Origen...</option>';
-                accounts.forEach(acc => {
-                    html += `<option value="${acc.id}">${acc.name} (Saldo: $${(acc.balance || 0).toLocaleString()})</option>`;
-                });
+                accounts.forEach(acc => html += `<option value="${acc.id}">${acc.name} (Saldo: $${(acc.balance || 0).toLocaleString()})</option>`);
                 selectAcc.innerHTML = html;
             }
         } else {
-            financialSection.classList.add('hidden');
-            noPaymentMsg.classList.remove('hidden');
+            getEl('refund-financial-section').classList.add('hidden');
+            getEl('refund-no-payment-msg').classList.remove('hidden');
         }
 
         const items = o.items || [];
-        container.innerHTML = "";
-        
+        getEl('refund-items-container').innerHTML = "";
         let hasItemsToReturn = false;
 
         items.forEach((item, index) => {
             const img = item.mainImage || item.image || '[https://placehold.co/50](https://placehold.co/50)';
-            
             const originalQty = item.quantity || 0;
             const alreadyReturnedQty = item.returnedQty || 0; 
             const availableQty = originalQty - alreadyReturnedQty;
 
             if (availableQty <= 0) return; 
-
             hasItemsToReturn = true;
             
             const div = document.createElement('div');
             div.className = "refund-item-row flex items-center gap-4 p-3 border border-gray-100 rounded-xl hover:bg-slate-50 transition bg-white";
-            div.innerHTML = `
-                <div class="flex items-center h-full">
-                    <input type="checkbox" class="refund-check w-5 h-5 text-red-500 rounded border-gray-300 focus:ring-red-500 cursor-pointer" data-index="${index}">
-                </div>
-                <img src="${img}" class="w-10 h-10 rounded-lg object-contain bg-gray-50 border border-gray-200">
-                <div class="flex-grow min-w-0">
-                    <p class="text-[10px] font-black text-brand-black uppercase truncate">${item.name}</p>
-                    <p class="text-[9px] text-gray-400 font-bold">$${(item.price || 0).toLocaleString()} c/u</p>
-                    ${alreadyReturnedQty > 0 ? `<p class="text-[8px] text-orange-500 font-bold">Devueltos antes: ${alreadyReturnedQty}</p>` : ''}
-                </div>
-                <div class="flex items-center gap-2">
-                    <span class="text-[8px] font-bold text-gray-400 uppercase">Cant.</span>
-                    <input type="number" min="1" max="${availableQty}" value="${availableQty}" class="refund-qty w-12 p-2 text-center text-xs font-bold border border-gray-200 rounded-lg outline-none focus:border-red-500" disabled>
-                </div>
-            `;
-            container.appendChild(div);
+            div.innerHTML = `<div class="flex items-center h-full"><input type="checkbox" class="refund-check w-5 h-5 text-red-500 rounded border-gray-300 focus:ring-red-500 cursor-pointer" data-index="${index}"></div><img src="${img}" class="w-10 h-10 rounded-lg object-contain bg-gray-50 border border-gray-200"><div class="flex-grow min-w-0"><p class="text-[10px] font-black text-brand-black uppercase truncate">${item.name}</p><p class="text-[9px] text-gray-400 font-bold">$${(item.price || 0).toLocaleString()} c/u</p>${alreadyReturnedQty > 0 ? `<p class="text-[8px] text-orange-500 font-bold">Devueltos antes: ${alreadyReturnedQty}</p>` : ''}</div><div class="flex items-center gap-2"><span class="text-[8px] font-bold text-gray-400 uppercase">Cant.</span><input type="number" min="1" max="${availableQty}" value="${availableQty}" class="refund-qty w-12 p-2 text-center text-xs font-bold border border-gray-200 rounded-lg outline-none focus:border-red-500" disabled></div>`;
+            getEl('refund-items-container').appendChild(div);
 
             const checkbox = div.querySelector('.refund-check');
             const qtyInput = div.querySelector('.refund-qty');
@@ -710,11 +974,9 @@ async function openRefundModal(orderInput) {
         });
 
         if (!hasItemsToReturn) {
-            container.innerHTML = '<div class="text-center p-4 bg-green-50 rounded-xl text-green-700 text-xs font-bold border border-green-100"><i class="fa-solid fa-check-circle"></i> Todos los productos de esta orden ya han sido devueltos.</div>';
+            getEl('refund-items-container').innerHTML = '<div class="text-center p-4 bg-green-50 rounded-xl text-green-700 text-xs font-bold border border-green-100"><i class="fa-solid fa-check-circle"></i> Todos los productos de esta orden ya han sido devueltos.</div>';
         }
-
     } catch (e) { console.error(e); }
-
     modal.classList.remove('hidden');
 }
 
@@ -729,8 +991,7 @@ function recalcRefundTotal(items) {
             total += (price * qty);
         }
     });
-    const input = getEl('refund-amount');
-    input.value = `$ ${total.toLocaleString('es-CO')}`;
+    getEl('refund-amount').value = `$ ${total.toLocaleString('es-CO')}`;
 }
 
 const refundForm = getEl('refund-form');
@@ -739,8 +1000,7 @@ if (refundForm) {
         e.preventDefault();
         const btn = refundForm.querySelector('button[type="submit"]');
         const originalText = btn.innerHTML;
-        btn.disabled = true; 
-        btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Procesando...';
+        btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Procesando...';
 
         const orderId = getEl('refund-target-id').value;
         const wasPaid = getEl('refund-was-paid').value === "true";
@@ -753,12 +1013,7 @@ if (refundForm) {
             accountId = getEl('refund-account-select').value;
             const amountStr = getEl('refund-amount').value.replace(/[^0-9]/g, "");
             amount = parseInt(amountStr) || 0;
-
-            if (!accountId && amount > 0) {
-                alert("Selecciona una cuenta de origen.");
-                btn.disabled = false; btn.innerHTML = originalText;
-                return;
-            }
+            if (!accountId && amount > 0) { alert("Selecciona una cuenta de origen."); btn.disabled = false; btn.innerHTML = originalText; return; }
         }
 
         try {
@@ -783,23 +1038,15 @@ if (refundForm) {
                 let totalOriginalQty = 0;
                 let totalReturnedQtySoFar = 0;
 
-                const rows = document.querySelectorAll('.refund-item-row');
-                rows.forEach(row => {
+                document.querySelectorAll('.refund-item-row').forEach(row => {
                     const check = row.querySelector('.refund-check');
                     if (check.checked) {
                         const idx = parseInt(check.dataset.index);
                         const qtyToReturn = parseInt(row.querySelector('.refund-qty').value);
                         
                         if (qtyToReturn > 0) {
-                            const currentReturned = updatedItems[idx].returnedQty || 0;
-                            updatedItems[idx].returnedQty = currentReturned + qtyToReturn;
-                            
-                            itemsToRestoreStock.push({ 
-                                id: updatedItems[idx].id, 
-                                qty: qtyToReturn, 
-                                color: updatedItems[idx].color, 
-                                capacity: updatedItems[idx].capacity 
-                            });
+                            updatedItems[idx].returnedQty = (updatedItems[idx].returnedQty || 0) + qtyToReturn;
+                            itemsToRestoreStock.push({ id: updatedItems[idx].id, qty: qtyToReturn, color: updatedItems[idx].color, capacity: updatedItems[idx].capacity });
                         }
                     }
                 });
@@ -811,8 +1058,7 @@ if (refundForm) {
 
                 let newStatus = oData.status;
                 if (totalReturnedQtySoFar > 0) {
-                    if (totalReturnedQtySoFar >= totalOriginalQty) newStatus = 'DEVUELTO';
-                    else newStatus = 'DEVOLUCION_PARCIAL';
+                    newStatus = (totalReturnedQtySoFar >= totalOriginalQty) ? 'DEVUELTO' : 'DEVOLUCION_PARCIAL';
                 }
 
                 if (wasPaid && amount > 0) {
@@ -825,56 +1071,21 @@ if (refundForm) {
                     t.update(accRef, { balance: currentBalance - amount });
 
                     const expenseRef = doc(collection(db, "expenses"));
-                    t.set(expenseRef, {
-                        amount: amount,
-                        category: "Devoluciones",
-                        description: `Reembolso ${newStatus === 'DEVUELTO' ? 'Total' : 'Parcial'} Orden #${orderId.slice(0,8)}`,
-                        paymentMethod: accDoc.data().name,
-                        supplierName: oData.userName || "Cliente",
-                        date: serverTimestamp(),
-                        createdAt: serverTimestamp(),
-                        type: 'EXPENSE',
-                        orderId: orderId,
-                        isRefund: true
-                    });
+                    t.set(expenseRef, { amount: amount, category: "Devoluciones", description: `Reembolso ${newStatus === 'DEVUELTO' ? 'Total' : 'Parcial'} Orden #${orderId.slice(0,8)}`, paymentMethod: accDoc.data().name, supplierName: oData.userName || "Cliente", date: serverTimestamp(), createdAt: serverTimestamp(), type: 'EXPENSE', orderId: orderId, isRefund: true });
                 }
 
-                // 🔥 Trigger al Store (updatedAt)
-                t.update(orderRef, {
-                    items: updatedItems,
-                    status: newStatus,
-                    refundedAmount: (oData.refundedAmount || 0) + amount,
-                    hasRefunds: true,
-                    lastRefundDate: serverTimestamp(),
-                    refundReason: reason,
-                    updatedAt: serverTimestamp() 
-                });
+                t.update(orderRef, { items: updatedItems, status: newStatus, refundedAmount: (oData.refundedAmount || 0) + amount, hasRefunds: true, lastRefundDate: serverTimestamp(), refundReason: reason, updatedAt: serverTimestamp() });
             });
 
             if (itemsToRestoreStock.length > 0) {
-                for (const item of itemsToRestoreStock) {
-                    await adjustStock(item.id, item.qty, item.color, item.capacity);
-                }
+                for (const item of itemsToRestoreStock) await adjustStock(item.id, item.qty, item.color, item.capacity);
             }
 
             alert("✅ Devolución procesada correctamente.");
-            
-            currentOrderData = null; 
-            accountsCache = null;
+            currentOrderData = null; accountsCache = null;
+            getEl('refund-modal').classList.add('hidden'); getEl('order-modal').classList.add('hidden');
 
-            getEl('refund-modal').classList.add('hidden');
-            getEl('order-modal').classList.add('hidden');
-            
-            // Si la vista local tiene función fetchOrders (Como dashboard.js), usarla. Si no, reload.
-            // OJO: Como ahora tenemos AdminStore, ni siquiera hace falta recargar, el Store repintará solo.
-
-        } catch (e) {
-            console.error(e);
-            alert("Error: " + (e.message || e));
-        } finally {
-            btn.disabled = false;
-            btn.innerHTML = originalText;
-        }
+        } catch (e) { alert("Error: " + (e.message || e)); } finally { btn.disabled = false; btn.innerHTML = originalText; }
     };
 }
 
@@ -884,27 +1095,15 @@ if (payForm) {
         e.preventDefault();
         const btn = payForm.querySelector('button');
         const originalText = btn.innerHTML;
-        btn.disabled = true; 
-        btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Procesando...';
+        btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Procesando...';
 
         const orderId = document.getElementById('pay-target-id').value;
         const accId = document.getElementById('pay-account-select').value;
-        const amountStr = document.getElementById('pay-amount').value.replace(/\D/g, "");
-        const amount = parseInt(amountStr, 10);
-        
+        const amount = parseInt(document.getElementById('pay-amount').value.replace(/\D/g, ""), 10);
         const maxAmount = parseInt(document.getElementById('pay-amount').dataset.max || 0);
 
-        if (!accId || amount <= 0) {
-            alert("Verifica la cuenta y el monto.");
-            btn.disabled = false; btn.innerHTML = originalText;
-            return;
-        }
-
-        if (amount > maxAmount) {
-            alert(`El monto excede el saldo pendiente ($${maxAmount.toLocaleString()}).`);
-            btn.disabled = false; btn.innerHTML = originalText;
-            return;
-        }
+        if (!accId || amount <= 0) { alert("Verifica la cuenta y el monto."); btn.disabled = false; btn.innerHTML = originalText; return; }
+        if (amount > maxAmount) { alert(`El monto excede el saldo pendiente ($${maxAmount.toLocaleString()}).`); btn.disabled = false; btn.innerHTML = originalText; return; }
 
         try {
             await runTransaction(db, async (t) => {
@@ -920,55 +1119,25 @@ if (payForm) {
                 const accDoc = await t.get(accRef);
                 if (!accDoc.exists()) throw "La cuenta no existe.";
 
-                const newBalance = (accDoc.data().balance || 0) + amount;
-                t.update(accRef, { balance: newBalance });
+                t.update(accRef, { balance: (accDoc.data().balance || 0) + amount });
 
                 const expenseRef = doc(collection(db, "expenses"));
-                t.set(expenseRef, {
-                    amount: amount,
-                    category: "Ingreso Ventas Manual",
-                    description: `Cobro Orden #${orderId.slice(0,8)}`,
-                    paymentMethod: accDoc.data().name,
-                    supplierName: oData.userName || "Cliente",
-                    date: serverTimestamp(),
-                    createdAt: serverTimestamp(),
-                    type: 'INCOME',
-                    orderId: orderId
-                });
+                t.set(expenseRef, { amount: amount, category: "Ingreso Ventas Manual", description: `Cobro Orden #${orderId.slice(0,8)}`, paymentMethod: accDoc.data().name, supplierName: oData.userName || "Cliente", date: serverTimestamp(), createdAt: serverTimestamp(), type: 'INCOME', orderId: orderId });
 
                 const newAmountPaid = (oData.amountPaid || 0) + amount;
                 const isFullyPaid = newAmountPaid >= ((oData.total || 0) - (oData.refundedAmount || 0));
                 
                 let nextStatus = oData.status; 
-                if (isFullyPaid && ['PENDIENTE', 'PENDIENTE_PAGO', 'CANCELADO'].includes(oData.status)) {
-                    nextStatus = 'PAGADO';
-                }
+                if (isFullyPaid && ['PENDIENTE', 'PENDIENTE_PAGO', 'CANCELADO'].includes(oData.status)) nextStatus = 'PAGADO';
 
-                // 🔥 Trigger al Store (updatedAt)
-                t.update(orderRef, {
-                    status: nextStatus,
-                    paymentStatus: isFullyPaid ? 'PAID' : 'PARTIAL',
-                    amountPaid: newAmountPaid, 
-                    paymentMethod: oData.paymentMethod || 'MANUAL', 
-                    paymentAccountId: accId,
-                    paymentDate: serverTimestamp(),
-                    updatedAt: serverTimestamp() 
-                });
+                t.update(orderRef, { status: nextStatus, paymentStatus: isFullyPaid ? 'PAID' : 'PARTIAL', amountPaid: newAmountPaid, paymentMethod: oData.paymentMethod || 'MANUAL', paymentAccountId: accId, paymentDate: serverTimestamp(), updatedAt: serverTimestamp() });
             });
 
             alert("✅ Pago registrado exitosamente.");
             document.getElementById('payment-modal').classList.add('hidden');
-            
-            currentOrderData = null; 
-            accountsCache = null;
+            currentOrderData = null; accountsCache = null;
 
-        } catch (error) {
-            console.error(error);
-            alert("Error: " + (error.message || error));
-        } finally {
-            btn.disabled = false;
-            btn.innerHTML = originalText;
-        }
+        } catch (error) { alert("Error: " + (error.message || error)); } finally { btn.disabled = false; btn.innerHTML = originalText; }
     };
 }
 
