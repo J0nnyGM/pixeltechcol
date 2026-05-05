@@ -1,8 +1,8 @@
 import { db, collection, doc, runTransaction, addDoc, setDoc, getDocs, query, orderBy } from './firebase-init.js';
 import { adjustStock } from './inventory-core.js';
-import { AdminStore } from './admin-store.js'; // 🔥 IMPORTAMOS EL CEREBRO CENTRAL
+import { AdminStore } from './admin-store.js';
 
-// --- HTML DEL MODAL (PLANTILLA INTEGRADA - SIN SUB-MODALES) ---
+// --- HTML DEL MODAL ---
 const MODAL_HTML = `
 <div id="manual-modal" class="fixed inset-0 z-[80] hidden flex items-center justify-center p-4 sm:p-6">
     <div class="absolute inset-0 bg-slate-900/70 backdrop-blur-sm" id="btn-close-overlay"></div>
@@ -143,12 +143,17 @@ const MODAL_HTML = `
         </div>
         
         <div class="p-6 md:p-8 border-t border-gray-100 bg-white grid grid-cols-1 md:grid-cols-12 gap-6 items-center shrink-0 rounded-b-[2.5rem]">
-             <div class="md:col-span-4">
+             <div class="md:col-span-4 flex flex-col justify-center">
                 <label class="text-[9px] font-black uppercase text-gray-400 tracking-widest mb-2 block ml-1">Costo de Envío Extra</label>
                 <div class="relative">
                     <i class="fa-solid fa-truck-fast absolute left-4 top-1/2 -translate-y-1/2 text-gray-300"></i>
                     <input type="text" id="m-shipping-cost" value="$ 0" class="currency-input w-full bg-slate-50 border border-gray-100 py-4 pl-11 pr-4 rounded-2xl text-sm font-black outline-none focus:border-brand-cyan text-brand-black transition-colors shadow-inner">
                 </div>
+                <!-- 🔥 NUEVO: Checkbox 4x1000 -->
+                <label class="flex items-center gap-2 mt-3 cursor-pointer ml-1 select-none">
+                    <input type="checkbox" id="m-apply-4x1000" class="w-4 h-4 rounded text-brand-cyan border-gray-300 focus:ring-brand-cyan">
+                    <span class="text-[10px] font-black uppercase text-brand-black tracking-widest">Cobrar 4x1000 Cliente</span>
+                </label>
             </div>
             
             <div class="md:col-span-4 text-center md:text-right flex flex-col justify-center">
@@ -166,21 +171,17 @@ const MODAL_HTML = `
 </div>
 `;
 
-// --- VARIABLES GLOBALES DEL MÓDULO ---
+// --- VARIABLES GLOBALES ---
 let manualProductsCache = []; 
 let manualClientsCache = [];
-
-// Estado del Cliente
 let isCreatingNewClient = false;
 let selectedUserId = null;
 let selectedUserName = "";
 let selectedUserPhone = "";
-let selectedUserDoc = ""; // 🔥 NUEVA VARIABLE PARA LA CÉDULA
+let selectedUserDoc = ""; 
 let currentUserAddresses = [];
-
 let onSuccessCallback = null;
 
-// --- UTILIDADES ---
 const formatCurrency = (num) => '$ ' + num.toLocaleString('es-CO');
 const parseCurrency = (str) => Number(str.replace(/[^0-9-]/g, '')) || 0;
 const normalizeText = (str) => str ? str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "") : "";
@@ -194,12 +195,8 @@ function setupCurrencyInput(input) {
     input.addEventListener('focus', (e) => e.target.select());
 }
 
-// ==========================================================================
-// 🔥 CONEXIÓN AL STORE CENTRAL
-// ==========================================================================
 AdminStore.subscribeToProducts((products) => {
     manualProductsCache = products;
-    // Si el modal está abierto, actualizamos en vivo el stock de las filas
     const modal = document.getElementById('manual-modal');
     if (modal && !modal.classList.contains('hidden')) {
         document.querySelectorAll('.item-row-container').forEach(row => {
@@ -214,15 +211,12 @@ AdminStore.subscribeToProducts((products) => {
 
 AdminStore.subscribeToClients((clients) => {
     manualClientsCache = clients;
-    // Si el usuario estaba buscando un cliente justo cuando se sincronizó, refresca la búsqueda
     const searchInput = document.getElementById('m-cust-search');
     if (searchInput && searchInput.value.trim().length >= 2 && !isCreatingNewClient && !selectedUserId) {
         searchInput.dispatchEvent(new Event('input'));
     }
 });
 
-
-// --- INICIALIZAR ---
 export function initManualSale(onSuccess) {
     if (!document.getElementById('manual-modal')) {
         document.body.insertAdjacentHTML('beforeend', MODAL_HTML);
@@ -231,19 +225,17 @@ export function initManualSale(onSuccess) {
     onSuccessCallback = onSuccess;
 }
 
-// --- OPEN MODAL ---
 export async function openManualSaleModal() {
     const modal = document.getElementById('manual-modal');
     const container = document.getElementById('manual-items-container');
     
-    // Resetear Estado de Cliente
     isCreatingNewClient = false;
     selectedUserId = null;
     selectedUserName = "";
     selectedUserPhone = "";
+    selectedUserDoc = "";
     currentUserAddresses = [];
     
-    // Resetear UI
     document.getElementById('m-search-section').classList.remove('hidden');
     document.getElementById('m-selected-client-section').classList.add('hidden');
     document.getElementById('m-new-client-section').classList.add('hidden');
@@ -253,6 +245,7 @@ export async function openManualSaleModal() {
     document.getElementById('m-nc-phone').value = "";
     document.getElementById('m-nc-doc').value = "";
     document.getElementById('m-nc-email').value = "";
+    document.getElementById('m-apply-4x1000').checked = false; // Reiniciar check
 
     document.getElementById('manual-total-display').textContent = "$ 0";
     document.getElementById('m-shipping-cost').value = "$ 0";
@@ -261,7 +254,6 @@ export async function openManualSaleModal() {
     document.getElementById('m-address-manual').value = "";
     container.innerHTML = "";
 
-    // 🔥 Ya no llamamos a loadCaches() porque AdminStore lo maneja en segundo plano
     await Promise.all([
         loadPaymentAccounts(), 
         loadManualDepartments()
@@ -278,6 +270,7 @@ function setupEventListeners() {
     document.getElementById('btn-close-overlay').onclick = () => document.getElementById('manual-modal').classList.add('hidden');
     document.getElementById('btn-add-item-row').onclick = addManualItemRow;
     document.getElementById('btn-save-manual').onclick = saveOrder;
+    document.getElementById('m-apply-4x1000').addEventListener('change', calculateManualTotal); // Evento 4x1000
 
     setupCustomerSearch();
 
@@ -304,7 +297,6 @@ function setupEventListeners() {
     };
 }
 
-// --- LÓGICA FILAS Y PRODUCTOS ---
 function addManualItemRow() {
     const div = document.createElement('div');
     div.className = "item-row-container relative focus-within:z-[60] bg-slate-50/50 p-4 rounded-2xl border border-gray-100 shadow-sm animate-in fade-in slide-in-from-top-2";
@@ -369,11 +361,7 @@ function setupProductSearch(row) {
     searchInput.addEventListener('input', (e) => {
         const term = normalizeText(e.target.value);
         resultsDiv.innerHTML = "";
-        
-        if (term.length < 2) { 
-            resultsDiv.classList.add('hidden'); 
-            return; 
-        }
+        if (term.length < 2) { resultsDiv.classList.add('hidden'); return; }
         
         const filtered = manualProductsCache.filter(p => {
             const searchStr = p.searchStr || normalizeText(`${p.name} ${p.sku || ''}`);
@@ -387,16 +375,7 @@ function setupProductSearch(row) {
                 const isOutOfStock = p.stock <= 0;
                 const d = document.createElement('div');
                 d.className = `p-3 flex items-center justify-between border-b border-gray-50 last:border-0 ${isOutOfStock ? 'bg-gray-50 opacity-60 cursor-not-allowed' : 'hover:bg-cyan-50 cursor-pointer transition'}`;
-                
-                d.innerHTML = `
-                    <div class="flex-1 min-w-0 pr-2">
-                        <p class="text-[10px] font-black uppercase text-brand-black line-clamp-1 ${isOutOfStock ? 'line-through text-gray-400' : ''}">${p.name}</p>
-                        <p class="text-[9px] font-bold text-gray-400 mt-0.5">SKU: ${p.sku || '--'} | Stock: <span class="${isOutOfStock ? 'text-red-500' : 'text-brand-cyan'}">${p.stock || 0}</span></p>
-                    </div>
-                    <div class="text-right shrink-0">
-                        <p class="text-[10px] font-black text-brand-black">${formatCurrency(p.price)}</p>
-                    </div>
-                `;
+                d.innerHTML = `<div class="flex-1 min-w-0 pr-2"><p class="text-[10px] font-black uppercase text-brand-black line-clamp-1 ${isOutOfStock ? 'line-through text-gray-400' : ''}">${p.name}</p><p class="text-[9px] font-bold text-gray-400 mt-0.5">SKU: ${p.sku || '--'} | Stock: <span class="${isOutOfStock ? 'text-red-500' : 'text-brand-cyan'}">${p.stock || 0}</span></p></div><div class="text-right shrink-0"><p class="text-[10px] font-black text-brand-black">${formatCurrency(p.price)}</p></div>`;
 
                 if (!isOutOfStock) {
                     d.onmousedown = (e) => {
@@ -411,10 +390,7 @@ function setupProductSearch(row) {
                         calculateManualTotal();
                     };
                 } else {
-                    d.onmousedown = (e) => {
-                        e.preventDefault();
-                        alert("Este producto está completamente agotado.");
-                    };
+                    d.onmousedown = (e) => { e.preventDefault(); alert("Este producto está completamente agotado."); };
                 }
                 resultsDiv.appendChild(d);
             });
@@ -423,18 +399,14 @@ function setupProductSearch(row) {
     });
 
     document.addEventListener('click', (e) => {
-        if (!searchInput.contains(e.target) && !resultsDiv.contains(e.target)) {
-            resultsDiv.classList.add('hidden');
-        }
+        if (!searchInput.contains(e.target) && !resultsDiv.contains(e.target)) resultsDiv.classList.add('hidden');
     });
 }
 
 function updateRowStock(row, product) {
     let currentStock = parseInt(product.stock) || 0;
-    
     const colorSel = row.querySelector('.p-color');
     const capSel = row.querySelector('.p-capacity');
-    
     const selectedColor = colorSel ? colorSel.value : null;
     const selectedCap = capSel ? capSel.value : null;
 
@@ -445,29 +417,16 @@ function updateRowStock(row, product) {
                 const matchCap = selectedCap ? c.capacity === selectedCap : true;
                 return matchColor && matchCap;
             });
-            
-            if (combo) {
-                currentStock = parseInt(combo.stock) || 0;
-            } else {
-                currentStock = 0; 
-            }
+            currentStock = combo ? (parseInt(combo.stock) || 0) : 0;
         }
     }
 
     row.querySelector('.p-max-stock').value = currentStock;
-    
     const display = row.querySelector('.stock-display');
-    if (display) {
-        if (currentStock > 0) {
-            display.innerHTML = `Disp: <span class="text-brand-cyan">${currentStock}</span>`;
-        } else {
-            display.innerHTML = `<span class="text-red-500">Agotado</span>`;
-        }
-    }
+    if (display) display.innerHTML = currentStock > 0 ? `Disp: <span class="text-brand-cyan">${currentStock}</span>` : `<span class="text-red-500">Agotado</span>`;
 
     const qtyInput = row.querySelector('.p-qty');
     let currentQty = parseInt(qtyInput.value) || 1;
-    
     if (currentStock > 0 && currentQty > currentStock) {
         qtyInput.value = currentStock;
         calculateManualTotal();
@@ -512,18 +471,16 @@ function renderVariants(row, product) {
         
         sel.onchange = (e) => {
             const opt = e.target.options[e.target.selectedIndex];
-            if(opt && opt.dataset.price) {
-                row.querySelector('.p-price-display').value = formatCurrency(parseFloat(opt.dataset.price));
-            }
+            if(opt && opt.dataset.price) row.querySelector('.p-price-display').value = formatCurrency(parseFloat(opt.dataset.price));
             updateRowStock(row, product);
             calculateManualTotal();
         };
         wrap.appendChild(sel); container.appendChild(wrap);
     }
-
     updateRowStock(row, product);
 }
 
+// 🔥 CÁLCULO TOTAL CON 4X1000
 function calculateManualTotal() {
     let subtotal = 0;
     document.querySelectorAll('.item-row-container').forEach(row => {
@@ -533,18 +490,28 @@ function calculateManualTotal() {
     });
     
     const shipping = parseCurrency(document.getElementById('m-shipping-cost').value);
-    const total = subtotal + shipping;
+    let baseTotal = subtotal + shipping;
     
-    document.getElementById('manual-total-display').textContent = formatCurrency(total);
+    let tax4x1000 = 0;
+    const apply4x1000 = document.getElementById('m-apply-4x1000').checked;
+    if (apply4x1000) {
+        tax4x1000 = Math.round(baseTotal * 0.004); // 0.4%
+    }
+    
+    const total = baseTotal + tax4x1000;
+    
+    const display = document.getElementById('manual-total-display');
+    if (tax4x1000 > 0) {
+        display.innerHTML = `${formatCurrency(total)} <span class="block text-[12px] font-bold text-purple-500 mt-2 tracking-widest">+ ${formatCurrency(tax4x1000)} (Impuesto 4x1000)</span>`;
+    } else {
+        display.textContent = formatCurrency(total);
+    }
 }
 
-
-// --- LÓGICA DE CLIENTES (INTEGRADA) ---
 async function setupCustomerSearch() {
     const search = document.getElementById('m-cust-search');
     const results = document.getElementById('m-cust-results');
     
-    // Contenedores
     const searchSection = document.getElementById('m-search-section');
     const selectedSection = document.getElementById('m-selected-client-section');
     const newClientSection = document.getElementById('m-new-client-section');
@@ -553,15 +520,11 @@ async function setupCustomerSearch() {
     const optSaved = document.getElementById('opt-saved-addr');
     const savedSelect = document.getElementById('m-saved-addr-select');
 
-    // 1. EVENTO BUSCAR
     search.addEventListener('input', (e) => {
         const term = normalizeText(e.target.value);
         results.innerHTML = "";
         
-        if (term.length < 2) { 
-            results.classList.add('hidden'); 
-            return; 
-        }
+        if (term.length < 2) { results.classList.add('hidden'); return; }
         
         const filtered = manualClientsCache.filter(u => {
             const clientNameRaw = u.name || u.userName || "";
@@ -571,25 +534,12 @@ async function setupCustomerSearch() {
         });
 
         if (filtered.length === 0) {
-            results.innerHTML = `
-                <div class="p-4 text-[10px] text-gray-400 font-bold text-center uppercase border-b border-gray-100">Cliente no encontrado</div>
-                <div class="p-2 bg-gray-50 rounded-b-2xl">
-                    <button type="button" id="btn-m-inline-create" class="w-full bg-brand-cyan text-brand-black font-black text-[10px] py-3 rounded-xl uppercase tracking-widest hover:bg-cyan-400 transition shadow-sm flex items-center justify-center gap-2">
-                        <i class="fa-solid fa-user-plus"></i> Registrar Nuevo Cliente
-                    </button>
-                </div>
-            `;
-            
-            // ACCIÓN: CREAR NUEVO
+            results.innerHTML = `<div class="p-4 text-[10px] text-gray-400 font-bold text-center uppercase border-b border-gray-100">Cliente no encontrado</div><div class="p-2 bg-gray-50 rounded-b-2xl"><button type="button" id="btn-m-inline-create" class="w-full bg-brand-cyan text-brand-black font-black text-[10px] py-3 rounded-xl uppercase tracking-widest hover:bg-cyan-400 transition shadow-sm flex items-center justify-center gap-2"><i class="fa-solid fa-user-plus"></i> Registrar Nuevo Cliente</button></div>`;
             document.getElementById('btn-m-inline-create').onmousedown = (ev) => {
                 ev.preventDefault(); 
                 isCreatingNewClient = true;
+                searchSection.classList.add('hidden'); newClientSection.classList.remove('hidden');
                 
-                // Mostrar UI de creación
-                searchSection.classList.add('hidden');
-                newClientSection.classList.remove('hidden');
-                
-                // Autocompletar lo que el usuario haya escrito
                 const rawTerm = search.value.trim();
                 if (/^[\d\s\+]+$/.test(rawTerm)) {
                     document.getElementById('m-nc-phone').value = rawTerm.replace(/\s+/g, '');
@@ -599,61 +549,37 @@ async function setupCustomerSearch() {
                     document.getElementById('m-nc-phone').focus();
                 }
                 
-                // Reset de Direcciones (Obliga a escribir una nueva)
-                optSaved.disabled = true;
-                optSaved.textContent = "🏠 Dirección Guardada (Seleccione Cliente)";
-                modeSelect.value = 'new';
-                modeSelect.dispatchEvent(new Event('change'));
-                
+                optSaved.disabled = true; optSaved.textContent = "🏠 Dirección Guardada (Seleccione Cliente)";
+                modeSelect.value = 'new'; modeSelect.dispatchEvent(new Event('change'));
                 results.classList.add('hidden');
             };
-
         } else {
-            // MOSTRAR RESULTADOS
             filtered.slice(0, 8).forEach(u => {
                 const div = document.createElement('div');
                 div.className = "p-3 hover:bg-cyan-50 cursor-pointer rounded-xl transition flex justify-between items-center border-b border-gray-50 last:border-0 group";
-                
                 const displayName = u.name || u.userName || 'Cliente sin nombre';
+                div.innerHTML = `<div><span class="block font-black text-xs uppercase text-brand-black">${displayName}</span><span class="text-[9px] font-bold text-gray-400">${u.phone || 'Sin teléfono'} ${u.document ? ` | Doc: ${u.document}` : ''}</span></div><button class="bg-white border border-gray-200 text-brand-cyan w-6 h-6 rounded-full flex items-center justify-center group-hover:bg-brand-cyan group-hover:text-white transition shadow-sm"><i class="fa-solid fa-check text-[10px]"></i></button>`;
                 
-                div.innerHTML = `
-                    <div>
-                        <span class="block font-black text-xs uppercase text-brand-black">${displayName}</span>
-                        <span class="text-[9px] font-bold text-gray-400">${u.phone || 'Sin teléfono'} ${u.document ? ` | Doc: ${u.document}` : ''}</span>
-                    </div>
-                    <button class="bg-white border border-gray-200 text-brand-cyan w-6 h-6 rounded-full flex items-center justify-center group-hover:bg-brand-cyan group-hover:text-white transition shadow-sm"><i class="fa-solid fa-check text-[10px]"></i></button>
-                `;
-                
-                // ACCIÓN: SELECCIONAR EXISTENTE
                 div.onmousedown = (ev) => {
                     ev.preventDefault(); 
-                    isCreatingNewClient = false;
-                    selectedUserId = u.id;
-                    selectedUserName = displayName;
-                    selectedUserPhone = u.phone || "";
-                    selectedUserDoc = u.document || ""; // 🔥 CAPTURAMOS LA CÉDULA
+                    isCreatingNewClient = false; selectedUserId = u.id; selectedUserName = displayName;
+                    selectedUserPhone = u.phone || ""; selectedUserDoc = u.document || ""; 
                     currentUserAddresses = u.addresses || [];
                     
-                    // Cambiar UI
-                    searchSection.classList.add('hidden');
-                    selectedSection.classList.remove('hidden');
+                    searchSection.classList.add('hidden'); selectedSection.classList.remove('hidden');
                     document.getElementById('m-sel-cname').textContent = selectedUserName;
                     document.getElementById('m-sel-cphone').textContent = selectedUserPhone || "Sin Teléfono";
                     
-                    // Cargar direcciones guardadas
                     if (currentUserAddresses.length > 0) {
-                        optSaved.disabled = false;
-                        optSaved.textContent = `🏠 Usar Guardada (${currentUserAddresses.length})`;
+                        optSaved.disabled = false; optSaved.textContent = `🏠 Usar Guardada (${currentUserAddresses.length})`;
                         savedSelect.innerHTML = '<option value="">Seleccione Dirección...</option>';
                         currentUserAddresses.forEach((a, i) => savedSelect.innerHTML += `<option value="${i}">${a.alias} - ${a.address}</option>`);
                         modeSelect.value = 'saved';
                     } else {
-                        optSaved.disabled = true;
-                        optSaved.textContent = "🏠 Sin direcciones guardadas";
+                        optSaved.disabled = true; optSaved.textContent = "🏠 Sin direcciones guardadas";
                         modeSelect.value = 'new';
                     }
-                    modeSelect.dispatchEvent(new Event('change'));
-                    results.classList.add('hidden');
+                    modeSelect.dispatchEvent(new Event('change')); results.classList.add('hidden');
                 };
                 results.appendChild(div);
             });
@@ -661,31 +587,14 @@ async function setupCustomerSearch() {
         results.classList.remove('hidden');
     });
 
-    // 2. CANCELAR O LIMPIAR CLIENTE
     const resetClientUI = () => {
-        isCreatingNewClient = false;
-        selectedUserId = null;
-        selectedUserName = "";
-        selectedUserPhone = "";
-        selectedUserDoc = ""; // 🔥 LIMPIAMOS LA CÉDULA
-        currentUserAddresses = [];
+        isCreatingNewClient = false; selectedUserId = null; selectedUserName = ""; selectedUserPhone = ""; selectedUserDoc = ""; currentUserAddresses = [];
+        search.value = ""; document.getElementById('m-nc-name').value = ""; document.getElementById('m-nc-phone').value = ""; document.getElementById('m-nc-doc').value = ""; document.getElementById('m-nc-email').value = "";
         
-        search.value = "";
-        document.getElementById('m-nc-name').value = "";
-        document.getElementById('m-nc-phone').value = "";
-        document.getElementById('m-nc-doc').value = "";
-        document.getElementById('m-nc-email').value = "";
+        searchSection.classList.remove('hidden'); selectedSection.classList.add('hidden'); newClientSection.classList.add('hidden'); results.classList.add('hidden'); search.focus();
         
-        searchSection.classList.remove('hidden');
-        selectedSection.classList.add('hidden');
-        newClientSection.classList.add('hidden');
-        results.classList.add('hidden');
-        search.focus();
-        
-        optSaved.disabled = true;
-        optSaved.textContent = "🏠 Dirección Guardada (Seleccione Cliente)";
-        modeSelect.value = 'new';
-        modeSelect.dispatchEvent(new Event('change'));
+        optSaved.disabled = true; optSaved.textContent = "🏠 Dirección Guardada (Seleccione Cliente)";
+        modeSelect.value = 'new'; modeSelect.dispatchEvent(new Event('change'));
     };
 
     document.getElementById('btn-clear-client').onclick = resetClientUI;
@@ -695,7 +604,6 @@ async function setupCustomerSearch() {
         if (!search.contains(e.target) && !results.contains(e.target)) results.classList.add('hidden');
     });
 }
-
 
 async function loadPaymentAccounts() {
     const sel = document.getElementById('m-payment-account');
@@ -719,16 +627,12 @@ async function loadManualDepartments() {
     } catch(e) { console.error(e); }
 }
 
-// --- GUARDAR TRANSACCIÓN Y CREAR CLIENTE SI ES NECESARIO ---
+// --- GUARDAR TRANSACCIÓN ---
 async function saveOrder() {
     const btn = document.getElementById('btn-save-manual');
     
-    // 1. VALIDAR ESTADO DEL CLIENTE
-    if (!selectedUserId && !isCreatingNewClient) {
-        return alert("🚨 Por favor, busca un cliente existente o registra uno nuevo.");
-    }
+    if (!selectedUserId && !isCreatingNewClient) { return alert("🚨 Por favor, busca un cliente existente o registra uno nuevo."); }
 
-    // 2. VALIDAR PRODUCTOS
     const items = [];
     let hasStockError = false;
     
@@ -739,15 +643,9 @@ async function saveOrder() {
         
         if(id && qty > 0) {
             if (qty > maxStock) hasStockError = true;
-            
             items.push({
-                id,
-                name: row.querySelector('.p-search').value,
-                price: parseCurrency(row.querySelector('.p-price-display').value),
-                quantity: qty,
-                image: row.querySelector('.p-img').value,
-                color: row.querySelector('.p-color')?.value || null,
-                capacity: row.querySelector('.p-capacity')?.value || null
+                id, name: row.querySelector('.p-search').value, price: parseCurrency(row.querySelector('.p-price-display').value),
+                quantity: qty, image: row.querySelector('.p-img').value, color: row.querySelector('.p-color')?.value || null, capacity: row.querySelector('.p-capacity')?.value || null
             });
         }
     });
@@ -755,16 +653,12 @@ async function saveOrder() {
     if (hasStockError) return alert("🚨 Uno de los productos excede el stock disponible.");
     if (items.length === 0) return alert("🚨 Debes agregar al menos un producto a la venta.");
 
-    // 3. CAPTURAR DATOS DE ENVÍO
     const shippingMode = document.getElementById('m-shipping-mode').value;
     let shippingData = {};
-    let clientDept = ""; 
-    let clientCity = ""; 
-    let clientAddr = "";
+    let clientDept = ""; let clientCity = ""; let clientAddr = "";
     
-    if (shippingMode === 'pickup') {
-        shippingData = { address: "📍 Recogida en Local" };
-    } else if (shippingMode === 'saved') {
+    if (shippingMode === 'pickup') { shippingData = { address: "📍 Recogida en Local" }; } 
+    else if (shippingMode === 'saved') {
         const idx = document.getElementById('m-saved-addr-select').value;
         if (idx === "") return alert("Seleccione la dirección guardada del cliente");
         const a = currentUserAddresses[idx];
@@ -774,12 +668,7 @@ async function saveOrder() {
         clientDept = dSelect.options[dSelect.selectedIndex]?.text || "";
         clientCity = document.getElementById('m-city-manual').value || "";
         clientAddr = document.getElementById('m-address-manual').value || "";
-        
-        shippingData = {
-            department: clientDept,
-            city: clientCity,
-            address: clientAddr
-        };
+        shippingData = { department: clientDept, city: clientCity, address: clientAddr };
         if(!shippingData.department || !shippingData.address) return alert("Faltan datos de la nueva dirección de entrega.");
     }
 
@@ -790,50 +679,42 @@ async function saveOrder() {
         let finalUserId = selectedUserId;
         let custName = selectedUserName;
         let custPhone = selectedUserPhone;
-        let custDoc = selectedUserDoc; // 🔥 TRAEMOS LA CÉDULA
+        let custDoc = selectedUserDoc; 
         let emailVal = "";
 
-        // 4. SI ESTÁ CREANDO UN CLIENTE NUEVO EN LÍNEA -> GUARDARLO EN FIREBASE PRIMERO
         if (isCreatingNewClient) {
             custName = document.getElementById('m-nc-name').value.trim();
             custPhone = document.getElementById('m-nc-phone').value.trim();
             custDoc = document.getElementById('m-nc-doc').value.trim(); 
             emailVal = document.getElementById('m-nc-email').value.trim();
-
             if (!custName || !custPhone) throw new Error("🚨 El Nombre y Teléfono del nuevo cliente son obligatorios.");
 
             const newClientData = {
-                name: custName,
-                phone: custPhone,
-                email: emailVal,
-                document: custDoc, // 🔥 CORRECCIÓN: Aquí decía docVal, ya dice custDoc
-                source: 'MANUAL',
-                role: 'client',
-                createdAt: new Date(),
-                updatedAt: new Date(),
-                dept: clientDept,
-                city: clientCity,
-                address: clientAddr,
+                name: custName, phone: custPhone, email: emailVal, document: custDoc, source: 'MANUAL', role: 'client',
+                createdAt: new Date(), updatedAt: new Date(), dept: clientDept, city: clientCity, address: clientAddr,
                 addresses: clientAddr ? [{ alias: "Principal", address: clientAddr, dept: clientDept, city: clientCity, isDefault: true }] : []
             };
-
             const docRef = await addDoc(collection(db, "users"), newClientData);
             finalUserId = docRef.id;
         }
 
-        // 5. CÁLCULOS FINALES
+        // 🔥 LÓGICA DE 4X1000
         const shippingCost = parseCurrency(document.getElementById('m-shipping-cost').value);
         const subtotal = items.reduce((acc, i) => acc + (i.price * i.quantity), 0);
-        const total = subtotal + shippingCost;
+        let baseTotal = subtotal + shippingCost;
+        let tax4x1000 = 0;
+        
+        if (document.getElementById('m-apply-4x1000').checked) {
+            tax4x1000 = Math.round(baseTotal * 0.004);
+        }
+        
+        const total = baseTotal + tax4x1000;
         const accountId = document.getElementById('m-payment-account').value;
 
         if (total <= 0) throw new Error("El total de la venta no puede ser cero.");
 
-        for (const item of items) { 
-            await adjustStock(item.id, -(item.quantity), item.color, item.capacity); 
-        }
+        for (const item of items) { await adjustStock(item.id, -(item.quantity), item.color, item.capacity); }
 
-        // 6. LÓGICA FINANCIERA
         let paymentStatus = 'PENDING';
         let paymentMethodName = 'Crédito / Cartera';
         let amountPaid = 0;
@@ -843,65 +724,31 @@ async function saveOrder() {
                  const ref = doc(db, "accounts", accountId);
                  const d = await t.get(ref);
                  if(!d.exists()) throw new Error("La cuenta seleccionada ya no existe.");
-                 
                  t.update(ref, { balance: (d.data().balance || 0) + total });
                  paymentMethodName = d.data().name;
              });
-             
-             await addDoc(collection(db, "expenses"), {
-                 amount: total,
-                 category: "Ingreso Ventas Manual",
-                 description: `Cobro Inmediato - Venta a ${custName || 'Cliente'}`,
-                 paymentMethod: paymentMethodName,
-                 supplierName: custName || "Cliente Directo",
-                 date: new Date(),
-                 createdAt: new Date(),
-                 type: 'INCOME'
-             });
-
-             paymentStatus = 'PAID';
-             amountPaid = total;
+             await addDoc(collection(db, "expenses"), { amount: total, category: "Ingreso Ventas Manual", description: `Cobro Inmediato - Venta a ${custName || 'Cliente'}`, paymentMethod: paymentMethodName, supplierName: custName || "Cliente Directo", date: new Date(), createdAt: new Date(), type: 'INCOME' });
+             paymentStatus = 'PAID'; amountPaid = total;
         }
 
-        // 7. CREAR LA ORDEN
         const orderData = {
-            userId: finalUserId, 
-            userName: custName, 
-            phone: custPhone,
-            clientDoc: custDoc, // 🔥 GUARDAMOS LA CÉDULA EN LA ORDEN
+            userId: finalUserId, userName: custName, phone: custPhone, clientDoc: custDoc, 
             items, 
-            total, 
-            subtotal, 
-            shippingCost,
-            status: 'PENDIENTE', 
-            source: 'MANUAL',
-            requiresInvoice: document.getElementById('m-requires-invoice').checked,
-            paymentStatus, 
-            amountPaid,
-            paymentAccountId: accountId === 'credit' ? null : accountId, 
-            paymentMethodName,
-            createdAt: new Date(), 
-            updatedAt: new Date(),
-            shippingData,
-            buyerInfo: { name: custName, email: emailVal || "", phone: custPhone, document: custDoc }
+            subtotal, shippingCost, tax4x1000, total, // 🔥 SE GUARDA EL 4x1000
+            status: 'PENDIENTE', source: 'MANUAL', requiresInvoice: document.getElementById('m-requires-invoice').checked,
+            paymentStatus, amountPaid, paymentAccountId: accountId === 'credit' ? null : accountId, paymentMethodName,
+            createdAt: new Date(), updatedAt: new Date(), shippingData, buyerInfo: { name: custName, email: emailVal || "", phone: custPhone, document: custDoc }
         };
-        const orderRef = await addDoc(collection(db, "orders"), orderData);
         
-        await setDoc(doc(db, "remissions", orderRef.id), { 
-            ...orderData, 
-            orderId: orderRef.id, 
-            status: 'PENDIENTE_ALISTAMIENTO', 
-            type: 'DIRECTA' 
-        });
+        const orderRef = await addDoc(collection(db, "orders"), orderData);
+        await setDoc(doc(db, "remissions", orderRef.id), { ...orderData, orderId: orderRef.id, status: 'PENDIENTE_ALISTAMIENTO', type: 'DIRECTA' });
 
         alert(`✅ Venta Exitosa.\nLa orden #${orderRef.id.slice(0,6)} ha sido enviada al centro logístico.`);
         document.getElementById('manual-modal').classList.add('hidden');
-        
         if (onSuccessCallback) onSuccessCallback();
 
     } catch (e) {
-        console.error(e);
-        alert(e.message);
+        console.error(e); alert(e.message);
     } finally {
         btn.disabled = false; btn.innerHTML = originalText;
     }

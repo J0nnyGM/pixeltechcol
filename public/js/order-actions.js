@@ -7,7 +7,7 @@ let currentOrderData = null;
 let currentOrderId = null;
 let accountsCache = null;    
 let editProductsCache = []; 
-let isProductsSubscribed = false; // 🔥 VARIABLE DE CONTROL AÑADIDA AQUÍ
+let isProductsSubscribed = false; 
 
 const getEl = (id) => document.getElementById(id);
 const safeSetText = (id, text) => { const el = getEl(id); if (el) el.textContent = text; };
@@ -38,7 +38,6 @@ export async function viewOrderDetail(orderId) {
     const modal = getEl('order-modal');
     
     try {
-        // 🔥 VERIFICAR SI ES ADMIN
         let isAdmin = false;
         if (auth.currentUser) {
             const uDoc = await getDoc(doc(db, "users", auth.currentUser.uid));
@@ -173,8 +172,10 @@ export async function viewOrderDetail(orderId) {
             }
         }
 
+        // 🔥 LÓGICA DE VISUALIZACIÓN DE TOTALES CON 4X1000
         const subtotal = o.subtotal || o.total;
         const shipping = o.shippingCost || 0;
+        const tax4x1000 = o.tax4x1000 || 0; // Sacamos el 4x1000 de Firebase
         const totalOriginal = o.total || 0;
         const refunded = o.refundedAmount || 0;
         const netTotal = totalOriginal - refunded;
@@ -184,25 +185,24 @@ export async function viewOrderDetail(orderId) {
         
         const totalContainer = getEl('modal-total-container');
         if (totalContainer) {
+            let taxHtml = tax4x1000 > 0 ? `<p class="text-[9px] font-black text-purple-500 uppercase tracking-widest mt-2 mb-1">4x1000: +$${tax4x1000.toLocaleString('es-CO')}</p>` : '';
+            
             if (refunded > 0) {
-                totalContainer.innerHTML = `<div class="flex flex-col items-end"><p class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Total Original</p><p class="text-xs font-bold text-gray-400 line-through decoration-red-300">$${totalOriginal.toLocaleString('es-CO')}</p><p class="text-[9px] font-black text-red-500 uppercase tracking-widest mt-1">Devolución</p><p class="text-xs font-bold text-red-500">-$${refunded.toLocaleString('es-CO')}</p><div class="w-full h-px bg-gray-200 my-2"></div><p class="text-[9px] font-black text-brand-black uppercase tracking-widest">Total Neto</p><h4 class="text-3xl font-black text-brand-black leading-none">$${netTotal.toLocaleString('es-CO')}</h4></div>`;
+                totalContainer.innerHTML = `<div class="flex flex-col items-end"><p class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Total Original</p><p class="text-xs font-bold text-gray-400 line-through decoration-red-300">$${totalOriginal.toLocaleString('es-CO')}</p>${taxHtml}<p class="text-[9px] font-black text-red-500 uppercase tracking-widest mt-1">Devolución</p><p class="text-xs font-bold text-red-500">-$${refunded.toLocaleString('es-CO')}</p><div class="w-full h-px bg-gray-200 my-2"></div><p class="text-[9px] font-black text-brand-black uppercase tracking-widest">Total Neto</p><h4 class="text-3xl font-black text-brand-black leading-none">$${netTotal.toLocaleString('es-CO')}</h4></div>`;
             } else {
-                totalContainer.innerHTML = `<p class="text-[9px] font-black text-brand-black uppercase tracking-widest">Total Neto</p><h4 id="modal-order-total" class="text-3xl font-black text-brand-black leading-none">$${totalOriginal.toLocaleString('es-CO')}</h4>`;
+                totalContainer.innerHTML = `<div class="flex flex-col items-end">${taxHtml}<p class="text-[9px] font-black text-brand-black uppercase tracking-widest mt-1">Total Neto</p><h4 id="modal-order-total" class="text-3xl font-black text-brand-black leading-none">$${totalOriginal.toLocaleString('es-CO')}</h4></div>`;
             }
         }
 
         const footerActions = getEl('modal-footer-actions');
         const footerMsg = getEl('modal-footer-msg');
         
-// Limpieza de botones
         ['btn-refund-action', 'btn-cancel-action', 'btn-edit-action'].forEach(id => {
             const btn = document.getElementById(id); if(btn) btn.remove();
         });
 
         if (footerActions) {
             footerActions.classList.add('hidden');
-            // 🔥 DISEÑO RESPONSIVE: En móvil ya no se apilan hacia abajo (flex-col). 
-            // Se acomodan en fila (flex-row) con wrap, permitiendo que los iconos queden al lado del botón principal.
             footerActions.classList.remove('flex-col');
             footerActions.classList.add('flex-row', 'flex-wrap', 'justify-end', 'items-center');
         }
@@ -237,32 +237,27 @@ export async function viewOrderDetail(orderId) {
             if (btnAlistar) btnAlistar.classList.remove('hidden');
         }
 
-        // 🔥 CONTROLES EXCLUSIVOS PARA ADMINISTRADOR (Ventas Manuales)
         if (isAdmin && o.source === 'MANUAL' && !isFinished) {
             if (footerActions) {
                 footerActions.classList.remove('hidden');
 
-                // Botón Editar (Solo si está en PENDIENTE / Por Atender)
                 if (o.status === 'PENDIENTE') {
                     const btnEdit = document.createElement('button');
                     btnEdit.id = 'btn-edit-action';
-                    // 🔥 DISEÑO: Solo Ícono (Cuadrado de 48x48px)
                     btnEdit.className = "w-12 h-12 bg-brand-cyan text-brand-black border border-brand-cyan rounded-xl hover:bg-cyan-400 transition-all shadow-sm flex items-center justify-center shrink-0";
                     btnEdit.innerHTML = `<i class="fa-solid fa-pen-to-square text-lg"></i>`;
                     btnEdit.title = "Editar Orden";
                     btnEdit.onclick = () => openEditOrderModal(currentOrderData);
-                    footerActions.prepend(btnEdit); // Pone el botón al inicio
+                    footerActions.prepend(btnEdit);
                 }
 
-                // Botón Anular
                 const btnCancel = document.createElement('button');
                 btnCancel.id = 'btn-cancel-action';
-                // 🔥 DISEÑO: Solo Ícono (Cuadrado de 48x48px)
                 btnCancel.className = "w-12 h-12 bg-white text-red-500 border border-red-200 rounded-xl hover:bg-red-50 transition-all shadow-sm flex items-center justify-center shrink-0";
                 btnCancel.innerHTML = `<i class="fa-solid fa-ban text-lg"></i>`;
                 btnCancel.title = "Anular Venta";
                 btnCancel.onclick = () => cancelManualOrder(currentOrderData);
-                footerActions.prepend(btnCancel); // Pone el botón al inicio
+                footerActions.prepend(btnCancel);
             }
         }
 
@@ -275,18 +270,13 @@ export async function viewOrderDetail(orderId) {
 // ANULAR ORDEN MANUAL (ADMIN)
 // ==========================================================================
 async function cancelManualOrder(order) {
-    if (!confirm("ATENCIÓN \n\n¿Estás seguro de ANULAR esta venta manual?\n\n- Los productos regresarán automáticamente al inventario.\n- El dinero se restará de la cuenta de tesorería.\n- La orden quedará como CANCELADA.\n\nEsta acción es irreversible.")) return;
+    if (!confirm("🚨 ATENCIÓN ADMINISTRADOR 🚨\n\n¿Estás seguro de ANULAR esta venta manual?\n\n- Los productos regresarán automáticamente al inventario.\n- El dinero se restará de la cuenta de tesorería.\n- La orden quedará como CANCELADA.\n\nEsta acción es irreversible.")) return;
 
     const btn = getEl('btn-cancel-action');
     if(btn) { btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Anulando...'; btn.disabled = true; }
 
     try {
         await runTransaction(db, async (t) => {
-            // ===========================================================
-            // FASE 1: TODAS LAS LECTURAS (Obligatorio hacerlas primero)
-            // ===========================================================
-            
-            // A. Leer la orden
             const oRef = doc(db, "orders", order.id);
             const oSnap = await t.get(oRef);
             if (!oSnap.exists()) throw new Error("La orden no existe.");
@@ -294,7 +284,6 @@ async function cancelManualOrder(order) {
 
             if (oData.status === 'CANCELADO') throw new Error("La orden ya estaba cancelada.");
 
-            // B. Leer la cuenta (si hubo pago)
             let accSnap = null;
             let accRef = null;
             if (oData.amountPaid > 0 && oData.paymentAccountId) {
@@ -302,16 +291,9 @@ async function cancelManualOrder(order) {
                 accSnap = await t.get(accRef);
             }
 
-            // C. Leer la Remisión
             const remRef = doc(db, "remissions", order.id);
             const remSnap = await t.get(remRef);
 
-
-            // ===========================================================
-            // FASE 2: TODAS LAS ESCRITURAS (Solo cuando terminamos de leer)
-            // ===========================================================
-
-            // 1. Revertir dinero si ya fue pagada total o parcialmente
             if (accSnap && accSnap.exists()) {
                 const newBalance = (accSnap.data().balance || 0) - oData.amountPaid;
                 t.update(accRef, { balance: newBalance });
@@ -331,7 +313,6 @@ async function cancelManualOrder(order) {
                 });
             }
 
-            // 2. Actualizar la orden a Cancelado
             t.update(oRef, {
                 status: 'CANCELADO',
                 paymentStatus: oData.amountPaid > 0 ? 'REFUNDED' : 'CANCELLED',
@@ -340,15 +321,11 @@ async function cancelManualOrder(order) {
                 updatedAt: serverTimestamp()
             });
 
-            // 3. Cancelar la Remisión si existía
             if (remSnap.exists()) {
                 t.update(remRef, { status: 'CANCELADO', updatedAt: serverTimestamp() });
             }
         });
 
-        // ===========================================================
-        // FASE 3: INVENTARIO (Fuera de la transacción por ser dinámico)
-        // ===========================================================
         if (order.items && order.items.length > 0) {
             for (const item of order.items) {
                 await safeAdjustStock(item.id, item.quantity, item.color, item.capacity);
@@ -366,12 +343,11 @@ async function cancelManualOrder(order) {
 }
 
 // ==========================================================================
-// 🔥 NUEVO: EDITAR ORDEN MANUAL (ADMIN)
+// 🔥 NUEVO: EDITAR ORDEN MANUAL (ADMIN) + 4x1000
 // ==========================================================================
 let editOrderOriginal = null;
 let editItems = [];
 
-// Helper para reintentos de Firebase si choca con el SyncWatcher
 async function safeAdjustStock(id, delta, color, capacity, retries = 3) {
     for (let i = 0; i < retries; i++) {
         try {
@@ -380,7 +356,7 @@ async function safeAdjustStock(id, delta, color, capacity, retries = 3) {
         } catch(e) {
             if (i === retries - 1) throw e;
             console.warn(`[Stock] Reintento por choque con Centinela para ${id}...`);
-            await new Promise(r => setTimeout(r, 800)); // Esperar a que el Centinela suelte el documento
+            await new Promise(r => setTimeout(r, 800)); 
         }
     }
 }
@@ -408,7 +384,11 @@ function injectEditModalHtml() {
                     <div id="eo-items-list" class="space-y-3"></div>
                 </div>
 
-                <div class="flex justify-end gap-6 items-center pt-4">
+                <div class="flex justify-end gap-6 items-start pt-4">
+                    <div class="flex items-center gap-2 mt-[26px]">
+                        <input type="checkbox" id="eo-apply-4x1000" class="w-4 h-4 rounded text-brand-cyan border-gray-300 cursor-pointer">
+                        <label class="text-[9px] font-black text-gray-400 uppercase tracking-widest cursor-pointer" for="eo-apply-4x1000">Cobrar 4x1000</label>
+                    </div>
                     <div>
                         <label class="text-[9px] font-black text-gray-400 uppercase tracking-widest block mb-1">Costo de Envío</label>
                         <input type="text" id="eo-shipping-cost" class="w-32 bg-slate-50 border border-gray-200 rounded-lg p-2 text-sm font-black text-right outline-none focus:border-brand-cyan">
@@ -435,6 +415,8 @@ function injectEditModalHtml() {
         e.target.value = formatCurrency(val);
         calculateEditTotals();
     });
+    
+    getEl('eo-apply-4x1000').addEventListener('change', calculateEditTotals);
     getEl('btn-save-edited-order').onclick = saveEditedOrder;
 
     const sInp = getEl('eo-search-prod');
@@ -472,7 +454,6 @@ function injectEditModalHtml() {
 }
 
 function openEditOrderModal(order) {
-    // 🔥 SOLUCIÓN: Carga perezosa del Store cuando el administrador entra a editar
     if (!isProductsSubscribed) {
         AdminStore.subscribeToProducts(p => editProductsCache = p);
         isProductsSubscribed = true;
@@ -483,6 +464,8 @@ function openEditOrderModal(order) {
     editItems = JSON.parse(JSON.stringify(order.items || []));
     
     getEl('eo-shipping-cost').value = formatCurrency(order.shippingCost || 0);
+    getEl('eo-apply-4x1000').checked = (order.tax4x1000 > 0);
+
     renderEditItems();
     getEl('edit-order-modal').classList.remove('hidden');
 }
@@ -495,7 +478,6 @@ function renderEditItems() {
     editItems.forEach((item, idx) => {
         const product = editProductsCache.find(p => p.id === item.id);
         
-        // Generar Selector de Color
         let colorHtml = '';
         if (product) {
             let colors = product.definedColors || [];
@@ -510,7 +492,6 @@ function renderEditItems() {
             }
         }
 
-        // Generar Selector de Capacidad
         let capHtml = '';
         if (product) {
             let caps = product.definedCapacities || [];
@@ -551,7 +532,6 @@ function renderEditItems() {
         list.appendChild(div);
     });
 
-    // Eventos UI
     document.querySelectorAll('.e-color').forEach(sel => sel.onchange = (e) => editItems[e.target.dataset.idx].color = e.target.value);
     document.querySelectorAll('.e-capacity').forEach(sel => sel.onchange = (e) => editItems[e.target.dataset.idx].capacity = e.target.value);
 
@@ -584,10 +564,23 @@ function renderEditItems() {
 function calculateEditTotals() {
     const shipping = parseCurrency(getEl('eo-shipping-cost').value);
     const subtotal = editItems.reduce((acc, i) => acc + (i.price * i.quantity), 0);
-    getEl('eo-total-display').textContent = formatCurrency(subtotal + shipping);
+    let baseTotal = subtotal + shipping;
+    
+    let tax4x1000 = 0;
+    if (getEl('eo-apply-4x1000').checked) {
+        tax4x1000 = Math.round(baseTotal * 0.004);
+    }
+    
+    const total = baseTotal + tax4x1000;
+    
+    const display = getEl('eo-total-display');
+    if (tax4x1000 > 0) {
+        display.innerHTML = `${formatCurrency(total)} <span class="block text-[12px] font-bold text-purple-500 mt-2 tracking-widest">+ ${formatCurrency(tax4x1000)} (Impuesto 4x1000)</span>`;
+    } else {
+        display.textContent = formatCurrency(total);
+    }
 }
 
-// 🔥 GUARDADO E INVENTARIO CONSOLIDADO (A PRUEBA DE ERRORES)
 async function saveEditedOrder() {
     if(editItems.length === 0) return alert("La orden debe tener al menos un producto.");
     if(!confirm("¿Estás seguro de modificar esta orden?\n\nEl stock de los productos y los valores se ajustarán automáticamente.")) return;
@@ -602,43 +595,41 @@ async function saveEditedOrder() {
         const newItems = editItems;
         const newShipping = parseCurrency(getEl('eo-shipping-cost').value);
         const newSubtotal = newItems.reduce((acc, i) => acc + (i.price * i.quantity), 0);
-        const newTotal = newSubtotal + newShipping;
+        let baseTotal = newSubtotal + newShipping;
+        let newTax4x1000 = getEl('eo-apply-4x1000').checked ? Math.round(baseTotal * 0.004) : 0;
+        const newTotal = baseTotal + newTax4x1000;
 
-        // 1. Agrupar Sumas y Restas (Deltas) para no pelear con el SyncWatcher de Firebase
         const deltaMap = {};
         
         oldItems.forEach(item => {
             const k = `${item.id}|${item.color||''}|${item.capacity||''}`;
             if(!deltaMap[k]) deltaMap[k] = { id: item.id, color: item.color, capacity: item.capacity, delta: 0 };
-            deltaMap[k].delta += item.quantity; // Sumamos lo viejo (reingresa a bodega)
+            deltaMap[k].delta += item.quantity; 
         });
 
         newItems.forEach(item => {
             const k = `${item.id}|${item.color||''}|${item.capacity||''}`;
             if(!deltaMap[k]) deltaMap[k] = { id: item.id, color: item.color, capacity: item.capacity, delta: 0 };
-            deltaMap[k].delta -= item.quantity; // Restamos lo nuevo (sale de bodega)
+            deltaMap[k].delta -= item.quantity; 
         });
 
-        // 2. Aplicar los ajustes netos de stock
         for (const key in deltaMap) {
             const sd = deltaMap[key];
             if (sd.delta !== 0) {
-                // Función blindada con reintentos si choca con el Centinela
                 await safeAdjustStock(sd.id, sd.delta, sd.color, sd.capacity);
             }
         }
 
-        // 3. Lógica Financiera
         const updates = {
             items: newItems,
             subtotal: newSubtotal,
             shippingCost: newShipping,
+            tax4x1000: newTax4x1000,
             total: newTotal,
             updatedAt: serverTimestamp(),
             lastEditedBy: auth.currentUser?.email || 'admin'
         };
 
-        // 4. Actualizar Base de Datos (Orden y Remisión)
         await updateDoc(doc(db, "orders", editOrderOriginal.id), updates);
         
         const remRef = doc(db, "remissions", editOrderOriginal.id);
@@ -737,9 +728,12 @@ export async function printRemission(orderId) {
             </tr>`;
         }).join('');
 
-        const total = o.total || 0;
+        const subtotal = o.subtotal || o.total;
         const shipping = o.shippingCost || 0;
-        const subtotal = total - shipping;
+        const tax4x1000 = o.tax4x1000 || 0;
+        const total = o.total || 0;
+
+        let taxRow = tax4x1000 > 0 ? `<tr><td>Impuesto 4x1000</td><td>$${tax4x1000.toLocaleString('es-CO')}</td></tr>` : '';
 
         const w = window.open('', '_blank', 'width=800,height=800');
         w.document.write(`
@@ -774,30 +768,9 @@ export async function printRemission(orderId) {
                     .totals-table td:first-child { text-align: left; color: #6b7280; font-weight: bold; }
                     .footer { margin-top: 50px; text-align: center; color: #4b5563; font-size: 11px; border-top: 1px solid #e5e7eb; padding-top: 20px; line-height: 1.6; }
                     .footer strong { color: #111827; font-size: 12px;}
-                    /* 🔥 CORRECCIÓN DE CORTES (TEXTO MULTILÍNEA) 🔥 */
-                    .info-line { 
-                        margin-bottom: 12px; 
-                        border-bottom: 2px solid #111827; 
-                        display: flex; 
-                        align-items: flex-start;
-                        padding-bottom: 3px;
-                    }
-                    .info-line strong { 
-                        font-weight: 900; 
-                        margin-right: 8px; 
-                        font-size: 13px; 
-                        white-space: nowrap; 
-                        margin-top: 2px;
-                    }
-                    .info-line span { 
-                        flex-grow: 1; 
-                        font-weight: 700; 
-                        font-size: 13px; 
-                        text-align: left; 
-                        white-space: normal;
-                        word-break: break-word; 
-                        line-height: 1.2;
-                    }
+                    .info-line { margin-bottom: 12px; border-bottom: 2px solid #111827; display: flex; align-items: flex-start; padding-bottom: 3px; }
+                    .info-line strong { font-weight: 900; margin-right: 8px; font-size: 13px; white-space: nowrap; margin-top: 2px; }
+                    .info-line span { flex-grow: 1; font-weight: 700; font-size: 13px; text-align: left; white-space: normal; word-break: break-word; line-height: 1.2; }
                     .info-row { display: flex; gap: 15px; }
                     @media print { body { padding: 0; } table { page-break-inside: auto; } tr { page-break-inside: avoid; page-break-after: auto; } }
                 </style>
@@ -831,6 +804,7 @@ export async function printRemission(orderId) {
                     <table class="totals-table">
                         <tr><td>Subtotal</td><td>$${subtotal.toLocaleString('es-CO')}</td></tr>
                         <tr><td>Envío</td><td>$${shipping.toLocaleString('es-CO')}</td></tr>
+                        ${taxRow}
                         <tr><td>TOTAL</td><td>$${total.toLocaleString('es-CO')}</td></tr>
                     </table>
                 </div>
