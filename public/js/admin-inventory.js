@@ -421,26 +421,32 @@ function generateNativeXlsx() {
             const hasCombinations = product.combinations && Array.isArray(product.combinations) && product.combinations.length > 0;
 
             if (!hasCombinations) {
-                // Producto Simple
-                data.push([
-                    product.name || "Sin Nombre",
-                    product.sku || "Sin Referencia",
-                    "---",
-                    "---",
-                    product.sku || "Sin Referencia",
-                    product.stock || 0
-                ]);
-            } else {
-                // Producto con Variantes de Combinación
-                product.combinations.forEach(comb => {
+                // Producto Simple - Solo con stock > 0
+                const stock = Number(product.stock) || 0;
+                if (stock > 0) {
                     data.push([
                         product.name || "Sin Nombre",
                         product.sku || "Sin Referencia",
-                        comb.color || "---",
-                        comb.capacity || "---",
-                        comb.sku || product.sku || "Sin Referencia",
-                        comb.stock || 0
+                        "---",
+                        "---",
+                        product.sku || "Sin Referencia",
+                        stock
                     ]);
+                }
+            } else {
+                // Producto con Variantes de Combinación - Solo variantes con stock > 0
+                product.combinations.forEach(comb => {
+                    const stock = Number(comb.stock) || 0;
+                    if (stock > 0) {
+                        data.push([
+                            product.name || "Sin Nombre",
+                            product.sku || "Sin Referencia",
+                            comb.color || "---",
+                            comb.capacity || "---",
+                            comb.sku || product.sku || "Sin Referencia",
+                            stock
+                        ]);
+                    }
                 });
             }
         });

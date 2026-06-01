@@ -77,10 +77,12 @@ exports.webhook = async (req, res) => {
         // --- DATOS DE ENVÍO Y GUÍA ---
         let shippingData = { address: "Acordar con el vendedor", city: "", guideNumber: "", carrier: "" };
         if (orderData.shipping && orderData.shipping.id) {
+            shippingData.shipmentId = String(orderData.shipping.id);
             try {
                 const shipment = await fetchML(`/shipments/${orderData.shipping.id}`, ML_TOKEN);
                 const receiver = shipment.receiver_address;
                 shippingData = {
+                    shipmentId: String(orderData.shipping.id),
                     address: receiver ? `${receiver.street_name} ${receiver.street_number}, ${receiver.neighborhood?.name || ''}` : '',
                     city: receiver ? `${receiver.city?.name}, ${receiver.state?.name}` : '',
                     guideNumber: shipment.tracking_number || "Pendiente",

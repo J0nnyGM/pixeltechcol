@@ -82,6 +82,9 @@ export async function viewOrderDetail(orderId) {
                 'ADDI': { label: 'Crédito ADDI', icon: 'fa-solid fa-hand-holding-dollar', color: 'text-[#00D6D6]' },
                 'SISTECREDITO': { label: 'Sistecrédito', icon: 'fa-solid fa-money-check-dollar', color: 'text-emerald-500' },
                 'PSE': { label: 'Pago con PSE', icon: 'fa-solid fa-building-columns', color: 'text-blue-600' },
+                'MERCADOLIBRE': { label: 'MercadoLibre Tienda 1', icon: 'fa-solid fa-store', color: 'text-yellow-500' },
+                'MERCADOLIBRE_2': { label: 'MercadoLibre Tienda 2', icon: 'fa-solid fa-store', color: 'text-yellow-600' },
+                'MERCADOLIBRE_3': { label: 'MercadoLibre Tienda 3', icon: 'fa-solid fa-store', color: 'text-yellow-700' },
                 'MANUAL': { label: 'Venta Manual', icon: 'fa-solid fa-cash-register', color: 'text-gray-500' }
             };
             const methodKey = (o.paymentMethod || 'MANUAL').toUpperCase();
@@ -109,6 +112,25 @@ export async function viewOrderDetail(orderId) {
                 safeSetText('modal-tracking-number', o.shippingTracking);
                 trackingContainer.classList.remove('hidden');
             } else trackingContainer.classList.add('hidden');
+        }
+
+        // Rótulos de Envío MercadoLibre
+        const mlLabelContainer = getEl('modal-ml-label-container');
+        const printBtn = getEl('btn-print-ml-label');
+        if (mlLabelContainer && printBtn) {
+            const shipmentId = o.shippingData?.shipmentId;
+            const isML = o.source && o.source.startsWith('MERCADOLIBRE');
+            if (isML && shipmentId) {
+                let functionsUrl = "https://us-central1-pixeltechcol.cloudfunctions.net/getMercadoLibreLabel";
+                if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
+                    functionsUrl = "http://localhost:5001/pixeltechcol/us-central1/getMercadoLibreLabel";
+                }
+                printBtn.href = `${functionsUrl}?orderId=${orderId}`;
+                mlLabelContainer.classList.remove('hidden');
+            } else {
+                mlLabelContainer.classList.add('hidden');
+                printBtn.href = "#";
+            }
         }
 
         const notesEl = getEl('modal-order-notes');
