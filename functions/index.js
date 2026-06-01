@@ -103,3 +103,7 @@ exports.watchers = syncWatcherModule;
 //Arreglo cedulas en pedidos 
 const fixCedulasModule = require('./fix-cedulas');
 exports.fixMissingCedulas = fixCedulasModule.runFix;
+
+// Arreglo de estados de facturación en pedidos cancelados/rechazados
+const fixInvoicesModule = require('./fix-invoices');
+exports.fixCancelledInvoices = fixInvoicesModule.runFixInvoices;

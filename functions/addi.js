@@ -384,11 +384,16 @@ exports.webhook = async (req, res) => {
             } else if (status === 'REJECTED' || status === 'DECLINED' || status === 'ABANDONED') {
                 const docCheck = await orderRef.get();
                 if (docCheck.exists && docCheck.data().paymentStatus !== 'PAID') {
-                    await orderRef.update({
+                    const orderData = docCheck.data();
+                    const updateObj = {
                         status: 'RECHAZADO',
                         statusDetail: status,
                         updatedAt: admin.firestore.FieldValue.serverTimestamp() // 🔥 NUEVO
-                    });
+                    };
+                    if (orderData.requiresInvoice) {
+                        updateObj.billingStatus = 'CANCELLED';
+                    }
+                    await orderRef.update(updateObj);
                     console.log("❌ Orden Rechazada por ADDI");
                 }
             }

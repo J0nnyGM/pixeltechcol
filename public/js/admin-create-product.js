@@ -1,4 +1,4 @@
-import { db, storage, collection, addDoc, getDocs, ref, uploadBytes, getDownloadURL, query, orderBy } from './firebase-init.js'; 
+import { db, storage, collection, addDoc, getDocs, ref, uploadBytes, getDownloadURL, query, orderBy, where, onSnapshot } from './firebase-init.js'; 
 import { loadAdminSidebar } from './admin-ui.js';
 
 loadAdminSidebar();
@@ -293,32 +293,112 @@ if(!pSubCategoryHidden) {
     document.querySelector('.admin-input-group.relative').appendChild(pSubCategoryHidden);
 }
 
-async function loadCategoriesToMemory() {
-    if (cachedCategories.length > 0) return;
-    const CACHE_KEY = 'admin_categories_cache_v2';
-    const stored = sessionStorage.getItem(CACHE_KEY);
-    if (stored) { cachedCategories = JSON.parse(stored); return; }
+// --- CATEGORÍAS (SMART REAL-TIME CACHE) ---
+const CATEGORIES_STORAGE_KEY = 'pixeltech_categories_smart_admin';
+let isCategoriesListening = false;
 
-    try {
-        const q = query(collection(db, "categories"), orderBy("name"));
-        const snap = await getDocs(q);
-        cachedCategories = [];
-        snap.forEach(d => {
-            const data = d.data();
-            const catName = data.name || "Sin Nombre";
-            if (data.subcategories && Array.isArray(data.subcategories) && data.subcategories.length > 0) {
-                data.subcategories.forEach(sub => {
-                    let subName = sub;
-                    if (typeof sub === 'object' && sub !== null) subName = sub.name || sub.label || sub.value || "Subcategoría";
-                    cachedCategories.push({ category: catName, subcategory: subName, searchStr: `${subName} ${catName}`.toLowerCase() });
-                });
-            } else {
-                cachedCategories.push({ category: catName, subcategory: null, searchStr: catName.toLowerCase() });
+function buildCachedCategoriesList(categoriesMap) {
+    cachedCategories = [];
+    const sortedCategories = Object.values(categoriesMap).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    
+    sortedCategories.forEach(cat => {
+        const catName = cat.name || "Sin Nombre";
+        if (cat.subcategories && Array.isArray(cat.subcategories) && cat.subcategories.length > 0) {
+            cat.subcategories.forEach(sub => {
+                let subName = sub;
+                if (typeof sub === 'object' && sub !== null) subName = sub.name || sub.label || sub.value || "Subcategoría";
+                cachedCategories.push({ category: catName, subcategory: subName, searchStr: `${subName} ${catName}`.toLowerCase() });
+            });
+        } else {
+            cachedCategories.push({ category: catName, subcategory: null, searchStr: catName.toLowerCase() });
+        }
+    });
+}
+
+function initSmartCategories() {
+    // 1. CARGA INICIAL INSTANTÁNEA (localStorage)
+    const cachedRaw = localStorage.getItem(CATEGORIES_STORAGE_KEY);
+    let lastSyncTime = 0;
+    let categoriesMap = {};
+
+    if (cachedRaw) {
+        try {
+            const parsed = JSON.parse(cachedRaw);
+            if (parsed.map && parsed.lastSync) {
+                categoriesMap = parsed.map;
+                lastSyncTime = parsed.lastSync || 0;
+                
+                buildCachedCategoriesList(categoriesMap);
+                console.log(`⚡ [Categories Cache] Cargadas ${Object.keys(categoriesMap).length} categorías de caché local.`);
+            }
+        } catch (e) {
+            console.warn("Caché de categorías corrupto, reiniciando...");
+        }
+    }
+
+    // 2. ESCUCHA ACTIVA EN TIEMPO REAL (Solo Deltas incrementales)
+    if (isCategoriesListening) return;
+    isCategoriesListening = true;
+
+    const colRef = collection(db, "categories");
+    let q;
+
+    if (lastSyncTime === 0 || Object.keys(categoriesMap).length === 0) {
+        q = query(colRef);
+    } else {
+        q = query(colRef, where("updatedAt", ">", new Date(lastSyncTime)));
+    }
+
+    onSnapshot(q, (snapshot) => {
+        if (snapshot.empty) {
+            if (lastSyncTime !== 0) console.log("✅ [Categories Cache] El caché de categorías está al día.");
+            return;
+        }
+
+        let hasChanges = false;
+        let maxTimestamp = lastSyncTime;
+
+        snapshot.docChanges().forEach(change => {
+            const data = change.doc.data();
+            const id = change.doc.id;
+
+            let docTime = 0;
+            if (data.updatedAt) docTime = data.updatedAt.toDate ? data.updatedAt.toDate().getTime() : new Date(data.updatedAt).getTime();
+            if (docTime > maxTimestamp) maxTimestamp = docTime;
+
+            if (change.type === 'added' || change.type === 'modified') {
+                categoriesMap[id] = { id, ...data };
+                hasChanges = true;
+            } else if (change.type === 'removed') {
+                if (categoriesMap[id]) {
+                    delete categoriesMap[id];
+                    hasChanges = true;
+                }
             }
         });
-        sessionStorage.setItem(CACHE_KEY, JSON.stringify(cachedCategories));
-    } catch (e) { console.error("Error cargando categorías:", e); }
+
+        if (hasChanges) {
+            console.log(`🔥 [Categories Cache] Actualizando caché: ${snapshot.docChanges().length} cambios.`);
+            
+            buildCachedCategoriesList(categoriesMap);
+            
+            const stateToSave = {
+                map: categoriesMap,
+                lastSync: maxTimestamp || Date.now()
+            };
+            localStorage.setItem(CATEGORIES_STORAGE_KEY, JSON.stringify(stateToSave));
+        }
+    }, (error) => {
+        console.error("Error en smart categories:", error);
+    });
 }
+
+async function loadCategoriesToMemory() {
+    initSmartCategories();
+}
+
+// Iniciar de inmediato en segundo plano para máxima velocidad
+initSmartCategories();
 
 if (catSearchInput) {
     catSearchInput.addEventListener('focus', loadCategoriesToMemory);

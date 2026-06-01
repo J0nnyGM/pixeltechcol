@@ -247,7 +247,7 @@ const modules = {
         collection: 'orders',
         dateField: 'createdAt',
         queryConstraints: [where("requiresInvoice", "==", true)],
-        clientSideFilter: (i) => i.requiresInvoice === true,
+        clientSideFilter: (i) => i.requiresInvoice === true && i.billingStatus !== 'CANCELLED' && i.billingStatus !== 'CANCELADO',
         lightweight: (i) => ({ id: i.id, billingStatus: i.billingStatus, billingInfo: i.billingInfo, billingData: i.billingData, userName: i.userName, clientDoc: i.clientDoc, total: i.total, invoiceUrl: i.invoiceUrl, invoiceNumber: i.invoiceNumber, createdAt: i.createdAt, updatedAt: i.updatedAt })
     }),
 

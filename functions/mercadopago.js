@@ -311,12 +311,17 @@ exports.webhook = async (req, res) => {
         else if (status === 'rejected' || status === 'cancelled') {
             const docCheck = await orderRef.get();
             if (docCheck.exists && docCheck.data().paymentStatus !== 'PAID') {
-                await orderRef.update({
+                const orderData = docCheck.data();
+                const updateObj = {
                     status: 'RECHAZADO', 
                     paymentId, 
                     statusDetail: paymentData.status_detail,
                     updatedAt: admin.firestore.FieldValue.serverTimestamp()
-                });
+                };
+                if (orderData.requiresInvoice) {
+                    updateObj.billingStatus = 'CANCELLED';
+                }
+                await orderRef.update(updateObj);
                 console.log("❌ MP Order Rejected:", orderId);
             }
         }

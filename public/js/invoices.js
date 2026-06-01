@@ -58,7 +58,7 @@ function renderInvoicesFromMemory() {
 
     // A. Filtrar por Pestaña
     if (currentFilter === 'PENDING') {
-        filtered = filtered.filter(inv => inv.billingStatus !== 'COMPLETED');
+        filtered = filtered.filter(inv => inv.billingStatus !== 'COMPLETED' && inv.billingStatus !== 'CANCELLED' && inv.billingStatus !== 'CANCELADO');
     } else if (currentFilter === 'COMPLETED') {
         filtered = filtered.filter(inv => inv.billingStatus === 'COMPLETED');
     }

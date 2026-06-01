@@ -313,13 +313,17 @@ async function cancelManualOrder(order) {
                 });
             }
 
-            t.update(oRef, {
+            const updateObj = {
                 status: 'CANCELADO',
                 paymentStatus: oData.amountPaid > 0 ? 'REFUNDED' : 'CANCELLED',
                 refundedAmount: (oData.refundedAmount || 0) + (oData.amountPaid || 0),
                 cancelReason: 'Anulada por Administrador',
                 updatedAt: serverTimestamp()
-            });
+            };
+            if (oData.requiresInvoice) {
+                updateObj.billingStatus = 'CANCELLED';
+            }
+            t.update(oRef, updateObj);
 
             if (remSnap.exists()) {
                 t.update(remRef, { status: 'CANCELADO', updatedAt: serverTimestamp() });

@@ -145,12 +145,17 @@ exports.cancelAbandonedPayments = onSchedule({
             const orderData = doc.data();
             if (orderData.paymentStatus === 'PAID') return;
 
-            batch.update(doc.ref, {
+            const updateObj = {
                 status: 'CANCELADO',
                 statusDetail: 'expired_by_system',
                 updatedAt: admin.firestore.FieldValue.serverTimestamp(),
                 notes: (orderData.notes || "") + " [Sistema: Cancelado por inactividad de pago online mayor a 4h]"
-            });
+            };
+            if (orderData.requiresInvoice) {
+                updateObj.billingStatus = 'CANCELLED';
+            }
+
+            batch.update(doc.ref, updateObj);
             countCanceled++;
         });
 
@@ -173,12 +178,17 @@ exports.cancelAbandonedPayments = onSchedule({
             // Si es Transferencia Manual y proviene de la TIENDA_WEB, procedemos a cancelar.
             // Eliminamos la validación extra de fechas porque Firestore ya hizo el filtro.
             if (orderData.paymentMethod === 'MANUAL' && orderData.source === 'TIENDA_WEB') {
-                batch.update(doc.ref, {
+                const updateObj = {
                     status: 'CANCELADO',
                     statusDetail: 'expired_by_system',
                     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
                     notes: (orderData.notes || "") + " [Sistema: Cancelado por superar 36h de espera en Transferencia Manual]"
-                });
+                };
+                if (orderData.requiresInvoice) {
+                    updateObj.billingStatus = 'CANCELLED';
+                }
+
+                batch.update(doc.ref, updateObj);
                 countCanceled++;
             }
         });

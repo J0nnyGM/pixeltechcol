@@ -366,3 +366,111 @@ window.removeDiscount = async () => {
         alert("✅ Oferta removida."); closeDiscountModal();
     } catch (e) { console.error(e); }
 };
+
+// =============================================================================
+// 📊 EXPORTAR INVENTARIO COMPLETO A XLSX NATIVO (HOJA DE EXCEL BINARIA)
+// =============================================================================
+window.exportInventoryToExcel = () => {
+    if (!adminProductsCache || adminProductsCache.length === 0) {
+        alert("⚠️ No hay productos cargados en el inventario para exportar.");
+        return;
+    }
+
+    // Si ya está cargada la librería, exportamos de inmediato
+    if (window.XLSX) {
+        generateNativeXlsx();
+        return;
+    }
+
+    // Si no está cargada, inyectamos la biblioteca SheetJS dinámicamente (Lazy Loading)
+    console.log("📦 Cargando SheetJS bajo demanda para exportar XLSX...");
+    const btn = document.querySelector('button[onclick="exportInventoryToExcel()"]');
+    const originalText = btn ? btn.innerHTML : "";
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin text-emerald-600 text-sm"></i> Generando...';
+    }
+
+    const script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js";
+    script.onload = () => {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+        }
+        generateNativeXlsx();
+    };
+    script.onerror = () => {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+        }
+        alert("⚠️ No se pudo cargar el motor de exportación. Verifica tu conexión a internet.");
+    };
+    document.head.appendChild(script);
+};
+
+function generateNativeXlsx() {
+    try {
+        const data = [];
+        
+        // Fila de Encabezados
+        data.push(["Nombre", "Referencia", "Variable Color", "Variable Capacidad", "SKU", "Cantidad"]);
+
+        adminProductsCache.forEach(product => {
+            const hasCombinations = product.combinations && Array.isArray(product.combinations) && product.combinations.length > 0;
+
+            if (!hasCombinations) {
+                // Producto Simple
+                data.push([
+                    product.name || "Sin Nombre",
+                    product.sku || "Sin Referencia",
+                    "---",
+                    "---",
+                    product.sku || "Sin Referencia",
+                    product.stock || 0
+                ]);
+            } else {
+                // Producto con Variantes de Combinación
+                product.combinations.forEach(comb => {
+                    data.push([
+                        product.name || "Sin Nombre",
+                        product.sku || "Sin Referencia",
+                        comb.color || "---",
+                        comb.capacity || "---",
+                        comb.sku || product.sku || "Sin Referencia",
+                        comb.stock || 0
+                    ]);
+                });
+            }
+        });
+
+        // Crear Libro de Trabajo (workbook) y Hoja de Cálculo (worksheet) de SheetJS
+        const ws = XLSX.utils.aoa_to_sheet(data);
+        
+        // --- OPCIONAL: Auto-ajuste de columnas para un aspecto premium ---
+        const colsWidth = data[0].map((_, colIndex) => {
+            const maxLen = data.reduce((max, row) => {
+                const val = row[colIndex] ? String(row[colIndex]) : "";
+                return val.length > max ? val.length : max;
+            }, 10);
+            return { wch: maxLen + 3 }; // Ancho estimado + margen de espacio
+        });
+        ws['!cols'] = colsWidth;
+
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Inventario");
+
+        // Formatear la fecha para el nombre del archivo
+        const today = new Date();
+        const dateStr = today.getFullYear() + "-" + String(today.getMonth() + 1).padStart(2, '0') + "-" + String(today.getDate()).padStart(2, '0');
+        const filename = `Inventario_PixelTech_${dateStr}.xlsx`;
+
+        // Generar descarga binaria nativa (.xlsx)
+        XLSX.writeFile(wb, filename);
+
+    } catch (error) {
+        console.error("Error al generar el archivo XLSX:", error);
+        alert("Ocurrió un error al generar el archivo de inventario XLSX: " + error.message);
+    }
+}
