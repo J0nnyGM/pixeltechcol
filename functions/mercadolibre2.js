@@ -72,7 +72,72 @@ exports.webhook = async (req, res) => {
         const orderId = `ML2-${orderData.id}`;
 
         const orderCheck = await db.collection('orders').doc(orderId).get();
-        if (orderCheck.exists) return;
+        if (orderCheck.exists) {
+            const existingOrder = orderCheck.data();
+            
+            // Si el pedido ya está CANCELADO en nuestra base de datos, no hacemos nada
+            if (existingOrder.status === 'CANCELADO') return;
+            
+            // Si viene cancelado de MercadoLibre, procesamos la cancelación y devolución de stock
+            if (orderData.status === 'cancelled') {
+                console.log(`⚠️ Pedido ${orderId} fue CANCELADO en MercadoLibre. Iniciando reversión...`);
+                
+                await db.runTransaction(async (t) => {
+                    // 1. Devolver el stock a los productos e items correspondientes
+                    for (const item of existingOrder.items || []) {
+                        const foundProduct = await findProductByEAN(db, item.sku);
+                        if (foundProduct) {
+                            const pRef = db.collection('products').doc(foundProduct.docId);
+                            const pDoc = await t.get(pRef);
+                            if (pDoc.exists) {
+                                const pData = pDoc.data();
+                                let newStock = (pData.stock || 0) + item.quantity;
+                                let updatePayload = { stock: newStock };
+                                
+                                if (foundProduct.isVariant && pData.combinations) {
+                                    let newCombos = [...pData.combinations];
+                                    if (newCombos[foundProduct.variantIndex]) {
+                                        newCombos[foundProduct.variantIndex].stock = (newCombos[foundProduct.variantIndex].stock || 0) + item.quantity;
+                                    }
+                                    updatePayload.combinations = newCombos;
+                                }
+                                t.update(pRef, updatePayload);
+                            }
+                        }
+                    }
+                    
+                    // 2. Descontar saldo de la cuenta de tesorería (si se sumó previamente)
+                    if (existingOrder.paymentAccountId) {
+                        const accRef = db.collection('accounts').doc(existingOrder.paymentAccountId);
+                        const accDoc = await t.get(accRef);
+                        if (accDoc.exists()) {
+                            t.update(accRef, { balance: Math.max(0, (Number(accDoc.data().balance) || 0) - Number(existingOrder.total)) });
+                        }
+                    }
+                    
+                    // 3. Crear registro de egreso por anulación/cancelación
+                    const accName = 'MercadoLibre 2';
+                    const expenseRef = db.collection('expenses').doc();
+                    t.set(expenseRef, {
+                        amount: Number(existingOrder.total),
+                        category: "Anulación Ventas Online",
+                        description: `Cancelación MercadoLibre 2 #${orderData.id}`,
+                        paymentMethod: accName, type: 'EXPENSE', orderId: orderId,
+                        supplierName: existingOrder.userName || "Cliente MercadoLibre", date: admin.firestore.FieldValue.serverTimestamp(),
+                        createdAt: admin.firestore.FieldValue.serverTimestamp()
+                    });
+                    
+                    // 4. Cambiar estado de la orden a CANCELADO en nuestra DB
+                    t.update(db.collection('orders').doc(orderId), {
+                        status: 'CANCELADO',
+                        paymentStatus: 'REFUNDED',
+                        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                    });
+                });
+                console.log(`✅ Pedido ${orderId} revertido y cancelado con éxito.`);
+            }
+            return;
+        }
 
         // --- DATOS DE ENVÍO Y GUÍA ---
         let shippingData = { address: "Acordar con el vendedor", city: "", guideNumber: "", carrier: "" };
@@ -141,38 +206,42 @@ exports.webhook = async (req, res) => {
             });
         }
 
-        // --- TRANSACCIÓN SEGURA ---
+        // --- TRANSACCIÓN SEGURA: GUARDAR ORDEN, COBRO Y STOCK ---
         await db.runTransaction(async (t) => {
-            // Buscamos cuenta tesorería (Puedes crear una llamada 'MercadoLibre 2' si quieres llevar la cuenta separada)
-            const accQ = await t.get(db.collection('accounts').where('name', '==', 'MercadoLibre 2').limit(1));
+            const isMLCancelled = orderData.status === 'cancelled';
             let accId = null, accName = 'MercadoLibre 2';
-            
-            if (!accQ.empty) {
-                const accDoc = accQ.docs[0];
-                accId = accDoc.id;
-                t.update(accDoc.ref, { balance: (Number(accDoc.data().balance) || 0) + Number(orderData.total_amount) });
-            }
 
-            for (const p of itemsToDeduct) {
-                const pRef = db.collection('products').doc(p.docId);
-                const pDoc = await t.get(pRef);
-                if (pDoc.exists) {
-                    const pData = pDoc.data();
-                    let newStock = Math.max(0, (pData.stock || 0) - p.qty);
-                    let updatePayload = { stock: newStock };
-
-                    if (p.isVariant && pData.combinations) {
-                        let newCombos = [...pData.combinations];
-                        if (newCombos[p.variantIndex]) {
-                            newCombos[p.variantIndex].stock = Math.max(0, newCombos[p.variantIndex].stock - p.qty);
-                        }
-                        updatePayload.combinations = newCombos;
-                    }
-                    t.update(pRef, updatePayload);
+            if (!isMLCancelled) {
+                const accQ = await t.get(db.collection('accounts').where('name', '==', accName).limit(1));
+                if (!accQ.empty) {
+                    const accDoc = accQ.docs[0];
+                    accId = accDoc.id;
+                    t.update(accDoc.ref, { balance: (Number(accDoc.data().balance) || 0) + Number(orderData.total_amount) });
                 }
             }
 
-            if (accId) {
+            if (!isMLCancelled) {
+                for (const p of itemsToDeduct) {
+                    const pRef = db.collection('products').doc(p.docId);
+                    const pDoc = await t.get(pRef);
+                    if (pDoc.exists) {
+                        const pData = pDoc.data();
+                        let newStock = Math.max(0, (pData.stock || 0) - p.qty);
+                        let updatePayload = { stock: newStock };
+
+                        if (p.isVariant && pData.combinations) {
+                            let newCombos = [...pData.combinations];
+                            if (newCombos[p.variantIndex]) {
+                                newCombos[p.variantIndex].stock = Math.max(0, newCombos[p.variantIndex].stock - p.qty);
+                            }
+                            updatePayload.combinations = newCombos;
+                        }
+                        t.update(pRef, updatePayload);
+                    }
+                }
+            }
+
+            if (accId && !isMLCancelled) {
                 const incomeRef = db.collection('expenses').doc();
                 t.set(incomeRef, {
                     amount: Number(orderData.total_amount),
@@ -190,9 +259,12 @@ exports.webhook = async (req, res) => {
                 userId: userId, userName: buyerName, phone: buyerPhone, clientDoc: buyerDoc,
                 shippingData: shippingData, shippingCarrier: shippingData.carrier, shippingTracking: shippingData.guideNumber,
                 items: dbItems, subtotal: orderData.total_amount, shippingCost: 0, total: orderData.total_amount,
-                status: shippingData.guideNumber !== 'Pendiente' ? 'DESPACHADO' : 'ALISTADO',
-                paymentMethod: 'MERCADOLIBRE_2', paymentStatus: 'PAID', amountPaid: orderData.total_amount,
-                isStockDeducted: true, paymentAccountId: accId
+                status: isMLCancelled ? 'CANCELADO' : (shippingData.guideNumber !== 'Pendiente' ? 'DESPACHADO' : 'ALISTADO'),
+                paymentMethod: 'MERCADOLIBRE_2', 
+                paymentStatus: isMLCancelled ? 'REFUNDED' : 'PAID', 
+                amountPaid: isMLCancelled ? 0 : orderData.total_amount,
+                isStockDeducted: !isMLCancelled, 
+                paymentAccountId: accId
             });
         });
 

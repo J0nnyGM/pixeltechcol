@@ -697,7 +697,56 @@ export async function saveAlistamiento(onSuccess) {
     } catch(e) { console.error(e); } finally { btn.disabled = false; btn.innerHTML = "Guardar Alistamiento"; }
 }
 
-export function openDispatchModal() { getEl('dispatch-modal').classList.remove('hidden'); }
+export async function openDispatchModal() {
+    if (!currentOrderId) return;
+    
+    // Obtener los datos de envío
+    const address = (currentOrderData?.shippingData?.address || currentOrderData?.address || 'Retiro en Tienda / Local').toLowerCase();
+    const isPickup = address.includes('recogida en local') || 
+                     address.includes('retiro en local') || 
+                     address.includes('retiro en tienda') || 
+                     address.includes('recoger') ||
+                     address.includes('retiro en tienda / local') ||
+                     address.includes('retiro en local / tienda');
+                     
+    if (isPickup) {
+        if (confirm("¿Seguro desea realizar la entrega?")) {
+            const btn = getEl('btn-set-despachado');
+            const originalText = btn ? btn.innerHTML : '';
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i> Entregando...';
+            }
+            try {
+                await updateDoc(doc(db, "orders", currentOrderId), { 
+                    status: 'DESPACHADO', 
+                    shippingCarrier: 'Retiro en Local', 
+                    shippingTracking: 'Entregado en Local', 
+                    shippedAt: new Date(), 
+                    updatedAt: new Date() 
+                });
+                alert("🚚 Pedido entregado y despachado con éxito");
+                getEl('order-modal').classList.add('hidden');
+                if (window.switchTab) window.switchTab('ACTIONABLE');
+            } catch(e) { 
+                console.error(e); 
+                alert("⚠️ Error al realizar la entrega: " + e.message);
+            } finally { 
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = originalText;
+                }
+            }
+        }
+    } else {
+        // Limpiamos los campos del modal de envío antes de mostrarlo
+        const carrierEl = getEl('dispatch-carrier');
+        const trackingEl = getEl('dispatch-tracking');
+        if (carrierEl) carrierEl.value = "";
+        if (trackingEl) trackingEl.value = "";
+        getEl('dispatch-modal').classList.remove('hidden');
+    }
+}
 
 export async function confirmDispatch(onSuccess) {
     if (!currentOrderId) return;

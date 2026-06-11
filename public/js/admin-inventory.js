@@ -38,9 +38,15 @@ const formatCurrency = (val) => (val === "" || val == null) ? "" : "$ " + Number
 const parseCurrency = (val) => Number(val.toString().replace(/[^0-9]/g, '')) || 0;
 const formatDateForInput = (timestamp) => {
     if (!timestamp) return "";
-    const d = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
-    const tzOffset = d.getTimezoneOffset() * 60000; 
-    return (new Date(d - tzOffset)).toISOString().slice(0, 16);
+    try {
+        const d = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+        if (isNaN(d.getTime())) return "";
+        const tzOffset = d.getTimezoneOffset() * 60000; 
+        return (new Date(d.getTime() - tzOffset)).toISOString().slice(0, 16);
+    } catch (e) {
+        console.error("Error formatting date:", e);
+        return "";
+    }
 };
 
 if (dNewPriceInput) {
