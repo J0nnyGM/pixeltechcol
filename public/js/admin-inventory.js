@@ -169,22 +169,24 @@ function renderRowHTML(product, index) {
     row.className = "hover:bg-slate-50 transition-colors group fade-in border-b border-gray-50 last:border-0";
     row.style.animationDelay = `${index * 15}ms`;
 
-    const img = product.mainImage || product.image || (product.images ? product.images[0] : 'https://placehold.co/100?text=Sin+Foto');
-    const isActive = product.status === 'active';
-    
-    let statusBadge = isActive 
-        ? `<span class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-50 text-emerald-600 border border-emerald-100"><div class="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.4)]"></div> Activo</span>`
-        : `<span class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-50 text-amber-600 border border-amber-100"><div class="w-2 h-2 rounded-full bg-amber-500"></div> Borrador</span>`;
-    
-    let priceDisplay = `<span class="text-base font-black text-gray-800">$${(product.price || 0).toLocaleString('es-CO')}</span>`;
-    if (product.originalPrice && product.price < product.originalPrice) {
-        const discountPercent = Math.round(((product.originalPrice - product.price) / product.originalPrice) * 100);
-        statusBadge += `<span class="ml-2 px-2 py-1 rounded-md text-[9px] font-black uppercase bg-purple-50 text-purple-600 border border-purple-100" title="Oferta activa">-${discountPercent}%</span>`;
-        priceDisplay = `<div class="flex flex-col"><span class="text-[10px] text-gray-300 line-through font-bold">$${product.originalPrice.toLocaleString('es-CO')}</span><span class="text-base font-black text-brand-red">$${product.price.toLocaleString('es-CO')}</span></div>`;
-    }
+    const role = sessionStorage.getItem('pixeltech_user_role') || 'customer';
+    const canEdit = (role === 'admin');
 
-    const toggleIcon = isActive ? 'fa-eye-slash' : 'fa-eye';
-    const toggleColor = isActive ? 'hover:text-amber-500 hover:border-amber-500' : 'hover:text-emerald-500 hover:border-emerald-500';
+    const nameHtml = canEdit
+        ? `<p class="font-black text-brand-black text-sm mb-1 leading-tight group-hover:text-brand-cyan transition-colors cursor-pointer" onclick="window.location.href='edit-product.html?id=${product.id}'">${product.name}</p>`
+        : `<p class="font-black text-brand-black text-sm mb-1 leading-tight">${product.name}</p>`;
+
+    const actionButtonsHtml = canEdit
+        ? `
+            <div class="flex items-center justify-end gap-3 opacity-60 group-hover:opacity-100 transition-opacity">
+                <button onclick="openDiscountModal('${product.id}')" class="w-10 h-10 rounded-xl bg-white border border-gray-200 text-gray-400 hover:text-purple-600 hover:border-purple-500 transition shadow-sm flex items-center justify-center hover:-translate-y-1"><i class="fa-solid fa-tags"></i></button>
+                <button onclick="window.location.href='edit-product.html?id=${product.id}'" class="w-10 h-10 rounded-xl bg-white border border-gray-200 text-gray-400 hover:text-brand-cyan hover:border-brand-cyan transition shadow-sm flex items-center justify-center hover:-translate-y-1"><i class="fa-solid fa-pen"></i></button>
+                <button onclick="toggleProductStatus('${product.id}', '${product.status}')" class="w-10 h-10 rounded-xl bg-white border border-gray-200 text-gray-400 ${toggleColor} transition shadow-sm flex items-center justify-center hover:-translate-y-1">
+                    <i class="fa-solid ${toggleIcon}"></i>
+                </button>
+            </div>
+          `
+        : ``;
 
     row.innerHTML = `
         <td class="p-6 pl-8 text-center align-middle">
@@ -193,7 +195,7 @@ function renderRowHTML(product, index) {
             </div>
         </td>
         <td class="p-6 align-middle">
-            <p class="font-black text-brand-black text-sm mb-1 leading-tight group-hover:text-brand-cyan transition-colors cursor-pointer" onclick="window.location.href='edit-product.html?id=${product.id}'">${product.name}</p>
+            ${nameHtml}
             <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">SKU: ${product.sku || '---'}</p>
         </td>
         <td class="p-6 align-middle">
@@ -214,13 +216,7 @@ function renderRowHTML(product, index) {
             <div class="flex flex-col items-center justify-center gap-2">${statusBadge}</div>
         </td>
         <td class="p-6 pr-8 text-right align-middle">
-            <div class="flex items-center justify-end gap-3 opacity-60 group-hover:opacity-100 transition-opacity">
-                <button onclick="openDiscountModal('${product.id}')" class="w-10 h-10 rounded-xl bg-white border border-gray-200 text-gray-400 hover:text-purple-600 hover:border-purple-500 transition shadow-sm flex items-center justify-center hover:-translate-y-1"><i class="fa-solid fa-tags"></i></button>
-                <button onclick="window.location.href='edit-product.html?id=${product.id}'" class="w-10 h-10 rounded-xl bg-white border border-gray-200 text-gray-400 hover:text-brand-cyan hover:border-brand-cyan transition shadow-sm flex items-center justify-center hover:-translate-y-1"><i class="fa-solid fa-pen"></i></button>
-                <button onclick="toggleProductStatus('${product.id}', '${product.status}')" class="w-10 h-10 rounded-xl bg-white border border-gray-200 text-gray-400 ${toggleColor} transition shadow-sm flex items-center justify-center hover:-translate-y-1">
-                    <i class="fa-solid ${toggleIcon}"></i>
-                </button>
-            </div>
+            ${actionButtonsHtml}
         </td>
     `;
     tableBody.appendChild(row);

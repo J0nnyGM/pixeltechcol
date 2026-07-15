@@ -40,7 +40,7 @@ onAuthStateChanged(auth, async (user) => {
             const allowedRoutes = {
                 'admin': ['all'], // Todo permitido
                 'contabilidad': ['index.html', 'invoices.html', 'cartera.html', 'treasury.html', 'expenses.html', 'profitability.html'],
-                'ventas': ['index.html', 'whatsapp.html', 'orders.html', 'clients.html', 'warranties.html', 'products.html', 'categories.html', 'promotions.html'],
+                'ventas': ['index.html', 'whatsapp.html', 'orders.html', 'clients.html', 'warranties.html', 'products.html', 'create-product.html', 'categories.html', 'promotions.html'],
                 'logistica': ['index.html', 'orders.html', 'products.html', 'inventory-entry.html', 'warranty-inventory.html', 'shipping-config.html']
             };
 
@@ -58,6 +58,7 @@ onAuthStateChanged(auth, async (user) => {
             
             // Le pasamos el rol al UI para que construya el menú dinámico
             loadAdminSidebar(role);
+            sessionStorage.setItem('pixeltech_user_role', role);
             
             document.body.style.display = 'flex'; 
             

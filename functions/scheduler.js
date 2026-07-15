@@ -133,7 +133,8 @@ exports.cancelAbandonedPayments = onSchedule({
 
     try {
         const batch = db.batch();
-        let countCanceled = 0;
+        let countCanceledOnline = 0;
+        let countCanceledManual = 0;
 
         // --- FASE 1: Órdenes Online (4 Horas) ---
         const onlineSnapshot = await db.collection('orders')
@@ -156,16 +157,16 @@ exports.cancelAbandonedPayments = onSchedule({
             }
 
             batch.update(doc.ref, updateObj);
-            countCanceled++;
+            countCanceledOnline++;
         });
 
         // --- FASE 2: Órdenes Manuales (36 Horas) ---
-        // La consulta ya trae únicamente los pedidos de hace MÁS de 36 horas.
         const manualSnapshot = await db.collection('orders')
             .where('status', '==', 'PENDIENTE')
             .where('createdAt', '<=', timeoutTimestamp36h)
             .get();
 
+        const manualDocsToProcess = [];
         manualSnapshot.docs.forEach((doc) => {
             const orderData = doc.data();
             
@@ -175,28 +176,84 @@ exports.cancelAbandonedPayments = onSchedule({
             // CRÍTICO: Proteger pedidos Contra Entrega (COD) para que no se cancelen
             if (orderData.paymentMethod === 'COD' || orderData.paymentMethod === 'CONTRAENTREGA') return;
 
-            // Si es Transferencia Manual y proviene de la TIENDA_WEB, procedemos a cancelar.
-            // Eliminamos la validación extra de fechas porque Firestore ya hizo el filtro.
+            // Si es Transferencia Manual y proviene de la TIENDA_WEB, procedemos.
             if (orderData.paymentMethod === 'MANUAL' && orderData.source === 'TIENDA_WEB') {
-                const updateObj = {
-                    status: 'CANCELADO',
-                    statusDetail: 'expired_by_system',
-                    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-                    notes: (orderData.notes || "") + " [Sistema: Cancelado por superar 36h de espera en Transferencia Manual]"
-                };
-                if (orderData.requiresInvoice) {
-                    updateObj.billingStatus = 'CANCELLED';
-                }
-
-                batch.update(doc.ref, updateObj);
-                countCanceled++;
+                manualDocsToProcess.push({ ref: doc.ref, data: orderData });
             }
         });
 
-        // --- EJECUTAR CANCELACIONES ---
-        if (countCanceled > 0) {
+        // Procesamos cada orden manual por expirar en su propia transacción
+        for (const docObj of manualDocsToProcess) {
+            const orderRef = docObj.ref;
+            const orderId = orderRef.id;
+
+            try {
+                await db.runTransaction(async (t) => {
+                    const freshOrderSnap = await t.get(orderRef);
+                    if (!freshOrderSnap.exists) return;
+                    const freshOrderData = freshOrderSnap.data();
+                    
+                    if (freshOrderData.status === 'CANCELADO') return;
+
+                    // 1. Devolver el stock si se había descontado previamente
+                    if (freshOrderData.isStockDeducted === true) {
+                        for (const item of freshOrderData.items || []) {
+                            const pRef = db.collection('products').doc(item.id);
+                            const pDoc = await t.get(pRef);
+                            if (pDoc.exists) {
+                                const pData = pDoc.data();
+                                let newStock = (pData.stock || 0) + (item.quantity || 1);
+                                let updatePayload = { 
+                                    stock: newStock,
+                                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                                };
+
+                                // Si tiene matriz de variantes, devolver a la variante específica
+                                if (pData.combinations && pData.combinations.length > 0) {
+                                    let newCombos = [...pData.combinations];
+                                    const idx = newCombos.findIndex(c => 
+                                        (c.color === item.color || (!c.color && !item.color)) &&
+                                        (c.capacity === item.capacity || (!c.capacity && !item.capacity))
+                                    );
+                                    if (idx >= 0) {
+                                        newCombos[idx].stock = (newCombos[idx].stock || 0) + (item.quantity || 1);
+                                    }
+                                    updatePayload.combinations = newCombos;
+                                }
+
+                                t.update(pRef, updatePayload);
+                            }
+                        }
+                    }
+
+                    // 2. Actualizar el estado de la orden
+                    const updateObj = {
+                        status: 'CANCELADO',
+                        statusDetail: 'expired_by_system',
+                        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                        notes: (freshOrderData.notes || "") + " [Sistema: Cancelado y stock devuelto por inactividad de pago manual mayor a 36h]"
+                    };
+                    if (freshOrderData.requiresInvoice) {
+                        updateObj.billingStatus = 'CANCELLED';
+                    }
+
+                    t.update(orderRef, updateObj);
+                });
+                countCanceledManual++;
+            } catch (err) {
+                console.error(`❌ Error al expirar y devolver stock de la orden manual ${orderId}:`, err);
+            }
+        }
+
+        // --- EJECUTAR CANCELACIONES RESTANTES (Pasarelas Online en batch) ---
+        if (countCanceledOnline > 0) {
             await batch.commit();
-            console.log(`🗑️ Se cancelaron automáticamente ${countCanceled} órdenes abandonadas.`);
+            console.log(`🗑️ Se cancelaron automáticamente ${countCanceledOnline} órdenes online abandonadas.`);
+        }
+
+        const totalCanceled = countCanceledOnline + countCanceledManual;
+        if (totalCanceled > 0) {
+            console.log(`✅ Revisiones completadas. Total órdenes canceladas por inactividad: ${totalCanceled} (Online: ${countCanceledOnline}, Manual: ${countCanceledManual}).`);
         } else {
             console.log(`✅ Revisiones completadas. No hubo órdenes vencidas para cancelar en este ciclo.`);
         }

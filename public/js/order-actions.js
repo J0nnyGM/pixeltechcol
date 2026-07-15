@@ -259,11 +259,11 @@ export async function viewOrderDetail(orderId) {
             if (btnAlistar) btnAlistar.classList.remove('hidden');
         }
 
-        if (isAdmin && o.source === 'MANUAL' && !isFinished) {
+        if (isAdmin && !isFinished) {
             if (footerActions) {
                 footerActions.classList.remove('hidden');
 
-                if (o.status === 'PENDIENTE') {
+                if (o.status === 'PENDIENTE' && o.source === 'MANUAL') {
                     const btnEdit = document.createElement('button');
                     btnEdit.id = 'btn-edit-action';
                     btnEdit.className = "w-12 h-12 bg-brand-cyan text-brand-black border border-brand-cyan rounded-xl hover:bg-cyan-400 transition-all shadow-sm flex items-center justify-center shrink-0";
@@ -289,15 +289,17 @@ export async function viewOrderDetail(orderId) {
 }
 
 // ==========================================================================
-// ANULAR ORDEN MANUAL (ADMIN)
+// ANULAR ORDEN MANUAL/ONLINE (ADMIN)
 // ==========================================================================
 async function cancelManualOrder(order) {
-    if (!confirm("🚨 ATENCIÓN ADMINISTRADOR 🚨\n\n¿Estás seguro de ANULAR esta venta manual?\n\n- Los productos regresarán automáticamente al inventario.\n- El dinero se restará de la cuenta de tesorería.\n- La orden quedará como CANCELADA.\n\nEsta acción es irreversible.")) return;
+    if (!confirm("🚨 ATENCIÓN ADMINISTRADOR 🚨\n\n¿Estás seguro de ANULAR esta venta?\n\n- Los productos regresarán automáticamente al inventario (si fueron descontados).\n- El dinero se restará de la cuenta de tesorería (si aplica).\n- La orden quedará como CANCELADA.\n\nEsta acción es irreversible.")) return;
 
     const btn = getEl('btn-cancel-action');
     if(btn) { btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Anulando...'; btn.disabled = true; }
 
     try {
+        let isStockDeducted = false;
+
         await runTransaction(db, async (t) => {
             const oRef = doc(db, "orders", order.id);
             const oSnap = await t.get(oRef);
@@ -305,6 +307,8 @@ async function cancelManualOrder(order) {
             const oData = oSnap.data();
 
             if (oData.status === 'CANCELADO') throw new Error("La orden ya estaba cancelada.");
+            
+            isStockDeducted = oData.isStockDeducted === true || oData.source === 'MANUAL';
 
             let accSnap = null;
             let accRef = null;
@@ -324,7 +328,7 @@ async function cancelManualOrder(order) {
                 t.set(expenseRef, {
                     amount: oData.amountPaid,
                     category: "Anulación de Venta",
-                    description: `Reverso por anulación de Orden Manual #${order.id.slice(0,8)}`,
+                    description: `Reverso por anulación de Orden #${order.id.slice(0,8)}`,
                     paymentMethod: accSnap.data().name,
                     supplierName: oData.userName || "Cliente",
                     date: serverTimestamp(),
@@ -352,13 +356,13 @@ async function cancelManualOrder(order) {
             }
         });
 
-        if (order.items && order.items.length > 0) {
+        if (isStockDeducted && order.items && order.items.length > 0) {
             for (const item of order.items) {
                 await safeAdjustStock(item.id, item.quantity, item.color, item.capacity);
             }
         }
 
-        alert("✅ Venta anulada exitosamente. \nEl stock fue devuelto al catálogo y el dinero fue revertido de la cuenta.");
+        alert("✅ Venta anulada exitosamente. \nEl stock fue devuelto al catálogo (si corresponde) y el dinero fue revertido de la cuenta (si aplica).");
         getEl('order-modal').classList.add('hidden');
         currentOrderData = null;
 

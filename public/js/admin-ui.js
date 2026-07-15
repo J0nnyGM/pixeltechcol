@@ -1,5 +1,5 @@
 // public/js/admin-ui.js
-import { auth } from './firebase-init.js';
+import { auth, db, collection, query, where, onSnapshot } from './firebase-init.js';
 
 export function loadAdminSidebar(userRole = 'customer') {
     const sidebarContainer = document.getElementById('admin-sidebar');
@@ -78,6 +78,7 @@ export function loadAdminSidebar(userRole = 'customer') {
                 <div class="space-y-1">
                     ${group.items.map(item => {
                         const isActive = currentPage.includes(item.path);
+                        const isWhatsApp = item.name === 'WhatsApp';
                         return `
                             <a href="${item.path}" class="flex items-center gap-3 px-4 py-2.5 rounded-xl transition-all duration-300 font-bold text-sm group ${
                                 isActive ? 'bg-brand-cyan text-brand-black shadow-lg shadow-cyan-500/20' : 'text-gray-400 hover:bg-gray-800 hover:text-white'
@@ -86,6 +87,7 @@ export function loadAdminSidebar(userRole = 'customer') {
                                     <i class="fa-solid ${item.icon} ${isActive ? 'text-brand-black' : 'text-brand-cyan group-hover:text-white'} transition-colors"></i> 
                                 </div>
                                 <span>${item.name}</span>
+                                ${isWhatsApp ? `<span id="sidebar-whatsapp-badge" class="ml-auto hidden bg-brand-cyan text-brand-black font-black text-[10px] px-2 py-0.5 rounded-full shadow-sm animate-pulse">0</span>` : ''}
                             </a>
                         `;
                     }).join('')}
@@ -163,6 +165,44 @@ export function loadAdminSidebar(userRole = 'customer') {
     `;
 
     sidebarContainer.innerHTML = scrollStyles + overlay + sidebarHTML + mobileBottomBar;
+
+    // --- NOTIFICACIONES EN VIVO DE WHATSAPP ---
+    try {
+        const chatsRef = collection(db, "chats");
+        const qUnread = query(chatsRef, where("unread", "==", true));
+        
+        onSnapshot(qUnread, (snapshot) => {
+            const count = snapshot.size;
+            
+            // Actualizar badge en Sidebar (Escritorio/Móvil abierto)
+            const sidebarBadge = document.getElementById('sidebar-whatsapp-badge');
+            if (sidebarBadge) {
+                if (count > 0) {
+                    sidebarBadge.textContent = count;
+                    sidebarBadge.classList.remove('hidden');
+                } else {
+                    sidebarBadge.classList.add('hidden');
+                }
+            }
+            
+            // Opcionalmente encender el puntito de notificación en el trigger de menú móvil
+            const mobileMenuBadge = document.getElementById('mobile-update-badge');
+            if (mobileMenuBadge) {
+                const hasUpdate = !document.getElementById('btn-update-app')?.classList.contains('hidden');
+                if (count > 0 || hasUpdate) {
+                    mobileMenuBadge.classList.remove('hidden');
+                    mobileMenuBadge.style.display = 'block';
+                } else {
+                    mobileMenuBadge.classList.add('hidden');
+                    mobileMenuBadge.style.display = 'none';
+                }
+            }
+        }, (err) => {
+            console.warn("Error escuchando chats sin leer para el sidebar:", err);
+        });
+    } catch (error) {
+        console.error("Error al iniciar notificaciones de WhatsApp en sidebar:", error);
+    }
 
     // --- LÓGICA DE EVENTOS (Se mantiene igual) ---
     const sidebar = document.getElementById('main-sidebar');

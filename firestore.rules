@@ -10,6 +10,12 @@ service cloud.firestore {
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
 
+    function isVentas() {
+      return request.auth != null && 
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'ventas';
+    }
+
     function isOwner(userId) {
       return request.auth != null && request.auth.uid == userId;
     }
@@ -32,9 +38,10 @@ service cloud.firestore {
     // 2. Productos (Catálogo)
     match /products/{productId} {
       allow read: if true;
-      allow create, delete: if isAdmin();
+      allow create: if isAdmin() || isVentas();
+      allow delete: if isAdmin();
       
-      // Opción A: El Admin puede cambiar TODO (incluyendo precios)
+      // Opción A: Solo el Admin puede cambiar TODO (incluyendo precios, nombres, etc.)
       allow update: if isAdmin();
 
       // Opción B: Usuarios autenticados (Sistema/Clientes)
@@ -52,12 +59,14 @@ service cloud.firestore {
     // 3. Categorías y 4. Marcas
     match /categories/{catId} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow create: if isAdmin() || isVentas();
+      allow update, delete: if isAdmin();
     }
 
     match /brands/{brandId} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow create: if isAdmin() || isVentas();
+      allow update, delete: if isAdmin();
     }
 
     // 5. Pedidos (Orders)

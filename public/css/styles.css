@@ -2008,9 +2008,6 @@
   .bg-amber-50 {
     background-color: var(--color-amber-50);
   }
-  .bg-amber-500 {
-    background-color: var(--color-amber-500);
-  }
   .bg-black {
     background-color: var(--color-black);
   }
@@ -3069,9 +3066,6 @@
   .text-amber-400 {
     color: var(--color-amber-400);
   }
-  .text-amber-600 {
-    color: var(--color-amber-600);
-  }
   .text-amber-900 {
     color: var(--color-amber-900);
   }
@@ -3428,10 +3422,6 @@
   }
   .shadow-\[0_-15px_40px_rgba\(0\,0\,0\,0\.08\)\] {
     --tw-shadow: 0 -15px 40px var(--tw-shadow-color, rgba(0,0,0,0.08));
-    box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
-  }
-  .shadow-\[0_0_5px_rgba\(16\,185\,129\,0\.4\)\] {
-    --tw-shadow: 0 0 5px var(--tw-shadow-color, rgba(16,185,129,0.4));
     box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
   }
   .shadow-\[0_0_8px_\#00AEC7\] {
@@ -4661,13 +4651,6 @@
       }
     }
   }
-  .hover\:border-amber-500 {
-    &:hover {
-      @media (hover: hover) {
-        border-color: var(--color-amber-500);
-      }
-    }
-  }
   .hover\:border-blue-200 {
     &:hover {
       @media (hover: hover) {
@@ -5191,13 +5174,6 @@
         @supports (color: color-mix(in lab, red, red)) {
           background-color: color-mix(in oklab, var(--color-white) 50%, transparent);
         }
-      }
-    }
-  }
-  .hover\:text-amber-500 {
-    &:hover {
-      @media (hover: hover) {
-        color: var(--color-amber-500);
       }
     }
   }

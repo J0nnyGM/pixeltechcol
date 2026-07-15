@@ -572,10 +572,20 @@
                     const bal = (p.totalCost || 0) - (p.amountPaid || 0);
                     
                     if (bal > 0) {
-                        purchasesToPay.push({ ref: d.ref, data: p });
+                        purchasesToPay.push({ ref: d.ref, id: d.id, data: p });
                         moneyAvailable -= bal;
                     }
                 });
+
+                // Buscar payables correspondientes para actualizar en la misma transacción
+                const purchaseIds = purchasesToPay.map(x => x.id);
+                const payablesToPay = [];
+                if (purchaseIds.length > 0) {
+                    const payablesSnap = await getDocs(query(collection(db, "payables"), where("purchaseId", "in", purchaseIds)));
+                    payablesSnap.forEach(d => {
+                        payablesToPay.push({ ref: d.ref, id: d.id, data: d.data() });
+                    });
+                }
 
                 // FASE 2: Transacción
                 await runTransaction(db, async (t) => {
@@ -588,7 +598,14 @@
                     const validatedPurchases = [];
                     for(const item of purchasesToPay) {
                         const freshSnap = await t.get(item.ref);
-                        if(freshSnap.exists()) validatedPurchases.push({ ref: item.ref, data: freshSnap.data() });
+                        if(freshSnap.exists()) validatedPurchases.push({ ref: item.ref, id: item.id, data: freshSnap.data() });
+                    }
+
+                    // Re-leer payables para bloqueo seguro
+                    const validatedPayables = [];
+                    for(const item of payablesToPay) {
+                        const freshSnap = await t.get(item.ref);
+                        if(freshSnap.exists()) validatedPayables.push({ ref: item.ref, id: item.id, data: freshSnap.data() });
                     }
 
                     // Escritura
@@ -615,15 +632,34 @@
                     }
 
                     let remaining = amount;
-                    for (const { ref, data } of validatedPurchases) {
+                    for (const { ref, id, data } of validatedPurchases) {
                         if (remaining <= 0) break;
                         const currentBalance = (data.totalCost || 0) - (data.amountPaid || 0);
                         const paymentForThis = Math.min(remaining, currentBalance);
+                        const newAmountPaid = (data.amountPaid || 0) + paymentForThis;
                         
                         t.update(ref, {
-                            amountPaid: (data.amountPaid || 0) + paymentForThis,
-                            lastPaymentDate: Timestamp.now()
+                            amountPaid: newAmountPaid,
+                            lastPaymentDate: Timestamp.now(),
+                            updatedAt: Timestamp.now()
                         });
+
+                        // Buscar payable correspondiente
+                        const matchingPayable = validatedPayables.find(p => p.data.purchaseId === id);
+                        if (matchingPayable) {
+                            const pTotal = matchingPayable.data.total || 0;
+                            const pPaid = matchingPayable.data.amountPaid || 0;
+                            const pNewPaid = pPaid + paymentForThis;
+                            const isPaid = pNewPaid >= pTotal - 100;
+                            t.update(matchingPayable.ref, {
+                                amountPaid: pNewPaid,
+                                balance: Math.max(0, pTotal - pNewPaid),
+                                status: isPaid ? 'PAID' : 'PENDING',
+                                lastPaymentDate: new Date(),
+                                updatedAt: new Date()
+                            });
+                        }
+
                         remaining -= paymentForThis;
                     }
 

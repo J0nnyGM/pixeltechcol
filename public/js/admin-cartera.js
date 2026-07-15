@@ -331,7 +331,11 @@ paymentForm.onsubmit = async (e) => {
         let docsToProcess = [];
 
         if (mode === 'single') {
-            docsToProcess.push({ id: targetId, ref: doc(db, type === 'client' ? 'orders' : 'payables', targetId) });
+            const docRef = doc(db, type === 'client' ? 'orders' : 'payables', targetId);
+            const docSnap = await getDocs(query(collection(db, type === 'client' ? 'orders' : 'payables'), where("__name__", "==", targetId)));
+            let docData = null;
+            if (!docSnap.empty) docData = docSnap.docs[0].data();
+            docsToProcess.push({ id: targetId, ref: docRef, data: docData });
         } else {
             let qDocs;
             if (type === 'client') {
@@ -359,9 +363,21 @@ paymentForm.onsubmit = async (e) => {
                 const debt = total - currentPaid;
 
                 if (debt > 0) {
-                    docsToProcess.push({ id: d.id, ref: d.ref });
+                    docsToProcess.push({ id: d.id, ref: d.ref, data: data });
                     moneySimulated -= debt;
                 }
+            }
+        }
+
+        // Buscar las compras correspondientes si es de tipo 'supplier'
+        const purchasesToPay = [];
+        if (type !== 'client') {
+            const purchaseIds = docsToProcess.map(item => item.data?.purchaseId).filter(id => id);
+            if (purchaseIds.length > 0) {
+                const purchasesSnap = await getDocs(query(collection(db, "purchases"), where("__name__", "in", purchaseIds)));
+                purchasesSnap.forEach(d => {
+                    purchasesToPay.push({ id: d.id, ref: d.ref, data: d.data() });
+                });
             }
         }
 
@@ -369,11 +385,18 @@ paymentForm.onsubmit = async (e) => {
 
         await runTransaction(db, async (t) => {
             const accRef = doc(db, "accounts", accId);
-            const readPromises = [t.get(accRef), ...docsToProcess.map(item => t.get(item.ref))];
+            const purchasesRefs = purchasesToPay.map(item => item.ref);
+            
+            const readPromises = [
+                t.get(accRef), 
+                ...docsToProcess.map(item => t.get(item.ref)),
+                ...purchasesRefs.map(ref => t.get(ref))
+            ];
             const snapshots = await Promise.all(readPromises);
 
             const accDoc = snapshots[0];
-            const docSnaps = snapshots.slice(1);
+            const docSnaps = snapshots.slice(1, 1 + docsToProcess.length);
+            const purchaseSnaps = snapshots.slice(1 + docsToProcess.length);
 
             if(!accDoc.exists()) throw "Cuenta no existe";
 
@@ -397,16 +420,28 @@ paymentForm.onsubmit = async (e) => {
                 const newPaid = currentPaid + apply;
                 const isPaid = newPaid >= total - 100; 
 
-                // 🔥 CRÍTICO: Agregar updatedAt para que el Store detecte la actualización y refresque la pantalla de atrás automáticamente.
                 const updates = { amountPaid: newPaid, lastPaymentDate: new Date(), updatedAt: new Date() }; 
                 if (type === 'client') {
                     updates.paymentStatus = isPaid ? 'PAID' : 'PARTIAL';
                 } else {
                     updates.status = isPaid ? 'PAID' : 'PENDING';
-                    updates.balance = total - newPaid;
+                    updates.balance = Math.max(0, total - newPaid);
                 }
                 
                 t.update(dSnap.ref, updates);
+
+                // Sincronizar compra correspondiente si es de tipo 'supplier'
+                if (type !== 'client' && data.purchaseId) {
+                    const pSnap = purchaseSnaps.find(snap => snap.id === data.purchaseId);
+                    if (pSnap && pSnap.exists()) {
+                        const pData = pSnap.data();
+                        t.update(pSnap.ref, {
+                            amountPaid: (pData.amountPaid || 0) + apply,
+                            lastPaymentDate: new Date(),
+                            updatedAt: new Date()
+                        });
+                    }
+                }
                 
                 remainingMoney -= apply;
                 totalApplied += apply;
