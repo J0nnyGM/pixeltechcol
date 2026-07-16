@@ -172,6 +172,23 @@ function renderRowHTML(product, index) {
     const role = sessionStorage.getItem('pixeltech_user_role') || 'customer';
     const canEdit = (role === 'admin');
 
+    const img = product.mainImage || product.image || (product.images ? product.images[0] : 'https://placehold.co/100?text=Sin+Foto');
+    const isActive = product.status === 'active';
+    
+    let statusBadge = isActive 
+        ? `<span class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-50 text-emerald-600 border border-emerald-100"><div class="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.4)]"></div> Activo</span>`
+        : `<span class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-50 text-amber-600 border border-amber-100"><div class="w-2 h-2 rounded-full bg-amber-500"></div> Borrador</span>`;
+    
+    let priceDisplay = `<span class="text-base font-black text-gray-800">$${(product.price || 0).toLocaleString('es-CO')}</span>`;
+    if (product.originalPrice && product.price < product.originalPrice) {
+        const discountPercent = Math.round(((product.originalPrice - product.price) / product.originalPrice) * 100);
+        statusBadge += `<span class="ml-2 px-2 py-1 rounded-md text-[9px] font-black uppercase bg-purple-50 text-purple-600 border border-purple-100" title="Oferta activa">-${discountPercent}%</span>`;
+        priceDisplay = `<div class="flex flex-col"><span class="text-[10px] text-gray-300 line-through font-bold">$${product.originalPrice.toLocaleString('es-CO')}</span><span class="text-base font-black text-brand-red">$${product.price.toLocaleString('es-CO')}</span></div>`;
+    }
+
+    const toggleIcon = isActive ? 'fa-eye-slash' : 'fa-eye';
+    const toggleColor = isActive ? 'hover:text-amber-500 hover:border-amber-500' : 'hover:text-emerald-500 hover:border-emerald-500';
+
     const nameHtml = canEdit
         ? `<p class="font-black text-brand-black text-sm mb-1 leading-tight group-hover:text-brand-cyan transition-colors cursor-pointer" onclick="window.location.href='edit-product.html?id=${product.id}'">${product.name}</p>`
         : `<p class="font-black text-brand-black text-sm mb-1 leading-tight">${product.name}</p>`;

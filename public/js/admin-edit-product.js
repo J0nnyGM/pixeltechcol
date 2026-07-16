@@ -44,9 +44,10 @@ function lockGlobalInputs() {
 }
 
 function unlockGlobalInputs() { 
-    stockInput.readOnly = false;
-    stockInput.classList.remove('bg-gray-100', 'text-gray-400', 'cursor-not-allowed');
-    stockLabel.innerHTML = "Stock Total <span class='text-xs text-brand-cyan'>(Editable)</span>";
+    // 🔥 EL STOCK NUNCA SE DESBLOQUEA PARA EDICIÓN DIRECTA DESDE EDIT-PRODUCT 🔥
+    stockInput.readOnly = true;
+    stockInput.classList.add('bg-gray-100', 'text-gray-400', 'cursor-not-allowed');
+    stockLabel.innerHTML = "Stock Total <span class='text-xs text-brand-cyan'>(Auto/Lectura)</span>";
 
     const skuInput = document.getElementById('p-sku');
     if(skuInput) {
@@ -389,9 +390,8 @@ function renderMatrix() {
             <td class="p-4"><input type="number" value="${prev.price}" onchange="updateMatrixData('${row.key}', 'price', this.value)" class="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs font-bold text-brand-cyan outline-none focus:border-brand-cyan"></td>
             
             <td class="p-4">
-                <input type="number" value="${prev.stock}" 
-                onchange="updateMatrixData('${row.key}', 'stock', this.value)" 
-                class="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs font-bold text-brand-black outline-none focus:border-brand-cyan">
+                <input type="number" value="${prev.stock}" readonly
+                class="w-full bg-gray-50 border border-gray-200 rounded-lg p-2 text-xs font-bold text-gray-400 cursor-not-allowed outline-none">
             </td>`;
         tbody.appendChild(tr);
     });

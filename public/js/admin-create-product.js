@@ -230,7 +230,7 @@ function renderMatrix() {
                 class="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs font-bold text-gray-500 outline-none focus:border-brand-cyan focus:text-brand-black uppercase">
             </td>
             <td class="p-4"><input type="number" value="${prev.price}" onchange="updateMatrixData('${row.key}', 'price', this.value)" class="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs font-bold text-brand-cyan outline-none focus:border-brand-cyan"></td>
-            <td class="p-4"><input type="number" value="${prev.stock}" onchange="updateMatrixData('${row.key}', 'stock', this.value)" class="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs font-bold text-brand-black outline-none focus:border-brand-cyan"></td>`;
+            <td class="p-4"><input type="number" value="${prev.stock}" readonly class="w-full bg-gray-50 border border-gray-200 rounded-lg p-2 text-xs font-bold text-gray-400 cursor-not-allowed outline-none"></td>`;
         tbody.appendChild(tr);
     });
     recalcTotalStock();
@@ -269,9 +269,11 @@ function lockGlobalInputs() {
 }
 
 function unlockGlobalInputs() { 
-    stockInput.readOnly = false; 
-    stockInput.classList.remove('bg-gray-100', 'text-gray-400'); 
-    stockLabel.innerHTML = "Stock <span class='text-brand-cyan'>(Manual)</span>"; 
+    // 🔥 EL STOCK INICIAL SIEMPRE COMIENZA EN 0 Y SE INGRESA POR NUEVA ENTRADA 🔥
+    stockInput.value = 0;
+    stockInput.readOnly = true; 
+    stockInput.classList.add('bg-gray-100', 'text-gray-400', 'cursor-not-allowed'); 
+    stockLabel.innerHTML = "Stock <span class='text-xs text-brand-cyan'>(Lectura - Nueva Entrada)</span>"; 
     
     const skuInput = document.getElementById('p-sku');
     skuInput.readOnly = false;
