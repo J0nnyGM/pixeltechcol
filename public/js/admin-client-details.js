@@ -7,8 +7,8 @@ const params = new URLSearchParams(window.location.search);
 const clientId = params.get('id');
 
 let clientLoadedSerials = [];
-let lastSerialOrderDoc = null;
-const SERIALS_PAGE_SIZE = 15; // Límite de órdenes a leer por página (Ahorro de dinero)
+let serialsCurrentPage = 1;
+const SERIALS_PER_PAGE = 9; // Mostramos 9 seriales por página (rejilla de 3x3)
 
 if (!clientId) window.location.href = 'clients.html';
 
@@ -452,66 +452,37 @@ els.btnUpdate.onclick = async () => {
 // ==========================================
 // 5. CARGAR SERIALES PARA GARANTÍA
 // ==========================================
-async function loadClientSerials(isNextPage = false) {
+async function loadClientSerials() {
     const container = document.getElementById('client-sn-list');
-    const loadMoreBtn = document.getElementById('load-more-serials-container');
-
-    if (!isNextPage) {
-        container.innerHTML = '<div class="col-span-full text-center text-gray-400 py-10"><i class="fa-solid fa-circle-notch fa-spin text-brand-cyan text-2xl mb-2"></i><p class="text-xs font-bold uppercase tracking-widest">Descargando seriales...</p></div>';
-        clientLoadedSerials = [];
-        lastSerialOrderDoc = null;
-    } else {
-        const btn = loadMoreBtn.querySelector('button');
-        btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Cargando...';
-    }
+    container.innerHTML = '<div class="col-span-full text-center text-gray-400 py-10"><i class="fa-solid fa-circle-notch fa-spin text-brand-cyan text-2xl mb-2"></i><p class="text-xs font-bold uppercase tracking-widest">Descargando seriales...</p></div>';
+    clientLoadedSerials = [];
 
     try {
-        let q = query(
+        const q = query(
             collection(db, "orders"),
             where("userId", "==", clientId),
-            orderBy("createdAt", "desc"),
-            limit(SERIALS_PAGE_SIZE)
+            orderBy("createdAt", "desc")
         );
 
-        if (isNextPage && lastSerialOrderDoc) {
-            q = query(q, startAfter(lastSerialOrderDoc));
-        }
-
         const snap = await getDocs(q);
-
-        if (!isNextPage) container.innerHTML = "";
+        container.innerHTML = "";
 
         if (snap.empty) {
-            if (!isNextPage) {
-                container.innerHTML = `
-                    <div class="col-span-full text-center bg-white border border-gray-100 rounded-[2rem] py-12 shadow-sm">
-                        <i class="fa-solid fa-barcode text-4xl text-gray-200 mb-3"></i>
-                        <p class="text-[10px] text-gray-400 font-black uppercase tracking-widest">No hay seriales registrados</p>
-                        <p class="text-xs text-gray-400 font-bold mt-1">No se encontraron registros en el historial de este cliente.</p>
-                    </div>`;
-            }
-            if (loadMoreBtn) loadMoreBtn.classList.add('hidden');
+            container.innerHTML = `
+                <div class="col-span-full text-center bg-white border border-gray-100 rounded-[2rem] py-12 shadow-sm">
+                    <i class="fa-solid fa-barcode text-4xl text-gray-200 mb-3"></i>
+                    <p class="text-[10px] text-gray-400 font-black uppercase tracking-widest">No hay seriales registrados</p>
+                    <p class="text-xs text-gray-400 font-bold mt-1">No se encontraron registros en el historial de este cliente.</p>
+                </div>`;
+            const pagContainer = document.getElementById('serials-pagination-container');
+            if (pagContainer) pagContainer.classList.add('hidden');
             return;
-        }
-
-        // Guardamos el cursor para la próxima página
-        lastSerialOrderDoc = snap.docs[snap.docs.length - 1];
-
-        // Lógica de mostrar/ocultar el botón
-        if (loadMoreBtn) {
-            if (snap.docs.length === SERIALS_PAGE_SIZE) {
-                loadMoreBtn.classList.remove('hidden');
-                loadMoreBtn.querySelector('button').innerHTML = '<i class="fa-solid fa-circle-plus"></i> Cargar historial anterior';
-            } else {
-                loadMoreBtn.classList.add('hidden');
-            }
         }
 
         let newSerialsFound = [];
 
-        // Extraer seriales del bloque actual
-        snap.forEach(doc => {
-            const o = doc.data();
+        snap.forEach(docSnap => {
+            const o = docSnap.data();
             if (o.status === 'CANCELADO' || o.status === 'RECHAZADO') return;
 
             if (o.items && Array.isArray(o.items)) {
@@ -522,7 +493,7 @@ async function loadClientSerials(isNextPage = false) {
                                 newSerialsFound.push({
                                     sn: sn.trim().toUpperCase(),
                                     productName: item.name || 'Producto',
-                                    orderId: doc.id,
+                                    orderId: docSnap.id,
                                     date: o.createdAt?.toDate()
                                 });
                             }
@@ -532,31 +503,50 @@ async function loadClientSerials(isNextPage = false) {
             }
         });
 
-        // Sumamos los nuevos a la memoria RAM global
-        clientLoadedSerials = [...clientLoadedSerials, ...newSerialsFound];
-        
-        // Renderizamos
+        clientLoadedSerials = newSerialsFound;
+        serialsCurrentPage = 1;
         renderSerials(clientLoadedSerials);
-
-        // Si el usuario estaba buscando algo mientras cargaba más, forzamos el filtro
-        document.getElementById('search-serial-input').dispatchEvent(new Event('input'));
 
     } catch (e) {
         console.error("Error cargando seriales:", e);
-        if (!isNextPage) container.innerHTML = '<div class="col-span-full text-center text-red-500 py-8 font-bold text-xs uppercase tracking-widest">Error al cargar datos.</div>';
+        container.innerHTML = '<div class="col-span-full text-center text-red-500 py-8 font-bold text-xs uppercase tracking-widest">Error al cargar datos.</div>';
     }
 }
 
-// Dibuja las tarjetas basado en el array que le pasen (completo o filtrado)
 function renderSerials(serialsArray) {
     const container = document.getElementById('client-sn-list');
+    const pagContainer = document.getElementById('serials-pagination-container');
+    const pageInfo = document.getElementById('serials-page-info');
+    const btnPrev = document.getElementById('btn-prev-serials');
+    const btnNext = document.getElementById('btn-next-serials');
     
     if (serialsArray.length === 0) {
         container.innerHTML = '<div class="col-span-full text-center text-gray-400 py-6 font-bold text-xs uppercase tracking-widest">No se encontraron coincidencias en los datos cargados.</div>';
+        if (pagContainer) pagContainer.classList.add('hidden');
         return;
     }
 
-    container.innerHTML = serialsArray.map(s => {
+    const totalPages = Math.ceil(serialsArray.length / SERIALS_PER_PAGE);
+    if (serialsCurrentPage > totalPages && totalPages > 0) serialsCurrentPage = totalPages;
+    if (serialsCurrentPage < 1) serialsCurrentPage = 1;
+
+    // Mostrar/ocultar barra de paginación
+    if (pagContainer) {
+        if (totalPages > 1) {
+            pagContainer.classList.remove('hidden');
+            if (pageInfo) pageInfo.textContent = `Pág. ${serialsCurrentPage} de ${totalPages}`;
+            if (btnPrev) btnPrev.disabled = (serialsCurrentPage === 1);
+            if (btnNext) btnNext.disabled = (serialsCurrentPage === totalPages);
+        } else {
+            pagContainer.classList.add('hidden');
+        }
+    }
+
+    // Extraer items para la página actual
+    const startIdx = (serialsCurrentPage - 1) * SERIALS_PER_PAGE;
+    const pageSerials = serialsArray.slice(startIdx, startIdx + SERIALS_PER_PAGE);
+
+    container.innerHTML = pageSerials.map(s => {
         const dateStr = s.date ? s.date.toLocaleDateString('es-CO') : '--';
         return `
             <div class="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm hover:shadow-lg transition-all relative group overflow-hidden fade-in">
@@ -579,6 +569,21 @@ function renderSerials(serialsArray) {
     }).join('');
 }
 
+// Cambiar de página localmente
+window.changeSerialsPage = (dir) => {
+    const val = document.getElementById('search-serial-input')?.value.trim().toLowerCase() || "";
+    const activeArray = val 
+        ? clientLoadedSerials.filter(s => s.sn.toLowerCase().includes(val) || s.productName.toLowerCase().includes(val) || s.orderId.toLowerCase().includes(val))
+        : clientLoadedSerials;
+
+    const totalPages = Math.ceil(activeArray.length / SERIALS_PER_PAGE);
+    serialsCurrentPage += dir;
+    if (serialsCurrentPage < 1) serialsCurrentPage = 1;
+    if (serialsCurrentPage > totalPages) serialsCurrentPage = totalPages;
+
+    renderSerials(activeArray);
+};
+
 // ==========================================
 // LISTENER DEL BUSCADOR INTELIGENTE
 // ==========================================
@@ -586,25 +591,21 @@ const serialSearchInput = document.getElementById('search-serial-input');
 if (serialSearchInput) {
     serialSearchInput.addEventListener('input', (e) => {
         const val = e.target.value.trim().toLowerCase();
+        serialsCurrentPage = 1; // Resetear paginación al buscar
         
-        // Si borra la búsqueda, mostrar todos los cargados en memoria
         if (!val) {
             renderSerials(clientLoadedSerials);
             return;
         }
 
-        // Filtrar en memoria RAM sin consultar a Firebase
         const filtered = clientLoadedSerials.filter(s => {
             return s.sn.toLowerCase().includes(val) || 
                    s.productName.toLowerCase().includes(val) || 
                    s.orderId.toLowerCase().includes(val);
-        });
+         });
 
         renderSerials(filtered);
     });
 }
-
-// Exportar al window para que el botón de HTML lo detecte
-window.loadMoreSerials = () => loadClientSerials(true);
 
 init();

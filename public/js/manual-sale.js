@@ -448,7 +448,7 @@ function renderVariants(row, product) {
     caps = [...new Set(caps)];
 
     if (colors.length > 0) {
-        const wrap = document.createElement('div'); wrap.className = "flex-1";
+        const wrap = document.createElement('div'); wrap.className = "flex-1 relative";
         wrap.innerHTML = `<label class="text-[8px] font-black text-gray-400 uppercase tracking-widest mb-2 block text-center">Color</label>`;
         const sel = document.createElement('select'); sel.className = "p-color w-full bg-white border border-gray-200 rounded-xl py-3 px-2 text-xs font-bold outline-none text-brand-black cursor-pointer shadow-sm text-center appearance-none";
         sel.innerHTML = `<option value="">--</option>` + colors.map(c => `<option value="${c}">${c}</option>`).join('');
@@ -457,7 +457,7 @@ function renderVariants(row, product) {
     }
     
     if (caps.length > 0) {
-        const wrap = document.createElement('div'); wrap.className = "flex-1";
+        const wrap = document.createElement('div'); wrap.className = "flex-1 relative";
         wrap.innerHTML = `<label class="text-[8px] font-black text-gray-400 uppercase tracking-widest mb-2 block text-center">Capacidad</label>`;
         const sel = document.createElement('select'); sel.className = "p-capacity w-full bg-white border border-gray-200 rounded-xl py-3 px-2 text-xs font-bold outline-none text-brand-black cursor-pointer shadow-sm text-center appearance-none";
         sel.innerHTML = `<option value="">--</option>` + caps.map(c => {
@@ -635,6 +635,8 @@ async function saveOrder() {
 
     const items = [];
     let hasStockError = false;
+    let hasVariantError = false;
+    let variantErrorMessage = "";
     
     document.querySelectorAll('.item-row-container').forEach(row => {
         const id = row.querySelector('.p-id').value;
@@ -643,13 +645,73 @@ async function saveOrder() {
         
         if(id && qty > 0) {
             if (qty > maxStock) hasStockError = true;
+            
+            const colorEl = row.querySelector('.p-color');
+            const capEl = row.querySelector('.p-capacity');
+            const prodName = row.querySelector('.p-search').value;
+
+            if (colorEl && colorEl.value === "") {
+                hasVariantError = true;
+                if (!variantErrorMessage) variantErrorMessage = `🚨 Debes seleccionar un Color para el producto: ${prodName}`;
+                colorEl.classList.add('border-red-500', 'ring-2', 'ring-red-200');
+                
+                // Letrero flotante sutil debajo
+                let tooltip = colorEl.parentNode.querySelector('.error-tooltip');
+                if (!tooltip) {
+                    tooltip = document.createElement('div');
+                    tooltip.className = "error-tooltip absolute left-1/2 -translate-x-1/2 top-[calc(100%+4px)] bg-brand-red text-white text-[8px] font-black uppercase tracking-widest px-2.5 py-1 rounded shadow-md z-50 whitespace-nowrap pointer-events-none";
+                    tooltip.innerHTML = 'Falta color';
+                    colorEl.parentNode.appendChild(tooltip);
+                }
+                
+                // Limpiar clase de error si cambia a opción válida
+                colorEl.addEventListener('change', function handler() {
+                    if (this.value !== "") {
+                        this.classList.remove('border-red-500', 'ring-2', 'ring-red-200');
+                        const t = colorEl.parentNode.querySelector('.error-tooltip');
+                        if (t) t.remove();
+                        colorEl.removeEventListener('change', handler);
+                    }
+                });
+            }
+            if (capEl && capEl.value === "") {
+                hasVariantError = true;
+                if (!variantErrorMessage) variantErrorMessage = `🚨 Debes seleccionar una Capacidad para el producto: ${prodName}`;
+                capEl.classList.add('border-red-500', 'ring-2', 'ring-red-200');
+
+                // Letrero flotante sutil debajo
+                let tooltip = capEl.parentNode.querySelector('.error-tooltip');
+                if (!tooltip) {
+                    tooltip = document.createElement('div');
+                    tooltip.className = "error-tooltip absolute left-1/2 -translate-x-1/2 top-[calc(100%+4px)] bg-brand-red text-white text-[8px] font-black uppercase tracking-widest px-2.5 py-1 rounded shadow-md z-50 whitespace-nowrap pointer-events-none";
+                    tooltip.innerHTML = 'Falta capacidad';
+                    capEl.parentNode.appendChild(tooltip);
+                }
+
+                // Limpiar clase de error si cambia a opción válida
+                capEl.addEventListener('change', function handler() {
+                    if (this.value !== "") {
+                        this.classList.remove('border-red-500', 'ring-2', 'ring-red-200');
+                        const t = capEl.parentNode.querySelector('.error-tooltip');
+                        if (t) t.remove();
+                        capEl.removeEventListener('change', handler);
+                    }
+                });
+            }
+
             items.push({
-                id, name: row.querySelector('.p-search').value, price: parseCurrency(row.querySelector('.p-price-display').value),
-                quantity: qty, image: row.querySelector('.p-img').value, color: row.querySelector('.p-color')?.value || null, capacity: row.querySelector('.p-capacity')?.value || null
+                id, name: prodName, price: parseCurrency(row.querySelector('.p-price-display').value),
+                quantity: qty, image: row.querySelector('.p-img').value, color: colorEl?.value || null, capacity: capEl?.value || null
             });
         }
     });
 
+    if (hasVariantError) {
+        // Enfoque sutil y silencioso en el primer elemento con error
+        const firstErrorEl = document.querySelector('.item-row-container select.border-red-500');
+        if (firstErrorEl) firstErrorEl.focus();
+        return;
+    }
     if (hasStockError) return alert("🚨 Uno de los productos excede el stock disponible.");
     if (items.length === 0) return alert("🚨 Debes agregar al menos un producto a la venta.");
 

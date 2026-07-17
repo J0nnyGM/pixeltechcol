@@ -1730,4 +1730,7 @@ window.processBulkDispatch = processBulkDispatch;
 window.openBulkPackingModal = openBulkPackingModal;
 window.processBulkPacking = processBulkPacking;
 window.openPaymentModal = openPaymentModal;
-window.generateLabels = generateLabels;
+window.printSelectedLabels = () => {
+    // legacy label printer
+    generateLabels();
+};

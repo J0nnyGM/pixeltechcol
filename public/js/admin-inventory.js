@@ -32,6 +32,7 @@ let currentEditingId = null;
 let currentEditingProduct = null; 
 let currentDurationType = 'days';
 let adminProductsCache = []; // Aquí vivirá la copia de los datos
+let currentFilteredProducts = []; // Para almacenar el inventario filtrado actual
 
 const normalizeText = (str) => str ? str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "") : "";
 const formatCurrency = (val) => (val === "" || val == null) ? "" : "$ " + Number(val).toLocaleString("es-CO");
@@ -91,6 +92,7 @@ function renderViewFromMemory() {
     }
 
     totalDocs = filtered.length;
+    currentFilteredProducts = [...filtered];
     const totalPages = Math.ceil(totalDocs / PAGE_SIZE);
     if (currentPage > totalPages && totalPages > 0) currentPage = totalPages;
     if (currentPage < 1) currentPage = 1;
@@ -172,6 +174,11 @@ function renderRowHTML(product, index) {
     const role = sessionStorage.getItem('pixeltech_user_role') || 'customer';
     const canEdit = (role === 'admin');
 
+    const hasCombinations = product.combinations && Array.isArray(product.combinations) && product.combinations.length > 0;
+    const realStock = hasCombinations 
+        ? product.combinations.reduce((sum, c) => sum + (Number(c.stock) || 0), 0)
+        : (Number(product.stock) || 0);
+
     const img = product.mainImage || product.image || (product.images ? product.images[0] : 'https://placehold.co/100?text=Sin+Foto');
     const isActive = product.status === 'active';
     
@@ -224,8 +231,8 @@ function renderRowHTML(product, index) {
         <td class="p-6 align-middle">
             <div class="flex flex-col gap-1">
                 ${priceDisplay}
-                <p class="text-[10px] font-bold uppercase ${ (product.stock || 0) < 5 ? 'text-red-400' : 'text-emerald-500' } flex items-center gap-1">
-                    <i class="fa-solid fa-layer-group"></i> ${product.stock || 0} unid.
+                <p class="text-[10px] font-bold uppercase ${ realStock < 5 ? 'text-red-400' : 'text-emerald-500' } flex items-center gap-1">
+                    <i class="fa-solid fa-layer-group"></i> ${realStock} unid.
                 </p>
             </div>
         </td>
@@ -436,7 +443,11 @@ function generateNativeXlsx() {
         // Fila de Encabezados
         data.push(["Nombre", "Referencia", "Variable Color", "Variable Capacidad", "SKU", "Cantidad"]);
 
-        adminProductsCache.forEach(product => {
+        const sourceList = (currentFilteredProducts && currentFilteredProducts.length > 0) 
+            ? currentFilteredProducts 
+            : adminProductsCache;
+
+        sourceList.forEach(product => {
             const hasCombinations = product.combinations && Array.isArray(product.combinations) && product.combinations.length > 0;
 
             if (!hasCombinations) {

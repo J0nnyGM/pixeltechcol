@@ -439,6 +439,15 @@ window.confirmAdd = (uniqueId) => {
     const selColor = container.dataset.selColor || null;
     const selCap = container.dataset.selCap || null;
 
+    if (p.hasVariants && !selColor) {
+        alert("🚨 Por favor, selecciona un Color.");
+        return;
+    }
+    if (p.hasCapacities && !selCap) {
+        alert("🚨 Por favor, selecciona una Capacidad.");
+        return;
+    }
+
     let finalPrice = p.price;
     if (selCap && p.capacities) {
         const c = p.capacities.find(x => x.label === selCap);

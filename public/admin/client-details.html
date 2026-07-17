@@ -156,9 +156,14 @@
 
                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5" id="client-sn-list"></div>
 
-                <div id="load-more-serials-container" class="pt-6 pb-2 text-center hidden">
-                    <button onclick="window.loadMoreSerials()" class="text-[10px] font-black uppercase tracking-widest text-brand-black bg-white border border-gray-200 px-6 py-3 rounded-xl hover:bg-brand-cyan hover:border-brand-cyan hover:text-white transition-all shadow-sm flex items-center justify-center gap-2 mx-auto">
-                        <i class="fa-solid fa-circle-plus"></i> Cargar historial anterior
+                <!-- Paginación de Seriales -->
+                <div id="serials-pagination-container" class="pt-8 pb-4 flex items-center justify-center gap-4 hidden">
+                    <button onclick="window.changeSerialsPage(-1)" id="btn-prev-serials" class="w-10 h-10 flex items-center justify-center rounded-xl border border-gray-200 text-gray-500 hover:border-brand-cyan hover:text-brand-cyan disabled:opacity-30 disabled:pointer-events-none transition bg-white shadow-sm cursor-pointer">
+                        <i class="fa-solid fa-chevron-left"></i>
+                    </button>
+                    <span id="serials-page-info" class="text-xs font-black uppercase tracking-wider text-brand-black">Pág. 1 de 1</span>
+                    <button onclick="window.changeSerialsPage(1)" id="btn-next-serials" class="w-10 h-10 flex items-center justify-center rounded-xl border border-gray-200 text-gray-500 hover:border-brand-cyan hover:text-brand-cyan disabled:opacity-30 disabled:pointer-events-none transition bg-white shadow-sm cursor-pointer">
+                        <i class="fa-solid fa-chevron-right"></i>
                     </button>
                 </div>
             </div>
@@ -276,6 +281,6 @@
     </script>
     <script type="module" src="../js/admin-guard.js"></script>
     <script type="module" src="../js/admin-ui.js?v=1.0.1"></script>
-    <script type="module" src="../js/admin-client-details.js"></script>
+    <script type="module" src="../js/admin-client-details.js?v=1.0.1"></script>
 </body>
 </html>
