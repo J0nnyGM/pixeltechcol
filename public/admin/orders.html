@@ -529,7 +529,7 @@
                 const ordersRef = collection(db, "orders");
                 console.log("☁️ [Orders] Estableciendo conexión en vivo (Fuente de Verdad)...");
                 
-                const q = query(ordersRef, orderBy("createdAt", "desc"), limit(200));
+                const q = query(ordersRef, orderBy("createdAt", "desc"), limit(100));
 
                 this.unsubscribe = onSnapshot(q, (snapshot) => {
                     if (snapshot.empty) {
@@ -558,7 +558,9 @@
                         }
                     });
 
-                    lastVisibleServerDoc = snapshot.docs[snapshot.docs.length - 1];
+                    if (!lastVisibleServerDoc && snapshot.docs.length > 0) {
+                        lastVisibleServerDoc = snapshot.docs[snapshot.docs.length - 1];
+                    }
 
                     this.runtimeMap = freshMap;
                     this.updateGlobalArray();
@@ -588,7 +590,7 @@
             if (isFetchingOlderServerDocs || !lastVisibleServerDoc) return false;
             isFetchingOlderServerDocs = true;
             
-            console.log("⏳ [Paginación] Cargando bloque del pasado desde Firestore...");
+            console.log("⏳ [Paginación] Cargando bloque de órdenes anteriores desde Firestore...");
             
             try {
                 const ordersRef = collection(db, "orders");
@@ -614,6 +616,12 @@
                 });
                 
                 SmartAdminOrdersSync.updateGlobalArray();
+
+                localStorage.setItem(SmartAdminOrdersSync.STORAGE_KEY, JSON.stringify({
+                    map: SmartAdminOrdersSync.runtimeMap,
+                    lastSync: Date.now()
+                }));
+
                 isFetchingOlderServerDocs = false;
                 return true;
                 
@@ -624,219 +632,244 @@
             }
         }
 
-    // --- FILTRADO Y RENDERIZADO EN MEMORIA RAM CON EXPANSIÓN DE HOJA (CORREGIDO) ---
-function renderOrdersFromMemory() {
-    const tableBody = document.getElementById('orders-table-body');
-    if (!tableBody) return;
-    
-    tableBody.innerHTML = "";
-    filteredOrdersMemory = [];
+        // --- FILTRADO Y RENDERIZADO EN MEMORIA RAM CON PAGINACIÓN LIMPIA ---
+        function renderOrdersFromMemory() {
+            const tableBody = document.getElementById('orders-table-body');
+            if (!tableBody) return;
+            
+            tableBody.innerHTML = "";
+            reCalcularFiltroLocal();
 
-    // 1. Filtrado local por Pestaña
-    if (currentFilter === 'ACTIONABLE') {
-        filteredOrdersMemory = adminOrdersCache.filter(o => ["PAGADO", "PENDIENTE", "ALISTADO"].includes(o.status));
-    } else if (currentFilter === 'WAITING') {
-        filteredOrdersMemory = adminOrdersCache.filter(o => o.status === "PENDIENTE_PAGO");
-    } else if (currentFilter === 'DISPATCHED') {
-        filteredOrdersMemory = adminOrdersCache.filter(o => o.status === "DESPACHADO");
-    } else if (currentFilter === 'REFUNDS') {
-        filteredOrdersMemory = adminOrdersCache.filter(o => ["DEVUELTO", "DEVOLUCION_PARCIAL"].includes(o.status));
-    } else if (currentFilter === 'FAILED') {
-        filteredOrdersMemory = adminOrdersCache.filter(o => ["CANCELADO", "RECHAZADO"].includes(o.status));
-    } else if (currentFilter === 'ALL') {
-        filteredOrdersMemory = [...adminOrdersCache];
-    }
+            const totalFiltered = filteredOrdersMemory.length;
 
-    const totalFiltered = filteredOrdersMemory.length;
-
-    if (totalFiltered === 0) {
-        tableBody.innerHTML = `<tr><td colspan="8" class="p-10 text-center text-xs text-brand-black font-bold uppercase">No hay pedidos en esta sección.</td></tr>`;
-        updatePaginationControls(0, 0, 0);
-        return;
-    }
-
-    // 2. 🔥 CORRECCIÓN CLAVE: Permitir que la página actual muestre el excedente 
-    // para que el rango sea (por ejemplo) 1-150 de 150 y no corte en 100 de forma rígida.
-    const startIndex = (currentOrdersPage - 1) * ORDERS_PAGE_SIZE;
-    
-    // Calculamos si quedan suficientes datos locales para armar otra página completa en el futuro
-    const remainingElements = totalFiltered - startIndex;
-    let endIndex = startIndex + ORDERS_PAGE_SIZE;
-    
-    // Si lo que queda por mostrar es menor a un bloque completo (ej: 150 registros), 
-    // expandimos el final para que se muestre TODO junto y la página quede completa.
-    if (remainingElements < (ORDERS_PAGE_SIZE * 1.5) || remainingElements < ORDERS_PAGE_SIZE) {
-        endIndex = totalFiltered;
-    }
-
-    const pageItems = filteredOrdersMemory.slice(startIndex, endIndex);
-
-    // 3. Separación por Prioridades Logísticas (Solo en 'ACTIONABLE')
-    if (currentFilter === 'ACTIONABLE') {
-        const cutoffTimeStr = globalConfig.cutoffTime || "14:00";
-        const now = new Date();
-        const [hours, minutes] = cutoffTimeStr.split(':').map(Number);
-        const cutoffDateToday = new Date(now);
-        cutoffDateToday.setHours(hours, minutes, 0, 0);
-
-        const todayOrders = [];
-        const tomorrowOrders = [];
-
-        pageItems.forEach(o => {
-            const orderDate = new Date(o.createdAt);
-            const isToday = orderDate.toDateString() === now.toDateString();
-            if (isToday && orderDate > cutoffDateToday) tomorrowOrders.push(o);
-            else todayOrders.push(o);
-        });
-
-        if (todayOrders.length > 0) {
-            tableBody.innerHTML += `<tr class="bg-green-50/50 border-b border-green-100 fade-in"><td colspan="8" class="py-4 px-8"><div class="flex items-center gap-3 text-green-700"><div class="p-1.5 bg-green-100 rounded-lg"><i class="fa-solid fa-truck-fast text-xs"></i></div><span class="text-[10px] font-black uppercase tracking-widest">Prioridad: Despachar Hoy (Antes de ${cutoffTimeStr})</span></div></td></tr>`;
-            todayOrders.forEach(o => renderRow(o));
-        }
-        if (tomorrowOrders.length > 0) {
-            tableBody.innerHTML += `<tr class="bg-blue-50/50 border-b border-blue-100 fade-in"><td colspan="8" class="py-4 px-8"><div class="flex items-center gap-3 text-blue-700"><div class="p-1.5 bg-blue-100 rounded-lg"><i class="fa-solid fa-clock text-xs"></i></div><span class="text-[10px] font-black uppercase tracking-widest">Despachar Mañana (Después de ${cutoffTimeStr})</span></div></td></tr>`;
-            tomorrowOrders.forEach(o => renderRow(o));
-        }
-    } else {
-        pageItems.forEach(o => renderRow(o));
-    }
-
-    updatePaginationControls(startIndex + 1, endIndex, totalFiltered);
-}
-
-// --- CONTROLADORES DE INTERFAZ DE PAGINACIÓN ADAPTATIVA ---
-function updatePaginationControls(start, end, total) {
-    document.getElementById('pagination-range').textContent = total === 0 ? "0-0" : `${start}-${end}`;
-    document.getElementById('pagination-total').textContent = total;
-    
-    document.getElementById('btn-prev-page').disabled = (currentOrdersPage === 1);
-    
-    // El botón Siguiente se habilita ÚNICAMENTE si la cantidad total de elementos en RAM 
-    // supera por completo el rango visualizado actualmente o si el servidor tiene más datos.
-    const hasMoreLocally = total > end;
-    document.getElementById('btn-next-page').disabled = (!hasMoreLocally && !lastVisibleServerDoc);
-}
-
-// --- CAMBIO DE PÁGINA INTELIGENTE SIN AGUJEROS VISUALES ---
-window.changeOrdersPage = async (direction) => {
-    // Calculamos el índice que necesitaríamos para armar la siguiente página contundente
-    const currentEndIndex = currentOrdersPage * ORDERS_PAGE_SIZE;
-
-    // Si va hacia adelante y la RAM local se está quedando sin "colchón" de datos para la siguiente página,
-    // llamamos al servidor para que traiga más información contundente del pasado.
-    if (direction === 1 && (filteredOrdersMemory.length - currentEndIndex) < ORDERS_PAGE_SIZE && lastVisibleServerDoc) {
-        const btnNext = document.getElementById('btn-next-page');
-        const originalBtnHtml = btnNext.innerHTML;
-        
-        btnNext.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Sincronizando pasado...';
-        btnNext.disabled = true;
-        
-        // Descargamos un bloque contundente de Firebase
-        const success = await fetchOlderOrdersFromServerWithFilter();
-        
-        btnNext.innerHTML = originalBtnHtml;
-        
-        // Re-calculamos el filtro en RAM con la nueva data inyectada
-        reCalcularFiltroLocal();
-
-        if (!success) {
-            // Si Firebase dice que ya no hay más datos en la historia de la base de datos, 
-            // evaluamos si con lo que nos queda en RAM podemos pasar de página, si no, lo dejamos quieto.
-            if (filteredOrdersMemory.length <= currentEndIndex) {
-                btnNext.disabled = true;
+            if (totalFiltered === 0) {
+                tableBody.innerHTML = `<tr><td colspan="8" class="p-10 text-center text-xs text-brand-black font-bold uppercase">No hay pedidos en esta sección.</td></tr>`;
+                updatePaginationControls(0, 0, 0);
                 return;
             }
-        }
-    }
 
-    // Evaluación de salto de página seguro
-    const proximaPaginaObjetivo = currentOrdersPage + direction;
-    const maximoPaginasPosibles = Math.ceil(filteredOrdersMemory.length / ORDERS_PAGE_SIZE) || 1;
-    
-    if (proximaPaginaObjetivo >= 1 && proximaPaginaObjetivo <= maximoPaginasPosibles) {
-        currentOrdersPage = proximaPaginaObjetivo;
-        renderOrdersFromMemory();
-        document.querySelector('main').scrollTo({ top: 0, behavior: 'smooth' });
-    }
-};
+            const startIndex = (currentOrdersPage - 1) * ORDERS_PAGE_SIZE;
+            const endIndex = Math.min(startIndex + ORDERS_PAGE_SIZE, totalFiltered);
 
-// --- HELPER COMPLEMENTARIO: RE-CALCULA EL FILTRO LOCAL EN RAM ---
-function reCalcularFiltroLocal() {
-    if (currentFilter === 'ACTIONABLE') {
-        filteredOrdersMemory = adminOrdersCache.filter(o => ["PAGADO", "PENDIENTE", "ALISTADO"].includes(o.status));
-    } else if (currentFilter === 'WAITING') {
-        filteredOrdersMemory = adminOrdersCache.filter(o => o.status === "PENDIENTE_PAGO");
-    } else if (currentFilter === 'DISPATCHED') {
-        filteredOrdersMemory = adminOrdersCache.filter(o => o.status === "DESPACHADO");
-    } else if (currentFilter === 'REFUNDS') {
-        filteredOrdersMemory = adminOrdersCache.filter(o => ["DEVUELTO", "DEVOLUCION_PARCIAL"].includes(o.status));
-    } else if (currentFilter === 'FAILED') {
-        filteredOrdersMemory = adminOrdersCache.filter(o => ["CANCELADO", "RECHAZADO"].includes(o.status));
-    } else if (currentFilter === 'ALL') {
-        filteredOrdersMemory = [...adminOrdersCache];
-    }
-}
+            const pageItems = filteredOrdersMemory.slice(startIndex, endIndex);
 
-// --- HELPER: PETICIÓN HISTÓRICA CON FILTRO DE ESTADO DIRECTO EN SERVIDOR ---
-async function fetchOlderOrdersFromServerWithFilter() {
-    if (isFetchingOlderServerDocs || !lastVisibleServerDoc) return false;
-    isFetchingOlderServerDocs = true;
-    
-    try {
-        const ordersRef = collection(db, "orders");
-        let q;
-        
-        if (currentFilter === 'ACTIONABLE') {
-            q = query(ordersRef, where("status", "in", ["PAGADO", "PENDIENTE", "ALISTADO"]), orderBy("createdAt", "desc"), startAfter(lastVisibleServerDoc), limit(ORDERS_PAGE_SIZE));
-        } else if (currentFilter === 'WAITING') {
-            q = query(ordersRef, where("status", "==", "PENDIENTE_PAGO"), orderBy("createdAt", "desc"), startAfter(lastVisibleServerDoc), limit(ORDERS_PAGE_SIZE));
-        } else if (currentFilter === 'DISPATCHED') {
-            q = query(ordersRef, where("status", "==", "DESPACHADO"), orderBy("createdAt", "desc"), startAfter(lastVisibleServerDoc), limit(ORDERS_PAGE_SIZE));
-        } else if (currentFilter === 'REFUNDS') {
-            q = query(ordersRef, where("status", "in", ["DEVUELTO", "DEVOLUCION_PARCIAL"]), orderBy("createdAt", "desc"), startAfter(lastVisibleServerDoc), limit(ORDERS_PAGE_SIZE));
-        } else if (currentFilter === 'FAILED') {
-            q = query(ordersRef, where("status", "in", ["CANCELADO", "RECHAZADO"]), orderBy("createdAt", "desc"), startAfter(lastVisibleServerDoc), limit(ORDERS_PAGE_SIZE));
-        } else {
-            q = query(ordersRef, orderBy("createdAt", "desc"), startAfter(lastVisibleServerDoc), limit(ORDERS_PAGE_SIZE));
+            // Separación por Prioridades Logísticas (Solo en 'ACTIONABLE')
+            if (currentFilter === 'ACTIONABLE') {
+                const cutoffTimeStr = globalConfig.cutoffTime || "14:00";
+                const now = new Date();
+                const [hours, minutes] = cutoffTimeStr.split(':').map(Number);
+                const cutoffDateToday = new Date(now);
+                cutoffDateToday.setHours(hours, minutes, 0, 0);
+
+                const todayOrders = [];
+                const tomorrowOrders = [];
+
+                pageItems.forEach(o => {
+                    const orderDate = new Date(o.createdAt);
+                    const isToday = orderDate.toDateString() === now.toDateString();
+                    if (isToday && orderDate > cutoffDateToday) tomorrowOrders.push(o);
+                    else todayOrders.push(o);
+                });
+
+                if (todayOrders.length > 0) {
+                    tableBody.innerHTML += `<tr class="bg-green-50/50 border-b border-green-100 fade-in"><td colspan="8" class="py-4 px-8"><div class="flex items-center gap-3 text-green-700"><div class="p-1.5 bg-green-100 rounded-lg"><i class="fa-solid fa-truck-fast text-xs"></i></div><span class="text-[10px] font-black uppercase tracking-widest">Prioridad: Despachar Hoy (Antes de ${cutoffTimeStr})</span></div></td></tr>`;
+                    todayOrders.forEach(o => renderRow(o));
+                }
+                if (tomorrowOrders.length > 0) {
+                    tableBody.innerHTML += `<tr class="bg-blue-50/50 border-b border-blue-100 fade-in"><td colspan="8" class="py-4 px-8"><div class="flex items-center gap-3 text-blue-700"><div class="p-1.5 bg-blue-100 rounded-lg"><i class="fa-solid fa-clock text-xs"></i></div><span class="text-[10px] font-black uppercase tracking-widest">Despachar Mañana (Después de ${cutoffTimeStr})</span></div></td></tr>`;
+                    tomorrowOrders.forEach(o => renderRow(o));
+                }
+            } else {
+                pageItems.forEach(o => renderRow(o));
+            }
+
+            updatePaginationControls(startIndex + 1, endIndex, totalFiltered);
         }
-        
-        const snapshot = await getDocs(q);
-        
-        if (snapshot.empty) {
-            isFetchingOlderServerDocs = false;
-            return false;
-        }
-        
-        lastVisibleServerDoc = snapshot.docs[snapshot.docs.length - 1];
-        
-        snapshot.forEach(docSnap => {
-            const data = docSnap.data();
-            const id = docSnap.id;
-            if (!data.updatedAt) data.updatedAt = data.createdAt;
-            if (data.createdAt?.toDate) data.createdAt = data.createdAt.toDate().toISOString();
-            if (data.updatedAt?.toDate) data.updatedAt = data.updatedAt.toDate().toISOString();
+
+        // --- CONTROLADORES DE INTERFAZ DE PAGINACIÓN ADAPTATIVA ---
+        function updatePaginationControls(start, end, total) {
+            const rangeEl = document.getElementById('pagination-range');
+            const totalEl = document.getElementById('pagination-total');
+            const btnPrev = document.getElementById('btn-prev-page');
+            const btnNext = document.getElementById('btn-next-page');
+
+            if (rangeEl) rangeEl.textContent = total === 0 ? "0-0" : `${start}-${end}`;
+            if (totalEl) totalEl.textContent = total;
             
-            SmartAdminOrdersSync.runtimeMap[id] = { id, ...data };
-        });
-        
-        SmartAdminOrdersSync.updateGlobalArray();
-        isFetchingOlderServerDocs = false;
-        return true;
-        
-    } catch (e) {
-        console.error("Error en paginación de servidor:", e);
-        isFetchingOlderServerDocs = false;
-        return false;
-    }
-}
+            if (btnPrev) btnPrev.disabled = (currentOrdersPage <= 1);
+            if (btnNext) {
+                const hasMoreLocally = total > end;
+                btnNext.disabled = (!hasMoreLocally && !lastVisibleServerDoc);
+            }
+        }
+
+        // --- CAMBIO DE PÁGINA INTELIGENTE Y CONTINUO ---
+        window.changeOrdersPage = async (direction) => {
+            if (direction === -1) {
+                if (currentOrdersPage > 1) {
+                    currentOrdersPage--;
+                    renderOrdersFromMemory();
+                    document.querySelector('main')?.scrollTo({ top: 0, behavior: 'smooth' });
+                }
+                return;
+            }
+
+            if (direction === 1) {
+                const targetPage = currentOrdersPage + 1;
+                const targetStartIndex = (targetPage - 1) * ORDERS_PAGE_SIZE;
+
+                const btnNext = document.getElementById('btn-next-page');
+                const originalBtnHtml = btnNext ? btnNext.innerHTML : '';
+
+                // Mientras la RAM no tenga suficientes items para la página objetivo y queden datos en servidor, seguir cargando
+                while (filteredOrdersMemory.length <= targetStartIndex && lastVisibleServerDoc) {
+                    if (btnNext) {
+                        btnNext.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Cargando...';
+                        btnNext.disabled = true;
+                    }
+                    
+                    const success = await fetchOlderOrdersFromServer();
+                    reCalcularFiltroLocal();
+
+                    if (btnNext) btnNext.innerHTML = originalBtnHtml;
+
+                    if (!success) break;
+                }
+
+                const maxPages = Math.ceil(filteredOrdersMemory.length / ORDERS_PAGE_SIZE) || 1;
+                if (targetPage <= maxPages && filteredOrdersMemory.length > targetStartIndex) {
+                    currentOrdersPage = targetPage;
+                    renderOrdersFromMemory();
+                    document.querySelector('main')?.scrollTo({ top: 0, behavior: 'smooth' });
+                } else {
+                    if (btnNext) btnNext.disabled = (!lastVisibleServerDoc && (currentOrdersPage * ORDERS_PAGE_SIZE) >= filteredOrdersMemory.length);
+                }
+            }
+        };
+
+        // --- HELPER COMPLEMENTARIO: RE-CALCULA EL FILTRO LOCAL EN RAM ---
+        function reCalcularFiltroLocal() {
+            if (currentFilter === 'ACTIONABLE') {
+                filteredOrdersMemory = adminOrdersCache.filter(o => ["PAGADO", "PENDIENTE", "ALISTADO"].includes(o.status));
+            } else if (currentFilter === 'WAITING') {
+                filteredOrdersMemory = adminOrdersCache.filter(o => o.status === "PENDIENTE_PAGO");
+            } else if (currentFilter === 'DISPATCHED') {
+                filteredOrdersMemory = adminOrdersCache.filter(o => o.status === "DESPACHADO");
+            } else if (currentFilter === 'REFUNDS') {
+                filteredOrdersMemory = adminOrdersCache.filter(o => ["DEVUELTO", "DEVOLUCION_PARCIAL"].includes(o.status));
+            } else if (currentFilter === 'FAILED') {
+                filteredOrdersMemory = adminOrdersCache.filter(o => ["CANCELADO", "RECHAZADO"].includes(o.status));
+            } else if (currentFilter === 'ALL') {
+                filteredOrdersMemory = [...adminOrdersCache];
+            }
+        }
         
 
-        // --- BUSCADOR INSTANTÁNEO ---
+        // --- BUSCADOR INSTANTÁNEO E INTELIGENTE EN SERVIDOR Y MEMORIA ---
         const searchInput = document.getElementById('search-input');
+        let searchDebounceTimer = null;
+
+        async function performServerSearch(valRaw) {
+            const val = valRaw.trim();
+            if (val.length < 3) return;
+
+            const tableBody = document.getElementById('orders-table-body');
+            tableBody.innerHTML = `<tr><td colspan="8" class="p-8 text-center"><i class="fa-solid fa-cloud-arrow-down fa-bounce text-brand-cyan"></i> Buscando "${val}" en el servidor...</td></tr>`;
+
+            try {
+                const ordersRef = collection(db, "orders");
+                let finalDocs = [];
+                const addedIds = new Set();
+
+                // 1. Probar como Document ID exacto, minúscula y mayúscula
+                const candidateIds = [val, val.toLowerCase(), val.toUpperCase()];
+                for (const cId of candidateIds) {
+                    if (addedIds.has(cId)) continue;
+                    try {
+                        const docSnap = await getDoc(doc(db, "orders", cId));
+                        if (docSnap.exists()) {
+                            addedIds.add(docSnap.id);
+                            const data = docSnap.data();
+                            const item = { id: docSnap.id, ...data };
+                            finalDocs.push(item);
+                            SmartAdminOrdersSync.runtimeMap[docSnap.id] = item;
+                        }
+                    } catch (err) {}
+                }
+
+                // 2. Si es numérico, buscar por internalOrderNumber
+                if (!isNaN(val)) {
+                    try {
+                        const qNum = query(ordersRef, where("internalOrderNumber", "==", parseInt(val)));
+                        const snapNum = await getDocs(qNum);
+                        snapNum.forEach(d => {
+                            if (!addedIds.has(d.id)) {
+                                addedIds.add(d.id);
+                                const data = d.data();
+                                const item = { id: d.id, ...data };
+                                finalDocs.push(item);
+                                SmartAdminOrdersSync.runtimeMap[d.id] = item;
+                            }
+                        });
+                    } catch (err) {}
+                }
+
+                // 3. Si no hemos encontrado nada directo, escanear bloques del servidor en busca de la coincidencia
+                if (finalDocs.length === 0) {
+                    let fetches = 0;
+                    while (lastVisibleServerDoc && fetches < 5 && finalDocs.length === 0) {
+                        fetches++;
+                        const fetchedMore = await fetchOlderOrdersFromServer();
+                        
+                        const matches = adminOrdersCache.filter(o => {
+                            const idMatch = o.id.toLowerCase().includes(val.toLowerCase());
+                            const phoneMatch = (o.buyerInfo?.phone || o.phone || "").toLowerCase().includes(val.toLowerCase());
+                            const nameMatch = (o.buyerInfo?.name || o.userName || "").toLowerCase().includes(val.toLowerCase());
+                            const docMatch = (o.buyerInfo?.document || o.clientDoc || "").toLowerCase().includes(val.toLowerCase());
+                            const internalNumMatch = (o.internalOrderNumber || "").toString().includes(val);
+                            return idMatch || phoneMatch || nameMatch || docMatch || internalNumMatch;
+                        });
+
+                        matches.forEach(m => {
+                            if (!addedIds.has(m.id)) {
+                                addedIds.add(m.id);
+                                finalDocs.push(m);
+                            }
+                        });
+
+                        if (!fetchedMore) break;
+                    }
+                }
+
+                SmartAdminOrdersSync.updateGlobalArray();
+
+                tableBody.innerHTML = "";
+
+                if (finalDocs.length > 0) {
+                    tableBody.innerHTML = `<tr class="bg-gray-800 text-white"><td colspan="8" class="py-3 px-8 text-[10px] font-black uppercase tracking-widest"><i class="fa-solid fa-cloud text-brand-cyan mr-2"></i> ${finalDocs.length} Resultado(s) Encontrado(s)</td></tr>`;
+                    finalDocs.forEach(o => renderRow(o));
+                    updatePaginationControls(1, finalDocs.length, finalDocs.length);
+                    const btnNext = document.getElementById('btn-next-page');
+                    const btnPrev = document.getElementById('btn-prev-page');
+                    if (btnNext) btnNext.disabled = true;
+                    if (btnPrev) btnPrev.disabled = true;
+                } else {
+                    tableBody.innerHTML = `<tr><td colspan="8" class="p-10 text-center text-xs text-red-500 font-bold uppercase">No se encontró la orden con ID, Código o Cliente: "${val}".</td></tr>`;
+                    updatePaginationControls(0, 0, 0);
+                }
+
+            } catch (e) {
+                console.error("Error buscando en servidor:", e);
+                renderOrdersFromMemory();
+            }
+        }
 
         searchInput.addEventListener('input', function (e) {
-            const val = this.value.trim().toLowerCase();
+            const val = this.value.trim();
+            const valLower = val.toLowerCase();
             const tableBody = document.getElementById('orders-table-body');
+
+            if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
 
             if (val.length === 0) {
                 currentOrdersPage = 1;
@@ -845,70 +878,40 @@ async function fetchOlderOrdersFromServerWithFilter() {
             }
 
             const results = adminOrdersCache.filter(o => {
-                const idMatch = o.id.toLowerCase().includes(val);
-                const phoneMatch = (o.buyerInfo?.phone || o.phone || "").toLowerCase().includes(val);
-                const nameMatch = (o.buyerInfo?.name || o.userName || "").toLowerCase().includes(val);
-                const docMatch = (o.buyerInfo?.document || o.clientDoc || "").toLowerCase().includes(val);
-                const internalNumMatch = (o.internalOrderNumber || "").toString().includes(val);
+                const idMatch = o.id.toLowerCase().includes(valLower);
+                const phoneMatch = (o.buyerInfo?.phone || o.phone || "").toLowerCase().includes(valLower);
+                const nameMatch = (o.buyerInfo?.name || o.userName || "").toLowerCase().includes(valLower);
+                const docMatch = (o.buyerInfo?.document || o.clientDoc || "").toLowerCase().includes(valLower);
+                const internalNumMatch = (o.internalOrderNumber || "").toString().includes(valLower);
 
                 return idMatch || phoneMatch || nameMatch || docMatch || internalNumMatch;
             });
 
-            tableBody.innerHTML = "";
-
-            if (results.length === 0) {
-                tableBody.innerHTML = `<tr><td colspan="8" class="p-10 text-center text-xs text-red-500 font-bold uppercase">No se encontró coincidencia en caché local. Presiona ENTER para buscar a fondo.</td></tr>`;
-                updatePaginationControls(0, 0, 0);
-            } else {
-                tableBody.innerHTML += `<tr class="bg-brand-cyan/10 border-b border-brand-cyan/20"><td colspan="8" class="py-3 px-8 text-[10px] font-black uppercase text-brand-black tracking-widest"><i class="fa-solid fa-search text-brand-cyan mr-2"></i> Resultados de Búsqueda</td></tr>`;
+            if (results.length > 0) {
+                tableBody.innerHTML = `<tr class="bg-brand-cyan/10 border-b border-brand-cyan/20"><td colspan="8" class="py-3 px-8 text-[10px] font-black uppercase text-brand-black tracking-widest"><i class="fa-solid fa-search text-brand-cyan mr-2"></i> Resultados de Búsqueda</td></tr>`;
                 results.slice(0, ORDERS_PAGE_SIZE).forEach(o => renderRow(o));
                 updatePaginationControls(1, Math.min(results.length, ORDERS_PAGE_SIZE), results.length);
-                document.getElementById('btn-next-page').disabled = true;
-                document.getElementById('btn-prev-page').disabled = true;
+                const btnNext = document.getElementById('btn-next-page');
+                const btnPrev = document.getElementById('btn-prev-page');
+                if (btnNext) btnNext.disabled = true;
+                if (btnPrev) btnPrev.disabled = true;
+            } else if (val.length >= 3) {
+                // Si en memoria RAM local no se encuentra nada, disparar búsqueda automática en servidor tras 400ms
+                searchDebounceTimer = setTimeout(() => {
+                    performServerSearch(val);
+                }, 400);
+            } else {
+                tableBody.innerHTML = `<tr><td colspan="8" class="p-10 text-center text-xs text-red-500 font-bold uppercase">No se encontró coincidencia en memoria local. Escribe al menos 3 caracteres para buscar en servidor.</td></tr>`;
+                updatePaginationControls(0, 0, 0);
             }
         });
 
-        searchInput.addEventListener('keyup', async function (e) {
+        searchInput.addEventListener('keyup', function (e) {
             if (e.key === 'Enter') {
                 const val = this.value.trim();
-                if (val.length < 3) return; 
-
-                const tableBody = document.getElementById('orders-table-body');
-                tableBody.innerHTML = `<tr><td colspan="8" class="p-8 text-center"><i class="fa-solid fa-cloud-arrow-down fa-bounce text-brand-cyan"></i> Buscando en el archivo del servidor...</td></tr>`;
-
-                try {
-                    const ordersRef = collection(db, "orders");
-                    let finalDocs = [];
-
-                    const docRef = doc(db, "orders", val);
-                    const docSnap = await getDoc(docRef);
-                    if (docSnap.exists()) {
-                        finalDocs.push({ id: docSnap.id, ...docSnap.data() });
-                    }
-
-                    if (!isNaN(val)) {
-                        const qNum = query(ordersRef, where("internalOrderNumber", "==", parseInt(val)));
-                        const snapNum = await getDocs(qNum);
-                        snapNum.forEach(d => {
-                            if (!finalDocs.find(x => x.id === d.id)) {
-                                finalDocs.push({ id: d.id, ...d.data() });
-                            }
-                        });
-                    }
-
-                    if (finalDocs.length > 0) {
-                        tableBody.innerHTML = `<tr class="bg-gray-800 text-white"><td colspan="8" class="py-3 px-8 text-[10px] font-black uppercase tracking-widest"><i class="fa-solid fa-cloud text-brand-cyan mr-2"></i> Resultado desde Servidor</td></tr>`;
-                        finalDocs.forEach(o => renderRow(o));
-                        updatePaginationControls(1, finalDocs.length, finalDocs.length);
-                        document.getElementById('btn-next-page').disabled = true;
-                        document.getElementById('btn-prev-page').disabled = true;
-                    } else {
-                        tableBody.innerHTML = `<tr><td colspan="8" class="p-10 text-center text-xs text-red-500 font-bold uppercase">Definitivamente no existe la orden con ID o Número: "${val}".</td></tr>`;
-                        updatePaginationControls(0, 0, 0);
-                    }
-                } catch (e) {
-                    console.error("Error buscando en servidor:", e);
-                    renderOrdersFromMemory();
+                if (val.length >= 3) {
+                    if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
+                    performServerSearch(val);
                 }
             }
         });
