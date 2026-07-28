@@ -1723,6 +1723,7 @@ export async function processBulkDispatch() {
 }
 
 // --- EXPORTAR AL WINDOW ---
+window.generateLabels = generateLabels;
 window.openBulkPaymentModal = openBulkPaymentModal;
 window.processBulkPayment = processBulkPayment;
 window.openBulkDispatchModal = openBulkDispatchModal;
@@ -1730,7 +1731,22 @@ window.processBulkDispatch = processBulkDispatch;
 window.openBulkPackingModal = openBulkPackingModal;
 window.processBulkPacking = processBulkPacking;
 window.openPaymentModal = openPaymentModal;
-window.printSelectedLabels = () => {
-    // legacy label printer
-    generateLabels();
+window.printSelectedLabels = (ordersArray) => {
+    if (ordersArray && Array.isArray(ordersArray) && ordersArray.length > 0) {
+        generateLabels(ordersArray);
+        return;
+    }
+    const checkboxes = document.querySelectorAll('.order-cb:checked');
+    if (checkboxes.length === 0) {
+        alert("⚠️ Por favor, selecciona al menos un pedido marcando las casillas de la tabla.");
+        return;
+    }
+    const selectedIds = Array.from(checkboxes).map(cb => cb.value);
+    const cache = window.adminOrdersCache || [];
+    const selectedOrders = cache.filter(o => selectedIds.includes(o.id));
+    if (selectedOrders.length === 0) {
+        alert("⚠️ No se encontraron los datos de los pedidos seleccionados en la memoria.");
+        return;
+    }
+    generateLabels(selectedOrders);
 };

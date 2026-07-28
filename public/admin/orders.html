@@ -426,7 +426,7 @@
         import { db, collection, getDocs, orderBy, query, limit, auth, doc, getDoc, where, onSnapshot, startAfter } from '../js/firebase-init.js';
         import { loadAdminSidebar } from '../js/admin-ui.js?v=2.0.0';
         import { initManualSale, openManualSaleModal } from '../js/manual-sale.js?v=1.0.2';
-        import '../js/order-actions.js';
+        import '../js/order-actions.js?v=1.0.1';
 
         loadAdminSidebar();
 
@@ -1029,8 +1029,13 @@
                 return;
             }
             const selectedIds = Array.from(checkboxes).map(cb => cb.value);
-            const selectedOrders = adminOrdersCache.filter(o => selectedIds.includes(o.id));
-            window.generateLabels(selectedOrders);
+            const cache = window.adminOrdersCache || adminOrdersCache || [];
+            const selectedOrders = cache.filter(o => selectedIds.includes(o.id));
+            if (typeof window.generateLabels === 'function') {
+                window.generateLabels(selectedOrders);
+            } else {
+                alert("⚠️ La función para generar rótulos aún no se ha cargado. Por favor, reintenta en un segundo.");
+            }
         };
     </script>
     <script type="module" src="../js/admin-guard.js"></script>
