@@ -440,14 +440,33 @@ function generateNativeXlsx() {
     try {
         const data = [];
         
-        // Fila de Encabezados
-        data.push(["Nombre", "Referencia", "Variable Color", "Variable Capacidad", "SKU", "Cantidad"]);
+        // Fila de Encabezados con Categoría y Subcategoría
+        data.push(["Categoría", "Subcategoría", "Nombre", "Referencia", "Variable Color", "Variable Capacidad", "SKU", "Cantidad"]);
 
-        const sourceList = (currentFilteredProducts && currentFilteredProducts.length > 0) 
+        const rawList = (currentFilteredProducts && currentFilteredProducts.length > 0) 
             ? currentFilteredProducts 
             : adminProductsCache;
 
+        // Copiar y ordenar alfabéticamente por Categoría (A-Z), luego Subcategoría (A-Z), luego Nombre (A-Z)
+        const sourceList = [...rawList].sort((a, b) => {
+            const catA = (a.category || "Sin Categoría").trim();
+            const catB = (b.category || "Sin Categoría").trim();
+            const compCat = catA.localeCompare(catB, 'es', { sensitivity: 'base' });
+            if (compCat !== 0) return compCat;
+
+            const subA = (a.subcategory || "General").trim();
+            const subB = (b.subcategory || "General").trim();
+            const compSub = subA.localeCompare(subB, 'es', { sensitivity: 'base' });
+            if (compSub !== 0) return compSub;
+
+            const nameA = (a.name || "").trim();
+            const nameB = (b.name || "").trim();
+            return nameA.localeCompare(nameB, 'es', { sensitivity: 'base' });
+        });
+
         sourceList.forEach(product => {
+            const category = product.category || "Sin Categoría";
+            const subcategory = product.subcategory || "General";
             const hasCombinations = product.combinations && Array.isArray(product.combinations) && product.combinations.length > 0;
 
             if (!hasCombinations) {
@@ -455,6 +474,8 @@ function generateNativeXlsx() {
                 const stock = Number(product.stock) || 0;
                 if (stock > 0) {
                     data.push([
+                        category,
+                        subcategory,
                         product.name || "Sin Nombre",
                         product.sku || "Sin Referencia",
                         "---",
@@ -464,11 +485,25 @@ function generateNativeXlsx() {
                     ]);
                 }
             } else {
+                // Ordenar variantes alfabéticamente por Color y Capacidad
+                const sortedCombinations = [...product.combinations].sort((a, b) => {
+                    const colorA = (a.color || "").trim();
+                    const colorB = (b.color || "").trim();
+                    const compColor = colorA.localeCompare(colorB, 'es', { sensitivity: 'base' });
+                    if (compColor !== 0) return compColor;
+
+                    const capA = (a.capacity || "").trim();
+                    const capB = (b.capacity || "").trim();
+                    return capA.localeCompare(capB, 'es', { sensitivity: 'base' });
+                });
+
                 // Producto con Variantes de Combinación - Solo variantes con stock > 0
-                product.combinations.forEach(comb => {
+                sortedCombinations.forEach(comb => {
                     const stock = Number(comb.stock) || 0;
                     if (stock > 0) {
                         data.push([
+                            category,
+                            subcategory,
                             product.name || "Sin Nombre",
                             product.sku || "Sin Referencia",
                             comb.color || "---",
@@ -484,13 +519,13 @@ function generateNativeXlsx() {
         // Crear Libro de Trabajo (workbook) y Hoja de Cálculo (worksheet) de SheetJS
         const ws = XLSX.utils.aoa_to_sheet(data);
         
-        // --- OPCIONAL: Auto-ajuste de columnas para un aspecto premium ---
+        // Auto-ajuste de columnas para un aspecto premium
         const colsWidth = data[0].map((_, colIndex) => {
             const maxLen = data.reduce((max, row) => {
                 const val = row[colIndex] ? String(row[colIndex]) : "";
                 return val.length > max ? val.length : max;
             }, 10);
-            return { wch: maxLen + 3 }; // Ancho estimado + margen de espacio
+            return { wch: maxLen + 3 };
         });
         ws['!cols'] = colsWidth;
 
