@@ -1,10 +1,86 @@
 // public/js/admin-store.js
-import { db, collection, query, where, onSnapshot } from './firebase-init.js';
+import { db, collection, query, where, onSnapshot, clearAllAppDataAndReload } from './firebase-init.js';
 
 const normalizeText = (str) => str ? str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "") : "";
 
 // ==========================================================================
-// 🧬 CLASE MAESTRA: Delta Sync 3.0 (Zero Index Required)
+// 🗄️ HELPER INDEXEDDB NATIVO (Capacidad ilimitada > 500MB)
+// ==========================================================================
+class IDBStorage {
+    constructor(dbName = 'PixelTechAdminDB', storeName = 'store_cache') {
+        this.dbName = dbName;
+        this.storeName = storeName;
+        this.dbPromise = null;
+    }
+
+    getDB() {
+        if (!this.dbPromise) {
+            this.dbPromise = new Promise((resolve, reject) => {
+                const request = indexedDB.open(this.dbName, 1);
+                request.onupgradeneeded = (e) => {
+                    const db = e.target.result;
+                    if (!db.objectStoreNames.contains(this.storeName)) {
+                        db.createObjectStore(this.storeName);
+                    }
+                };
+                request.onsuccess = (e) => resolve(e.target.result);
+                request.onerror = (e) => reject(e.target.error);
+            });
+        }
+        return this.dbPromise;
+    }
+
+    async get(key) {
+        try {
+            const db = await this.getDB();
+            return new Promise((resolve) => {
+                const tx = db.transaction(this.storeName, 'readonly');
+                const store = tx.objectStore(this.storeName);
+                const req = store.get(key);
+                req.onsuccess = () => resolve(req.result || null);
+                req.onerror = () => resolve(null);
+            });
+        } catch (e) {
+            return null;
+        }
+    }
+
+    async set(key, value) {
+        try {
+            const db = await this.getDB();
+            return new Promise((resolve, reject) => {
+                const tx = db.transaction(this.storeName, 'readwrite');
+                const store = tx.objectStore(this.storeName);
+                const req = store.put(value, key);
+                req.onsuccess = () => resolve(true);
+                req.onerror = (e) => reject(e.target.error);
+            });
+        } catch (e) {
+            console.warn(`⚠️ [IndexedDB] Error al guardar ${key}:`, e);
+            return false;
+        }
+    }
+
+    async del(key) {
+        try {
+            const db = await this.getDB();
+            return new Promise((resolve) => {
+                const tx = db.transaction(this.storeName, 'readwrite');
+                const store = tx.objectStore(this.storeName);
+                const req = store.delete(key);
+                req.onsuccess = () => resolve(true);
+                req.onerror = () => resolve(false);
+            });
+        } catch (e) {
+            return false;
+        }
+    }
+}
+
+const idb = new IDBStorage();
+
+// ==========================================================================
+// 🧬 CLASE MAESTRA: Delta Sync 3.0 Con Motor IndexedDB (Zero Index Required)
 // ==========================================================================
 class StoreModule {
     constructor(config) {
@@ -21,18 +97,40 @@ class StoreModule {
         this.runtimeMap = {};
         this.lastSyncTime = 0;
         this.unsubscribeFirebase = null;
+        this.isCacheLoaded = false;
 
         this.loadFromCache();
     }
 
-    loadFromCache() {
-        const cached = localStorage.getItem(this.storageKey);
-        if (cached) {
-            try {
-                const parsed = JSON.parse(cached);
-                this.runtimeMap = parsed.map || {};
-                this.lastSyncTime = parsed.lastSync || 0;
-            } catch (e) { localStorage.removeItem(this.storageKey); }
+    async loadFromCache() {
+        try {
+            // 1. Intentar cargar desde IndexedDB (sin límites de 5MB)
+            let cached = await idb.get(this.storageKey);
+
+            // 2. Migración transparente desde localStorage si existe caché legacy
+            if (!cached) {
+                try {
+                    const legacy = localStorage.getItem(this.storageKey);
+                    if (legacy) {
+                        cached = JSON.parse(legacy);
+                        await idb.set(this.storageKey, cached);
+                        localStorage.removeItem(this.storageKey); // Liberar los 5MB de localStorage
+                        console.log(`📦 [Store: ${this.name}] Migrado con éxito de localStorage a IndexedDB.`);
+                    }
+                } catch (err) {}
+            }
+
+            if (cached) {
+                this.runtimeMap = cached.map || {};
+                this.lastSyncTime = cached.lastSync || 0;
+            }
+        } catch (e) {
+            console.warn(`⚠️ Error cargando caché de ${this.name}:`, e);
+        } finally {
+            this.isCacheLoaded = true;
+            if (Object.keys(this.runtimeMap).length > 0 || this.lastSyncTime > 0) {
+                this.notifyAll();
+            }
         }
     }
 
@@ -138,20 +236,25 @@ class StoreModule {
         });
     }
 
-    saveToCache() {
-        const sortedArray = this.getSortedArray();
-        const lightMap = {};
-        
-        const limitDate = new Date();
-        limitDate.setMonth(limitDate.getMonth() - 3);
+    async saveToCache() {
+        try {
+            const sortedArray = this.getSortedArray();
+            const lightMap = {};
+            
+            const limitDate = new Date();
+            limitDate.setMonth(limitDate.getMonth() - 6);
 
-        sortedArray.forEach(item => {
-            if (['products', 'clients', 'accounts'].includes(this.name) || !item.dateObj || item.dateObj >= limitDate) {
-                lightMap[item.id] = this.mapLightweight(item);
-            }
-        });
+            sortedArray.forEach(item => {
+                if (['products', 'clients', 'accounts'].includes(this.name) || !item.dateObj || item.dateObj >= limitDate) {
+                    lightMap[item.id] = this.mapLightweight(item);
+                }
+            });
 
-        localStorage.setItem(this.storageKey, JSON.stringify({ map: lightMap, lastSync: this.lastSyncTime }));
+            // Guardar en IndexedDB asíncronamente (sin bloquear la UI y sin límites de 5MB)
+            await idb.set(this.storageKey, { map: lightMap, lastSync: this.lastSyncTime });
+        } catch (error) {
+            console.warn(`⚠️ [Store: ${this.name}] Fallo al guardar en IndexedDB:`, error);
+        }
     }
 
     getSortedArray() {
@@ -167,8 +270,10 @@ class StoreModule {
         this.listeners.forEach(cb => cb(data));
     }
 
-    forceSync() {
+    async forceSync() {
         console.log(`[Store] Limpieza y Sincronización Forzada en: ${this.name}`);
+        await idb.del(this.storageKey);
+        try { localStorage.removeItem(this.storageKey); } catch (e) {}
         this.connectFirebase(true);
     }
 }
@@ -275,7 +380,7 @@ export const AdminStore = {
     subscribeToInvoices: (cb) => modules.invoices.subscribe(cb),
     subscribeToAccounts: (cb) => modules.accounts.subscribe(cb),
 
-    forceSyncAll() {
-        Object.values(modules).forEach(mod => mod.forceSync());
+    async forceSyncAll() {
+        await clearAllAppDataAndReload(true);
     }
 };

@@ -565,10 +565,12 @@
                     this.runtimeMap = freshMap;
                     this.updateGlobalArray();
 
-                    localStorage.setItem(this.STORAGE_KEY, JSON.stringify({
-                        map: this.runtimeMap,
-                        lastSync: Date.now()
-                    }));
+                    try {
+                        localStorage.setItem(this.STORAGE_KEY, JSON.stringify({
+                            map: this.runtimeMap,
+                            lastSync: Date.now()
+                        }));
+                    } catch (e) { console.warn("⚠️ localStorage lleno al guardar orders"); }
                     this.lastSyncTime = Date.now();
 
                     console.log(`🔥 [Orders] Sincronización perfecta: ${adminOrdersCache.length} pedidos al día.`);
@@ -617,10 +619,12 @@
                 
                 SmartAdminOrdersSync.updateGlobalArray();
 
-                localStorage.setItem(SmartAdminOrdersSync.STORAGE_KEY, JSON.stringify({
-                    map: SmartAdminOrdersSync.runtimeMap,
-                    lastSync: Date.now()
-                }));
+                try {
+                    localStorage.setItem(SmartAdminOrdersSync.STORAGE_KEY, JSON.stringify({
+                        map: SmartAdminOrdersSync.runtimeMap,
+                        lastSync: Date.now()
+                    }));
+                } catch (e) { console.warn("⚠️ localStorage lleno al guardar historial de órdenes"); }
 
                 isFetchingOlderServerDocs = false;
                 return true;
@@ -774,12 +778,24 @@
             if (val.length < 3) return;
 
             const tableBody = document.getElementById('orders-table-body');
-            tableBody.innerHTML = `<tr><td colspan="8" class="p-8 text-center"><i class="fa-solid fa-cloud-arrow-down fa-bounce text-brand-cyan"></i> Buscando "${val}" en el servidor...</td></tr>`;
+            tableBody.innerHTML = `<tr><td colspan="8" class="p-8 text-center"><i class="fa-solid fa-cloud-arrow-down fa-bounce text-brand-cyan"></i> Buscando "${val}" en toda la base de datos...</td></tr>`;
 
             try {
                 const ordersRef = collection(db, "orders");
                 let finalDocs = [];
                 const addedIds = new Set();
+
+                const addResultsFromSnapshot = (snap) => {
+                    snap.forEach(d => {
+                        if (!addedIds.has(d.id)) {
+                            addedIds.add(d.id);
+                            const data = d.data();
+                            const item = { id: d.id, ...data };
+                            finalDocs.push(item);
+                            SmartAdminOrdersSync.runtimeMap[d.id] = item;
+                        }
+                    });
+                };
 
                 // 1. Probar como Document ID exacto, minúscula y mayúscula
                 const candidateIds = [val, val.toLowerCase(), val.toUpperCase()];
@@ -802,22 +818,57 @@
                     try {
                         const qNum = query(ordersRef, where("internalOrderNumber", "==", parseInt(val)));
                         const snapNum = await getDocs(qNum);
-                        snapNum.forEach(d => {
-                            if (!addedIds.has(d.id)) {
-                                addedIds.add(d.id);
-                                const data = d.data();
-                                const item = { id: d.id, ...data };
-                                finalDocs.push(item);
-                                SmartAdminOrdersSync.runtimeMap[d.id] = item;
-                            }
-                        });
+                        addResultsFromSnapshot(snapNum);
                     } catch (err) {}
                 }
 
-                // 3. Si no hemos encontrado nada directo, escanear bloques del servidor en busca de la coincidencia
+                // 3. Buscar directamente por Cédula / NIT / Documento en Firestore
+                const docQueries = [
+                    query(ordersRef, where("buyerInfo.document", "==", val), limit(50)),
+                    query(ordersRef, where("clientDoc", "==", val), limit(50)),
+                    query(ordersRef, where("shippingData.clientDoc", "==", val), limit(50)),
+                    query(ordersRef, where("billingInfo.document", "==", val), limit(50))
+                ];
+                for (const qDoc of docQueries) {
+                    try {
+                        const snapDoc = await getDocs(qDoc);
+                        addResultsFromSnapshot(snapDoc);
+                    } catch (e) {}
+                }
+
+                // 4. Buscar directamente por Teléfono en Firestore
+                const phoneQueries = [
+                    query(ordersRef, where("buyerInfo.phone", "==", val), limit(50)),
+                    query(ordersRef, where("phone", "==", val), limit(50)),
+                    query(ordersRef, where("shippingData.phone", "==", val), limit(50))
+                ];
+                for (const qPhone of phoneQueries) {
+                    try {
+                        const snapPhone = await getDocs(qPhone);
+                        addResultsFromSnapshot(snapPhone);
+                    } catch (e) {}
+                }
+
+                // 5. Buscar por Nombre del Cliente en Firestore (Caja original, mayúsculas y minúsculas)
+                const nameVariants = Array.from(new Set([val, val.toLowerCase(), val.toUpperCase(), val.toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")]));
+                for (const nVar of nameVariants) {
+                    const nameQueries = [
+                        query(ordersRef, where("buyerInfo.name", "==", nVar), limit(50)),
+                        query(ordersRef, where("userName", "==", nVar), limit(50)),
+                        query(ordersRef, where("shippingData.name", "==", nVar), limit(50))
+                    ];
+                    for (const qName of nameQueries) {
+                        try {
+                            const snapName = await getDocs(qName);
+                            addResultsFromSnapshot(snapName);
+                        } catch (e) {}
+                    }
+                }
+
+                // 6. Si aún no hemos encontrado coincidencia directa, escanear bloques históricos del servidor
                 if (finalDocs.length === 0) {
                     let fetches = 0;
-                    while (lastVisibleServerDoc && fetches < 5 && finalDocs.length === 0) {
+                    while (lastVisibleServerDoc && fetches < 10 && finalDocs.length === 0) {
                         fetches++;
                         const fetchedMore = await fetchOlderOrdersFromServer();
                         

@@ -1,5 +1,5 @@
 // public/js/admin-ui.js
-import { auth, db, collection, query, where, onSnapshot } from './firebase-init.js';
+import { auth, db, collection, query, where, onSnapshot, clearAllAppDataAndReload } from './firebase-init.js';
 
 export function loadAdminSidebar(userRole = 'customer') {
     const sidebarContainer = document.getElementById('admin-sidebar');
@@ -256,20 +256,9 @@ export function loadAdminSidebar(userRole = 'customer') {
 
     if (btnUpdate) {
         btnUpdate.addEventListener('click', async () => {
-            btnUpdate.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Limpiando sistema...';
-            try {
-                const cacheNames = await caches.keys();
-                for (const cacheName of cacheNames) {
-                    const cache = await caches.open(cacheName);
-                    const cachedRequests = await cache.keys();
-                    for (const request of cachedRequests) {
-                        const url = request.url.toLowerCase();
-                        if (url.endsWith('.js') || url.endsWith('.html') || url.includes('?')) await cache.delete(request);
-                    }
-                }
-            } catch (error) {}
+            btnUpdate.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Reiniciando sistema e IndexedDB...';
             if (newWorker) newWorker.postMessage({ type: 'SKIP_WAITING' });
-            else window.location.href = window.location.pathname + '?refresh=' + new Date().getTime();
+            await clearAllAppDataAndReload(true);
         });
     }
 }

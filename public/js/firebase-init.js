@@ -128,6 +128,64 @@ export {
 };
 
 // ==========================================
+// 💥 LIMPIEZA EFICIENTE DE CACHÉ (PRESERVANDO INDEXEDDB)
+// ==========================================
+export async function clearAllAppDataAndReload(preserveAuth = true) {
+    console.log("🧹 [Caché] Limpiando almacenamiento de localStorage y descargando archivos nuevos del servidor...");
+
+    // 1. Preservar sesión de usuario (Firebase Auth) y versión de caché
+    const authKeys = {};
+    if (preserveAuth) {
+        try {
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                if (key && (key.startsWith('firebase:authUser') || key.includes('firebase') || key === 'pixeltech_cache_version')) {
+                    authKeys[key] = localStorage.getItem(key);
+                }
+            }
+        } catch (e) {}
+    }
+
+    // 2. Destruir localStorage legacy y sessionStorage (Liberando la cuota de 5MB)
+    try { localStorage.clear(); } catch (e) {}
+    try { sessionStorage.clear(); } catch (e) {}
+
+    // Restaurar credenciales de sesión y versión de caché
+    if (preserveAuth) {
+        Object.keys(authKeys).forEach(k => {
+            try { localStorage.setItem(k, authKeys[k]); } catch (e) {}
+        });
+    }
+
+    // 3. 🛡️ IMPORTANTE: MANTENER INDEXEDDB (PixelTechAdminDB)
+    // Conservar IndexedDB evita borrar los timestamps lastSync, permitiendo a Firebase 
+    // hacer Delta Syncs de solo lo cambiado y ahorrando miles de lecturas en Firestore.
+
+    // 4. Borrar Cache Storage de Service Workers (Descarga archivos JS/HTML/CSS frescos)
+    try {
+        if ('caches' in window) {
+            const cacheNames = await caches.keys();
+            await Promise.all(cacheNames.map(name => caches.delete(name)));
+        }
+    } catch (e) {}
+
+    // 5. Desregistrar Service Workers para actualizar la aplicación en vivo
+    try {
+        if ('serviceWorker' in navigator) {
+            const registrations = await navigator.serviceWorker.getRegistrations();
+            for (let registration of registrations) {
+                await registration.unregister();
+            }
+        }
+    } catch (e) {}
+
+    // 6. Recargar la página limpia con timestamp único
+    const newUrl = new URL(window.location.href);
+    newUrl.searchParams.set('refresh', Date.now().toString());
+    window.location.replace(newUrl.toString());
+}
+
+// ==========================================
 // 💥 KILL SWITCH: DESTRUCCIÓN TOTAL DE CACHÉ EN TIEMPO REAL
 // ==========================================
 export function initCacheKillSwitch(db) {
@@ -149,28 +207,9 @@ export function initCacheKillSwitch(db) {
                 const localVersion = parseInt(localVersionString);
                 
                 if (serverVersion > localVersion) {
-                    console.warn(`💥 KILL SWITCH ACTIVADO (v${serverVersion}). Borrando absolutamente todo...`);
-
-                    localStorage.clear(); 
-                    sessionStorage.clear();
-
-                    if ('caches' in window) {
-                        const cacheNames = await caches.keys();
-                        await Promise.all(cacheNames.map(name => caches.delete(name)));
-                    }
-
-                    if ('serviceWorker' in navigator) {
-                        const registrations = await navigator.serviceWorker.getRegistrations();
-                        for (let registration of registrations) {
-                            await registration.unregister();
-                        }
-                    }
-
+                    console.warn(`💥 KILL SWITCH ACTIVADO (v${serverVersion}). Borrando absolutamente todo e iniciando limpio...`);
                     localStorage.setItem('pixeltech_cache_version', serverVersion.toString());
-
-                    const newUrl = new URL(window.location.href);
-                    newUrl.searchParams.set('v_cache', serverVersion);
-                    window.location.replace(newUrl.toString()); 
+                    await clearAllAppDataAndReload(true);
                 }
             }
         }, (error) => {
