@@ -111,3 +111,7 @@ exports.fixMissingCedulas = fixCedulasModule.runFix;
 // Arreglo de estados de facturación en pedidos cancelados/rechazados
 const fixInvoicesModule = require('./fix-invoices');
 exports.fixCancelledInvoices = fixInvoicesModule.runFixInvoices;
+
+// 👁️ VIGILANTE / CENTINELA DE AUDITORÍA DE INVENTARIO (Pruebas)
+const inventoryAuditWatcher = require('./inventory-audit-watcher');
+exports.watchInventoryChanges = inventoryAuditWatcher.watchInventoryChanges;

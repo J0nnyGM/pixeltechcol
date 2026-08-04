@@ -674,7 +674,8 @@ async function saveEditedOrder() {
 
     } catch(e) {
         console.error(e);
-        alert("Error al editar la orden: " + e.message);
+        const errMsg = e?.message || (typeof e === 'string' ? e : "Error inesperado");
+        alert("Error al editar la orden: " + errMsg);
     } finally {
         btn.innerHTML = originalText;
         btn.disabled = false;

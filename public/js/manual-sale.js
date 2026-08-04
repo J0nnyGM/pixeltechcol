@@ -1,4 +1,4 @@
-import { db, collection, doc, runTransaction, addDoc, setDoc, getDocs, query, orderBy } from './firebase-init.js';
+import { db, collection, doc, runTransaction, addDoc, setDoc, getDocs, query, orderBy, deleteDoc } from './firebase-init.js';
 import { adjustStock } from './inventory-core.js';
 import { AdminStore } from './admin-store.js';
 
@@ -775,8 +775,6 @@ async function saveOrder() {
 
         if (total <= 0) throw new Error("El total de la venta no puede ser cero.");
 
-        for (const item of items) { await adjustStock(item.id, -(item.quantity), item.color, item.capacity); }
-
         let paymentStatus = 'PENDING';
         let paymentMethodName = 'Crédito / Cartera';
         let amountPaid = 0;
@@ -796,21 +794,49 @@ async function saveOrder() {
         const orderData = {
             userId: finalUserId, userName: custName, phone: custPhone, clientDoc: custDoc, 
             items, 
-            subtotal, shippingCost, tax4x1000, total, // 🔥 SE GUARDA EL 4x1000
+            subtotal, shippingCost, tax4x1000, total,
             status: 'PENDIENTE', source: 'MANUAL', requiresInvoice: document.getElementById('m-requires-invoice').checked,
             paymentStatus, amountPaid, paymentAccountId: accountId === 'credit' ? null : accountId, paymentMethodName,
+            isStockDeducted: true,
             createdAt: new Date(), updatedAt: new Date(), shippingData, buyerInfo: { name: custName, email: emailVal || "", phone: custPhone, document: custDoc }
         };
         
+        // 1. Guardar la orden primero en Firestore
         const orderRef = await addDoc(collection(db, "orders"), orderData);
+
+        // 2. Guardar la remisión correspondiente en Firestore
         await setDoc(doc(db, "remissions", orderRef.id), { ...orderData, orderId: orderRef.id, status: 'PENDIENTE_ALISTAMIENTO', type: 'DIRECTA' });
+
+        // 3. SOLO AHORA QUE LA ORDEN Y REMISIÓN EXISTEN Y ESTÁN CONFIRMADAS, SE DESCUENTA EL STOCK
+        let stockDeductedItems = [];
+        try {
+            for (const item of items) { 
+                await adjustStock(item.id, -(item.quantity), item.color, item.capacity);
+                stockDeductedItems.push(item);
+            }
+        } catch (stockErr) {
+            console.error("🚨 Error aplicando descuento de stock tras crear la orden:", stockErr);
+            // Rollback de stock devuelto para evitar inconsistencias
+            for (const item of stockDeductedItems) {
+                try {
+                    await adjustStock(item.id, item.quantity, item.color, item.capacity);
+                } catch (rbErr) { console.error("Error en rollback de stock:", rbErr); }
+            }
+            // Eliminar orden y remisión creadas si falla el inventario
+            await deleteDoc(doc(db, "orders", orderRef.id));
+            await deleteDoc(doc(db, "remissions", orderRef.id));
+            const stockMsg = stockErr?.message || (typeof stockErr === 'string' ? stockErr : "Stock insuficiente");
+            throw new Error(`🚨 No se pudo completar la venta por un problema de inventario: ${stockMsg}`);
+        }
 
         alert(`✅ Venta Exitosa.\nLa orden #${orderRef.id.slice(0,6)} ha sido enviada al centro logístico.`);
         document.getElementById('manual-modal').classList.add('hidden');
         if (onSuccessCallback) onSuccessCallback();
 
     } catch (e) {
-        console.error(e); alert(e.message);
+        console.error("Error en saveOrder:", e);
+        const errMsg = e?.message || (typeof e === 'string' ? e : "Error inesperado al procesar la venta.");
+        alert(`❌ ${errMsg}`);
     } finally {
         btn.disabled = false; btn.innerHTML = originalText;
     }

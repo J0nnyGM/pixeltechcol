@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="es" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>👁️ Vigilante de Inventario | Auditoría Temporal PixelTech</title>
+    <link rel="stylesheet" href="../css/styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <style>
+        html, body {
+            background-color: #0B0F19 !important;
+            color: #F3F4F6 !important;
+            font-family: 'Outfit', sans-serif !important;
+            min-height: 100vh;
+        }
+        /* Header Oscuro */
+        .dark-header {
+            background-color: #0C0E14 !important;
+            border-bottom: 1px solid #1F2937 !important;
+        }
+        /* Banner Azul Oscuro */
+        .dark-info-banner {
+            background-color: #0D1B2A !important;
+            border: 1px solid #1E3A5F !important;
+            color: #93C5FD !important;
+        }
+        /* Tarjetas de Métricas */
+        .dark-stat-card {
+            background-color: #111827 !important;
+            border: 1px solid #1F2937 !important;
+        }
+        /* Paneles Principales */
+        .dark-panel {
+            background-color: #111827 !important;
+            border: 1px solid #1F2937 !important;
+        }
+        /* Inputs y Selects */
+        .dark-input {
+            background-color: #080C14 !important;
+            border: 1px solid #1F2937 !important;
+            color: #FFFFFF !important;
+        }
+        .dark-input:focus {
+            border-color: #00AEC7 !important;
+        }
+        /* Contenedor Tabla */
+        .dark-table-wrapper {
+            background-color: #080C14 !important;
+            border: 1px solid #1F2937 !important;
+        }
+        thead tr {
+            background-color: #1A2234 !important;
+            color: #9CA3AF !important;
+        }
+        tbody tr {
+            border-bottom: 1px solid #1F2937 !important;
+        }
+        tbody tr:hover {
+            background-color: #161F30 !important;
+        }
+        /* Modal Oscuro */
+        .dark-modal-content {
+            background-color: #111827 !important;
+            border: 1px solid #1F2937 !important;
+        }
+        .dark-modal-header {
+            background-color: #080C14 !important;
+            border-bottom: 1px solid #1F2937 !important;
+        }
+        .dark-box-sub {
+            background-color: #080C14 !important;
+            border: 1px solid #1F2937 !important;
+        }
+    </style>
+</head>
+<body class="h-full text-gray-100 antialiased selection:bg-brand-cyan selection:text-brand-black" style="background-color: #0B0F19 !important;">
+
+    <div class="min-h-screen flex flex-col" style="background-color: #0B0F19 !important;">
+        <!-- HEADER TEMPORAL -->
+        <header class="dark-header sticky top-0 z-50">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-brand-cyan text-xl shadow-[0_0_15px_rgba(0,174,199,0.2)]">
+                        <i class="fa-solid fa-eye fa-bounce"></i>
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <h1 class="text-lg font-black tracking-tight text-white uppercase">Vigilante de Inventario</h1>
+                            <span class="bg-amber-500/10 text-amber-400 border border-amber-500/20 text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest">Herramienta de Prueba</span>
+                        </div>
+                        <p class="text-xs text-gray-400 font-medium">Monitoreo en tiempo real de cambios manuales, entradas por compras y salidas por ventas.</p>
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-3">
+                    <span class="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-bold">
+                        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span> En Vivo
+                    </span>
+                    <a href="/admin/products.html" class="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-200 text-xs font-bold rounded-xl transition border border-gray-700 flex items-center gap-2">
+                        <i class="fa-solid fa-box-open text-brand-cyan"></i> Ir a Productos
+                    </a>
+                </div>
+            </div>
+        </header>
+
+        <!-- CONTENIDO PRINCIPAL -->
+        <main class="flex-grow max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8" style="background-color: #0B0F19 !important;">
+            
+            <!-- ALERTA INFORMATIVA -->
+            <div class="dark-info-banner rounded-2xl p-4 flex items-start gap-4 text-xs leading-relaxed">
+                <i class="fa-solid fa-info-circle text-lg text-blue-400 shrink-0 mt-0.5"></i>
+                <div>
+                    <strong class="font-bold text-white">¿Cómo funciona esta pantalla?</strong>
+                    <p class="mt-0.5">Puedes ver la lista completa de eventos recientes o explorar los productos actuales. Al presionar sobre cualquier producto, se abrirá la ventana de <strong>Trazabilidad e Historial Explicativo</strong> para entender exactamente el origen de su stock.</p>
+                </div>
+            </div>
+
+            <!-- NAVEGACIÓN POR PESTAÑAS -->
+            <div class="flex items-center gap-2 border-b border-gray-800 pb-4">
+                <button id="tab-btn-logs" class="px-5 py-2.5 rounded-2xl text-xs font-black uppercase tracking-widest transition-all bg-brand-cyan text-brand-black shadow-lg shadow-cyan-500/20 flex items-center gap-2">
+                    <i class="fa-solid fa-stream"></i> Eventos en Vivo
+                </button>
+                <button id="tab-btn-products" class="px-5 py-2.5 rounded-2xl text-xs font-black uppercase tracking-widest transition-all text-gray-400 hover:text-white hover:bg-gray-800 flex items-center gap-2">
+                    <i class="fa-solid fa-boxes-stacked"></i> Productos & Trazabilidad
+                </button>
+            </div>
+
+            <!-- SECCIÓN 1: EVENTOS EN VIVO -->
+            <div id="section-logs" class="space-y-6">
+                <!-- TARJETAS DE MÉTRICAS -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div class="dark-stat-card rounded-2xl p-5 flex items-center justify-between shadow-xl">
+                        <div>
+                            <p class="text-[10px] font-black uppercase tracking-widest text-gray-400">Total Eventos</p>
+                            <h3 id="stat-total" class="text-2xl font-black text-white mt-1">0</h3>
+                        </div>
+                        <div class="w-12 h-12 rounded-2xl bg-gray-800 border border-gray-700 flex items-center justify-center text-gray-300 text-lg">
+                            <i class="fa-solid fa-list-check"></i>
+                        </div>
+                    </div>
+
+                    <div class="dark-stat-card rounded-2xl p-5 flex items-center justify-between shadow-xl">
+                        <div>
+                            <p class="text-[10px] font-black uppercase tracking-widest text-emerald-400">Ajustes Manuales</p>
+                            <h3 id="stat-manual" class="text-2xl font-black text-emerald-400 mt-1">0</h3>
+                        </div>
+                        <div class="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 text-lg">
+                            <i class="fa-solid fa-sliders"></i>
+                        </div>
+                    </div>
+
+                    <div class="dark-stat-card rounded-2xl p-5 flex items-center justify-between shadow-xl">
+                        <div>
+                            <p class="text-[10px] font-black uppercase tracking-widest text-brand-cyan">Entradas por Compras</p>
+                            <h3 id="stat-entries" class="text-2xl font-black text-brand-cyan mt-1">0</h3>
+                        </div>
+                        <div class="w-12 h-12 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-brand-cyan text-lg">
+                            <i class="fa-solid fa-truck-loading"></i>
+                        </div>
+                    </div>
+
+                    <div class="dark-stat-card rounded-2xl p-5 flex items-center justify-between shadow-xl">
+                        <div>
+                            <p class="text-[10px] font-black uppercase tracking-widest text-rose-400">Ventas Registradas</p>
+                            <h3 id="stat-sales" class="text-2xl font-black text-rose-400 mt-1">0</h3>
+                        </div>
+                        <div class="w-12 h-12 rounded-2xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-400 text-lg">
+                            <i class="fa-solid fa-basket-shopping"></i>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- CONTROLES Y TABLA DE AUDITORÍA -->
+                <div class="dark-panel rounded-3xl p-6 shadow-2xl space-y-6">
+                    <div class="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4">
+                        <div class="relative flex-grow max-w-md">
+                            <i class="fa-solid fa-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 text-sm"></i>
+                            <input type="text" id="audit-search-input" placeholder="Buscar por producto, SKU o detalle..." class="dark-input w-full rounded-2xl pl-11 pr-4 py-3 text-xs placeholder-gray-500 focus:outline-none transition">
+                        </div>
+
+                        <div class="flex items-center gap-3 overflow-x-auto pb-2 md:pb-0">
+                            <select id="audit-filter-type" class="dark-input text-gray-300 text-xs font-bold rounded-2xl px-4 py-3 focus:outline-none transition">
+                                <option value="ALL">Todos los Eventos</option>
+                                <option value="INVENTARIO_INICIAL">🏁 Stock Inicial (Línea Base)</option>
+                                <option value="AJUSTE_MANUAL">🎨 Ajuste Manual Directo</option>
+                                <option value="ENTRADA_COMPRA">📦 Entrada por Compra</option>
+                                <option value="VENTA_PEDIDO">🛒 Venta en Pedido</option>
+                                <option value="DEVOLUCION_CANCELACION">🔄 Devolución por Cancelación</option>
+                                <option value="CREACION_PRODUCTO">✨ Creación de Producto</option>
+                            </select>
+
+                            <button id="btn-snapshot-initial" class="px-4 py-3 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/30 text-xs font-black uppercase tracking-widest rounded-2xl transition flex items-center gap-2 whitespace-nowrap">
+                                <i class="fa-solid fa-camera-retro"></i> Guardar Stock Inicial
+                            </button>
+
+                            <button id="btn-purge-logs" class="px-4 py-3 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 text-xs font-black uppercase tracking-widest rounded-2xl transition flex items-center gap-2 whitespace-nowrap">
+                                <i class="fa-solid fa-trash-can"></i> Limpiar Logs
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="dark-table-wrapper overflow-x-auto rounded-2xl">
+                        <table class="w-full text-left border-collapse">
+                            <thead>
+                                <tr class="text-[10px] font-black uppercase tracking-widest">
+                                    <th class="py-4 px-6">Fecha / Hora</th>
+                                    <th class="py-4 px-6">Producto</th>
+                                    <th class="py-4 px-6">Tipo de Cambio</th>
+                                    <th class="py-4 px-6 text-center">Stock (Antes ➔ Después)</th>
+                                    <th class="py-4 px-6">Detalle / Explicación del Evento</th>
+                                </tr>
+                            </thead>
+                            <tbody id="audit-logs-table-body" class="text-xs">
+                                <tr>
+                                    <td colspan="5" class="py-12 text-center text-gray-500">
+                                        <i class="fa-solid fa-circle-notch fa-spin text-brand-cyan text-xl mb-2"></i>
+                                        <p class="font-bold uppercase tracking-wider text-xs">Cargando eventos de auditoría...</p>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SECCIÓN 2: PRODUCTOS Y TRAZABILIDAD (OCULTA POR DEFECTO) -->
+            <div id="section-products" class="hidden space-y-6">
+                <div class="dark-panel rounded-3xl p-6 shadow-2xl space-y-6">
+                    <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
+                        <div class="relative flex-grow max-w-md">
+                            <i class="fa-solid fa-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 text-sm"></i>
+                            <input type="text" id="product-search-input" placeholder="Buscar producto en el catálogo..." class="dark-input w-full rounded-2xl pl-11 pr-4 py-3 text-xs placeholder-gray-500 focus:outline-none transition">
+                        </div>
+                        <p class="text-xs text-gray-400 font-bold">Haz clic en cualquier producto para inspeccionar el origen exacto de su stock.</p>
+                    </div>
+
+                    <!-- GRILLA DE PRODUCTOS -->
+                    <div id="products-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                        <div class="col-span-full py-12 text-center text-gray-500">
+                            <i class="fa-solid fa-circle-notch fa-spin text-brand-cyan text-xl mb-2"></i>
+                            <p class="font-bold uppercase tracking-wider text-xs">Cargando productos...</p>
+                        </div>
+                    </div>
+
+                    <!-- PAGINACIÓN DE PRODUCTOS -->
+                    <div id="products-pagination" class="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-gray-800 text-xs">
+                        <span id="prod-pagination-info" class="text-gray-400 font-bold uppercase tracking-wider text-[11px]">Mostrando 0 de 0 productos</span>
+                        <div class="flex items-center gap-2">
+                            <button id="btn-prev-prod-page" disabled class="px-4 py-2 bg-gray-800 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed text-white font-bold rounded-xl transition flex items-center gap-2">
+                                <i class="fa-solid fa-chevron-left"></i> Anterior
+                            </button>
+                            <span id="prod-page-indicator" class="dark-input px-3.5 py-2 text-brand-cyan font-mono font-bold rounded-xl text-xs">Pág. 1 / 1</span>
+                            <button id="btn-next-prod-page" disabled class="px-4 py-2 bg-gray-800 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed text-white font-bold rounded-xl transition flex items-center gap-2">
+                                Siguiente <i class="fa-solid fa-chevron-right"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <!-- MODAL TRAZABILIDAD DE PRODUCTO -->
+    <div id="modal-product-history" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] hidden flex items-center justify-center p-4">
+        <div class="dark-modal-content rounded-3xl w-full max-w-3xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+            <!-- Modal Header -->
+            <div class="dark-modal-header p-6 flex items-center justify-between">
+                <div class="flex items-center gap-4">
+                    <img id="modal-prod-img" src="" alt="Producto" class="w-12 h-12 object-contain rounded-2xl bg-white/5 p-1 border border-gray-700">
+                    <div>
+                        <h3 id="modal-prod-name" class="font-black text-white text-base uppercase">Nombre del Producto</h3>
+                        <div class="flex items-center gap-2 mt-1">
+                            <span id="modal-prod-sku" class="bg-gray-800 text-gray-400 text-[10px] font-mono font-bold px-2 py-0.5 rounded">SKU: --</span>
+                            <span id="modal-prod-cat" class="text-[10px] text-gray-500 uppercase font-bold">Categoría</span>
+                        </div>
+                    </div>
+                </div>
+                <button id="modal-close-btn" class="w-9 h-9 rounded-xl bg-gray-800 hover:bg-red-500/20 text-gray-400 hover:text-red-400 transition flex items-center justify-center">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <!-- Modal Content (Scrollable) -->
+            <div class="p-6 overflow-y-auto space-y-6 flex-grow">
+                <!-- RESUMEN EXPLICATIVO (¿POR QUÉ TIENE ESTE VALOR?) -->
+                <div class="dark-box-sub rounded-2xl p-5 space-y-4">
+                    <div class="flex items-center justify-between border-b border-gray-800/80 pb-3">
+                        <span class="text-xs font-black uppercase tracking-wider text-gray-400">Stock Actual en Catálogo</span>
+                        <span id="modal-stock-current" class="text-xl font-black text-brand-cyan font-mono">0 ud(s)</span>
+                    </div>
+
+                    <p class="text-xs font-bold text-gray-400 uppercase tracking-widest">Desglose de Origen del Valor:</p>
+                    <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs">
+                        <div class="bg-gray-800/40 p-3 rounded-xl border border-gray-700/50">
+                            <span class="text-[9px] font-bold uppercase tracking-wider text-amber-400 block mb-1">🏁 Stock Inicial</span>
+                            <span id="modal-breakdown-initial" class="font-mono font-black text-amber-400 text-sm">0</span>
+                        </div>
+                        <div class="bg-gray-800/40 p-3 rounded-xl border border-gray-700/50">
+                            <span class="text-[9px] font-bold uppercase tracking-wider text-emerald-400 block mb-1">📦 Entradas</span>
+                            <span id="modal-breakdown-entries" class="font-mono font-black text-emerald-400 text-sm">+0</span>
+                        </div>
+                        <div class="bg-gray-800/40 p-3 rounded-xl border border-gray-700/50">
+                            <span class="text-[9px] font-bold uppercase tracking-wider text-rose-400 block mb-1">🛒 Ventas</span>
+                            <span id="modal-breakdown-sales" class="font-mono font-black text-rose-400 text-sm">-0</span>
+                        </div>
+                        <div class="bg-gray-800/40 p-3 rounded-xl border border-gray-700/50">
+                            <span class="text-[9px] font-bold uppercase tracking-wider text-purple-400 block mb-1">🔄 Devoluciones</span>
+                            <span id="modal-breakdown-returns" class="font-mono font-black text-purple-400 text-sm">+0</span>
+                        </div>
+                        <div class="bg-gray-800/40 p-3 rounded-xl border border-gray-700/50">
+                            <span class="text-[9px] font-bold uppercase tracking-wider text-cyan-400 block mb-1">🎨 Ajustes Manuales</span>
+                            <span id="modal-breakdown-manual" class="font-mono font-black text-cyan-400 text-sm">0</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- VARIANTES / COMBINACIONES DE ESTE PRODUCTO -->
+                <div id="modal-variants-section" class="dark-box-sub rounded-2xl p-5 space-y-3 hidden">
+                    <span class="text-xs font-black uppercase tracking-wider text-gray-400 block"><i class="fa-solid fa-palette text-amber-400 mr-1.5"></i> Desglose de Stock por Variantes (Color / Capacidad)</span>
+                    <div id="modal-variants-grid" class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs"></div>
+                </div>
+
+                <!-- LÍNEA DE TIEMPO DE EVENTOS DE ESTE PRODUCTO -->
+                <div>
+                    <h4 class="text-xs font-black uppercase tracking-widest text-gray-400 mb-4 flex items-center gap-2">
+                        <i class="fa-solid fa-clock-rotate-left text-brand-cyan"></i> Historial Cronológico de Cambios
+                    </h4>
+                    <div id="modal-timeline-container" class="space-y-3">
+                        <p class="text-xs text-gray-500 py-4 text-center">Cargando historial...</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- SCRIPT PRINCIPAL -->
+    <script type="module" src="../js/test-inventory-audit.js"></script>
+</body>
+</html>
