@@ -357,8 +357,9 @@ async function cancelManualOrder(order) {
         });
 
         if (isStockDeducted && order.items && order.items.length > 0) {
+            const ordNum = order.internalOrderNumber || order.id;
             for (const item of order.items) {
-                await safeAdjustStock(item.id, item.quantity, item.color, item.capacity);
+                await safeAdjustStock(item.id, item.quantity, item.color, item.capacity, 'DEVOLUCION_CANCELACION', `Devolución por anulación del pedido #${ordNum}`);
             }
         }
 
@@ -378,10 +379,10 @@ async function cancelManualOrder(order) {
 let editOrderOriginal = null;
 let editItems = [];
 
-async function safeAdjustStock(id, delta, color, capacity, retries = 3) {
+async function safeAdjustStock(id, delta, color, capacity, reason = null, details = null, retries = 3) {
     for (let i = 0; i < retries; i++) {
         try {
-            await adjustStock(id, delta, color, capacity);
+            await adjustStock(id, delta, color, capacity, reason, details);
             return; 
         } catch(e) {
             if (i === retries - 1) throw e;
@@ -643,10 +644,15 @@ async function saveEditedOrder() {
             deltaMap[k].delta -= item.quantity; 
         });
 
+        const editOrdNum = editOrderOriginal.internalOrderNumber || editOrderOriginal.id;
         for (const key in deltaMap) {
             const sd = deltaMap[key];
             if (sd.delta !== 0) {
-                await safeAdjustStock(sd.id, sd.delta, sd.color, sd.capacity);
+                const editReason = sd.delta < 0 ? 'VENTA_PEDIDO' : 'DEVOLUCION_CANCELACION';
+                const editDetails = sd.delta < 0 
+                    ? `Modificación de pedido #${editOrdNum} (unidades adicionales vendidas: ${Math.abs(sd.delta)})`
+                    : `Devolución de stock por modificación de pedido #${editOrdNum} (+${sd.delta} ud(s))`;
+                await safeAdjustStock(sd.id, sd.delta, sd.color, sd.capacity, editReason, editDetails);
             }
         }
 
@@ -1132,7 +1138,9 @@ if (refundForm) {
             });
 
             if (itemsToRestoreStock.length > 0) {
-                for (const item of itemsToRestoreStock) await adjustStock(item.id, item.qty, item.color, item.capacity);
+                for (const item of itemsToRestoreStock) {
+                    await adjustStock(item.id, item.qty, item.color, item.capacity, 'DEVOLUCION_CANCELACION', `Devolución de stock por reembolso en pedido #${orderId.slice(0, 8)}`);
+                }
             }
 
             alert("✅ Devolución procesada correctamente.");

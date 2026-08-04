@@ -99,7 +99,7 @@ exports.watchInventoryChanges = onDocumentWritten("products/{productId}", async 
     }
 
     // 5. Determinar Causa / Origen del Cambio
-    let changeType = "AJUSTE_MANUAL";
+    let changeType = deltaStock < 0 ? "VENTA_PEDIDO" : "AJUSTE_MANUAL";
     let changeDetails = "";
     let relatedReference = "";
 
@@ -135,7 +135,7 @@ exports.watchInventoryChanges = onDocumentWritten("products/{productId}", async 
             } else {
                 // C) Buscar si se creó/modificó un Pedido (Venta o Cancelación) en los últimos 90 segundos
                 const ordersSnap = await db.collection("orders")
-                    .where("updatedAt", ">=", ninetySecsAgo)
+                    .where("createdAt", ">=", ninetySecsAgo)
                     .get();
 
                 let foundOrder = null;
@@ -159,6 +159,8 @@ exports.watchInventoryChanges = onDocumentWritten("products/{productId}", async 
                         changeDetails = `Descuento por venta realizada en el pedido #${foundOrder.internalOrderNumber || foundOrder.id}`;
                         relatedReference = foundOrder.id;
                     }
+                } else if (deltaStock > 0) {
+                    changeType = "DEVOLUCION_CANCELACION";
                 }
             }
         } catch (err) {

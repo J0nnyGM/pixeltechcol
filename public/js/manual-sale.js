@@ -809,9 +809,10 @@ async function saveOrder() {
 
         // 3. SOLO AHORA QUE LA ORDEN Y REMISIÓN EXISTEN Y ESTÁN CONFIRMADAS, SE DESCUENTA EL STOCK
         let stockDeductedItems = [];
+        const shortOrdId = orderRef.id.slice(0, 6);
         try {
             for (const item of items) { 
-                await adjustStock(item.id, -(item.quantity), item.color, item.capacity);
+                await adjustStock(item.id, -(item.quantity), item.color, item.capacity, 'VENTA_PEDIDO', `Venta en pedido manual #${shortOrdId}`);
                 stockDeductedItems.push(item);
             }
         } catch (stockErr) {
@@ -819,7 +820,7 @@ async function saveOrder() {
             // Rollback de stock devuelto para evitar inconsistencias
             for (const item of stockDeductedItems) {
                 try {
-                    await adjustStock(item.id, item.quantity, item.color, item.capacity);
+                    await adjustStock(item.id, item.quantity, item.color, item.capacity, 'AJUSTE_MANUAL', 'Rollback por falla al procesar la venta');
                 } catch (rbErr) { console.error("Error en rollback de stock:", rbErr); }
             }
             // Eliminar orden y remisión creadas si falla el inventario

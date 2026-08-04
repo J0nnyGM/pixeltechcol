@@ -8,7 +8,7 @@ import { db, doc, runTransaction } from "./firebase-init.js";
  * @param {string|null} variantColor - (Opcional) Color específico
  * @param {string|null} variantCapacity - (Opcional) Capacidad específica
  */
-export async function adjustStock(productId, quantityChange, variantColor = null, variantCapacity = null) {
+export async function adjustStock(productId, quantityChange, variantColor = null, variantCapacity = null, changeReason = null, changeDetails = null) {
     const productRef = doc(db, "products", productId);
 
     try {
@@ -53,14 +53,24 @@ export async function adjustStock(productId, quantityChange, variantColor = null
                 throw `Stock global insuficiente para ${pData.name}`;
             }
 
-            // Guardamos los cambios
-            transaction.update(productRef, { 
+            const updatePayload = { 
                 stock: newStock,
-                combinations: newCombinations // Guardamos el array actualizado si hubo cambios
-            });
+                combinations: newCombinations,
+                updatedAt: new Date()
+            };
+
+            if (changeReason) {
+                updatePayload.lastStockChangeReason = changeReason;
+            }
+            if (changeDetails) {
+                updatePayload.lastStockChangeDetails = changeDetails;
+            }
+
+            // Guardamos los cambios
+            transaction.update(productRef, updatePayload);
         });
 
-        console.log(`✅ Stock actualizado: ${productId} | Var: ${variantColor}/${variantCapacity} | Delta: ${quantityChange}`);
+        console.log(`✅ Stock actualizado: ${productId} | Var: ${variantColor}/${variantCapacity} | Delta: ${quantityChange} | Motivo: ${changeReason || 'General'}`);
 
     } catch (e) {
         console.error("❌ Error crítico en inventario:", e);
