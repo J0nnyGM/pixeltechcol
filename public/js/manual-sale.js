@@ -181,6 +181,7 @@ let selectedUserPhone = "";
 let selectedUserDoc = ""; 
 let currentUserAddresses = [];
 let onSuccessCallback = null;
+let manualItemRowSeq = 0;
 
 const formatCurrency = (num) => '$ ' + num.toLocaleString('es-CO');
 const parseCurrency = (str) => Number(str.replace(/[^0-9-]/g, '')) || 0;
