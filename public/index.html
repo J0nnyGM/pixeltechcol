@@ -65,11 +65,7 @@
         } catch(e){}
     </script>
 
-    <link rel="preload" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" as="style"
-        onload="this.onload=null;this.rel='stylesheet'">
-    <noscript>
-        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    </noscript>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" crossorigin="anonymous">
 
     <style>
         /* 🔥 FORZAR SWAP EN FUENTES EXTERNAS PARA MEJORAR FCP */
@@ -153,13 +149,13 @@
         }
     </style>
 
-    <link rel="modulepreload" href="js/app.js">
-    <link rel="modulepreload" href="js/firebase-init.js">
+    <link rel="modulepreload" href="/js/global-components.js?v=2.1">
+    <link rel="modulepreload" href="/js/app.js?v=2.2">
+    <link rel="modulepreload" href="/js/firebase-init.js">
+    <link rel="modulepreload" href="/js/cart.js">
     <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js">
     <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js">
     <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js">
-    <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js">
-    <link rel="modulepreload" href="https://www.gstatic.com/firebasejs/10.7.1/firebase-functions.js">
 
 </head>
 

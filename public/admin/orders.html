@@ -9,8 +9,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Gestión de Pedidos - PixelTech</title>
     <link rel="stylesheet" href="../css/styles.css">
-    <link rel="preload" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
-    <noscript><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"></noscript>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         .hidden {
             display: none !important;
@@ -523,6 +522,36 @@
                 window.adminOrdersCache = adminOrdersCache; 
             },
 
+            saveToStorage() {
+                try {
+                    // Para evitar saturar el límite de 5MB de localStorage del navegador,
+                    // solo persistimos en disco las 50 órdenes más recientes (en RAM se conservan todas).
+                    const recentOrders = adminOrdersCache.slice(0, 50);
+                    const cacheMap = {};
+                    recentOrders.forEach(o => {
+                        if (o && o.id) cacheMap[o.id] = o;
+                    });
+
+                    localStorage.setItem(this.STORAGE_KEY, JSON.stringify({
+                        map: cacheMap,
+                        lastSync: Date.now()
+                    }));
+                } catch (e) {
+                    try {
+                        const miniOrders = adminOrdersCache.slice(0, 20);
+                        const miniMap = {};
+                        miniOrders.forEach(o => { if (o && o.id) miniMap[o.id] = o; });
+                        localStorage.setItem(this.STORAGE_KEY, JSON.stringify({
+                            map: miniMap,
+                            lastSync: Date.now()
+                        }));
+                    } catch (err) {
+                        console.warn("⚠️ localStorage saturado por otros datos. Liberando caché de órdenes.");
+                        try { localStorage.removeItem(this.STORAGE_KEY); } catch (_) {}
+                    }
+                }
+            },
+
             listenForUpdates() {
                 if (this.unsubscribe) this.unsubscribe();
 
@@ -564,13 +593,7 @@
 
                     this.runtimeMap = freshMap;
                     this.updateGlobalArray();
-
-                    try {
-                        localStorage.setItem(this.STORAGE_KEY, JSON.stringify({
-                            map: this.runtimeMap,
-                            lastSync: Date.now()
-                        }));
-                    } catch (e) { console.warn("⚠️ localStorage lleno al guardar orders"); }
+                    this.saveToStorage();
                     this.lastSyncTime = Date.now();
 
                     console.log(`🔥 [Orders] Sincronización perfecta: ${adminOrdersCache.length} pedidos al día.`);
@@ -618,13 +641,7 @@
                 });
                 
                 SmartAdminOrdersSync.updateGlobalArray();
-
-                try {
-                    localStorage.setItem(SmartAdminOrdersSync.STORAGE_KEY, JSON.stringify({
-                        map: SmartAdminOrdersSync.runtimeMap,
-                        lastSync: Date.now()
-                    }));
-                } catch (e) { console.warn("⚠️ localStorage lleno al guardar historial de órdenes"); }
+                SmartAdminOrdersSync.saveToStorage();
 
                 isFetchingOlderServerDocs = false;
                 return true;

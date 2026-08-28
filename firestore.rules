@@ -69,10 +69,10 @@ service cloud.firestore {
       allow delete: if isAdmin();
       
       // Ajuste: Empleados de staff excepto Ventas pueden actualizar todo.
-      // Clientes o Ventas pueden actualizar SOLO el stock si compran directo o hacen venta manual.
+      // Clientes o Ventas pueden actualizar SOLO los campos de stock/inventario al realizar una venta o compra.
       allow update: if (isStaff() && getUserData().role != 'ventas') || (
         isAuthenticated() && 
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stock', 'combinations', 'updatedAt'])
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stock', 'combinations', 'updatedAt', 'lastStockChangeReason', 'lastStockChangeDetails'])
       );
 
       match /history/{historyId} {

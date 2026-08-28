@@ -207,10 +207,14 @@ function initOrdersRealtimeSync() {
             
             ordersCache = Object.values(runtimeMap).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
-            localStorage.setItem(STORAGE_KEY_ORDERS, JSON.stringify({
-                map: runtimeMap,
-                lastSync: Date.now()
-            }));
+            try {
+                localStorage.setItem(STORAGE_KEY_ORDERS, JSON.stringify({
+                    map: runtimeMap,
+                    lastSync: Date.now()
+                }));
+            } catch (e) {
+                console.warn("⚠️ localStorage no pudo almacenar historial de órdenes de perfil");
+            }
 
             window.applyOrderFilters(); 
         }

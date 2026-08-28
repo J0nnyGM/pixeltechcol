@@ -205,7 +205,9 @@ exports.cancelAbandonedPayments = onSchedule({
                                 let newStock = (pData.stock || 0) + (item.quantity || 1);
                                 let updatePayload = { 
                                     stock: newStock,
-                                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                                    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                                    lastStockChangeReason: 'DEVOLUCION_CANCELACION',
+                                    lastStockChangeDetails: `Devolución por cancelación automática del pedido #${orderId.slice(0, 8)}`
                                 };
 
                                 // Si tiene matriz de variantes, devolver a la variante específica
@@ -229,6 +231,7 @@ exports.cancelAbandonedPayments = onSchedule({
                     // 2. Actualizar el estado de la orden
                     const updateObj = {
                         status: 'CANCELADO',
+                        isStockDeducted: false,
                         statusDetail: 'expired_by_system',
                         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
                         notes: (freshOrderData.notes || "") + " [Sistema: Cancelado y stock devuelto por inactividad de pago manual mayor a 36h]"

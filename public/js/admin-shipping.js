@@ -1,4 +1,4 @@
-import { db, doc, getDoc, setDoc } from './firebase-init.js';
+import { db, doc, getDoc, setDoc, collection, query, getDocs, updateDoc } from './firebase-init.js';
 import { loadAdminSidebar } from './admin-ui.js';
 
 loadAdminSidebar();
@@ -6,12 +6,18 @@ loadAdminSidebar();
 // ESTADO GLOBAL
 let shippingGroups = []; 
 let activeGroupId = null;
+let excludedProducts = [];
+let allProductsCache = null;
 
 // ELEMENTOS DOM
 const groupsContainer = document.getElementById('groups-container');
 const cityModal = document.getElementById('city-modal');
 const deptSelect = document.getElementById('modal-dept-select');
 const citySelect = document.getElementById('modal-city-select');
+
+const searchExcludedInput = document.getElementById('search-excluded-input');
+const searchExcludedResults = document.getElementById('search-excluded-results');
+const excludedProductsContainer = document.getElementById('excluded-products-container');
 
 // --- UTILIDADES MONEDA ---
 const formatCurrency = (value) => {
@@ -29,7 +35,7 @@ document.querySelectorAll('.currency-input').forEach(input => {
         const val = parseCurrency(e.target.value);
         e.target.value = formatCurrency(val);
     });
-    input.addEventListener('focus', (e) => e.target.select()); // Seleccionar todo al hacer clic
+    input.addEventListener('focus', (e) => e.target.select());
 });
 
 
@@ -48,14 +54,146 @@ async function init() {
             document.getElementById('cutoff-time').value = data.cutoffTime || "14:00"; 
             
             shippingGroups = data.groups || [];
+            excludedProducts = data.excludedProducts || [];
         }
         renderGroups();
+        renderExcludedProducts();
         loadDepartments();
+        preloadProductsCache();
     } catch (e) { console.error("Error inicializando:", e); }
 }
 
 /**
- * --- 2. GESTIÓN DE GRUPOS ---
+ * Pre-cargar productos para búsqueda ultra rápida
+ */
+async function preloadProductsCache() {
+    try {
+        const snap = await getDocs(collection(db, "products"));
+        allProductsCache = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    } catch (e) {
+        console.warn("No se pudo pre-cargar caché de productos:", e);
+    }
+}
+
+/**
+ * --- 2. GESTIÓN DE PRODUCTOS EXCLUIDOS ---
+ */
+function renderExcludedProducts() {
+    if (!excludedProductsContainer) return;
+
+    if (excludedProducts.length === 0) {
+        excludedProductsContainer.innerHTML = `
+            <div class="col-span-full p-8 text-center border-2 border-dashed border-gray-100 rounded-[2rem]">
+                <i class="fa-solid fa-box-open text-3xl text-gray-200 mb-3"></i>
+                <p class="text-gray-400 font-bold uppercase text-[10px] tracking-widest">No hay productos excluidos configurados</p>
+            </div>`;
+        return;
+    }
+
+    excludedProductsContainer.innerHTML = excludedProducts.map(p => `
+        <div class="p-5 border-2 border-gray-100 rounded-[2rem] bg-slate-50 flex items-center justify-between gap-4 group">
+            <div class="flex items-center gap-4 min-w-0">
+                <img src="${p.image || '/img/placeholder.webp'}" alt="${p.name}" class="w-14 h-14 object-cover rounded-xl border border-gray-200 flex-shrink-0 bg-white">
+                <div class="min-w-0">
+                    <p class="font-black text-xs text-brand-black truncate" title="${p.name}">${p.name}</p>
+                    <div class="flex items-center gap-2 mt-1">
+                        <span class="text-[9px] font-bold text-gray-400 uppercase">${p.sku ? 'SKU: ' + p.sku : 'Ref: ' + (p.id ? p.id.slice(0, 8) : '')}</span>
+                        <span class="bg-red-100 text-red-700 text-[8px] font-black px-2 py-0.5 rounded-md uppercase">Excluido</span>
+                    </div>
+                </div>
+            </div>
+            <button onclick="window.removeExcludedProduct('${p.id}')" class="p-3 text-gray-300 hover:text-red-500 transition rounded-xl hover:bg-white flex-shrink-0">
+                <i class="fa-solid fa-trash-can text-sm"></i>
+            </button>
+        </div>
+    `).join('');
+}
+
+window.removeExcludedProduct = (productId) => {
+    excludedProducts = excludedProducts.filter(p => p.id !== productId);
+    renderExcludedProducts();
+};
+
+window.addExcludedProduct = (product) => {
+    if (!excludedProducts.some(p => p.id === product.id)) {
+        excludedProducts.push({
+            id: product.id,
+            name: product.name || 'Producto sin nombre',
+            image: product.image || (Array.isArray(product.images) && product.images[0]) || '/img/placeholder.webp',
+            price: Number(product.price) || 0,
+            sku: product.sku || product.ref || ''
+        });
+        renderExcludedProducts();
+    }
+    if (searchExcludedResults) searchExcludedResults.classList.add('hidden');
+    if (searchExcludedInput) searchExcludedInput.value = '';
+};
+
+// Buscador en vivo de productos
+if (searchExcludedInput) {
+    searchExcludedInput.addEventListener('input', async (e) => {
+        const queryStr = e.target.value.trim().toLowerCase();
+        if (queryStr.length < 2) {
+            searchExcludedResults.classList.add('hidden');
+            return;
+        }
+
+        let matches = [];
+        if (allProductsCache) {
+            matches = allProductsCache.filter(p => 
+                (p.name && p.name.toLowerCase().includes(queryStr)) ||
+                (p.sku && p.sku.toLowerCase().includes(queryStr)) ||
+                (p.ref && p.ref.toLowerCase().includes(queryStr))
+            );
+        } else {
+            try {
+                const snap = await getDocs(collection(db, "products"));
+                matches = snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(p => 
+                    (p.name && p.name.toLowerCase().includes(queryStr)) ||
+                    (p.sku && p.sku.toLowerCase().includes(queryStr))
+                );
+            } catch (err) {
+                console.error("Error buscando productos:", err);
+            }
+        }
+
+        if (matches.length === 0) {
+            searchExcludedResults.innerHTML = `
+                <div class="p-4 text-center text-xs text-gray-400 font-bold uppercase">No se encontraron productos</div>`;
+        } else {
+            searchExcludedResults.innerHTML = matches.slice(0, 10).map(p => {
+                const img = p.image || (Array.isArray(p.images) && p.images[0]) || '/img/placeholder.webp';
+                const isAlreadyExcluded = excludedProducts.some(ep => ep.id === p.id);
+                return `
+                    <div class="p-4 hover:bg-slate-50 flex items-center justify-between cursor-pointer transition" 
+                         onclick='window.addExcludedProduct(${JSON.stringify({ id: p.id, name: p.name, image: img, price: p.price, sku: p.sku || '' }).replace(/'/g, "&#39;")})'>
+                        <div class="flex items-center gap-3 min-w-0">
+                            <img src="${img}" class="w-10 h-10 object-cover rounded-lg border border-gray-200 bg-white">
+                            <div class="min-w-0">
+                                <p class="font-bold text-xs text-brand-black truncate">${p.name}</p>
+                                <p class="text-[9px] font-bold text-brand-cyan">${formatCurrency(p.price)}</p>
+                            </div>
+                        </div>
+                        ${isAlreadyExcluded ? 
+                            `<span class="text-[9px] font-black text-gray-400 uppercase bg-gray-100 px-3 py-1 rounded-lg">Ya Excluido</span>` : 
+                            `<button class="bg-brand-cyan text-brand-black text-[9px] font-black uppercase px-3 py-1.5 rounded-lg hover:bg-brand-black hover:text-white transition">+ Excluir</button>`
+                        }
+                    </div>`;
+            }).join('');
+        }
+        searchExcludedResults.classList.remove('hidden');
+    });
+
+    // Cerrar menú de resultados al hacer clic fuera
+    document.addEventListener('click', (e) => {
+        if (!searchExcludedInput.contains(e.target) && !searchExcludedResults.contains(e.target)) {
+            searchExcludedResults.classList.add('hidden');
+        }
+    });
+}
+
+/**
+ * --- 3. GESTIÓN DE GRUPOS ---
  */
 document.getElementById('btn-add-group').onclick = () => {
     shippingGroups.push({ id: Date.now().toString(), price: 0, cities: [] });
@@ -70,7 +208,6 @@ function renderGroups() {
         const div = document.createElement('div');
         div.className = "p-8 border-2 border-gray-100 rounded-[2rem] bg-slate-50 space-y-6 relative group";
         
-        // Input dinámico de precio con formato
         const priceInputHtml = `
             <div class="admin-input-group">
                 <label>Precio del Envío (COP)</label>
@@ -106,12 +243,11 @@ function renderGroups() {
         `;
         groupsContainer.appendChild(div);
 
-        // Agregar listener al input recién creado
         const input = div.querySelector('.currency-input-group');
         input.addEventListener('input', (e) => {
             const val = parseCurrency(e.target.value);
             e.target.value = formatCurrency(val);
-            window.updateGroupPrice(group.id, val); // Guardar el número limpio
+            window.updateGroupPrice(group.id, val);
         });
         input.addEventListener('focus', (e) => e.target.select());
     });
@@ -138,7 +274,7 @@ window.removeCityFromGroup = (groupId, cityName) => {
 };
 
 /**
- * --- 3. MODAL Y API COLOMBIA ---
+ * --- 4. MODAL Y API COLOMBIA ---
  */
 async function loadDepartments() {
     try {
@@ -190,29 +326,46 @@ document.getElementById('btn-confirm-city').onclick = () => {
 };
 
 /**
- * --- 4. GUARDAR EN FIRESTORE ---
+ * --- 5. GUARDAR EN FIRESTORE Y ACTUALIZAR PRODUCTOS ---
  */
 document.getElementById('btn-save-config').onclick = async () => {
     const btn = document.getElementById('btn-save-config');
     btn.disabled = true;
     btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Guardando...';
 
-    // LIMPIAR VALORES ANTES DE GUARDAR
     const freeThresholdRaw = parseCurrency(document.getElementById('free-threshold').value);
     const defaultPriceRaw = parseCurrency(document.getElementById('default-price').value);
+
+    const excludedProductIds = excludedProducts.map(p => p.id);
 
     const config = {
         freeThreshold: freeThresholdRaw,
         defaultPrice: defaultPriceRaw,
         cutoffTime: document.getElementById('cutoff-time').value, 
-        groups: shippingGroups, // Ya tienen el precio limpio por updateGroupPrice
+        groups: shippingGroups,
+        excludedProducts: excludedProducts,
+        excludedProductIds: excludedProductIds,
         updatedAt: new Date()
     };
 
     try {
         await setDoc(doc(db, "config", "shipping"), config);
-        alert("✅ Configuración de logística actualizada.");
-        init(); // Recargar para asegurar formateo
+        
+        // Actualizar caché de sesión local para reflejo inmediato en el navegador
+        sessionStorage.setItem('pixeltech_shipping_config', JSON.stringify(config));
+
+        // Sincronizar campo excludeFromFreeShipping en los documentos de productos
+        if (allProductsCache) {
+            for (const p of allProductsCache) {
+                const shouldBeExcluded = excludedProductIds.includes(p.id);
+                if (p.excludeFromFreeShipping !== shouldBeExcluded) {
+                    await updateDoc(doc(db, "products", p.id), { excludeFromFreeShipping: shouldBeExcluded }).catch(() => {});
+                }
+            }
+        }
+
+        alert("✅ Configuración de logística y productos excluidos actualizada.");
+        init();
     } catch (e) {
         alert("Error al guardar: " + e.message);
     } finally {

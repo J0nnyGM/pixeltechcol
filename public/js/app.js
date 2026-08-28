@@ -1201,7 +1201,7 @@ async function loadBrandsMarquee() {
     const content = brands.map(createBrandCard).join('');
     
     // Duplicamos el contenido para el efecto visual infinito
-    track.innerHTML = content + content + content + content; 
+track.innerHTML = content + content + content + content; 
 }
 
 // 2. CORRECCIÓN EN LAS TARJETAS NORMALES
@@ -1210,11 +1210,14 @@ function createProductCard(p, style = "normal", prefix = "grid") {
     const hasDiscount = !isOutOfStock && (p.originalPrice && p.originalPrice > p.price);
     
     let freeThreshold = Infinity;
+    let excludedIds = [];
     try {
         const config = JSON.parse(sessionStorage.getItem('pixeltech_shipping_config'));
         if (config && config.freeThreshold) freeThreshold = Number(config.freeThreshold);
+        if (config && config.excludedProductIds) excludedIds = config.excludedProductIds;
     } catch(e) {}
-    const hasFreeShipping = !isOutOfStock && freeThreshold > 0 && p.price >= freeThreshold;
+    const isExcluded = excludedIds.includes(p.id) || p.excludeFromFreeShipping === true;
+    const hasFreeShipping = !isOutOfStock && freeThreshold > 0 && p.price >= freeThreshold && !isExcluded;
 
     let actionButtons;
     if (isOutOfStock) {

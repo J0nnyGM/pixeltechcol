@@ -433,9 +433,10 @@ async function loadCitiesForDept(deptId) {
 els.citySelect.addEventListener('change', () => { calculateShipping(); validatePaymentMethods(); });
 
 // --- 4. CÁLCULOS Y UI ---
+let currentShippingType = 'ESTANDAR'; // 'ESTANDAR' | 'GRATIS' | 'FLETE_AL_COBRO'
+
 function calculateShipping() {
     const cartTotal = cart.reduce((acc, item) => acc + (item.price * item.quantity), 0);
-    
     const city = els.citySelect.value;
     const deptOpt = els.deptSelect.options[els.deptSelect.selectedIndex];
     const dept = deptOpt ? deptOpt.dataset.name : "";
@@ -448,11 +449,26 @@ function calculateShipping() {
         return;
     }
 
-    if (shippingConfig.freeThreshold > 0 && cartTotal >= shippingConfig.freeThreshold) {
+    const excludedIds = shippingConfig.excludedProductIds || [];
+    const hasExcludedProduct = cart.some(item => excludedIds.includes(item.id) || item.excludeFromFreeShipping === true);
+
+    if (hasExcludedProduct) {
         currentShippingCost = 0;
-        els.freeShippingMsg.classList.remove('hidden');
+        currentShippingType = 'FLETE_AL_COBRO';
+        if (els.freeShippingMsg) els.freeShippingMsg.classList.add('hidden');
+        showExcludedNotice();
+        els.shippingCost.innerHTML = `<span class="bg-amber-100 text-amber-800 text-xs font-black uppercase px-2.5 py-1 rounded-lg border border-amber-200 shadow-sm"><i class="fa-solid fa-hand-holding-dollar mr-1"></i> Flete al Cobro</span>`;
+    } else if (shippingConfig.freeThreshold > 0 && cartTotal >= shippingConfig.freeThreshold) {
+        currentShippingCost = 0;
+        currentShippingType = 'GRATIS';
+        if (els.freeShippingMsg) els.freeShippingMsg.classList.remove('hidden');
+        removeExcludedNotice();
+        els.shippingCost.textContent = "GRATIS";
     } else {
-        els.freeShippingMsg.classList.add('hidden');
+        currentShippingType = 'ESTANDAR';
+        if (els.freeShippingMsg) els.freeShippingMsg.classList.add('hidden');
+        removeExcludedNotice();
+
         let foundPrice = null;
         if (shippingConfig.groups) {
             for (const group of shippingConfig.groups) {
@@ -461,11 +477,33 @@ function calculateShipping() {
             }
         }
         currentShippingCost = (foundPrice !== null) ? foundPrice : shippingConfig.defaultPrice;
+        els.shippingCost.textContent = `$${currentShippingCost.toLocaleString('es-CO')}`;
     }
 
-    els.shippingCost.textContent = currentShippingCost === 0 ? "GRATIS" : `$${currentShippingCost.toLocaleString('es-CO')}`;
     updateTotalDisplay();
     toggleSubmitBtn(true);
+}
+
+function showExcludedNotice() {
+    let notice = document.getElementById('excluded-shipping-notice');
+    if (!notice && els.freeShippingMsg && els.freeShippingMsg.parentNode) {
+        notice = document.createElement('div');
+        notice.id = 'excluded-shipping-notice';
+        notice.className = 'mt-3 p-3.5 bg-amber-50 border border-amber-200 rounded-2xl text-amber-900 text-xs font-medium flex items-start gap-3 shadow-sm';
+        notice.innerHTML = `
+            <i class="fa-solid fa-truck-ramp-box text-amber-600 text-lg shrink-0 mt-0.5"></i>
+            <div>
+                <p class="font-black text-amber-950 uppercase text-[10px] tracking-wide mb-0.5">Envío con Flete al Cobro</p>
+                <p class="text-[11px] leading-relaxed text-amber-800">Debido a las dimensiones/peso de este producto, el costo del envío no se cobra en la web y lo cancelarás directamente a la empresa transportadora al momento de recibir tu paquete.</p>
+            </div>`;
+        els.freeShippingMsg.parentNode.insertBefore(notice, els.freeShippingMsg.nextSibling);
+    }
+    if (notice) notice.classList.remove('hidden');
+}
+
+function removeExcludedNotice() {
+    const notice = document.getElementById('excluded-shipping-notice');
+    if (notice) notice.classList.add('hidden');
 }
 
 function updateTotalDisplay() {
@@ -540,7 +578,8 @@ els.btnSubmit.addEventListener('click', async (e) => {
                 city: els.citySelect.value,
                 address: els.address.value,
                 postalCode: els.postal.value,
-                notes: els.notes.value || ""
+                notes: els.notes.value || "",
+                shippingType: currentShippingType
             };
 
             // Guardado automático del perfil antes de ir a MercadoPago
@@ -549,13 +588,15 @@ els.btnSubmit.addEventListener('click', async (e) => {
             const payloadCompleto = {
                 userToken: String(token),
                 shippingCost: Number(currentShippingCost),
+                shippingType: currentShippingType,
                 items: cart.map(i => ({ id: i.id, quantity: i.quantity, color: i.color || "", capacity: i.capacity || "" })),
                 extraData: {
                     userName: els.name.value,
                     clientDoc: els.idNumber.value, 
                     needsInvoice: els.checkInvoice.checked, 
                     billingData: billData, 
-                    shippingData: fullShippingData, 
+                    shippingData: fullShippingData,
+                    shippingType: currentShippingType,
                     source: 'TIENDA' 
                 },
                 buyerInfo: {
@@ -602,7 +643,8 @@ els.btnSubmit.addEventListener('click', async (e) => {
                 city: els.citySelect.value,
                 address: els.address.value,
                 postalCode: els.postal.value,
-                notes: els.notes.value || ""
+                notes: els.notes.value || "",
+                shippingType: currentShippingType
             };
 
             await saveUserProfileUpdates(shouldSaveAddress, isFirstAddress, deptName);
@@ -610,7 +652,8 @@ els.btnSubmit.addEventListener('click', async (e) => {
             const payloadCompleto = {
                 userToken: String(token),
                 shippingCost: Number(currentShippingCost),
-                paymentMethod: selectedPaymentMethod, // 🔥 NUEVO: Le pasamos 'ADDI' o 'PSE' al backend
+                shippingType: currentShippingType,
+                paymentMethod: selectedPaymentMethod,
                 items: cart.map(i => ({ id: i.id, quantity: i.quantity, color: i.color || "", capacity: i.capacity || "" })),
                 extraData: {
                     userName: els.name.value,
@@ -618,7 +661,8 @@ els.btnSubmit.addEventListener('click', async (e) => {
                     phone: els.phone.value,        
                     needsInvoice: els.checkInvoice.checked, 
                     billingData: billData, 
-                    shippingData: fullShippingData, 
+                    shippingData: fullShippingData,
+                    shippingType: currentShippingType,
                     source: 'TIENDA' 
                 },
                 buyerInfo: {
@@ -659,7 +703,6 @@ els.btnSubmit.addEventListener('click', async (e) => {
 
         try {
             const token = await auth.currentUser.getIdToken(true);
-            // Llamamos a la función que acabamos de crear en el backend
             const createSistecredito = httpsCallable(functions, 'createSistecreditoCheckout');
             
             const deptName = els.deptSelect.options[els.deptSelect.selectedIndex]?.dataset.name || "";
@@ -670,7 +713,8 @@ els.btnSubmit.addEventListener('click', async (e) => {
                 city: els.citySelect.value,
                 address: els.address.value,
                 postalCode: els.postal.value,
-                notes: els.notes.value || ""
+                notes: els.notes.value || "",
+                shippingType: currentShippingType
             };
 
             // Autoguardado del perfil
@@ -679,6 +723,7 @@ els.btnSubmit.addEventListener('click', async (e) => {
             const payloadCompleto = {
                 userToken: String(token),
                 shippingCost: Number(currentShippingCost),
+                shippingType: currentShippingType,
                 items: cart.map(i => ({ id: i.id, quantity: i.quantity, color: i.color || "", capacity: i.capacity || "" })),
                 extraData: {
                     userName: els.name.value,
@@ -686,7 +731,8 @@ els.btnSubmit.addEventListener('click', async (e) => {
                     phone: els.phone.value,        
                     needsInvoice: els.checkInvoice.checked, 
                     billingData: billData, 
-                    shippingData: fullShippingData, 
+                    shippingData: fullShippingData,
+                    shippingType: currentShippingType,
                     source: 'TIENDA_WEB' 
                 },
                 buyerInfo: {
@@ -703,9 +749,8 @@ els.btnSubmit.addEventListener('click', async (e) => {
             const { initPoint } = response.data;
             
             if (initPoint) {
-                // Guardamos en localstorage por si cancelan y regresan
                 localStorage.setItem('pending_order_data', JSON.stringify({ items: cart, method: 'SISTECREDITO' }));
-                window.location.href = initPoint; // Redirigimos a la experiencia de Sistecrédito
+                window.location.href = initPoint;
             } else {
                 throw new Error("No se recibió link de pago.");
             }
@@ -736,13 +781,15 @@ async function processCODOrder(billData, shouldSaveAddress, isFirstAddress) {
             city: els.citySelect.value,
             address: els.address.value,
             postalCode: els.postal.value,
-            notes: els.notes.value || ""
+            notes: els.notes.value || "",
+            shippingType: currentShippingType
         };
 
         const payload = {
             userToken: String(userToken),
             items: cart.map(i => ({ id: i.id, quantity: i.quantity, color: i.color || "", capacity: i.capacity || "" })),
             shippingCost: currentShippingCost,
+            shippingType: currentShippingType,
             paymentMethod: selectedPaymentMethod, 
             extraData: {
                 userName: els.name.value,
@@ -751,6 +798,7 @@ async function processCODOrder(billData, shouldSaveAddress, isFirstAddress) {
                 needsInvoice: els.checkInvoice.checked,
                 billingData: billData,
                 shippingData: shippingData,
+                shippingType: currentShippingType,
                 source: 'TIENDA_WEB'
             }
         };

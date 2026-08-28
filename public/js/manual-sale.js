@@ -21,7 +21,7 @@ const MODAL_HTML = `
             <div class="grid grid-cols-1 gap-4">
                 
                 <div id="m-search-section" class="relative group">
-                    <label class="text-[9px] font-black uppercase text-gray-400 tracking-widest mb-2 block ml-1">Buscar Cliente Registrado *</label>
+                    <label for="m-cust-search" class="text-[9px] font-black uppercase text-gray-400 tracking-widest mb-2 block ml-1">Buscar Cliente Registrado *</label>
                     <div class="relative">
                         <i class="fa-solid fa-user absolute left-4 top-1/2 -translate-y-1/2 text-gray-300"></i>
                         <input type="text" id="m-cust-search" autocomplete="off" placeholder="Buscar por nombre, teléfono o cédula..." class="w-full bg-slate-50 border border-gray-100 py-4 pl-11 pr-4 rounded-2xl text-sm font-bold outline-none focus:border-brand-cyan focus:bg-white transition-colors text-brand-black shadow-sm">
@@ -47,19 +47,19 @@ const MODAL_HTML = `
                     
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
                         <div class="md:col-span-2">
-                            <label class="text-[9px] font-black text-gray-500 uppercase tracking-widest mb-1 block ml-1">Nombre Completo *</label>
+                            <label for="m-nc-name" class="text-[9px] font-black text-gray-500 uppercase tracking-widest mb-1 block ml-1">Nombre Completo *</label>
                             <input type="text" id="m-nc-name" placeholder="Ej: Juan Pérez" class="w-full bg-white border border-cyan-100 p-3.5 rounded-xl text-sm font-bold outline-none focus:border-brand-cyan shadow-sm">
                         </div>
                         <div>
-                            <label class="text-[9px] font-black text-gray-500 uppercase tracking-widest mb-1 block ml-1">Teléfono / WhatsApp *</label>
+                            <label for="m-nc-phone" class="text-[9px] font-black text-gray-500 uppercase tracking-widest mb-1 block ml-1">Teléfono / WhatsApp *</label>
                             <input type="text" id="m-nc-phone" placeholder="Ej: 3001234567" class="w-full bg-white border border-cyan-100 p-3.5 rounded-xl text-sm font-bold outline-none focus:border-brand-cyan shadow-sm">
                         </div>
                         <div>
-                            <label class="text-[9px] font-black text-gray-500 uppercase tracking-widest mb-1 block ml-1">Cédula / NIT</label>
+                            <label for="m-nc-doc" class="text-[9px] font-black text-gray-500 uppercase tracking-widest mb-1 block ml-1">Cédula / NIT</label>
                             <input type="text" id="m-nc-doc" placeholder="Opcional" class="w-full bg-white border border-cyan-100 p-3.5 rounded-xl text-sm font-bold outline-none focus:border-brand-cyan shadow-sm">
                         </div>
                         <div class="md:col-span-2">
-                            <label class="text-[9px] font-black text-gray-500 uppercase tracking-widest mb-1 block ml-1">Email</label>
+                            <label for="m-nc-email" class="text-[9px] font-black text-gray-500 uppercase tracking-widest mb-1 block ml-1">Email</label>
                             <input type="email" id="m-nc-email" placeholder="cliente@correo.com" class="w-full bg-white border border-cyan-100 p-3.5 rounded-xl text-sm font-bold outline-none focus:border-brand-cyan shadow-sm">
                         </div>
                     </div>
@@ -88,16 +88,16 @@ const MODAL_HTML = `
                 <div id="container-new-addr" class="animate-in fade-in slide-in-from-top-2 space-y-4">
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                            <label class="text-[9px] font-black uppercase text-gray-400 tracking-widest mb-2 block ml-1">Departamento</label>
+                            <label for="m-dept-manual" class="text-[9px] font-black uppercase text-gray-400 tracking-widest mb-2 block ml-1">Departamento</label>
                             <select id="m-dept-manual" class="w-full bg-white border border-gray-200 p-4 rounded-2xl text-xs font-bold outline-none focus:border-brand-cyan appearance-none cursor-pointer text-brand-black shadow-sm"><option value="">Seleccionar...</option></select>
                         </div>
                         <div>
-                            <label class="text-[9px] font-black uppercase text-gray-400 tracking-widest mb-2 block ml-1">Ciudad</label>
+                            <label for="m-city-manual" class="text-[9px] font-black uppercase text-gray-400 tracking-widest mb-2 block ml-1">Ciudad</label>
                             <select id="m-city-manual" class="w-full bg-white border border-gray-200 p-4 rounded-2xl text-xs font-bold outline-none focus:border-brand-cyan appearance-none cursor-pointer text-brand-black shadow-sm" disabled><option value="">Seleccione Depto primero</option></select>
                         </div>
                     </div>
                     <div>
-                        <label class="text-[9px] font-black uppercase text-gray-400 tracking-widest mb-2 block ml-1">Dirección Exacta</label>
+                        <label for="m-address-manual" class="text-[9px] font-black uppercase text-gray-400 tracking-widest mb-2 block ml-1">Dirección Exacta</label>
                         <input type="text" id="m-address-manual" placeholder="Ej: Calle 123 # 45 - 67, Barrio..." class="w-full bg-white border border-gray-200 p-4 rounded-2xl text-sm font-bold outline-none focus:border-brand-cyan text-brand-black shadow-sm">
                     </div>
                 </div>
@@ -118,7 +118,7 @@ const MODAL_HTML = `
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4">
                 <div>
-                    <label class="text-[9px] font-black uppercase text-gray-400 tracking-widest mb-2 block ml-1">Método de Pago</label>
+                    <label for="m-payment-account" class="text-[9px] font-black uppercase text-gray-400 tracking-widest mb-2 block ml-1">Método de Pago</label>
                     <div class="relative">
                         <select id="m-payment-account" class="w-full bg-slate-50 border border-gray-200 p-4 rounded-2xl text-sm font-bold outline-none focus:border-green-500 transition-all appearance-none cursor-pointer text-brand-black shadow-sm">
                             <option value="credit">⏳ Cartera (Pendiente por Cobrar)</option>
@@ -132,9 +132,9 @@ const MODAL_HTML = `
                         <div class="w-10 h-10 rounded-full bg-white text-brand-cyan flex items-center justify-center text-sm shadow-sm border border-brand-cyan/20">
                             <i class="fa-solid fa-file-invoice"></i>
                         </div>
-                        <p class="text-[10px] font-black uppercase tracking-widest text-brand-black">¿Factura Electrónica?</p>
+                        <label for="m-requires-invoice" class="text-[10px] font-black uppercase tracking-widest text-brand-black cursor-pointer">¿Factura Electrónica?</label>
                     </div>
-                    <label class="relative inline-flex items-center cursor-pointer">
+                    <label for="m-requires-invoice" class="relative inline-flex items-center cursor-pointer">
                         <input type="checkbox" id="m-requires-invoice" class="sr-only peer">
                         <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand-cyan"></div>
                     </label>
@@ -144,13 +144,13 @@ const MODAL_HTML = `
         
         <div class="p-6 md:p-8 border-t border-gray-100 bg-white grid grid-cols-1 md:grid-cols-12 gap-6 items-center shrink-0 rounded-b-[2.5rem]">
              <div class="md:col-span-4 flex flex-col justify-center">
-                <label class="text-[9px] font-black uppercase text-gray-400 tracking-widest mb-2 block ml-1">Costo de Envío Extra</label>
+                <label for="m-shipping-cost" class="text-[9px] font-black uppercase text-gray-400 tracking-widest mb-2 block ml-1">Costo de Envío Extra</label>
                 <div class="relative">
                     <i class="fa-solid fa-truck-fast absolute left-4 top-1/2 -translate-y-1/2 text-gray-300"></i>
                     <input type="text" id="m-shipping-cost" value="$ 0" class="currency-input w-full bg-slate-50 border border-gray-100 py-4 pl-11 pr-4 rounded-2xl text-sm font-black outline-none focus:border-brand-cyan text-brand-black transition-colors shadow-inner">
                 </div>
                 <!-- 🔥 NUEVO: Checkbox 4x1000 -->
-                <label class="flex items-center gap-2 mt-3 cursor-pointer ml-1 select-none">
+                <label for="m-apply-4x1000" class="flex items-center gap-2 mt-3 cursor-pointer ml-1 select-none">
                     <input type="checkbox" id="m-apply-4x1000" class="w-4 h-4 rounded text-brand-cyan border-gray-300 focus:ring-brand-cyan">
                     <span class="text-[10px] font-black uppercase text-brand-black tracking-widest">Cobrar 4x1000 Cliente</span>
                 </label>
@@ -298,14 +298,17 @@ function setupEventListeners() {
 }
 
 function addManualItemRow() {
+    manualItemRowSeq++;
+    const rId = manualItemRowSeq;
+
     const div = document.createElement('div');
     div.className = "item-row-container relative focus-within:z-[60] bg-slate-50/50 p-4 rounded-2xl border border-gray-100 shadow-sm animate-in fade-in slide-in-from-top-2";
     div.innerHTML = `
         <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-start relative focus-within:z-[60]">
             <div class="md:col-span-4 relative focus-within:z-[70]">
-                <label class="text-[8px] font-black text-gray-400 uppercase tracking-widest mb-2 block ml-1">Producto</label>
+                <label for="p-search-${rId}" class="text-[8px] font-black text-gray-400 uppercase tracking-widest mb-2 block ml-1">Producto</label>
                 <div class="relative">
-                    <input type="text" autocomplete="off" placeholder="Buscar por nombre o SKU..." class="p-search w-full bg-white border border-gray-200 rounded-xl py-3 px-4 text-xs font-bold outline-none focus:border-brand-cyan text-brand-black pr-8 shadow-sm relative z-10">
+                    <input type="text" id="p-search-${rId}" autocomplete="off" placeholder="Buscar por nombre o SKU..." class="p-search w-full bg-white border border-gray-200 rounded-xl py-3 px-4 text-xs font-bold outline-none focus:border-brand-cyan text-brand-black pr-8 shadow-sm relative z-10">
                     <i class="fa-solid fa-magnifying-glass absolute right-3 top-1/2 -translate-y-1/2 text-gray-300 text-xs pointer-events-none z-20"></i>
                 </div>
                 <div class="p-results absolute top-full left-0 z-[100] w-full mt-2 bg-white border border-gray-200 rounded-xl shadow-2xl hidden max-h-56 overflow-y-auto custom-scroll"></div>
@@ -314,18 +317,18 @@ function addManualItemRow() {
             <div class="md:col-span-3 flex gap-2 p-variants-container"></div>
             
              <div class="md:col-span-3">
-                <label class="text-[8px] font-black text-gray-400 uppercase tracking-widest mb-2 block text-center">Precio Unitario</label>
-                <input type="text" class="p-price-display currency-input w-full bg-white border border-gray-200 rounded-xl py-3 px-2 text-xs font-bold text-center outline-none focus:border-brand-cyan text-brand-black shadow-sm">
+                <label for="p-price-${rId}" class="text-[8px] font-black text-gray-400 uppercase tracking-widest mb-2 block text-center">Precio Unitario</label>
+                <input type="text" id="p-price-${rId}" class="p-price-display currency-input w-full bg-white border border-gray-200 rounded-xl py-3 px-2 text-xs font-bold text-center outline-none focus:border-brand-cyan text-brand-black shadow-sm">
             </div>
             
             <div class="md:col-span-2 flex items-start gap-2">
                 <div class="w-full relative pb-4">
-                    <label class="text-[8px] font-black text-gray-400 uppercase tracking-widest mb-2 block text-center">Cant.</label>
-                    <input type="number" value="1" min="1" class="p-qty w-full bg-white border border-gray-200 rounded-xl py-3 px-1 text-sm font-black text-center outline-none focus:border-brand-cyan text-brand-black shadow-sm">
+                    <label for="p-qty-${rId}" class="text-[8px] font-black text-gray-400 uppercase tracking-widest mb-2 block text-center">Cant.</label>
+                    <input type="number" id="p-qty-${rId}" value="1" min="1" class="p-qty w-full bg-white border border-gray-200 rounded-xl py-3 px-1 text-sm font-black text-center outline-none focus:border-brand-cyan text-brand-black shadow-sm">
                     <p class="text-[8px] font-black text-center mt-1 stock-display text-gray-400 absolute bottom-0 left-0 w-full">---</p>
                 </div>
                 <div class="pt-[22px] shrink-0">
-                    <button class="w-11 h-11 rounded-xl bg-white border border-gray-200 text-gray-400 hover:bg-brand-red hover:border-brand-red hover:text-white transition-colors flex items-center justify-center btn-remove-row shadow-sm">
+                    <button type="button" class="w-11 h-11 rounded-xl bg-white border border-gray-200 text-gray-400 hover:bg-brand-red hover:border-brand-red hover:text-white transition-colors flex items-center justify-center btn-remove-row shadow-sm" aria-label="Eliminar fila">
                         <i class="fa-solid fa-trash-can text-sm"></i>
                     </button>
                 </div>
@@ -358,49 +361,56 @@ function setupProductSearch(row) {
     const searchInput = row.querySelector('.p-search');
     const resultsDiv = row.querySelector('.p-results');
 
-    searchInput.addEventListener('input', (e) => {
-        const term = normalizeText(e.target.value);
-        resultsDiv.innerHTML = "";
+    searchInput.oninput = (e) => {
+        const term = e.target.value.toLowerCase().trim();
         if (term.length < 2) { resultsDiv.classList.add('hidden'); return; }
-        
-        const filtered = manualProductsCache.filter(p => {
-            const searchStr = p.searchStr || normalizeText(`${p.name} ${p.sku || ''}`);
-            return searchStr.includes(term);
+
+        const matches = manualProductsCache.filter(p => 
+            p.name?.toLowerCase().includes(term) || 
+            p.sku?.toLowerCase().includes(term) || 
+            (p.tags && p.tags.some(t => t.toLowerCase().includes(term)))
+        );
+
+        if (matches.length === 0) {
+            resultsDiv.innerHTML = `<p class="text-xs text-gray-400 p-3 text-center">No se encontraron productos</p>`;
+            resultsDiv.classList.remove('hidden');
+            return;
+        }
+
+        resultsDiv.innerHTML = matches.map(p => `
+            <div class="p-item p-2 hover:bg-slate-50 cursor-pointer flex items-center gap-3 border-b border-gray-50 last:border-0 rounded-xl" data-id="${p.id}">
+                <img src="${p.mainImage || 'https://placehold.co/50'}" class="w-10 h-10 object-cover rounded-lg shrink-0">
+                <div class="flex-grow overflow-hidden">
+                    <p class="text-xs font-bold text-brand-black truncate">${p.name}</p>
+                    <p class="text-[10px] text-gray-400">${p.sku ? 'SKU: ' + p.sku : ''} | Stock Total: <span class="font-bold text-brand-black">${p.stock || 0}</span></p>
+                </div>
+                <p class="text-xs font-black text-brand-black shrink-0">${formatCurrency(p.price)}</p>
+            </div>
+        `).join('');
+
+        resultsDiv.querySelectorAll('.p-item').forEach(itemEl => {
+            itemEl.onclick = () => {
+                const prod = manualProductsCache.find(p => p.id === itemEl.dataset.id);
+                selectProductForRow(row, prod);
+                resultsDiv.classList.add('hidden');
+            };
         });
 
-        if (filtered.length === 0) {
-            resultsDiv.innerHTML = `<div class="p-3 text-[10px] text-gray-400 text-center uppercase font-bold">No encontrado</div>`;
-        } else {
-            filtered.slice(0, 15).forEach(p => {
-                const isOutOfStock = p.stock <= 0;
-                const d = document.createElement('div');
-                d.className = `p-3 flex items-center justify-between border-b border-gray-50 last:border-0 ${isOutOfStock ? 'bg-gray-50 opacity-60 cursor-not-allowed' : 'hover:bg-cyan-50 cursor-pointer transition'}`;
-                d.innerHTML = `<div class="flex-1 min-w-0 pr-2"><p class="text-[10px] font-black uppercase text-brand-black line-clamp-1 ${isOutOfStock ? 'line-through text-gray-400' : ''}">${p.name}</p><p class="text-[9px] font-bold text-gray-400 mt-0.5">SKU: ${p.sku || '--'} | Stock: <span class="${isOutOfStock ? 'text-red-500' : 'text-brand-cyan'}">${p.stock || 0}</span></p></div><div class="text-right shrink-0"><p class="text-[10px] font-black text-brand-black">${formatCurrency(p.price)}</p></div>`;
-
-                if (!isOutOfStock) {
-                    d.onmousedown = (e) => {
-                        e.preventDefault(); 
-                        searchInput.value = p.name;
-                        row.querySelector('.p-id').value = p.id;
-                        row.querySelector('.p-price-display').value = formatCurrency(p.price);
-                        row.querySelector('.p-img').value = p.mainImage || p.image || (p.images ? p.images[0] : '');
-                        
-                        resultsDiv.classList.add('hidden');
-                        renderVariants(row, p);
-                        calculateManualTotal();
-                    };
-                } else {
-                    d.onmousedown = (e) => { e.preventDefault(); alert("Este producto está completamente agotado."); };
-                }
-                resultsDiv.appendChild(d);
-            });
-        }
         resultsDiv.classList.remove('hidden');
-    });
+    };
 
     document.addEventListener('click', (e) => {
-        if (!searchInput.contains(e.target) && !resultsDiv.contains(e.target)) resultsDiv.classList.add('hidden');
+        if (!row.contains(e.target)) resultsDiv.classList.add('hidden');
     });
+}
+
+function selectProductForRow(row, product) {
+    row.querySelector('.p-id').value = product.id;
+    row.querySelector('.p-search').value = product.name;
+    row.querySelector('.p-img').value = product.mainImage || "";
+    row.querySelector('.p-price-display').value = formatCurrency(product.price);
+    
+    renderVariantSelectors(row, product);
 }
 
 function updateRowStock(row, product) {
@@ -433,10 +443,13 @@ function updateRowStock(row, product) {
     }
 }
 
-function renderVariants(row, product) {
+function renderVariantSelectors(row, product) {
     const container = row.querySelector('.p-variants-container');
     container.innerHTML = "";
-    
+
+    const searchInput = row.querySelector('.p-search');
+    const rId = searchInput?.id ? searchInput.id.replace('p-search-', '') : Date.now();
+
     let colors = [];
     if (product.definedColors) colors = product.definedColors;
     else if (product.combinations) colors = product.combinations.map(v => v.color).filter(c => c);
@@ -449,8 +462,10 @@ function renderVariants(row, product) {
 
     if (colors.length > 0) {
         const wrap = document.createElement('div'); wrap.className = "flex-1 relative";
-        wrap.innerHTML = `<label class="text-[8px] font-black text-gray-400 uppercase tracking-widest mb-2 block text-center">Color</label>`;
-        const sel = document.createElement('select'); sel.className = "p-color w-full bg-white border border-gray-200 rounded-xl py-3 px-2 text-xs font-bold outline-none text-brand-black cursor-pointer shadow-sm text-center appearance-none";
+        wrap.innerHTML = `<label for="p-color-${rId}" class="text-[8px] font-black text-gray-400 uppercase tracking-widest mb-2 block text-center">Color</label>`;
+        const sel = document.createElement('select'); 
+        sel.id = `p-color-${rId}`;
+        sel.className = "p-color w-full bg-white border border-gray-200 rounded-xl py-3 px-2 text-xs font-bold outline-none text-brand-black cursor-pointer shadow-sm text-center appearance-none";
         sel.innerHTML = `<option value="">--</option>` + colors.map(c => `<option value="${c}">${c}</option>`).join('');
         sel.onchange = () => updateRowStock(row, product);
         wrap.appendChild(sel); container.appendChild(wrap);
@@ -458,8 +473,10 @@ function renderVariants(row, product) {
     
     if (caps.length > 0) {
         const wrap = document.createElement('div'); wrap.className = "flex-1 relative";
-        wrap.innerHTML = `<label class="text-[8px] font-black text-gray-400 uppercase tracking-widest mb-2 block text-center">Capacidad</label>`;
-        const sel = document.createElement('select'); sel.className = "p-capacity w-full bg-white border border-gray-200 rounded-xl py-3 px-2 text-xs font-bold outline-none text-brand-black cursor-pointer shadow-sm text-center appearance-none";
+        wrap.innerHTML = `<label for="p-cap-${rId}" class="text-[8px] font-black text-gray-400 uppercase tracking-widest mb-2 block text-center">Capacidad</label>`;
+        const sel = document.createElement('select'); 
+        sel.id = `p-cap-${rId}`;
+        sel.className = "p-capacity w-full bg-white border border-gray-200 rounded-xl py-3 px-2 text-xs font-bold outline-none text-brand-black cursor-pointer shadow-sm text-center appearance-none";
         sel.innerHTML = `<option value="">--</option>` + caps.map(c => {
             let cPrice = product.price;
             if (product.capacities) {

@@ -55,6 +55,7 @@ exports.createPreference = async (data, context) => {
         let mpItems = []; 
         let dbItems = []; 
         let subtotal = 0;
+        let hasExcludedProduct = false;
         
         // Validar precios reales en DB para seguridad
         for (const item of rawItems) {
@@ -65,6 +66,8 @@ exports.createPreference = async (data, context) => {
             const realPrice = Number(pData.price) || 0;
             const quantity = parseInt(item.quantity) || 1;
             
+            if (pData.excludeFromFreeShipping === true) hasExcludedProduct = true;
+
             subtotal += realPrice * quantity;
 
             // Item para base de datos
@@ -90,17 +93,24 @@ exports.createPreference = async (data, context) => {
             });
         }
 
-        if (shippingCost > 0) {
+        const incomingShippingType = data.shippingType || (data.extraData && data.extraData.shippingType) || 'ESTANDAR';
+        const isFleteAlCobro = hasExcludedProduct || incomingShippingType === 'FLETE_AL_COBRO';
+        
+        let validatedShippingCost = isFleteAlCobro ? 0 : shippingCost;
+        let finalShippingType = isFleteAlCobro ? 'FLETE_AL_COBRO' : (validatedShippingCost === 0 ? 'GRATIS' : 'ESTANDAR');
+
+        if (validatedShippingCost > 0) {
             mpItems.push({
-                id: 'envio', title: 'Costo de Envío', quantity: 1, unit_price: shippingCost, currency_id: 'COP'
+                id: 'envio', title: 'Costo de Envío', quantity: 1, unit_price: validatedShippingCost, currency_id: 'COP'
             });
         }
 
-        const totalAmount = subtotal + shippingCost;
+        const totalAmount = subtotal + validatedShippingCost;
         
         // --- 3. CREAR ORDEN EN FIREBASE ---
         const newOrderRef = db.collection('orders').doc();
         const shippingData = extraData.shippingData || { address: buyerInfo.address };
+        shippingData.shippingType = finalShippingType;
 
         await newOrderRef.set({
             source: 'TIENDA_WEB',
@@ -112,12 +122,13 @@ exports.createPreference = async (data, context) => {
             clientDoc: extraData.clientDoc || "",
             
             shippingData: shippingData,
+            shippingType: finalShippingType,
             billingData: extraData.billingData || null,
             requiresInvoice: extraData.needsInvoice || false,
             
             items: dbItems,
             subtotal: subtotal,
-            shippingCost: shippingCost,
+            shippingCost: validatedShippingCost,
             total: totalAmount,
             
             status: 'PENDIENTE_PAGO',

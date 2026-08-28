@@ -203,7 +203,16 @@ export async function viewOrderDetail(orderId) {
         const netTotal = totalOriginal - refunded;
 
         safeSetText('modal-order-subtotal', `$${subtotal.toLocaleString('es-CO')}`);
-        safeSetText('modal-order-shipping', shipping === 0 ? "GRATIS" : `$${shipping.toLocaleString('es-CO')}`);
+        
+        const isFleteAlCobro = o.shippingType === 'FLETE_AL_COBRO' || o.shippingData?.shippingType === 'FLETE_AL_COBRO';
+        const shippingEl = getEl('modal-order-shipping');
+        if (shippingEl) {
+            if (isFleteAlCobro) {
+                shippingEl.innerHTML = `<span class="bg-amber-100 text-amber-800 text-[10px] font-black uppercase px-2.5 py-1 rounded-md border border-amber-200"><i class="fa-solid fa-hand-holding-dollar mr-1"></i> Flete al Cobro</span>`;
+            } else {
+                shippingEl.textContent = shipping === 0 ? "GRATIS" : `$${shipping.toLocaleString('es-CO')}`;
+            }
+        }
         
         const totalContainer = getEl('modal-total-container');
         if (totalContainer) {
@@ -341,6 +350,7 @@ async function cancelManualOrder(order) {
 
             const updateObj = {
                 status: 'CANCELADO',
+                isStockDeducted: false,
                 paymentStatus: oData.amountPaid > 0 ? 'REFUNDED' : 'CANCELLED',
                 refundedAmount: (oData.refundedAmount || 0) + (oData.amountPaid || 0),
                 cancelReason: 'Anulada por Administrador',

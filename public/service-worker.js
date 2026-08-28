@@ -1,4 +1,4 @@
-const CACHE_NAME = 'pixeltech-shell-v10.08'; // 🔥 Subimos la versión
+const CACHE_NAME = 'pixeltech-shell-v10.09'; // 🔥 Subimos la versión para forzar actualización
 
 // Archivos vitales para que la app arranque sin internet
 const urlsToCache = [
@@ -56,17 +56,20 @@ self.addEventListener('fetch', (event) => {
     'split.io',      
     'addi.com',      
     'amazonaws.com',  
-    'google-analytics'
+    'google-analytics',
+    'gstatic.com',
+    'cdnjs.cloudflare.com',
+    'googleapis.com'
   ];
 
   const alwaysFetchFiles = [
     'admin-ui.js',
     'admin-guard.js',
-    'index.html' // Evita que el dashboard principal se quede atascado
+    'index.html'
   ];
 
-  // Si la URL coincide con un dominio ignorado o con un archivo de administración vital, saltamos el caché
-  if (ignoredDomains.some(domain => url.includes(domain)) || alwaysFetchFiles.some(file => url.includes(file))) {
+  // Si la URL es de administración (/admin/), coincide con un dominio ignorado o con un archivo de administración vital, saltamos el caché
+  if (url.includes('/admin/') || ignoredDomains.some(domain => url.includes(domain)) || alwaysFetchFiles.some(file => url.includes(file))) {
     return; // Pasa directamente a la red sin tocar el caché
   }
 

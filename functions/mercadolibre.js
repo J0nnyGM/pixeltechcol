@@ -92,7 +92,12 @@ exports.webhook = async (req, res) => {
                             if (pDoc.exists) {
                                 const pData = pDoc.data();
                                 let newStock = (pData.stock || 0) + item.quantity;
-                                let updatePayload = { stock: newStock };
+                                let updatePayload = { 
+                                    stock: newStock,
+                                    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                                    lastStockChangeReason: 'DEVOLUCION_CANCELACION',
+                                    lastStockChangeDetails: `Devolución por cancelación MercadoLibre #${orderData.id}`
+                                };
                                 
                                 if (foundProduct.isVariant && pData.combinations) {
                                     let newCombos = [...pData.combinations];
@@ -130,6 +135,7 @@ exports.webhook = async (req, res) => {
                     // 4. Cambiar estado de la orden a CANCELADO en nuestra DB
                     t.update(db.collection('orders').doc(orderId), {
                         status: 'CANCELADO',
+                        isStockDeducted: false,
                         paymentStatus: 'REFUNDED',
                         updatedAt: admin.firestore.FieldValue.serverTimestamp()
                     });

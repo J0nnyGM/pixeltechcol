@@ -8,9 +8,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Configuración de Envíos | PixelTech Admin</title>
     <link rel="stylesheet" href="../css/styles.css">
-    <link rel="preload" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
-    <noscript><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"></noscript>
-    <style>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+        <style>
         .no-scrollbar::-webkit-scrollbar { display: none; }
         
         .admin-input-group {
@@ -98,7 +97,7 @@
             </div>
 
             <div class="bg-white rounded-[2.5rem] p-10 border border-gray-100 shadow-sm">
-                <div class="flex justify-between items-center mb-8">
+                <div class="flex justify-between items-center mb-6">
                     <div>
                         <h2 class="text-xs font-black uppercase tracking-[0.3em] text-brand-cyan">Zonas de Tarifa Especial</h2>
                         <p class="text-[9px] text-gray-400 font-bold uppercase mt-1">Define precios específicos por grupos de municipios</p>
@@ -112,6 +111,30 @@
                     <div class="p-12 text-center border-2 border-dashed border-gray-100 rounded-[2rem]">
                         <i class="fa-solid fa-truck-dot text-3xl text-gray-100 mb-4"></i>
                         <p class="text-gray-300 font-black uppercase text-[10px] tracking-widest">Cargando reglas de envío...</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- SECCIÓN: PRODUCTOS EXCLUIDOS DE ENVÍO GRATIS -->
+            <div class="bg-white rounded-[2.5rem] p-10 border border-gray-100 shadow-sm">
+                <div class="mb-8">
+                    <h2 class="text-xs font-black uppercase tracking-[0.3em] text-brand-cyan">Productos Excluidos de Envío Gratis</h2>
+                    <p class="text-[9px] text-gray-400 font-bold uppercase mt-1">Busca y añade artículos de gran volumen o peso que NO calificarán para envío gratis ni permitirán envío gratis en el pedido</p>
+                </div>
+
+                <div class="relative mb-8">
+                    <div class="admin-input-group flex items-center gap-4">
+                        <i class="fa-solid fa-magnifying-glass text-gray-400 text-sm"></i>
+                        <input type="text" id="search-excluded-input" placeholder="Buscar producto por nombre o SKU..." autocomplete="off">
+                    </div>
+                    <div id="search-excluded-results" class="hidden absolute top-full left-0 right-0 mt-2 bg-white border border-gray-200 rounded-2xl shadow-2xl z-50 max-h-72 overflow-y-auto divide-y divide-gray-100">
+                    </div>
+                </div>
+
+                <div id="excluded-products-container" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div class="col-span-full p-8 text-center border-2 border-dashed border-gray-100 rounded-[2rem]">
+                        <i class="fa-solid fa-box-open text-3xl text-gray-200 mb-3"></i>
+                        <p class="text-gray-400 font-bold uppercase text-[10px] tracking-widest">No hay productos excluidos configurados</p>
                     </div>
                 </div>
             </div>

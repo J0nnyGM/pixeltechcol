@@ -49,6 +49,7 @@ exports.createCODOrder = async (data, context) => {
             const pendingUpdates = []; // Array para guardar las actualizaciones pendientes
             const dbItems = [];
             let subtotal = 0;
+            let hasExcludedProduct = false;
 
             // --- FASE 1: LECTURAS Y CÁLCULOS (Solo .get()) ---
             for (const item of rawItems) {
@@ -61,6 +62,8 @@ exports.createCODOrder = async (data, context) => {
                 const price = Number(pData.price) || 0;
                 const qty = parseInt(item.quantity) || 1;
                 
+                if (pData.excludeFromFreeShipping === true) hasExcludedProduct = true;
+
                 // Cálculo de Stock
                 let newStock = (pData.stock || 0) - qty;
                 if (newStock < 0) throw new Error(`Sin stock: ${pData.name}`);
@@ -82,10 +85,11 @@ exports.createCODOrder = async (data, context) => {
                 // Guardar la actualización para la Fase 2 (NO EJECUTAR AÚN)
                 pendingUpdates.push({
                     ref: pRef,
-                    // 🔥 NUEVO: Agregamos updatedAt al producto para que el inventario lo detecte
                     data: { 
                         stock: newStock, 
                         combinations: newCombinations,
+                        lastStockChangeReason: 'VENTA_PEDIDO',
+                        lastStockChangeDetails: `Venta web contraentrega pedido #${newOrderRef.id.slice(0, 8)}`,
                         updatedAt: admin.firestore.FieldValue.serverTimestamp()
                     }
                 });
@@ -98,18 +102,29 @@ exports.createCODOrder = async (data, context) => {
                 });
             }
 
-            // Preparar datos finales de la orden
-            const total = subtotal + shippingCost;
+            const incomingShippingType = data.shippingType || (data.extraData && data.extraData.shippingType) || 'ESTANDAR';
+            const isFleteAlCobro = hasExcludedProduct || incomingShippingType === 'FLETE_AL_COBRO';
+
+            let validatedShippingCost = isFleteAlCobro ? 0 : shippingCost;
+            let finalShippingType = isFleteAlCobro ? 'FLETE_AL_COBRO' : (validatedShippingCost === 0 ? 'GRATIS' : 'ESTANDAR');
+            
             const shippingData = extraData.shippingData || {};
+            shippingData.shippingType = finalShippingType;
+
+            // Preparar datos finales de la orden
+            const total = subtotal + validatedShippingCost;
             
             orderDataToSave = {
                 source: 'TIENDA_WEB', 
                 createdAt: admin.firestore.FieldValue.serverTimestamp(),
-                updatedAt: admin.firestore.FieldValue.serverTimestamp(), // 🔥 NUEVO
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
                 userId: uid, userEmail: email, userName: extraData.userName || "Cliente",
                 phone: extraData.phone || shippingData.phone || "", clientDoc: extraData.clientDoc || "",
-                shippingData, billingData: extraData.billingData || null, requiresInvoice: extraData.needsInvoice || false,
-                items: dbItems, subtotal, shippingCost, total,
+                shippingData, 
+                shippingType: finalShippingType,
+                billingData: extraData.billingData || null, 
+                requiresInvoice: extraData.needsInvoice || false,
+                items: dbItems, subtotal, shippingCost: validatedShippingCost, total,
                 status: 'PENDIENTE', paymentStatus: 'PENDING', 
                 paymentMethod: paymentMethod, 
                 isStockDeducted: true,

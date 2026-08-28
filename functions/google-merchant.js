@@ -40,11 +40,13 @@ exports.generateProductFeed = onRequest({ timeoutSeconds: 60, cors: true }, asyn
         const shippingDoc = await db.collection('config').doc('shipping').get();
         let defaultShippingPrice = 0;
         let freeThreshold = 0;
+        let excludedProductIds = [];
 
         if (shippingDoc.exists) {
             const shipData = shippingDoc.data();
             defaultShippingPrice = Number(shipData.defaultPrice) || 0;
             freeThreshold = Number(shipData.freeThreshold) || 0;
+            excludedProductIds = shipData.excludedProductIds || [];
         }
 
         // 2. Leer Diccionario Caché
@@ -121,8 +123,9 @@ exports.generateProductFeed = onRequest({ timeoutSeconds: 60, cors: true }, asyn
 
                     const availability = exactStock > 0 ? 'in_stock' : 'out_of_stock';
                     
+                    const isProductExcluded = excludedProductIds.includes(baseId) || p.excludeFromFreeShipping === true;
                     let finalShippingCost = defaultShippingPrice;
-                    if (freeThreshold > 0 && numCurrentPrice >= freeThreshold) {
+                    if (freeThreshold > 0 && numCurrentPrice >= freeThreshold && !isProductExcluded) {
                         finalShippingCost = 0;
                     }
 

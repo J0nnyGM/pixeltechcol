@@ -92,6 +92,7 @@ exports.createAddiCheckout = async (data, context) => {
     let subtotal = 0;
 
     const removeAccents = (str) => str ? str.normalize("NFD").replace(/[\u0300-\u036f]/g, "") : "";
+    let hasExcludedProduct = false;
 
     for (const item of rawItems) {
         const pDoc = await db.collection('products').doc(item.id).get();
@@ -99,6 +100,9 @@ exports.createAddiCheckout = async (data, context) => {
         const pData = pDoc.data();
         const price = Number(pData.price) || 0;
         const qty = parseInt(item.quantity) || 1;
+        
+        if (pData.excludeFromFreeShipping === true) hasExcludedProduct = true;
+
         subtotal += price * qty;
 
         dbItems.push({
@@ -112,29 +116,34 @@ exports.createAddiCheckout = async (data, context) => {
         });
     }
 
-    const totalAmount = subtotal + shippingCost;
-
-    // --- CORRECCIÓN DE DATOS PARA FIREBASE ---
-    // Asegurar que shippingData esté completo (igual que en MP)
     const shippingData = extraData.shippingData || { 
         address: buyerInfo.address, 
         city: buyerInfo.city,
         department: buyerInfo.department || ""
     };
 
+    const incomingShippingType = data.shippingType || (data.extraData && data.extraData.shippingType) || 'ESTANDAR';
+    const isFleteAlCobro = hasExcludedProduct || incomingShippingType === 'FLETE_AL_COBRO';
+
+    let validatedShippingCost = isFleteAlCobro ? 0 : shippingCost;
+    let finalShippingType = isFleteAlCobro ? 'FLETE_AL_COBRO' : (validatedShippingCost === 0 ? 'GRATIS' : 'ESTANDAR');
+    shippingData.shippingType = finalShippingType;
+
+    const totalAmount = subtotal + validatedShippingCost;
+
     // Datos del Cliente Normalizados
     const clientName = extraData.userName || buyerInfo.name || "Cliente";
     const clientPhone = extraData.phone || buyerInfo.phone || "";
     const clientDoc = extraData.clientDoc || buyerInfo.document || "";
 
-// 3. Guardar Orden en Firebase (Estructura idéntica a MP)
+    // 3. Guardar Orden en Firebase (Estructura idéntica a MP)
     const newOrderRef = db.collection('orders').doc();
     const firebaseOrderId = newOrderRef.id;
 
     await newOrderRef.set({
         source: 'TIENDA_WEB', 
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(), // 🔥 NUEVO: Para el Delta Sync
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         userId: uid, 
         userEmail: email,
         
@@ -143,12 +152,13 @@ exports.createAddiCheckout = async (data, context) => {
         clientDoc: clientDoc,
         
         shippingData: shippingData,
+        shippingType: finalShippingType,
         billingData: extraData.billingData || null,
         requiresInvoice: extraData.needsInvoice || false,
 
         items: dbItems, 
         subtotal: subtotal,
-        shippingCost: shippingCost, 
+        shippingCost: validatedShippingCost, 
         total: totalAmount, 
         
         status: 'PENDIENTE_PAGO',

@@ -347,10 +347,20 @@ async function initHeaderLogic() {
             if (cachedConfig) {
                 const data = JSON.parse(cachedConfig);
                 const threshold = parseInt(data.freeThreshold) || 0;
-                if (threshold > 0) {
+                const excludedIds = data.excludedProductIds || [];
+                const cartItems = getCart();
+                const hasExcludedProduct = cartItems.some(item => excludedIds.includes(item.id) || item.excludeFromFreeShipping === true);
+
+                if (hasExcludedProduct) {
+                    shippingMsg.innerHTML = `<span class="text-amber-600 font-bold"><i class="fa-solid fa-triangle-exclamation"></i> Contiene producto(s) excluido(s) de envío gratis</span>`;
+                    shippingBar.style.width = `100%`;
+                    shippingBar.classList.remove('bg-green-500', 'bg-brand-cyan');
+                    shippingBar.classList.add('bg-amber-500');
+                } else if (threshold > 0) {
                     const diff = threshold - subtotal;
                     let percent = subtotal >= threshold ? 100 : (subtotal / threshold) * 100;
                     shippingBar.style.width = `${percent}%`;
+                    shippingBar.classList.remove('bg-amber-500');
                     if (diff > 0) {
                         shippingMsg.innerHTML = `Te faltan <span class="text-brand-cyan font-black">$${diff.toLocaleString('es-CO')}</span> para envío gratis`;
                         shippingBar.classList.remove('bg-green-500'); shippingBar.classList.add('bg-brand-cyan');
