@@ -99,7 +99,7 @@ class StoreModule {
         this.unsubscribeFirebase = null;
         this.isCacheLoaded = false;
 
-        this.loadFromCache();
+        this.initPromise = this.loadFromCache();
     }
 
     async loadFromCache() {
@@ -151,7 +151,11 @@ class StoreModule {
         };
     }
 
-    connectFirebase(forceFullSync = false) {
+    async connectFirebase(forceFullSync = false) {
+        if (this.initPromise) {
+            await this.initPromise;
+        }
+
         if (this.unsubscribeFirebase) this.unsubscribeFirebase();
 
         const colRef = collection(db, this.collectionName);
