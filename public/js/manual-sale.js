@@ -362,66 +362,87 @@ function setupProductSearch(row) {
     const searchInput = row.querySelector('.p-search');
     const resultsDiv = row.querySelector('.p-results');
 
-    searchInput.oninput = (e) => {
-        const term = e.target.value.toLowerCase().trim();
+    searchInput.addEventListener('input', (e) => {
+        const term = normalizeText(e.target.value);
+        resultsDiv.innerHTML = "";
         if (term.length < 2) { resultsDiv.classList.add('hidden'); return; }
 
-        const matches = manualProductsCache.filter(p => 
-            p.name?.toLowerCase().includes(term) || 
-            p.sku?.toLowerCase().includes(term) || 
-            (p.tags && p.tags.some(t => t.toLowerCase().includes(term)))
-        );
+        const matches = manualProductsCache.filter(p => {
+            const searchStr = p.searchStr || normalizeText(`${p.name || ''} ${p.sku || ''} ${p.category || ''} ${p.brand || ''}`);
+            return searchStr.includes(term);
+        });
 
         if (matches.length === 0) {
-            resultsDiv.innerHTML = `<p class="text-xs text-gray-400 p-3 text-center">No se encontraron productos</p>`;
+            resultsDiv.innerHTML = `<div class="p-3 text-[10px] text-gray-400 text-center uppercase font-bold">No se encontraron productos</div>`;
             resultsDiv.classList.remove('hidden');
             return;
         }
 
-        resultsDiv.innerHTML = matches.map(p => `
-            <div class="p-item p-2 hover:bg-slate-50 cursor-pointer flex items-center gap-3 border-b border-gray-50 last:border-0 rounded-xl" data-id="${p.id}">
-                <img src="${p.mainImage || 'https://placehold.co/50'}" class="w-10 h-10 object-cover rounded-lg shrink-0">
-                <div class="flex-grow overflow-hidden">
-                    <p class="text-xs font-bold text-brand-black truncate">${p.name}</p>
-                    <p class="text-[10px] text-gray-400">${p.sku ? 'SKU: ' + p.sku : ''} | Stock Total: <span class="font-bold text-brand-black">${p.stock || 0}</span></p>
+        matches.slice(0, 20).forEach(prod => {
+            const isOutOfStock = (parseInt(prod.stock) || 0) <= 0;
+            const itemDiv = document.createElement('div');
+            itemDiv.className = `p-3 flex items-center justify-between border-b border-gray-50 last:border-0 ${isOutOfStock ? 'bg-gray-50 opacity-60 cursor-not-allowed' : 'hover:bg-cyan-50 cursor-pointer transition'}`;
+            
+            const prodImg = prod.mainImage || prod.image || (prod.images && prod.images[0] ? prod.images[0] : 'https://placehold.co/50');
+            itemDiv.innerHTML = `
+                <div class="flex items-center gap-3 flex-1 min-w-0 pr-2">
+                    <img src="${prodImg}" class="w-10 h-10 object-cover rounded-lg shrink-0 border border-gray-100">
+                    <div class="flex-1 min-w-0">
+                        <p class="text-xs font-bold text-brand-black truncate ${isOutOfStock ? 'line-through text-gray-400' : ''}">${prod.name}</p>
+                        <p class="text-[10px] text-gray-400 mt-0.5">${prod.sku ? 'SKU: ' + prod.sku : ''} | Stock: <span class="font-bold ${isOutOfStock ? 'text-red-500' : 'text-brand-cyan'}">${prod.stock || 0}</span></p>
+                    </div>
                 </div>
-                <p class="text-xs font-black text-brand-black shrink-0">${formatCurrency(p.price)}</p>
-            </div>
-        `).join('');
+                <div class="text-right shrink-0">
+                    <p class="text-xs font-black text-brand-black">${formatCurrency(prod.price)}</p>
+                </div>
+            `;
 
-        resultsDiv.querySelectorAll('.p-item').forEach(itemEl => {
-            itemEl.onclick = () => {
-                const prod = manualProductsCache.find(p => p.id === itemEl.dataset.id);
-                selectProductForRow(row, prod);
-                resultsDiv.classList.add('hidden');
-            };
+            if (!isOutOfStock) {
+                itemDiv.onmousedown = (ev) => {
+                    ev.preventDefault();
+                    ev.stopPropagation();
+                    selectProductForRow(row, prod);
+                    resultsDiv.classList.add('hidden');
+                };
+            } else {
+                itemDiv.onmousedown = (ev) => {
+                    ev.preventDefault();
+                    ev.stopPropagation();
+                    alert("⚠️ Este producto está completamente agotado.");
+                };
+            }
+
+            resultsDiv.appendChild(itemDiv);
         });
 
         resultsDiv.classList.remove('hidden');
-    };
+    });
 
-    document.addEventListener('click', (e) => {
+    document.addEventListener('mousedown', (e) => {
         if (!row.contains(e.target)) resultsDiv.classList.add('hidden');
     });
 }
 
 function selectProductForRow(row, product) {
+    if (!product) return;
     row.querySelector('.p-id').value = product.id;
     row.querySelector('.p-search').value = product.name;
-    row.querySelector('.p-img').value = product.mainImage || "";
+    row.querySelector('.p-img').value = product.mainImage || product.image || (product.images && product.images[0] ? product.images[0] : "");
     row.querySelector('.p-price-display').value = formatCurrency(product.price);
     
     renderVariantSelectors(row, product);
+    calculateManualTotal();
 }
 
 function updateRowStock(row, product) {
+    if (!product) return;
     let currentStock = parseInt(product.stock) || 0;
     const colorSel = row.querySelector('.p-color');
     const capSel = row.querySelector('.p-capacity');
     const selectedColor = colorSel ? colorSel.value : null;
     const selectedCap = capSel ? capSel.value : null;
 
-    if (product.combinations && product.combinations.length > 0) {
+    if (product.combinations && Array.isArray(product.combinations) && product.combinations.length > 0) {
         if (selectedColor || selectedCap) {
             const combo = product.combinations.find(c => {
                 const matchColor = selectedColor ? c.color === selectedColor : true;
@@ -445,6 +466,7 @@ function updateRowStock(row, product) {
 }
 
 function renderVariantSelectors(row, product) {
+    if (!product) return;
     const container = row.querySelector('.p-variants-container');
     container.innerHTML = "";
 
@@ -452,13 +474,15 @@ function renderVariantSelectors(row, product) {
     const rId = searchInput?.id ? searchInput.id.replace('p-search-', '') : Date.now();
 
     let colors = [];
-    if (product.definedColors) colors = product.definedColors;
-    else if (product.combinations) colors = product.combinations.map(v => v.color).filter(c => c);
+    if (product.definedColors && Array.isArray(product.definedColors)) colors = product.definedColors;
+    else if (product.combinations && Array.isArray(product.combinations)) colors = product.combinations.map(v => v.color).filter(c => c);
     colors = [...new Set(colors)]; 
 
     let caps = [];
-    if (product.definedCapacities) caps = product.definedCapacities;
-    else if (product.capacities) caps = product.capacities.map(c => c.label);
+    if (product.definedCapacities && Array.isArray(product.definedCapacities)) caps = product.definedCapacities;
+    else if (product.capacities && Array.isArray(product.capacities)) {
+        caps = product.capacities.map(c => typeof c === 'object' ? c.label : c).filter(c => c);
+    }
     caps = [...new Set(caps)];
 
     if (colors.length > 0) {
@@ -480,9 +504,9 @@ function renderVariantSelectors(row, product) {
         sel.className = "p-capacity w-full bg-white border border-gray-200 rounded-xl py-3 px-2 text-xs font-bold outline-none text-brand-black cursor-pointer shadow-sm text-center appearance-none";
         sel.innerHTML = `<option value="">--</option>` + caps.map(c => {
             let cPrice = product.price;
-            if (product.capacities) {
-                const capObj = product.capacities.find(x => x.label === c);
-                if (capObj && capObj.price) cPrice = capObj.price;
+            if (product.capacities && Array.isArray(product.capacities)) {
+                const capObj = product.capacities.find(x => (typeof x === 'object' ? x.label : x) === c);
+                if (capObj && typeof capObj === 'object' && capObj.price) cPrice = capObj.price;
             }
             return `<option value="${c}" data-price="${cPrice}">${c}</option>`;
         }).join('');
