@@ -86,7 +86,7 @@ class StoreModule {
     constructor(config) {
         this.name = config.name;
         this.collectionName = config.collection;
-        this.storageKey = `pixeltech_core_${config.name}`;
+        this.storageKey = (config.name === 'products') ? `pixeltech_core_products_v2` : `pixeltech_core_${config.name}`;
         this.dateField = config.dateField || 'createdAt';
         this.queryConstraints = config.queryConstraints || [];
         this.clientSideFilter = config.clientSideFilter || null;
@@ -292,7 +292,7 @@ const modules = {
         collection: 'products',
         dateField: 'createdAt',
         searchFields: ['name', 'brand', 'sku', 'category'],
-        lightweight: (p) => ({ id: p.id, name: p.name, price: p.price, originalPrice: p.originalPrice || 0, stock: p.stock || 0, status: p.status, sku: p.sku || '', category: p.category || '', brand: p.brand || '', mainImage: p.mainImage || p.image || (p.images ? p.images[0] : ''), combinations: p.combinations || [], capacities: p.capacities || [], promoEndsAt: p.promoEndsAt || null, searchStr: p.searchStr, createdAt: p.createdAt, updatedAt: p.updatedAt })
+        lightweight: (p) => ({ id: p.id, name: p.name, price: p.price, originalPrice: p.originalPrice || 0, stock: p.stock || 0, status: p.status, sku: p.sku || '', category: p.category || '', subcategory: p.subcategory || '', brand: p.brand || '', mainImage: p.mainImage || p.image || (p.images ? p.images[0] : ''), combinations: p.combinations || [], capacities: p.capacities || [], definedColors: p.definedColors || [], definedCapacities: p.definedCapacities || [], lastPurchaseCost: p.lastPurchaseCost || 0, promoEndsAt: p.promoEndsAt || null, searchStr: p.searchStr, createdAt: p.createdAt, updatedAt: p.updatedAt })
     }),
     
     clients: new StoreModule({
@@ -334,7 +334,7 @@ const modules = {
         name: 'purchases',
         collection: 'purchases',
         dateField: 'createdAt',
-        lightweight: (p) => ({ id: p.id, supplierName: p.supplierName, totalCost: p.totalCost, createdBy: p.createdBy, createdAt: p.createdAt, items: p.items, hasIVA: p.hasIVA, updatedAt: p.updatedAt })
+        lightweight: (p) => ({ id: p.id, supplierId: p.supplierId, supplierName: p.supplierName, totalCost: p.totalCost, createdBy: p.createdBy, createdAt: p.createdAt, items: p.items, hasIVA: p.hasIVA, updatedAt: p.updatedAt })
     }),
 
     warranties: new StoreModule({

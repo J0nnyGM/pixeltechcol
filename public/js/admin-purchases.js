@@ -5,11 +5,16 @@ loadAdminSidebar();
 
 // --- REFERENCIAS DOM ---
 const tableBody = document.getElementById('purchases-table-body');
-const loadMoreBtn = document.getElementById('load-more-container');
+const rangeSpan = document.getElementById('pagination-range');
+const totalSpan = document.getElementById('pagination-total');
+const btnPrev = document.getElementById('btn-prev-page');
+const btnNext = document.getElementById('btn-next-page');
+const pageSizeSelect = document.getElementById('page-size-select');
 const searchInput = document.getElementById('search-input');
+const modalBtnEdit = document.getElementById('modal-btn-edit');
 
 // --- ESTADO GLOBAL ---
-const PAGE_SIZE = 50;
+let pageSize = 50;
 let currentPage = 1;
 let adminPurchasesCache = []; // Recibirá los datos en RAM
 
@@ -19,7 +24,7 @@ const formatMoney = (amount) => `$${Math.round(amount || 0).toLocaleString('es-C
 // 🔥 CONEXIÓN AL STORE CENTRAL
 // ==========================================================================
 AdminStore.subscribeToPurchases((purchases) => {
-    adminPurchasesCache = purchases;
+    adminPurchasesCache = purchases || [];
     renderPurchasesFromMemory();
 });
 
@@ -40,31 +45,48 @@ function renderPurchasesFromMemory() {
         );
     }
 
+    const totalDocs = filtered.length;
+    const maxPages = Math.max(1, Math.ceil(totalDocs / pageSize));
+    if (currentPage > maxPages) currentPage = maxPages;
+
     tableBody.innerHTML = "";
 
-    if (filtered.length === 0) {
+    if (totalDocs === 0) {
         tableBody.innerHTML = `<tr><td colspan="6" class="p-10 text-center text-xs font-bold text-gray-400 uppercase">No se encontraron compras.</td></tr>`;
-        loadMoreBtn.classList.add('hidden');
+        updatePaginationUI(0, 0, 0, maxPages);
         return;
     }
 
-    const endIdx = currentPage * PAGE_SIZE;
-    const pageData = filtered.slice(0, endIdx);
+    const startIdx = (currentPage - 1) * pageSize;
+    const endIdx = Math.min(startIdx + pageSize, totalDocs);
+    const pageData = filtered.slice(startIdx, endIdx);
 
     pageData.forEach(p => renderRow(p));
-
-    if (endIdx < filtered.length) {
-        loadMoreBtn.classList.remove('hidden');
-        loadMoreBtn.querySelector('button').innerHTML = `<i class="fa-solid fa-circle-plus"></i> Cargar Anteriores (${endIdx}/${filtered.length})`;
-    } else {
-        loadMoreBtn.classList.add('hidden');
-    }
+    updatePaginationUI(startIdx + 1, endIdx, totalDocs, maxPages);
 }
 
-window.loadMorePurchases = () => {
-    currentPage++;
+function updatePaginationUI(start, end, total, maxPages) {
+    if (rangeSpan) rangeSpan.textContent = total > 0 ? `${start}-${end}` : "0-0";
+    if (totalSpan) totalSpan.textContent = total;
+    if (btnPrev) btnPrev.disabled = currentPage <= 1;
+    if (btnNext) btnNext.disabled = currentPage >= maxPages;
+}
+
+window.changePurchasesPage = (delta) => {
+    currentPage += delta;
+    if (currentPage < 1) currentPage = 1;
     renderPurchasesFromMemory();
+    const mainEl = document.querySelector('main');
+    if (mainEl) mainEl.scrollTo({ top: 0, behavior: 'smooth' });
 };
+
+if (pageSizeSelect) {
+    pageSizeSelect.addEventListener('change', (e) => {
+        pageSize = parseInt(e.target.value) || 50;
+        currentPage = 1;
+        renderPurchasesFromMemory();
+    });
+}
 
 if (searchInput) {
     searchInput.addEventListener('input', () => {
@@ -72,6 +94,11 @@ if (searchInput) {
         renderPurchasesFromMemory();
     });
 }
+
+// Redireccionar a edición de entrada
+window.editPurchase = (id) => {
+    window.location.href = `inventory-entry.html?editId=${encodeURIComponent(id)}`;
+};
 
 // ==========================================================================
 // RENDERIZADO DE FILAS Y MODAL
@@ -104,9 +131,14 @@ function renderRow(p) {
         <td class="px-8 py-6 text-center text-[10px] font-bold text-gray-400 uppercase">${adminName}</td>
         <td class="px-8 py-6 text-right font-black text-brand-black text-base">${formatMoney(p.totalCost)}</td>
         <td class="px-8 py-6 text-center">
-            <button onclick="window.viewPurchaseDetail('${p.id}')" title="Ver Factura" class="w-9 h-9 mx-auto rounded-xl bg-white border border-gray-200 text-gray-400 hover:text-brand-cyan hover:border-brand-cyan hover:shadow-md transition flex items-center justify-center">
-                <i class="fa-solid fa-eye text-xs"></i>
-            </button>
+            <div class="flex items-center justify-center gap-2">
+                <button onclick="window.viewPurchaseDetail('${p.id}')" title="Ver Factura" class="w-9 h-9 rounded-xl bg-white border border-gray-200 text-gray-400 hover:text-brand-cyan hover:border-brand-cyan hover:shadow-md transition flex items-center justify-center">
+                    <i class="fa-solid fa-eye text-xs"></i>
+                </button>
+                <button onclick="window.editPurchase('${p.id}')" title="Editar Entrada" class="w-9 h-9 rounded-xl bg-white border border-gray-200 text-gray-400 hover:text-brand-cyan hover:border-brand-cyan hover:shadow-md transition flex items-center justify-center">
+                    <i class="fa-solid fa-pen-to-square text-xs"></i>
+                </button>
+            </div>
         </td>
     `;
     tableBody.appendChild(tr);
@@ -124,6 +156,10 @@ window.viewPurchaseDetail = (id) => {
     document.getElementById('modal-supplier-name').textContent = p.supplierName || 'No registrado';
     document.getElementById('modal-admin-name').textContent = p.createdBy || 'Sistema';
     
+    if (modalBtnEdit) {
+        modalBtnEdit.onclick = () => window.editPurchase(p.id);
+    }
+
     const ivaBadge = document.getElementById('modal-iva-badge');
     if (p.hasIVA) {
         ivaBadge.textContent = "SÍ (Aplicado)";

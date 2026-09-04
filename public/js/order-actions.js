@@ -216,12 +216,12 @@ export async function viewOrderDetail(orderId) {
         
         const totalContainer = getEl('modal-total-container');
         if (totalContainer) {
-            let taxHtml = tax4x1000 > 0 ? `<p class="text-[9px] font-black text-purple-500 uppercase tracking-widest mt-2 mb-1">4x1000: +$${tax4x1000.toLocaleString('es-CO')}</p>` : '';
+            let taxHtml = tax4x1000 > 0 ? `<p class="text-[9px] font-black text-purple-600 uppercase tracking-widest mb-0.5">4x1000: +$${tax4x1000.toLocaleString('es-CO')}</p>` : '';
             
             if (refunded > 0) {
-                totalContainer.innerHTML = `<div class="flex flex-col items-end"><p class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Total Original</p><p class="text-xs font-bold text-gray-400 line-through decoration-red-300">$${totalOriginal.toLocaleString('es-CO')}</p>${taxHtml}<p class="text-[9px] font-black text-red-500 uppercase tracking-widest mt-1">Devolución</p><p class="text-xs font-bold text-red-500">-$${refunded.toLocaleString('es-CO')}</p><div class="w-full h-px bg-gray-200 my-2"></div><p class="text-[9px] font-black text-brand-black uppercase tracking-widest">Total Neto</p><h4 class="text-3xl font-black text-brand-black leading-none">$${netTotal.toLocaleString('es-CO')}</h4></div>`;
+                totalContainer.innerHTML = `<div class="flex flex-col items-start"><p class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-0.5">Total Original</p><p class="text-xs font-bold text-gray-400 line-through decoration-red-300">$${totalOriginal.toLocaleString('es-CO')}</p>${taxHtml}<p class="text-[9px] font-black text-red-500 uppercase tracking-widest mt-1 mb-0.5">Devolución</p><p class="text-xs font-bold text-red-500">-$${refunded.toLocaleString('es-CO')}</p><div class="w-full h-px bg-gray-200 my-1.5"></div><p class="text-[9px] font-black text-brand-black uppercase tracking-widest mb-0.5">Total Neto</p><h4 class="text-2xl md:text-3xl font-black text-brand-black leading-none">$${netTotal.toLocaleString('es-CO')}</h4></div>`;
             } else {
-                totalContainer.innerHTML = `<div class="flex flex-col items-end">${taxHtml}<p class="text-[9px] font-black text-brand-black uppercase tracking-widest mt-1">Total Neto</p><h4 id="modal-order-total" class="text-3xl font-black text-brand-black leading-none">$${totalOriginal.toLocaleString('es-CO')}</h4></div>`;
+                totalContainer.innerHTML = `<div class="flex flex-col items-start">${taxHtml}<p class="text-[9px] font-black text-brand-black uppercase tracking-widest mb-0.5">Total Neto</p><h4 id="modal-order-total" class="text-2xl md:text-3xl font-black text-brand-black leading-none">$${totalOriginal.toLocaleString('es-CO')}</h4></div>`;
             }
         }
 
@@ -235,14 +235,23 @@ export async function viewOrderDetail(orderId) {
         if (footerActions) {
             footerActions.classList.add('hidden');
             footerActions.classList.remove('flex-col');
-            footerActions.classList.add('flex-row', 'flex-wrap', 'justify-end', 'items-center');
+            footerActions.classList.add('flex-row', 'flex-wrap', 'justify-end', 'items-center', 'gap-2.5');
         }
         if (footerMsg) footerMsg.classList.add('hidden');
         
         const btnAlistar = getEl('btn-save-alistado');
         const btnDespachar = getEl('btn-set-despachado');
-        if(btnAlistar) btnAlistar.classList.add('hidden');
-        if(btnDespachar) btnDespachar.classList.add('hidden');
+        if(btnAlistar) {
+            btnAlistar.className = "w-11 h-11 bg-brand-black text-white hover:bg-slate-800 rounded-xl transition-all flex items-center justify-center shadow-sm shrink-0 hidden";
+            btnAlistar.title = "Guardar Alistamiento";
+            btnAlistar.innerHTML = '<i class="fa-solid fa-floppy-disk text-base"></i>';
+            btnAlistar.classList.add('hidden');
+        }
+        if(btnDespachar) {
+            btnDespachar.className = "h-11 px-4 sm:px-5 bg-emerald-500 text-white hover:bg-emerald-600 rounded-xl font-black uppercase text-[10px] tracking-wider transition-all flex items-center justify-center gap-2 shadow-sm shrink-0 hidden";
+            btnDespachar.innerHTML = '<i class="fa-solid fa-truck-fast mr-1.5"></i> Marcar Despachado';
+            btnDespachar.classList.add('hidden');
+        }
 
         const isFinished = ['CANCELADO', 'RECHAZADO', 'DEVUELTO'].includes(o.status);
 
@@ -252,31 +261,43 @@ export async function viewOrderDetail(orderId) {
             if (footerMsg) { footerMsg.innerHTML = `<span class="text-red-500 font-bold flex items-center gap-2"><i class="fa-solid fa-ban"></i> Pedido ${o.status}</span>`; footerMsg.classList.remove('hidden'); }
         } else if (o.status === 'ALISTADO') {
             if (footerActions) footerActions.classList.remove('hidden');
+            if (btnAlistar) {
+                btnAlistar.classList.remove('hidden');
+                btnAlistar.title = "Actualizar Alistamiento";
+                btnAlistar.innerHTML = '<i class="fa-solid fa-floppy-disk text-base"></i>';
+            }
             if (btnDespachar) btnDespachar.classList.remove('hidden');
         } else if (['DESPACHADO', 'ENTREGADO', 'DEVOLUCION_PARCIAL'].includes(o.status)) { 
+             if (btnAlistar) btnAlistar.classList.add('hidden');
+             if (btnDespachar) btnDespachar.classList.add('hidden');
              if (footerActions) {
                  footerActions.classList.remove('hidden');
                  const btnRefund = document.createElement('button');
                  btnRefund.id = 'btn-refund-action';
-                 btnRefund.className = "h-12 flex-1 md:flex-none md:w-auto bg-white text-red-500 border border-red-200 px-4 rounded-xl font-black uppercase text-[10px] tracking-widest hover:bg-red-50 transition-all shadow-sm flex items-center justify-center gap-2 shrink-0";
-                 btnRefund.innerHTML = `<i class="fa-solid fa-rotate-left text-sm"></i> <span class="">Devolución</span>`;
+                 btnRefund.className = "h-11 px-4 bg-white text-red-500 border border-red-200 hover:bg-red-50 rounded-xl font-black uppercase text-[10px] tracking-wider transition-all flex items-center justify-center gap-2 shadow-sm shrink-0";
+                 btnRefund.innerHTML = `<i class="fa-solid fa-rotate-left text-xs"></i> <span>Devolución</span>`;
                  btnRefund.onclick = () => openRefundModal(currentOrderData);
                  footerActions.prepend(btnRefund);
              }
         } else {
             if (footerActions) footerActions.classList.remove('hidden');
-            if (btnAlistar) btnAlistar.classList.remove('hidden');
+            if (btnAlistar) {
+                btnAlistar.classList.remove('hidden');
+                btnAlistar.title = "Guardar Alistamiento";
+                btnAlistar.innerHTML = '<i class="fa-solid fa-floppy-disk text-base"></i>';
+            }
         }
 
         if (isAdmin && !isFinished) {
             if (footerActions) {
                 footerActions.classList.remove('hidden');
 
-                if (o.status === 'PENDIENTE' && o.source === 'MANUAL') {
+                // Permitir editar órdenes PENDIENTES (manuales) y órdenes ALISTADAS
+                if ((o.status === 'PENDIENTE' && o.source === 'MANUAL') || o.status === 'ALISTADO') {
                     const btnEdit = document.createElement('button');
                     btnEdit.id = 'btn-edit-action';
-                    btnEdit.className = "w-12 h-12 bg-brand-cyan text-brand-black border border-brand-cyan rounded-xl hover:bg-cyan-400 transition-all shadow-sm flex items-center justify-center shrink-0";
-                    btnEdit.innerHTML = `<i class="fa-solid fa-pen-to-square text-lg"></i>`;
+                    btnEdit.className = "w-11 h-11 bg-cyan-50 text-brand-black border border-brand-cyan/40 hover:bg-brand-cyan rounded-xl transition-all flex items-center justify-center shadow-2xs shrink-0";
+                    btnEdit.innerHTML = `<i class="fa-solid fa-pen-to-square text-base"></i>`;
                     btnEdit.title = "Editar Orden";
                     btnEdit.onclick = () => openEditOrderModal(currentOrderData);
                     footerActions.prepend(btnEdit);
@@ -284,8 +305,8 @@ export async function viewOrderDetail(orderId) {
 
                 const btnCancel = document.createElement('button');
                 btnCancel.id = 'btn-cancel-action';
-                btnCancel.className = "w-12 h-12 bg-white text-red-500 border border-red-200 rounded-xl hover:bg-red-50 transition-all shadow-sm flex items-center justify-center shrink-0";
-                btnCancel.innerHTML = `<i class="fa-solid fa-ban text-lg"></i>`;
+                btnCancel.className = "w-11 h-11 bg-red-50 text-red-600 border border-red-200/80 hover:bg-red-500 hover:text-white rounded-xl transition-all flex items-center justify-center shadow-2xs shrink-0";
+                btnCancel.innerHTML = `<i class="fa-solid fa-ban text-base"></i>`;
                 btnCancel.title = "Anular Venta";
                 btnCancel.onclick = () => cancelManualOrder(currentOrderData);
                 footerActions.prepend(btnCancel);
@@ -304,7 +325,7 @@ async function cancelManualOrder(order) {
     if (!confirm("🚨 ATENCIÓN ADMINISTRADOR 🚨\n\n¿Estás seguro de ANULAR esta venta?\n\n- Los productos regresarán automáticamente al inventario (si fueron descontados).\n- El dinero se restará de la cuenta de tesorería (si aplica).\n- La orden quedará como CANCELADA.\n\nEsta acción es irreversible.")) return;
 
     const btn = getEl('btn-cancel-action');
-    if(btn) { btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Anulando...'; btn.disabled = true; }
+    if(btn) { btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i>'; btn.disabled = true; }
 
     try {
         let isStockDeducted = false;
@@ -408,12 +429,43 @@ function injectEditModalHtml() {
     <div id="edit-order-modal" class="fixed inset-0 z-[100] hidden flex items-center justify-center p-4 sm:p-6 bg-slate-900/90 backdrop-blur-sm">
         <div class="relative bg-white w-full max-w-4xl rounded-[2.5rem] shadow-2xl flex flex-col max-h-[95vh] overflow-hidden">
             <div class="px-8 py-6 border-b border-gray-100 flex justify-between items-center bg-brand-cyan shrink-0">
-                <h3 class="text-xl font-black uppercase text-brand-black"><i class="fa-solid fa-pen-to-square"></i> Editar Orden Manual</h3>
+                <h3 class="text-xl font-black uppercase text-brand-black flex items-center gap-2">
+                    <i class="fa-solid fa-pen-to-square"></i> <span id="eo-modal-title-text">Editar Orden</span>
+                </h3>
                 <button onclick="document.getElementById('edit-order-modal').classList.add('hidden')" class="w-8 h-8 rounded-full bg-black/10 hover:bg-black/20 text-brand-black transition flex items-center justify-center"><i class="fa-solid fa-xmark"></i></button>
             </div>
             
             <div class="p-8 flex-1 overflow-y-auto custom-scroll space-y-6">
                 
+                <!-- Datos del Cliente y Entrega -->
+                <div class="bg-slate-50 rounded-2xl border border-gray-100 p-4">
+                    <h4 class="text-[9px] font-black text-brand-black uppercase tracking-widest mb-3 border-b border-gray-200 pb-2 flex items-center gap-1.5">
+                        <i class="fa-solid fa-user text-brand-cyan"></i> Información del Cliente y Entrega
+                    </h4>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
+                        <div>
+                            <label class="text-[8px] font-black text-gray-400 uppercase tracking-wider block mb-1">Nombre Cliente</label>
+                            <input type="text" id="eo-client-name" placeholder="Nombre completo" class="w-full bg-white border border-gray-200 rounded-xl p-2.5 font-bold outline-none focus:border-brand-cyan text-brand-black">
+                        </div>
+                        <div>
+                            <label class="text-[8px] font-black text-gray-400 uppercase tracking-wider block mb-1">Teléfono / WhatsApp</label>
+                            <input type="text" id="eo-client-phone" placeholder="Ej: 3001234567" class="w-full bg-white border border-gray-200 rounded-xl p-2.5 font-bold outline-none focus:border-brand-cyan text-brand-black">
+                        </div>
+                        <div>
+                            <label class="text-[8px] font-black text-gray-400 uppercase tracking-wider block mb-1">Ciudad</label>
+                            <input type="text" id="eo-client-city" placeholder="Ciudad de entrega" class="w-full bg-white border border-gray-200 rounded-xl p-2.5 font-bold outline-none focus:border-brand-cyan text-brand-black">
+                        </div>
+                        <div class="sm:col-span-2">
+                            <label class="text-[8px] font-black text-gray-400 uppercase tracking-wider block mb-1">Dirección de Entrega</label>
+                            <input type="text" id="eo-client-address" placeholder="Dirección completa" class="w-full bg-white border border-gray-200 rounded-xl p-2.5 font-bold outline-none focus:border-brand-cyan text-brand-black">
+                        </div>
+                        <div class="sm:col-span-2 lg:col-span-1">
+                            <label class="text-[8px] font-black text-gray-400 uppercase tracking-wider block mb-1">Notas / Observaciones</label>
+                            <input type="text" id="eo-order-notes" placeholder="Notas internas o entrega" class="w-full bg-white border border-gray-200 rounded-xl p-2.5 font-bold outline-none focus:border-brand-cyan text-brand-black">
+                        </div>
+                    </div>
+                </div>
+
                 <div class="relative">
                     <label class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-2 block">Agregar Producto al Pedido</label>
                     <input type="text" id="eo-search-prod" placeholder="Buscar por nombre o SKU..." class="w-full bg-slate-50 border border-gray-200 rounded-xl p-3 text-xs font-bold outline-none focus:border-brand-cyan">
@@ -504,6 +556,22 @@ function openEditOrderModal(order) {
     editOrderOriginal = JSON.parse(JSON.stringify(order));
     editItems = JSON.parse(JSON.stringify(order.items || []));
     
+    // Título dinámico
+    const titleEl = getEl('eo-modal-title-text');
+    if (titleEl) {
+        const num = order.internalOrderNumber ? `#${order.internalOrderNumber}` : (order.id ? `#${order.id.slice(0,6)}` : '');
+        const isAlistado = order.status === 'ALISTADO';
+        titleEl.innerHTML = `Editar Orden ${num} ${isAlistado ? '<span class="text-[10px] bg-blue-100 text-blue-800 border border-blue-200 px-2 py-0.5 rounded-md ml-2 font-black uppercase tracking-wider">Alistada</span>' : ''}`;
+    }
+
+    // Cargar datos de cliente y entrega
+    if (getEl('eo-client-name')) getEl('eo-client-name').value = order.userName || order.clientName || order.buyerInfo?.name || '';
+    if (getEl('eo-client-phone')) getEl('eo-client-phone').value = order.phone || order.clientPhone || order.buyerInfo?.phone || '';
+    const addr = order.shippingData?.address || order.address || '';
+    if (getEl('eo-client-address')) getEl('eo-client-address').value = (addr === 'Retiro en Tienda / Local' || addr === 'Retiro en Local') ? '' : addr;
+    if (getEl('eo-client-city')) getEl('eo-client-city').value = order.shippingData?.city || order.city || '';
+    if (getEl('eo-order-notes')) getEl('eo-order-notes').value = order.notes || order.shippingData?.notes || '';
+
     getEl('eo-shipping-cost').value = formatCurrency(order.shippingCost || 0);
     getEl('eo-apply-4x1000').checked = (order.tax4x1000 > 0);
 
@@ -666,6 +734,19 @@ async function saveEditedOrder() {
             }
         }
 
+        const newClientName = getEl('eo-client-name')?.value.trim();
+        const newClientPhone = getEl('eo-client-phone')?.value.trim();
+        const newClientAddress = getEl('eo-client-address')?.value.trim();
+        const newClientCity = getEl('eo-client-city')?.value.trim();
+        const newOrderNotes = getEl('eo-order-notes')?.value.trim();
+
+        // Ajustar seriales si se redujo la cantidad de algún producto
+        newItems.forEach(item => {
+            if (item.sns && Array.isArray(item.sns)) {
+                item.sns = item.sns.slice(0, item.quantity);
+            }
+        });
+
         const updates = {
             items: newItems,
             subtotal: newSubtotal,
@@ -676,17 +757,56 @@ async function saveEditedOrder() {
             lastEditedBy: auth.currentUser?.email || 'admin'
         };
 
+        if (newClientName) {
+            updates.userName = newClientName;
+            updates.clientName = newClientName;
+            if (editOrderOriginal.buyerInfo) {
+                updates.buyerInfo = { ...(editOrderOriginal.buyerInfo || {}), name: newClientName };
+            }
+        }
+        if (newClientPhone) {
+            updates.phone = newClientPhone;
+            updates.clientPhone = newClientPhone;
+            if (editOrderOriginal.buyerInfo) {
+                updates.buyerInfo = { ...(editOrderOriginal.buyerInfo || updates.buyerInfo || {}), phone: newClientPhone };
+            }
+        }
+        if (newClientAddress) {
+            updates.address = newClientAddress;
+            updates.shippingData = { ...(editOrderOriginal.shippingData || {}), address: newClientAddress };
+        }
+        if (newClientCity) {
+            updates.city = newClientCity;
+            if (!updates.shippingData) updates.shippingData = { ...(editOrderOriginal.shippingData || {}) };
+            updates.shippingData.city = newClientCity;
+        }
+        if (newOrderNotes !== undefined) {
+            updates.notes = newOrderNotes;
+            if (!updates.shippingData) updates.shippingData = { ...(editOrderOriginal.shippingData || {}) };
+            updates.shippingData.notes = newOrderNotes;
+        }
+
         await updateDoc(doc(db, "orders", editOrderOriginal.id), updates);
         
         const remRef = doc(db, "remissions", editOrderOriginal.id);
         const remSnap = await getDoc(remRef);
-        if(remSnap.exists()) await updateDoc(remRef, { items: newItems, total: newTotal, updatedAt: serverTimestamp() });
+        if(remSnap.exists()) {
+            const remUpdates = { items: newItems, total: newTotal, updatedAt: serverTimestamp() };
+            if (newClientName) remUpdates.clientName = newClientName;
+            if (newClientPhone) remUpdates.clientPhone = newClientPhone;
+            if (newClientAddress) remUpdates.address = newClientAddress;
+            if (newClientCity) remUpdates.city = newClientCity;
+            await updateDoc(remRef, remUpdates);
+        }
 
         alert("✅ Orden editada y stock cuadrado con éxito.");
         getEl('edit-order-modal').classList.add('hidden');
         getEl('order-modal').classList.add('hidden'); 
 
         currentOrderData = null;
+
+        if (window.switchTab) window.switchTab(window.currentTab || 'ACTIONABLE');
+        else if (window.renderOrdersMemory) window.renderOrdersMemory();
 
     } catch(e) {
         console.error(e);
@@ -703,7 +823,8 @@ async function saveEditedOrder() {
 export async function saveAlistamiento(onSuccess) {
     if (!currentOrderId) return;
     const btn = getEl('btn-save-alistado');
-    btn.disabled = true; btn.innerHTML = "Guardando...";
+    const originalText = btn ? btn.innerHTML : '<i class="fa-solid fa-floppy-disk text-base"></i>';
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i>'; }
     try {
         const snap = await getDoc(doc(db, "orders", currentOrderId));
         const items = snap.data().items;
@@ -712,10 +833,16 @@ export async function saveAlistamiento(onSuccess) {
             return { ...item, sns: Array.from(inputs).map(i => i.value.trim()) };
         });
         await updateDoc(doc(db, "orders", currentOrderId), { items: updatedItems, status: 'ALISTADO', updatedAt: new Date() });
-        alert("✅ Orden Alistada");
+        alert("✅ Alistamiento guardado con éxito");
         getEl('order-modal').classList.add('hidden');
         if(onSuccess) onSuccess();
-    } catch(e) { console.error(e); } finally { btn.disabled = false; btn.innerHTML = "Guardar Alistamiento"; }
+        else if (window.switchTab) window.switchTab(window.currentTab || 'ACTIONABLE');
+    } catch(e) { 
+        console.error(e); 
+        alert("Error al guardar alistamiento: " + (e?.message || e));
+    } finally { 
+        if (btn) { btn.disabled = false; btn.innerHTML = originalText; } 
+    }
 }
 
 export async function openDispatchModal() {

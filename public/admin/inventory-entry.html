@@ -71,17 +71,17 @@
         <div class="p-8 max-w-7xl mx-auto text-left pb-40">
             <div class="mb-10 flex flex-col md:flex-row justify-between items-end gap-6">
                 <div>
-                    <h1
+                    <h1 id="entry-title"
                         class="text-4xl lg:text-5xl font-black text-brand-black tracking-tighter uppercase leading-none">
                         Entrada de <br><span class="text-brand-cyan">Mercancía</span></h1>
-                    <p class="text-gray-400 text-sm font-bold mt-2 tracking-wide">Gestión de compras, costos e
+                    <p id="entry-subtitle" class="text-gray-400 text-sm font-bold mt-2 tracking-wide">Gestión de compras, costos e
                         incremento de stock.</p>
                 </div>
-                <div
+                <div id="entry-info-box"
                     class="bg-blue-50 text-blue-800 px-6 py-4 rounded-2xl text-xs font-bold border border-blue-100 shadow-sm max-w-sm">
                     <i class="fa-solid fa-circle-info mr-2"></i>
-                    Recuerda que al procesar la entrada, el stock se sumará automáticamente y se recalculará el costo
-                    promedio.
+                    <span id="entry-info-text">Recuerda que al procesar la entrada, el stock se sumará automáticamente y se recalculará el costo
+                    promedio.</span>
                 </div>
             </div>
 
@@ -140,7 +140,7 @@
                             </label>
                             <div>
                                 <p class="text-[10px] font-black uppercase text-white tracking-widest">Aplicar IVA (19%)
-                                </p>
+                                 </p>
                                 <p class="text-[8px] font-bold text-white/40 uppercase mt-0.5">Calcula base + impuestos
                                 </p>
                             </div>
@@ -166,9 +166,13 @@
                         </div>
                     </div>
 
-                    <div class="mt-8 flex justify-end">
+                    <div class="mt-8 flex flex-col sm:flex-row justify-end items-center gap-4">
+                        <button type="button" id="btn-cancel-edit" onclick="window.location.href='purchases.html'"
+                            class="hidden w-full sm:w-auto px-8 py-5 rounded-2xl font-black text-[11px] uppercase tracking-widest text-white/60 hover:text-white hover:bg-white/10 transition-all text-center">
+                            <i class="fa-solid fa-xmark mr-2"></i> Cancelar y Volver
+                        </button>
                         <button id="btn-save-entry"
-                            class="w-full md:w-auto bg-brand-cyan text-brand-black px-12 py-5 rounded-2xl font-black text-[11px] uppercase tracking-[0.2em] shadow-[0_0_20px_rgba(0,174,199,0.3)] hover:bg-white hover:shadow-white/20 transition-all duration-300 transform active:scale-95">
+                            class="w-full sm:w-auto bg-brand-cyan text-brand-black px-12 py-5 rounded-2xl font-black text-[11px] uppercase tracking-[0.2em] shadow-[0_0_20px_rgba(0,174,199,0.3)] hover:bg-white hover:shadow-white/20 transition-all duration-300 transform active:scale-95">
                             Procesar Entrada de Inventario
                         </button>
                     </div>
@@ -178,10 +182,20 @@
     </main>
 
 <script type="module">
-        import { db, collection, getDocs, doc, runTransaction, orderBy, query, limit, startAt, endAt } from '../js/firebase-init.js';
+        import { db, collection, getDocs, getDoc, doc, runTransaction, query, where, auth, onAuthStateChanged } from '../js/firebase-init.js';
         import { loadAdminSidebar } from '../js/admin-ui.js?v=2.0.0';
+        import { AdminStore } from '../js/admin-store.js';
 
         loadAdminSidebar();
+
+        const editId = new URLSearchParams(window.location.search).get('editId');
+
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                const el = document.getElementById('admin-name');
+                if (el) el.textContent = user.displayName || user.email?.split('@')[0] || 'Administrador';
+            }
+        });
 
         const supplierSearchInput = document.getElementById('supplier-search');
         const supplierResults = document.getElementById('supplier-results');
@@ -192,7 +206,11 @@
 
         // --- ESTADO LOCAL (CACHÉ) ---
         let localProductIndex = []; 
-        let isProductIndexLoading = false;
+
+        // Conectar al Store Central de productos (IndexedDB + Delta Sync)
+        AdminStore.subscribeToProducts((products) => {
+            localProductIndex = products || [];
+        });
 
         // --- HELPER: Capitalizar ---
         function capitalizeFirst(str) {
@@ -200,47 +218,72 @@
             return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
         }
 
+        const normalizeText = (str) => str ? str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "") : "";
+        let suppliersCache = null;
+
+        async function getSuppliersList() {
+            if (suppliersCache) return suppliersCache;
+            try {
+                const coll = collection(db, "suppliers");
+                const snap = await getDocs(coll);
+                suppliersCache = [];
+                snap.forEach(d => {
+                    const data = d.data();
+                    const name = (data.name || data.supplierName || data.razonSocial || data.company || '').trim();
+                    const nit = (data.nit || data.document || '').trim();
+                    const cleanNit = nit.replace(/[^a-zA-Z0-9]/g, '');
+                    const contact = (data.contactName || data.contact || '').trim();
+                    suppliersCache.push({
+                        id: d.id,
+                        name: name || 'Proveedor sin nombre',
+                        nit: nit,
+                        searchStr: normalizeText(`${name} ${nit} ${cleanNit} ${contact}`)
+                    });
+                });
+                return suppliersCache;
+            } catch (e) {
+                console.error(e);
+                return [];
+            }
+        }
+
         // ========================================================================
-        // 1. BUSCADOR DE PROVEEDORES (Híbrido: Server-Side Optimizado)
+        // 1. BUSCADOR DE PROVEEDORES (Búsqueda Instantánea Normalizada)
         // ========================================================================
         let supplierTimeout = null;
+        supplierSearchInput.addEventListener('focus', () => { getSuppliersList(); });
+
         supplierSearchInput.addEventListener('input', (e) => {
             const rawTerm = e.target.value.trim();
-            supplierResults.innerHTML = `<div class="p-3 text-xs text-gray-400 text-center"><i class="fa-solid fa-circle-notch fa-spin"></i> Buscando...</div>`;
-            supplierResults.classList.remove('hidden');
+            const cleanTerm = normalizeText(rawTerm);
             supplierIdField.value = ""; 
 
-            if (rawTerm.length < 2) { 
+            if (cleanTerm.length < 1) { 
                 supplierResults.classList.add('hidden'); 
                 return; 
             }
 
+            supplierResults.innerHTML = `<div class="p-3 text-xs text-gray-400 text-center"><i class="fa-solid fa-circle-notch fa-spin"></i> Buscando...</div>`;
+            supplierResults.classList.remove('hidden');
+
             clearTimeout(supplierTimeout);
             supplierTimeout = setTimeout(async () => {
                 try {
-                    const queries = [];
-                    const coll = collection(db, "suppliers");
-                    const termCap = capitalizeFirst(rawTerm); 
-
-                    queries.push(getDocs(query(coll, orderBy('name'), startAt(termCap), endAt(termCap + '\uf8ff'), limit(3))));
-                    queries.push(getDocs(query(coll, orderBy('nit'), startAt(rawTerm), endAt(rawTerm + '\uf8ff'), limit(3))));
-                    
-                    const snapshots = await Promise.all(queries);
-                    const resultsMap = new Map();
-                    
-                    snapshots.forEach(snap => snap.forEach(doc => resultsMap.set(doc.id, doc.data())));
+                    const list = await getSuppliersList();
+                    const matches = list.filter(s => s.searchStr && s.searchStr.includes(cleanTerm));
 
                     supplierResults.innerHTML = "";
-                    if (resultsMap.size === 0) {
+                    if (matches.length === 0) {
                         supplierResults.innerHTML = `<div class="p-3 text-xs text-gray-400 font-bold text-center">No encontrado</div>`;
                     } else {
-                        resultsMap.forEach((s, id) => {
+                        matches.slice(0, 10).forEach(s => {
                             const div = document.createElement('div');
                             div.className = "p-3 hover:bg-brand-cyan/5 cursor-pointer border-b border-gray-50 last:border-0 rounded-lg flex justify-between items-center transition-colors";
                             div.innerHTML = `<div><p class="text-[11px] font-black uppercase text-brand-black">${s.name}</p><p class="text-[9px] font-bold text-gray-400">NIT: ${s.nit || '---'}</p></div><i class="fa-solid fa-check text-brand-cyan text-xs opacity-0 group-hover:opacity-100"></i>`;
-                            div.onclick = () => {
+                            div.onmousedown = (ev) => {
+                                ev.preventDefault();
                                 supplierSearchInput.value = s.name;
-                                supplierIdField.value = id;
+                                supplierIdField.value = s.id;
                                 supplierResults.classList.add('hidden');
                             };
                             supplierResults.appendChild(div);
@@ -248,9 +291,9 @@
                     }
                 } catch (e) {
                     console.error(e);
-                    supplierResults.innerHTML = `<div class="p-3 text-xs text-red-400 text-center">Error</div>`;
+                    supplierResults.innerHTML = `<div class="p-3 text-xs text-red-400 text-center">Error al buscar</div>`;
                 }
-            }, 300); 
+            }, 100); 
         });
 
         document.addEventListener('click', (e) => {
@@ -260,54 +303,23 @@
         });
 
         // ========================================================================
-        // 2. SISTEMA DE CACHÉ DE PRODUCTOS (SMART REAL-TIME INTEGRATION)
+        // 2. SISTEMA DE CACHÉ DE PRODUCTOS Y BUSCADOR LOCAL
         // ========================================================================
-        
         async function ensureProductIndex() {
-            if (localProductIndex.length > 0) return true; // Ya tenemos datos en RAM
-            if (isProductIndexLoading) return false;
+            if (localProductIndex.length > 0) return true;
+            if (AdminStore.initPromise) await AdminStore.initPromise;
+            if (localProductIndex.length > 0) return true;
 
-            isProductIndexLoading = true;
-            
-            // 🔥 LEEMOS EL CACHÉ CENTRALIZADO 🔥 (Creado por admin-inventory.js)
-            const STORAGE_KEY = 'pixeltech_admin_master_inventory';
-            const cachedRaw = localStorage.getItem(STORAGE_KEY);
-            
-            if (cachedRaw) {
-                try {
-                    const parsed = JSON.parse(cachedRaw);
-                    if (parsed.map) {
-                        // Extraemos los valores del mapa y los asignamos al índice local
-                        localProductIndex = Object.values(parsed.map);
-                        console.log(`⚡ [Entradas] Cargados ${localProductIndex.length} productos del Smart Cache central.`);
-                        isProductIndexLoading = false;
-                        return true;
-                    }
-                } catch (e) {
-                    console.warn("Caché central corrupto, procediendo a descarga manual...", e);
-                }
-            }
-
-            // Fallback: Si por alguna razón el caché central no existe o está vacío
-            console.log("☁️ [Entradas] Caché central no encontrado. Descargando catálogo...");
             try {
                 const snapshot = await getDocs(collection(db, "products"));
                 localProductIndex = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                isProductIndexLoading = false;
                 return true;
             } catch (e) {
                 console.error("Error cargando índice fallback:", e);
-                isProductIndexLoading = false;
                 return false;
             }
         }
 
-        const normalizeText = (str) => {
-            if (!str) return "";
-            return str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, ""); 
-        };
-
-        // BUSCADOR LOCAL (JavaScript puro en RAM)
         async function searchProductsLocal(rawTerm, resultsContainer, inputEl, row) {
             if (localProductIndex.length === 0) {
                 resultsContainer.innerHTML = `<div class="p-3 text-[10px] text-gray-400 text-center"><i class="fa-solid fa-circle-notch fa-spin"></i> Preparando catálogo...</div>`;
@@ -318,9 +330,8 @@
             const term = normalizeText(rawTerm);
             const words = term.split(" ").filter(w => w.length > 0);
 
-            // Filtrado en RAM usando el campo searchStr que creamos en el inventory
             const results = localProductIndex.filter(p => {
-                const searchableText = p.searchStr || normalizeText(`${p.name} ${p.brand || ''} ${p.sku || ''}`);
+                const searchableText = p.searchStr || normalizeText(`${p.name || ''} ${p.brand || ''} ${p.sku || ''}`);
                 return words.every(word => searchableText.includes(word));
             });
 
@@ -329,7 +340,7 @@
             if (results.length === 0) {
                 resultsContainer.innerHTML = `<div class="p-3 text-[10px] text-gray-400 font-bold text-center">No encontrado en el catálogo</div>`;
             } else {
-                results.slice(0, 10).forEach(item => {
+                results.slice(0, 15).forEach(item => {
                     const d = document.createElement('div');
                     d.className = "p-3 hover:bg-slate-50 cursor-pointer text-[10px] font-black uppercase rounded-lg border-b border-gray-50 last:border-0 transition-colors flex justify-between items-center group";
                     d.innerHTML = `
@@ -339,18 +350,17 @@
                         </div>
                         <i class="fa-solid fa-plus text-brand-cyan opacity-0 group-hover:opacity-100"></i>`;
                     
-                    d.onclick = () => {
+                    d.onmousedown = (ev) => {
+                        ev.preventDefault();
                         inputEl.value = item.name;
                         row.querySelector('.p-id').value = item.id;
                         
-                        // Renderizamos usando la data completa del objeto item
                         renderVariants(row, item);
-                        
                         resultsContainer.classList.add('hidden');
                         if (item.lastPurchaseCost) {
                             row.querySelector('.p-unit-cost-input').value = item.lastPurchaseCost;
-                            window.updateAllTotals();
                         }
+                        window.updateAllTotals();
                     };
                     resultsContainer.appendChild(d);
                 });
@@ -405,14 +415,13 @@
                     </div>
                     <div class="md:col-span-2 flex items-center justify-between pl-2 h-[42px]">
                             <div class="flex flex-col justify-center h-full"><label class="text-[8px] font-black text-gray-300 uppercase leading-none mb-1">Subtotal</label><span class="text-sm font-black text-brand-black p-row-total-display leading-none">$0</span></div>
-                        <button class="w-9 h-9 rounded-xl bg-white border border-gray-200 text-gray-300 hover:text-brand-red hover:border-brand-red hover:bg-red-50 transition-all flex items-center justify-center shadow-sm" onclick="window.removeEntryRow(this)"><i class="fa-solid fa-trash-can text-xs"></i></button>
+                        <button type="button" class="w-9 h-9 rounded-xl bg-white border border-gray-200 text-gray-300 hover:text-brand-red hover:border-brand-red hover:bg-red-50 transition-all flex items-center justify-center shadow-sm" onclick="window.removeEntryRow(this)"><i class="fa-solid fa-trash-can text-xs"></i></button>
                     </div>
                 </div>`;
             itemsContainer.appendChild(div);
             setupRowLogic(div);
         }
 
-        // Trigger manual
         window.preloadIndex = () => { ensureProductIndex(); };
 
         window.removeEntryRow = (btn) => {
@@ -458,13 +467,17 @@
             container.innerHTML = "";
             
             let colors = [];
-            if (product.definedColors) colors = product.definedColors;
-            else if (product.combinations) colors = product.combinations.map(v => v.color).filter(c => c);
+            if (product.definedColors && Array.isArray(product.definedColors)) colors = product.definedColors;
+            else if (product.combinations && Array.isArray(product.combinations)) colors = product.combinations.map(v => v.color).filter(c => c);
             colors = [...new Set(colors)]; 
 
             let caps = [];
-            if (product.definedCapacities) caps = product.definedCapacities;
-            else if (product.capacities) caps = product.capacities.map(c => c.label);
+            if (product.definedCapacities && Array.isArray(product.definedCapacities)) caps = product.definedCapacities;
+            else if (product.capacities && Array.isArray(product.capacities)) {
+                caps = product.capacities.map(c => typeof c === 'object' ? c.label : c).filter(c => c);
+            } else if (product.combinations && Array.isArray(product.combinations)) {
+                caps = product.combinations.map(v => v.capacity).filter(c => c);
+            }
             caps = [...new Set(caps)];
 
             if (colors.length === 0 && caps.length === 0) {
@@ -475,13 +488,13 @@
             if (colors.length > 0) {
                 const wrap = document.createElement('div');
                 wrap.className = "flex-1";
-                wrap.innerHTML = `<label class="text-[8px] font-black text-gray-400 uppercase mb-2 block tracking-widest ml-1">Color</label><select class="variant-select p-color w-full bg-white border border-gray-200 rounded-xl px-2 h-[42px] text-xs font-bold outline-none focus:border-brand-cyan"><option value="">Selecciona</option>${colors.map(c => `<option value="${c}">${c}</option>`).join('')}</select>`;
+                wrap.innerHTML = `<label class="text-[8px] font-black text-gray-400 uppercase mb-2 block tracking-widest ml-1">Color</label><select class="variant-select p-color w-full bg-white border border-gray-200 rounded-xl px-2 h-[42px] text-xs font-bold outline-none focus:border-brand-cyan cursor-pointer"><option value="">Selecciona</option>${colors.map(c => `<option value="${c}">${c}</option>`).join('')}</select>`;
                 container.appendChild(wrap);
             }
             if (caps.length > 0) {
                 const wrap = document.createElement('div');
                 wrap.className = "flex-1";
-                wrap.innerHTML = `<label class="text-[8px] font-black text-gray-400 uppercase mb-2 block tracking-widest ml-1">Capacidad</label><select class="variant-select p-capacity w-full bg-white border border-gray-200 rounded-xl px-2 h-[42px] text-xs font-bold outline-none focus:border-brand-cyan"><option value="">Selecciona</option>${caps.map(c => `<option value="${c}">${c}</option>`).join('')}</select>`;
+                wrap.innerHTML = `<label class="text-[8px] font-black text-gray-400 uppercase mb-2 block tracking-widest ml-1">Capacidad</label><select class="variant-select p-capacity w-full bg-white border border-gray-200 rounded-xl px-2 h-[42px] text-xs font-bold outline-none focus:border-brand-cyan cursor-pointer"><option value="">Selecciona</option>${caps.map(c => `<option value="${c}">${c}</option>`).join('')}</select>`;
                 container.appendChild(wrap);
             }
         }
@@ -489,14 +502,131 @@
         ivaToggle.onchange = window.updateAllTotals;
 
         // ========================================================================
-        // 4. LÓGICA DE GUARDADO (TRANSACCIÓN)
+        // 4. MODO EDICIÓN: CARGAR COMPRA EXISTENTE
+        // ========================================================================
+        async function loadPurchaseForEdit(id) {
+            const titleEl = document.getElementById('entry-title');
+            const subtitleEl = document.getElementById('entry-subtitle');
+            const infoBox = document.getElementById('entry-info-box');
+            const infoText = document.getElementById('entry-info-text');
+            const btnCancel = document.getElementById('btn-cancel-edit');
+
+            if (titleEl) titleEl.innerHTML = `Editar Entrada <br><span class="text-brand-cyan">#${id.slice(0, 8).toUpperCase()}</span>`;
+            if (subtitleEl) subtitleEl.textContent = "Modifica cantidades, productos o costos. El stock se recalculará por diferencias.";
+            if (infoBox) infoBox.className = "bg-amber-50 text-amber-900 px-6 py-4 rounded-2xl text-xs font-bold border border-amber-200 shadow-sm max-w-sm";
+            if (infoText) infoText.textContent = "Modo edición: Al guardar, se revertirá el stock anterior y se aplicará la nueva configuración atómicamente.";
+            if (btnCancel) btnCancel.classList.remove('hidden');
+            if (btnSave) btnSave.textContent = "Guardar Modificaciones";
+
+            itemsContainer.innerHTML = '<div class="p-12 text-center text-xs font-bold text-gray-400 uppercase tracking-widest"><i class="fa-solid fa-circle-notch fa-spin text-brand-cyan text-xl mb-3"></i><br>Cargando datos de la entrada...</div>';
+
+            try {
+                const pSnap = await getDoc(doc(db, "purchases", id));
+                if (!pSnap.exists()) {
+                    alert("⚠️ La compra solicitada no existe en la base de datos.");
+                    window.location.href = "purchases.html";
+                    return;
+                }
+                const pData = pSnap.data();
+
+                // 1. Proveedor
+                await getSuppliersList();
+                if (pData.supplierId) {
+                    supplierIdField.value = pData.supplierId;
+                    const foundSupp = suppliersCache ? suppliersCache.find(s => s.id === pData.supplierId) : null;
+                    supplierSearchInput.value = foundSupp ? foundSupp.name : (pData.supplierName || '');
+                } else {
+                    supplierSearchInput.value = pData.supplierName || '';
+                }
+
+                // 2. IVA
+                ivaToggle.checked = !!pData.hasIVA;
+
+                // 3. Catálogo de productos
+                await ensureProductIndex();
+
+                itemsContainer.innerHTML = "";
+
+                if (pData.items && Array.isArray(pData.items) && pData.items.length > 0) {
+                    for (const item of pData.items) {
+                        addProductRow();
+                        const row = itemsContainer.lastElementChild;
+                        if (!row) continue;
+
+                        row.querySelector('.p-id').value = item.id;
+                        row.querySelector('.p-search').value = item.name;
+                        row.querySelector('.p-qty').value = item.quantity || 1;
+
+                        const unitCost = item.totalRow && item.quantity 
+                            ? Math.round(item.totalRow / item.quantity) 
+                            : (pData.hasIVA ? Math.round((item.unitCostBase || 0) * 1.19) : (item.unitCostBase || 0));
+                        row.querySelector('.p-unit-cost-input').value = unitCost;
+
+                        let prod = localProductIndex.find(p => p.id === item.id);
+                        if (!prod) {
+                            try {
+                                const fallbackSnap = await getDoc(doc(db, "products", item.id));
+                                if (fallbackSnap.exists()) {
+                                    prod = { id: fallbackSnap.id, ...fallbackSnap.data() };
+                                    localProductIndex.push(prod);
+                                }
+                            } catch (e) {
+                                console.warn("Error cargando producto fallback:", e);
+                            }
+                        }
+
+                        if (prod) {
+                            renderVariants(row, prod);
+                        }
+
+                        if (item.color) {
+                            const colSel = row.querySelector('.p-color');
+                            if (colSel) {
+                                if (![...colSel.options].some(o => o.value === item.color)) {
+                                    const opt = document.createElement('option');
+                                    opt.value = item.color;
+                                    opt.textContent = item.color;
+                                    colSel.appendChild(opt);
+                                }
+                                colSel.value = item.color;
+                            }
+                        }
+
+                        if (item.capacity) {
+                            const capSel = row.querySelector('.p-capacity');
+                            if (capSel) {
+                                if (![...capSel.options].some(o => o.value === item.capacity)) {
+                                    const opt = document.createElement('option');
+                                    opt.value = item.capacity;
+                                    opt.textContent = item.capacity;
+                                    capSel.appendChild(opt);
+                                }
+                                capSel.value = item.capacity;
+                            }
+                        }
+                    }
+                } else {
+                    addProductRow();
+                }
+
+                window.updateAllTotals();
+
+            } catch (e) {
+                console.error("Error al cargar orden de entrada:", e);
+                alert("Error al cargar los datos de la compra: " + (e.message || e));
+                itemsContainer.innerHTML = '<div class="p-8 text-center text-xs font-bold text-red-500 uppercase">Error al cargar compra</div>';
+            }
+        }
+
+        // ========================================================================
+        // 5. LÓGICA DE GUARDADO (CREACIÓN Y EDICIÓN ATÓMICA)
         // ========================================================================
         btnSave.onclick = async () => {
             const supplierId = supplierIdField.value;
             const itemRows = document.querySelectorAll('.item-row');
 
-            if (!supplierId) return alert("⚠️ Seleccione un proveedor válido.");
-            if (itemRows.length === 0) return alert("⚠️ Agregue al menos un producto.");
+            if (!supplierId) return alert("⚠️ Seleccione un proveedor válido de la lista.");
+            if (itemRows.length === 0) return alert("⚠️ Agregue al menos un producto a la entrada.");
 
             const originalText = btnSave.innerHTML;
             btnSave.disabled = true;
@@ -509,15 +639,15 @@
                     const pid = row.querySelector('.p-id').value;
                     const name = row.querySelector('.p-search').value;
                     
-                    if (!pid) throw `⚠️ Producto no seleccionado en la fila: ${name}`;
+                    if (!pid) throw `⚠️ Debe seleccionar un producto válido del catálogo en la fila: ${name || 'sin nombre'}`;
 
                     const qty = parseInt(row.querySelector('.p-qty').value);
                     const unitCostEntered = parseFloat(row.querySelector('.p-unit-cost-input').value);
                     const selectedColor = row.querySelector('.p-color')?.value || null;
                     const selectedCap = row.querySelector('.p-capacity')?.value || null;
 
-                    if (!qty || qty <= 0) throw "Cantidad inválida en una fila";
-                    if (isNaN(unitCostEntered)) throw "Costo inválido en una fila";
+                    if (!qty || qty <= 0) throw `Cantidad inválida en producto: ${name}`;
+                    if (isNaN(unitCostEntered) || unitCostEntered < 0) throw `Costo unitario inválido en producto: ${name}`;
 
                     if (row.querySelector('.p-color') && !selectedColor) throw `⚠️ Selecciona un color para: ${name}`;
                     if (row.querySelector('.p-capacity') && !selectedCap) throw `⚠️ Selecciona una capacidad para: ${name}`;
@@ -533,31 +663,276 @@
                     });
                 }
 
+                const now = new Date();
+
+                // ----------------------------------------------------------------
+                // RAMA A: MODIFICAR ENTRADA EXISTENTE (EDIT MODE)
+                // ----------------------------------------------------------------
+                if (editId) {
+                    let linkedPayableId = null;
+                    try {
+                        const payQuery = query(collection(db, "payables"), where("purchaseId", "==", editId));
+                        const paySnap = await getDocs(payQuery);
+                        if (!paySnap.empty) {
+                            linkedPayableId = paySnap.docs[0].id;
+                        }
+                    } catch (err) {
+                        console.warn("No se pudo consultar payable vinculado:", err);
+                    }
+
+                    await runTransaction(db, async (transaction) => {
+                        // 1. TODAS LAS LECTURAS PRIMERO
+                        const pRef = doc(db, "purchases", editId);
+                        const purchaseSnap = await transaction.get(pRef);
+                        if (!purchaseSnap.exists()) throw "La compra original no existe en la base de datos.";
+                        const oldPurchaseData = purchaseSnap.data();
+                        const oldItems = oldPurchaseData.items || [];
+                        const oldSupplierId = oldPurchaseData.supplierId;
+                        const oldTotalCost = oldPurchaseData.totalCost || 0;
+
+                        const newSuppRef = doc(db, "suppliers", supplierId);
+                        const newSuppSnap = await transaction.get(newSuppRef);
+                        if (!newSuppSnap.exists()) throw "Proveedor seleccionado no existe.";
+
+                        let oldSuppSnap = null;
+                        if (oldSupplierId && oldSupplierId !== supplierId) {
+                            oldSuppSnap = await transaction.get(doc(db, "suppliers", oldSupplierId));
+                        }
+
+                        let payableDocSnap = null;
+                        if (linkedPayableId) {
+                            payableDocSnap = await transaction.get(doc(db, "payables", linkedPayableId));
+                        }
+
+                        const oldPids = oldItems.map(i => i.id).filter(Boolean);
+                        const newPids = Object.keys(groupedItems);
+                        const allPids = [...new Set([...oldPids, ...newPids])];
+
+                        const productSnaps = await Promise.all(allPids.map(pid => transaction.get(doc(db, "products", pid))));
+                        const productSnapsMap = {};
+                        allPids.forEach((pid, idx) => { productSnapsMap[pid] = productSnaps[idx]; });
+
+                        // 2. TODAS LAS ESCRITURAS
+                        let totalInvoice = 0;
+                        const newPurchaseItems = [];
+                        const hasIvaGlobal = ivaToggle.checked;
+                        const auditLogsToSave = [];
+
+                        newPids.forEach(pid => {
+                            groupedItems[pid].updates.forEach(update => {
+                                const rowTotal = update.qty * update.unitCostEntered;
+                                totalInvoice += rowTotal;
+                                const unitCostBase = hasIvaGlobal ? Math.round(update.unitCostEntered / 1.19) : update.unitCostEntered;
+                                newPurchaseItems.push({
+                                    id: pid,
+                                    name: update.name,
+                                    quantity: update.qty,
+                                    unitCostBase,
+                                    totalRow: Math.round(rowTotal),
+                                    color: update.selectedColor,
+                                    capacity: update.selectedCap
+                                });
+                            });
+                        });
+
+                        const finalNewTotal = Math.round(totalInvoice);
+
+                        // Reconciliar stock por cada producto involucrado
+                        allPids.forEach(pid => {
+                            const snap = productSnapsMap[pid];
+                            if (!snap || !snap.exists()) return;
+
+                            const pData = snap.data();
+                            let combinations = pData.combinations && Array.isArray(pData.combinations) ? JSON.parse(JSON.stringify(pData.combinations)) : [];
+                            const initialStock = parseInt(pData.stock) || 0;
+                            let baseStock = initialStock;
+
+                            // Paso A: Revertir ítems antiguos de esta compra
+                            const oldItemsForThis = oldItems.filter(i => i.id === pid);
+                            oldItemsForThis.forEach(oi => {
+                                const oQty = parseInt(oi.quantity) || 0;
+                                if (oi.color || oi.capacity) {
+                                    const cIdx = combinations.findIndex(c => 
+                                        (c.color || '') === (oi.color || '') && 
+                                        (c.capacity || '') === (oi.capacity || '')
+                                    );
+                                    if (cIdx >= 0) {
+                                        combinations[cIdx].stock = (parseInt(combinations[cIdx].stock) || 0) - oQty;
+                                        if (combinations[cIdx].stock < 0) combinations[cIdx].stock = 0;
+                                    }
+                                } else {
+                                    baseStock -= oQty;
+                                    if (baseStock < 0) baseStock = 0;
+                                }
+                            });
+
+                            // Paso B: Aplicar nuevos ítems
+                            const newGroup = groupedItems[pid];
+                            let lastCost = pData.lastPurchaseCost || 0;
+                            if (newGroup) {
+                                newGroup.updates.forEach(nu => {
+                                    const unitCostBase = hasIvaGlobal ? Math.round(nu.unitCostEntered / 1.19) : nu.unitCostEntered;
+                                    lastCost = unitCostBase;
+
+                                    if (nu.selectedColor || nu.selectedCap) {
+                                        const cIdx = combinations.findIndex(c => 
+                                            (c.color || '') === (nu.selectedColor || '') && 
+                                            (c.capacity || '') === (nu.selectedCap || '')
+                                        );
+                                        if (cIdx >= 0) {
+                                            combinations[cIdx].stock = (parseInt(combinations[cIdx].stock) || 0) + nu.qty;
+                                        } else {
+                                            combinations.push({
+                                                color: nu.selectedColor,
+                                                capacity: nu.selectedCap,
+                                                stock: nu.qty,
+                                                price: pData.price || 0,
+                                                sku: `${pData.sku || ''}-${(nu.selectedColor || '').substring(0,3)}-${nu.selectedCap || ''}`.toUpperCase()
+                                            });
+                                        }
+                                    } else {
+                                        baseStock += nu.qty;
+                                    }
+                                });
+                            }
+
+                            // Paso C: Calcular stock final
+                            let finalProductStock = 0;
+                            if (combinations.length > 0) {
+                                finalProductStock = combinations.reduce((sum, c) => sum + (parseInt(c.stock) || 0), 0);
+                            } else {
+                                finalProductStock = baseStock;
+                            }
+
+                            const updatePayload = {
+                                stock: finalProductStock,
+                                combinations: combinations,
+                                updatedAt: now
+                            };
+                            if (newGroup) updatePayload.lastPurchaseCost = lastCost;
+                            if (pData.status === 'out_of_stock' && finalProductStock > 0) {
+                                updatePayload.status = 'active';
+                            } else if (finalProductStock <= 0 && pData.status === 'active') {
+                                updatePayload.status = 'out_of_stock';
+                            }
+
+                            transaction.update(doc(db, "products", pid), updatePayload);
+
+                            const diff = finalProductStock - initialStock;
+                            auditLogsToSave.push({
+                                productId: pid,
+                                productName: pData.name || (newGroup ? newGroup.name : 'Producto'),
+                                sku: pData.sku || '',
+                                brand: pData.brand || '',
+                                type: diff >= 0 ? 'IN' : 'OUT',
+                                reason: 'MODIFICACION_ENTRADA',
+                                qtyChange: diff,
+                                stockBefore: initialStock,
+                                stockAfter: finalProductStock,
+                                unitCost: lastCost,
+                                supplierId: supplierId,
+                                supplierName: supplierSearchInput.value,
+                                adminName: document.getElementById('admin-name')?.textContent || 'Administrador',
+                                timestamp: now
+                            });
+                        });
+
+                        // Actualizar métricas del proveedor (o proveedores)
+                        if (oldSupplierId === supplierId) {
+                            const diff = finalNewTotal - oldTotalCost;
+                            transaction.update(newSuppRef, {
+                                totalInvested: Math.max(0, (newSuppSnap.data().totalInvested || 0) + diff),
+                                lastPurchase: now,
+                                updatedAt: now
+                            });
+                        } else {
+                            if (oldSuppSnap && oldSuppSnap.exists()) {
+                                transaction.update(doc(db, "suppliers", oldSupplierId), {
+                                    totalInvested: Math.max(0, (oldSuppSnap.data().totalInvested || 0) - oldTotalCost),
+                                    ordersCount: Math.max(0, (oldSuppSnap.data().ordersCount || 1) - 1),
+                                    updatedAt: now
+                                });
+                            }
+                            transaction.update(newSuppRef, {
+                                totalInvested: (newSuppSnap.data().totalInvested || 0) + finalNewTotal,
+                                ordersCount: (newSuppSnap.data().ordersCount || 0) + 1,
+                                lastPurchase: now,
+                                updatedAt: now
+                            });
+                        }
+
+                        // Actualizar orden de compra
+                        transaction.update(pRef, {
+                            supplierId: supplierId,
+                            supplierName: supplierSearchInput.value,
+                            totalCost: finalNewTotal,
+                            hasIVA: hasIvaGlobal,
+                            items: newPurchaseItems,
+                            lastEditedBy: document.getElementById('admin-name')?.textContent || 'Administrador',
+                            lastEditedAt: now,
+                            updatedAt: now
+                        });
+
+                        // Actualizar cuenta por pagar
+                        if (payableDocSnap && payableDocSnap.exists()) {
+                            const pData = payableDocSnap.data();
+                            const paid = pData.amountPaid || 0;
+                            const balance = Math.max(0, finalNewTotal - paid);
+                            const status = balance <= 0 ? 'PAID' : (paid > 0 ? 'PARTIAL' : 'PENDING');
+                            transaction.update(doc(db, "payables", payableDocSnap.id), {
+                                supplierId: supplierId,
+                                provider: supplierSearchInput.value,
+                                total: finalNewTotal,
+                                balance: balance,
+                                status: status,
+                                updatedAt: now
+                            });
+                        }
+
+                        // Registrar logs de auditoría
+                        auditLogsToSave.forEach(log => {
+                            const logRef = doc(collection(db, "inventory_audit_logs"));
+                            transaction.set(logRef, {
+                                ...log,
+                                purchaseId: editId
+                            });
+                        });
+                    });
+
+                    alert("✅ Entrada de mercancía modificada e inventario sincronizado exitosamente.");
+                    window.location.href = "purchases.html";
+                    return;
+                }
+
+                // ----------------------------------------------------------------
+                // RAMA B: NUEVA ENTRADA (CREATE MODE)
+                // ----------------------------------------------------------------
                 await runTransaction(db, async (transaction) => {
                     const suppRef = doc(db, "suppliers", supplierId);
                     const suppSnap = await transaction.get(suppRef);
-                    if (!suppSnap.exists()) throw "Proveedor no encontrado";
+                    if (!suppSnap.exists()) throw "Proveedor no encontrado en la base de datos";
 
                     const uniquePids = Object.keys(groupedItems);
-                    
                     const productReads = uniquePids.map(pid => transaction.get(doc(db, "products", pid)));
                     const productSnaps = await Promise.all(productReads);
 
                     let totalInvoice = 0;
                     const purchaseItems = [];
                     const hasIvaGlobal = ivaToggle.checked;
+                    const auditLogsToSave = [];
 
                     uniquePids.forEach((pid, index) => {
                         const pSnap = productSnaps[index];
-                        if (!pSnap.exists()) throw `Producto con ID ${pid} ya no existe.`;
+                        if (!pSnap.exists()) throw `El producto "${groupedItems[pid].name}" ya no existe en el catálogo.`;
 
                         const pData = pSnap.data();
                         const pRef = doc(db, "products", pid);
                         const group = groupedItems[pid];
 
-                        let combinations = pData.combinations ? [...pData.combinations] : [];
-                        let lastCost = pData.lastPurchaseCost;
+                        let combinations = pData.combinations && Array.isArray(pData.combinations) ? [...pData.combinations] : [];
+                        let lastCost = pData.lastPurchaseCost || 0;
                         let additionalStockTotal = 0;
+                        const initialStock = parseInt(pData.stock) || 0;
 
                         group.updates.forEach(update => {
                             const rowTotal = update.qty * update.unitCostEntered;
@@ -580,7 +955,8 @@
                                         color: update.selectedColor,
                                         capacity: update.selectedCap,
                                         stock: update.qty,
-                                        price: pData.price 
+                                        price: pData.price || 0,
+                                        sku: `${pData.sku || ''}-${(update.selectedColor || '').substring(0,3)}-${update.selectedCap || ''}`.toUpperCase()
                                     });
                                 }
                             }
@@ -600,25 +976,50 @@
                         if (combinations.length > 0) {
                             newStockTotal = combinations.reduce((sum, i) => sum + (parseInt(i.stock) || 0), 0);
                         } else {
-                            newStockTotal = (parseInt(pData.stock) || 0) + additionalStockTotal;
+                            newStockTotal = initialStock + additionalStockTotal;
                         }
 
-                        transaction.update(pRef, {
+                        const updateProductPayload = {
                             stock: newStockTotal,
                             combinations: combinations,
                             lastPurchaseCost: lastCost,
-                            updatedAt: new Date()
+                            updatedAt: now
+                        };
+                        if (pData.status === 'out_of_stock' && newStockTotal > 0) {
+                            updateProductPayload.status = 'active';
+                        }
+
+                        transaction.update(pRef, updateProductPayload);
+
+                        auditLogsToSave.push({
+                            productId: pid,
+                            productName: pData.name || group.name,
+                            sku: pData.sku || '',
+                            brand: pData.brand || '',
+                            type: 'IN',
+                            reason: 'ENTRADA_COMPRA',
+                            qtyChange: additionalStockTotal,
+                            stockBefore: initialStock,
+                            stockAfter: newStockTotal,
+                            unitCost: lastCost,
+                            supplierId: supplierId,
+                            supplierName: supplierSearchInput.value,
+                            adminName: document.getElementById('admin-name')?.textContent || 'Administrador',
+                            timestamp: now
                         });
                     });
 
                     const finalTotal = Math.round(totalInvoice);
 
+                    // 1. Actualizar métricas del proveedor (con updatedAt para Delta Sync)
                     transaction.update(suppRef, {
                         totalInvested: (suppSnap.data().totalInvested || 0) + finalTotal,
                         ordersCount: (suppSnap.data().ordersCount || 0) + 1,
-                        lastPurchase: new Date()
+                        lastPurchase: now,
+                        updatedAt: now
                     });
 
+                    // 2. Registrar compra histórica (con updatedAt para Delta Sync)
                     const purchaseRef = doc(collection(db, "purchases"));
                     transaction.set(purchaseRef, {
                         supplierId,
@@ -627,12 +1028,15 @@
                         amountPaid: 0,
                         hasIVA: hasIvaGlobal,
                         items: purchaseItems,
-                        createdAt: new Date(),
-                        createdBy: document.getElementById('admin-name').innerText
+                        createdAt: now,
+                        updatedAt: now,
+                        createdBy: document.getElementById('admin-name')?.textContent || 'Administrador'
                     });
 
+                    // 3. Registrar cuenta por pagar (con updatedAt y supplierId para Delta Sync y pagos)
                     const payableRef = doc(collection(db, "payables"));
                     transaction.set(payableRef, {
+                        supplierId,
                         provider: supplierSearchInput.value,
                         description: `Compra Inv. #${purchaseRef.id.slice(0,6).toUpperCase()}`,
                         total: finalTotal,
@@ -640,26 +1044,38 @@
                         balance: finalTotal,
                         status: 'PENDING',
                         dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-                        createdAt: new Date(),
+                        createdAt: now,
+                        updatedAt: now,
                         purchaseId: purchaseRef.id
+                    });
+
+                    // 4. Registrar logs de auditoría de inventario
+                    auditLogsToSave.forEach(log => {
+                        const logRef = doc(collection(db, "inventory_audit_logs"));
+                        transaction.set(logRef, {
+                            ...log,
+                            purchaseId: purchaseRef.id
+                        });
                     });
                 });
 
-                // No necesitamos borrar el caché central porque el onSnapshot de admin-inventory
-                // o de donde sea que se esté escuchando se encargará de actualizar los stocks automáticamente.
-                alert("✅ Inventario actualizado correctamente.");
+                alert("✅ Entrada de mercancía procesada e inventario actualizado exitosamente.");
                 window.location.reload();
 
             } catch (e) {
-                console.error(e);
-                alert("Error crítico: " + e);
+                console.error("Error al procesar entrada:", e);
+                alert("Error crítico: " + (e.message || e));
                 btnSave.disabled = false;
                 btnSave.innerHTML = originalText;
             }
         };
 
         // Init
-        addProductRow();
+        if (editId) {
+            loadPurchaseForEdit(editId);
+        } else {
+            addProductRow();
+        }
         document.getElementById('btn-add-item-row').onclick = addProductRow;
     </script>
 <script type="module" src="../js/admin-guard.js"></script>

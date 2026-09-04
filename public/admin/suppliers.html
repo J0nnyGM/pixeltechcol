@@ -182,7 +182,7 @@
     </div>
 
 <script type="module">
-        import { db, collection, getDocs, getDoc, addDoc, updateDoc, doc, deleteDoc, orderBy, query, limit, startAfter, onSnapshot } from '../js/firebase-init.js';
+        import { db, collection, getDocs, getDoc, addDoc, updateDoc, doc, deleteDoc, orderBy, query, limit, startAfter, onSnapshot, where } from '../js/firebase-init.js';
         import { loadAdminSidebar } from '../js/admin-ui.js?v=2.0.0';
 
         loadAdminSidebar();
@@ -296,9 +296,25 @@
             });
         }
 
+        const normalizeText = (str) => str ? str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "") : "";
+
         function updateSuppliersArray(map) {
-            // Ordenamos alfabéticamente por nombre
-            adminSuppliersCache = Object.values(map).sort((a, b) => a.name.localeCompare(b.name));
+            adminSuppliersCache = Object.values(map).map(s => {
+                const name = (s.name || s.supplierName || s.razonSocial || s.company || s.empresa || '').trim();
+                const nit = (s.nit || s.document || s.rut || '').trim();
+                const cleanNit = nit.replace(/[^a-zA-Z0-9]/g, '');
+                const contact = (s.contactName || s.contact || '').trim();
+                const phone = (s.phone || '').trim();
+                const email = (s.email || '').trim();
+
+                s.name = name || 'Aliado sin nombre';
+                s.nit = nit;
+                s.contactName = contact;
+                s.phone = phone;
+                s.email = email;
+                s.searchStr = normalizeText(`${name} ${nit} ${cleanNit} ${contact} ${phone} ${email}`);
+                return s;
+            }).sort((a, b) => a.name.localeCompare(b.name));
         }
 
         function renderSuppliersFromMemory() {
@@ -309,7 +325,7 @@
             }
 
             tableBody.innerHTML = "";
-            loadMoreSuppliersBtn.classList.add('hidden'); // Como tenemos todo en RAM, no hace falta paginar si son pocos
+            loadMoreSuppliersBtn.classList.add('hidden');
 
             if (adminSuppliersCache.length === 0) {
                 tableBody.innerHTML = `<tr><td colspan="6" class="p-12 text-center opacity-50"><i class="fa-solid fa-folder-open text-4xl mb-4 text-gray-300"></i><p class="font-bold text-gray-400">No hay proveedores registrados.</p></td></tr>`;
@@ -328,14 +344,17 @@
         });
 
         function executeSearch(term) {
-            const lowerTerm = term.toLowerCase();
+            const cleanTerm = normalizeText(term.trim());
 
-            if (lowerTerm.length === 0) {
+            if (cleanTerm.length === 0) {
                 renderSuppliersFromMemory();
                 return;
             }
 
-            const filtered = adminSuppliersCache.filter(s => s.searchStr && s.searchStr.includes(lowerTerm));
+            const filtered = adminSuppliersCache.filter(s => {
+                const search = s.searchStr || normalizeText(`${s.name || ''} ${s.nit || ''} ${(s.nit || '').replace(/[^a-zA-Z0-9]/g, '')} ${s.contactName || ''}`);
+                return search.includes(cleanTerm);
+            });
 
             tableBody.innerHTML = "";
             if (filtered.length === 0) {

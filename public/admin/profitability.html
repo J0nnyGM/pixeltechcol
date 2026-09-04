@@ -94,29 +94,82 @@
                     </div>
                 </div>
 
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                    <div class="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
-                        <p class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Unidades Vendidas</p>
-                        <h3 id="dash-qty-sold" class="text-3xl font-black text-brand-black">0</h3>
+                <!-- BLOQUE 1: Existencias Actuales & Valuación por Costo Promedio -->
+                <div class="space-y-3">
+                    <div class="flex items-center gap-2">
+                        <span class="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
+                        <h4 class="text-[11px] font-black uppercase tracking-widest text-gray-500">
+                            Existencias Actuales • <span class="text-blue-600">Método Costo Promedio</span>
+                        </h4>
                     </div>
-                    <div class="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
-                        <p class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Ingresos (Ventas)</p>
-                        <h3 id="dash-revenue" class="text-3xl font-black text-emerald-500">$0</h3>
-                    </div>
-                    <div class="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
-                        <p class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Costo FIFO (COGS)</p>
-                        <h3 id="dash-cogs" class="text-3xl font-black text-red-400">-$0</h3>
-                    </div>
-                    <div class="bg-gradient-to-br from-brand-cyan to-blue-600 p-6 rounded-3xl shadow-lg text-white">
-                        <p class="text-[9px] font-black text-white/70 uppercase tracking-widest mb-1">Ganancia Bruta</p>
-                        <h3 id="dash-profit" class="text-3xl font-black tracking-tight">$0</h3>
-                        <p id="dash-margin" class="text-xs font-bold mt-1 text-white/90">Margen: 0%</p>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <div class="bg-white p-5 rounded-3xl border border-gray-100 shadow-sm">
+                            <p class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Stock en Inventario</p>
+                            <h3 id="dash-stock-current" class="text-2xl sm:text-3xl font-black text-brand-black">0</h3>
+                            <p class="text-[9px] font-bold text-gray-400 mt-1">Unidades físicas disponibles</p>
+                        </div>
+                        <div class="bg-white p-5 rounded-3xl border border-gray-100 shadow-sm">
+                            <p class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Costo Promedio Unit.</p>
+                            <h3 id="dash-avg-cost" class="text-2xl sm:text-3xl font-black text-blue-600">$0</h3>
+                            <p class="text-[9px] font-bold text-gray-400 mt-1">Ponderado unidades existentes</p>
+                        </div>
+                        <div class="bg-white p-5 rounded-3xl border border-gray-100 shadow-sm">
+                            <p class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Valor Total Inventario</p>
+                            <h3 id="dash-stock-value" class="text-2xl sm:text-3xl font-black text-brand-black">$0</h3>
+                            <p class="text-[9px] font-bold text-gray-400 mt-1">Stock actual × Costo Promedio</p>
+                        </div>
+                        <div class="bg-white p-5 rounded-3xl border border-gray-100 shadow-sm">
+                            <p class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Último Costo Obtenido</p>
+                            <h3 id="dash-last-cost" class="text-2xl sm:text-3xl font-black text-gray-700">$0</h3>
+                            <p class="text-[9px] font-bold text-gray-400 mt-1">Referencia última compra/costo</p>
+                        </div>
                     </div>
                 </div>
 
+                <!-- BLOQUE 2: Rendimiento Comercial & Ventas por Método FIFO -->
+                <div class="space-y-3">
+                    <div class="flex items-center gap-2">
+                        <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+                        <h4 class="text-[11px] font-black uppercase tracking-widest text-gray-500">
+                            Ventas & Rendimiento • <span class="text-emerald-600">Método FIFO (Salidas de Lotes)</span>
+                        </h4>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <div class="bg-white p-5 rounded-3xl border border-gray-100 shadow-sm">
+                            <p class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Unidades Vendidas</p>
+                            <h3 id="dash-qty-sold" class="text-2xl sm:text-3xl font-black text-brand-black">0</h3>
+                        </div>
+                        <div class="bg-white p-5 rounded-3xl border border-gray-100 shadow-sm">
+                            <p class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Ingresos (Ventas)</p>
+                            <h3 id="dash-revenue" class="text-2xl sm:text-3xl font-black text-emerald-500">$0</h3>
+                        </div>
+                        <div class="bg-white p-5 rounded-3xl border border-gray-100 shadow-sm">
+                            <p class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Costo FIFO (COGS)</p>
+                            <h3 id="dash-cogs" class="text-2xl sm:text-3xl font-black text-red-400">-$0</h3>
+                        </div>
+                        <div class="bg-gradient-to-br from-brand-cyan to-blue-600 p-5 rounded-3xl shadow-lg text-white">
+                            <p class="text-[9px] font-black text-white/70 uppercase tracking-widest mb-1">Ganancia Bruta Realizada</p>
+                            <h3 id="dash-profit" class="text-2xl sm:text-3xl font-black tracking-tight">$0</h3>
+                            <p id="dash-margin" class="text-xs font-bold mt-1 text-white/90">Margen: 0%</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- LÍNEA DE TIEMPO CON PAGINACIÓN Y ORDEN MÁS NUEVO A MÁS VIEJO -->
                 <div class="bg-white rounded-[2.5rem] shadow-xl border border-gray-100 overflow-hidden">
-                    <div class="p-6 border-b border-gray-50 bg-slate-50/50">
-                        <h3 class="font-black text-brand-black uppercase text-[11px] tracking-widest">Línea de Tiempo FIFO</h3>
+                    <div class="p-6 border-b border-gray-50 bg-slate-50/50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                        <div>
+                            <h3 class="font-black text-brand-black uppercase text-[11px] tracking-widest">Historial de Movimientos</h3>
+                            <p class="text-[9px] text-gray-400 font-bold uppercase tracking-wider mt-0.5">Ordenados del más nuevo al más viejo • Ganancia por venta calculada con FIFO</p>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="text-[9px] font-black uppercase text-gray-400">Ver:</span>
+                            <select id="timeline-page-size" onchange="window.setTimelinePageSize(this.value)" class="bg-white border border-gray-200 rounded-lg px-2.5 py-1 text-xs font-bold outline-none cursor-pointer">
+                                <option value="10" selected>10</option>
+                                <option value="20">20</option>
+                                <option value="50">50</option>
+                            </select>
+                        </div>
                     </div>
                     <div class="overflow-x-auto custom-scroll">
                         <table class="w-full text-left text-sm min-w-[800px]">
@@ -134,6 +187,26 @@
                             </tbody>
                         </table>
                     </div>
+
+                    <!-- Controles de Paginación -->
+                    <div class="p-4 border-t border-gray-100 bg-slate-50/40 flex flex-col sm:flex-row justify-between items-center gap-3">
+                        <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                            Mostrando <span id="timeline-view-range" class="text-brand-black font-black">0-0</span> de <span id="timeline-total-count" class="text-brand-black font-black">0</span> movimientos
+                        </p>
+                        <div class="flex items-center gap-2">
+                            <button id="btn-timeline-prev" onclick="window.changeTimelinePage(-1)" disabled
+                                class="px-3.5 py-1.5 bg-white border border-gray-200 rounded-lg text-gray-400 text-xs font-bold uppercase disabled:opacity-40 disabled:cursor-not-allowed hover:border-brand-cyan hover:text-brand-cyan transition shadow-2xs flex items-center gap-1">
+                                <i class="fa-solid fa-chevron-left text-[10px]"></i> Anterior
+                            </button>
+                            <span class="text-xs font-bold text-gray-600 px-2">
+                                Página <span id="timeline-page-num" class="font-black text-brand-black">1</span> de <span id="timeline-total-pages" class="font-black text-brand-black">1</span>
+                            </span>
+                            <button id="btn-timeline-next" onclick="window.changeTimelinePage(1)" disabled
+                                class="px-3.5 py-1.5 bg-white border border-gray-200 rounded-lg text-gray-400 text-xs font-bold uppercase disabled:opacity-40 disabled:cursor-not-allowed hover:border-brand-cyan hover:text-brand-cyan transition shadow-2xs flex items-center gap-1">
+                                Siguiente <i class="fa-solid fa-chevron-right text-[10px]"></i>
+                            </button>
+                        </div>
+                    </div>
                 </div>
 
             </div>
@@ -142,6 +215,6 @@
     </main>
 
     <script type="module" src="../js/admin-guard.js"></script>
-    <script type="module" src="../js/admin-profitability.js"></script>
+    <script type="module" src="../js/admin-profitability.js?v=1.0.1"></script>
 </body>
 </html>

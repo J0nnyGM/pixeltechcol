@@ -312,21 +312,52 @@ window.openTrashModal = async () => {
 // FORMULARIO Y CREACIÓN DE GASTOS
 // ==========================================================================
 
+const normalizeText = (str) => str ? str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "") : "";
+let expenseSuppliersCache = null;
+
+async function getExpenseSuppliersList() {
+    if (expenseSuppliersCache) return expenseSuppliersCache;
+    try {
+        const coll = collection(db, "suppliers");
+        const snap = await getDocs(coll);
+        expenseSuppliersCache = [];
+        snap.forEach(d => {
+            const data = d.data();
+            const name = (data.name || data.supplierName || data.razonSocial || data.company || '').trim();
+            const nit = (data.nit || data.document || '').trim();
+            const cleanNit = nit.replace(/[^a-zA-Z0-9]/g, '');
+            const contact = (data.contactName || data.contact || '').trim();
+            expenseSuppliersCache.push({
+                id: d.id,
+                name: name || 'Proveedor sin nombre',
+                nit: nit,
+                searchStr: normalizeText(`${name} ${nit} ${cleanNit} ${contact}`)
+            });
+        });
+        return expenseSuppliersCache;
+    } catch (e) {
+        console.error(e);
+        return [];
+    }
+}
+
 let supplierTimeout = null;
+supplierSearch.addEventListener('focus', () => { getExpenseSuppliersList(); });
+
 supplierSearch.addEventListener('input', (e) => {
-    const term = e.target.value.trim();
+    const rawTerm = e.target.value.trim();
+    const cleanTerm = normalizeText(rawTerm);
     selectedSupplierId.value = "";
     supplierDropdown.innerHTML = `<div class="p-3 text-xs text-gray-400"><i class="fa-solid fa-spinner fa-spin"></i></div>`;
     supplierDropdown.classList.remove('hidden');
 
-    if (term.length < 1) { supplierDropdown.classList.add('hidden'); return; }
+    if (cleanTerm.length < 1) { supplierDropdown.classList.add('hidden'); return; }
 
     clearTimeout(supplierTimeout);
     supplierTimeout = setTimeout(async () => {
         try {
-            const termCap = term.charAt(0).toUpperCase() + term.slice(1).toLowerCase();
-            const q = query(collection(db, "suppliers"), orderBy('name'), startAt(termCap), endAt(termCap + '\uf8ff'), limit(5));
-            const snap = await getDocs(q);
+            const list = await getExpenseSuppliersList();
+            const matches = list.filter(s => s.searchStr && s.searchStr.includes(cleanTerm));
             
             supplierDropdown.innerHTML = "";
             const divGen = document.createElement('div');
@@ -339,20 +370,26 @@ supplierSearch.addEventListener('input', (e) => {
             };
             supplierDropdown.appendChild(divGen);
 
-            snap.forEach(d => {
-                const s = d.data();
+            if (matches.length === 0) {
                 const item = document.createElement('div');
-                item.className = "p-3 hover:bg-slate-50 cursor-pointer text-xs font-bold text-brand-black border-b border-gray-50 last:border-0 transition-colors";
-                item.textContent = s.name;
-                item.onclick = () => {
-                    supplierSearch.value = s.name;
-                    selectedSupplierId.value = d.id;
-                    supplierDropdown.classList.add('hidden');
-                };
+                item.className = "p-3 text-xs text-gray-400 italic text-center";
+                item.textContent = "No encontrado";
                 supplierDropdown.appendChild(item);
-            });
+            } else {
+                matches.slice(0, 10).forEach(s => {
+                    const item = document.createElement('div');
+                    item.className = "p-3 hover:bg-slate-50 cursor-pointer text-xs font-bold text-brand-black border-b border-gray-50 last:border-0 transition-colors flex justify-between items-center";
+                    item.innerHTML = `<span>${s.name}</span><span class="text-[10px] text-gray-400 font-normal">${s.nit ? 'NIT: ' + s.nit : ''}</span>`;
+                    item.onclick = () => {
+                        supplierSearch.value = s.name;
+                        selectedSupplierId.value = s.id;
+                        supplierDropdown.classList.add('hidden');
+                    };
+                    supplierDropdown.appendChild(item);
+                });
+            }
         } catch(e) { console.error(e); }
-    }, 300);
+    }, 100);
 });
 
 amountDisplay.addEventListener('input', (e) => {
