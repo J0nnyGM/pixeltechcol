@@ -40,6 +40,49 @@
                 transform: translateY(0);
             }
         }
+
+        /* 📳 Shake Effect & HUD Toast para escaneo de seriales */
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            15%, 45%, 75% { transform: translateX(-5px); }
+            30%, 60%, 90% { transform: translateX(5px); }
+        }
+
+        .animate-shake {
+            animation: shake 0.35s ease-in-out;
+        }
+
+        #hud-toast-container {
+            position: fixed;
+            top: 24px;
+            right: 24px;
+            z-index: 99999;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            pointer-events: none;
+            max-width: 440px;
+            width: calc(100vw - 32px);
+        }
+
+        .hud-toast {
+            pointer-events: auto;
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+            transform: translateY(-20px) scale(0.95);
+            opacity: 0;
+        }
+
+        .hud-toast.show {
+            transform: translateY(0) scale(1);
+            opacity: 1;
+        }
+
+        .hud-toast.hide {
+            transform: translateY(-15px) scale(0.95);
+            opacity: 0;
+        }
     </style>
 </head>
 
@@ -443,6 +486,228 @@
             setTimeout(() => { row.remove(); window.updateAllTotals(); }, 300);
         };
 
+        // 🚀 CACHÉ EN MEMORIA DE SESIÓN (Evita lecturas redundantes en Firebase)
+        const sessionSerialDbCache = new Map(); // sn -> { exists: boolean, data: object|null, conflictMsg: string }
+
+        // 🔊 FEEDBACK AUDITIVO (Web Audio API - Sin archivos externos, 0ms latencia)
+        function playScanBeep(type = 'error') {
+            try {
+                const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                if (!AudioCtx) return;
+                const ctx = new AudioCtx();
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+
+                if (type === 'error') {
+                    // Tono de error grave descendente
+                    osc.type = 'sawtooth';
+                    osc.frequency.setValueAtTime(180, ctx.currentTime);
+                    osc.frequency.exponentialRampToValueAtTime(75, ctx.currentTime + 0.28);
+                    gain.gain.setValueAtTime(0.22, ctx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.28);
+                    osc.connect(gain);
+                    gain.connect(ctx.destination);
+                    osc.start();
+                    osc.stop(ctx.currentTime + 0.28);
+                } else if (type === 'success') {
+                    // Beep positivo sutil y rápido
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(900, ctx.currentTime);
+                    osc.frequency.exponentialRampToValueAtTime(1300, ctx.currentTime + 0.09);
+                    gain.gain.setValueAtTime(0.09, ctx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.09);
+                    osc.connect(gain);
+                    gain.connect(ctx.destination);
+                    osc.start();
+                    osc.stop(ctx.currentTime + 0.09);
+                }
+            } catch (e) {
+                // Silencioso si el navegador aún no interactuó con audio
+            }
+        }
+
+        // 🛸 TOAST HUD FLOTANTE (No bloquea la pantalla, estilizado dark/brand)
+        function showHudToast({ title, message, type = 'error', duration = 4500, sn = '' }) {
+            let container = document.getElementById('hud-toast-container');
+            if (!container) {
+                container = document.createElement('div');
+                container.id = 'hud-toast-container';
+                document.body.appendChild(container);
+            }
+
+            const toast = document.createElement('div');
+            toast.className = 'hud-toast flex items-start gap-3.5 bg-gray-950/95 border border-red-500/50 text-white p-4 rounded-2xl shadow-[0_15px_40px_rgba(0,0,0,0.6)] cursor-pointer select-none';
+
+            let iconHtml = `<div class="w-10 h-10 rounded-xl bg-red-500/20 border border-red-500/40 flex items-center justify-center shrink-0 text-red-400 text-lg shadow-sm">
+                <i class="fa-solid fa-triangle-exclamation animate-pulse"></i>
+            </div>`;
+
+            if (type === 'warning') {
+                toast.classList.remove('border-red-500/50');
+                toast.classList.add('border-amber-500/50');
+                iconHtml = `<div class="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center shrink-0 text-amber-400 text-lg shadow-sm">
+                    <i class="fa-solid fa-circle-exclamation"></i>
+                </div>`;
+            } else if (type === 'success') {
+                toast.classList.remove('border-red-500/50');
+                toast.classList.add('border-emerald-500/50');
+                iconHtml = `<div class="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center shrink-0 text-emerald-400 text-lg shadow-sm">
+                    <i class="fa-solid fa-circle-check"></i>
+                </div>`;
+            }
+
+            const snBadge = sn ? `<span class="inline-block bg-white/10 font-mono text-[10px] font-black px-2 py-0.5 rounded-md text-red-300 ml-1 border border-red-500/30">${sn}</span>` : '';
+
+            toast.innerHTML = `
+                ${iconHtml}
+                <div class="flex-grow min-w-0 pr-2">
+                    <div class="flex items-center gap-1.5 flex-wrap">
+                        <h4 class="text-xs font-black uppercase tracking-wider text-white">${title}</h4>
+                        ${snBadge}
+                    </div>
+                    <p class="text-[11px] text-gray-300 font-medium leading-snug mt-1">${message}</p>
+                </div>
+                <button type="button" class="text-gray-400 hover:text-white transition p-1 text-xs shrink-0 self-start">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            `;
+
+            toast.onclick = () => {
+                toast.classList.remove('show');
+                toast.classList.add('hide');
+                setTimeout(() => toast.remove(), 350);
+            };
+
+            container.appendChild(toast);
+            requestAnimationFrame(() => toast.classList.add('show'));
+
+            setTimeout(() => {
+                if (toast.isConnected) {
+                    toast.classList.remove('show');
+                    toast.classList.add('hide');
+                    setTimeout(() => toast.remove(), 350);
+                }
+            }, duration);
+        }
+
+        // 📳 ACTIVAR ERROR EN CASILLA (Sonido + Toast + Shake + Resalte Rojo + Foco)
+        function triggerSnInputError(input, { title, message, sn }) {
+            playScanBeep('error');
+            showHudToast({ title, message, type: 'error', duration: 4500, sn });
+
+            input.value = "";
+            input._lastValidatedVal = "";
+            input.focus();
+
+            input.classList.remove('animate-shake', 'border-red-500', 'bg-red-50', 'ring-2', 'ring-red-500/40');
+            void input.offsetWidth; // Forzar reflow para reiniciar animación CSS
+            input.classList.add('animate-shake', 'border-red-500', 'bg-red-50', 'ring-2', 'ring-red-500/40');
+
+            clearTimeout(input._errorTimer);
+            input._errorTimer = setTimeout(() => {
+                input.classList.remove('animate-shake', 'border-red-500', 'bg-red-50', 'ring-2', 'ring-red-500/40');
+            }, 2500);
+        }
+
+        async function validateSingleSnInput(input) {
+            let val = (input.value || '').trim().toUpperCase();
+            input.value = val;
+
+            if (!val) {
+                input._lastValidatedVal = "";
+                input.classList.remove('animate-shake', 'border-red-500', 'bg-red-50', 'ring-2', 'ring-red-500/40');
+                return true;
+            }
+
+            if (input._isValidating) return false;
+            if (input._lastValidatedVal === val) return true;
+
+            // 1. Validar si está duplicado en el mismo formulario de entrada (0 lecturas Firebase)
+            const allSnInputs = Array.from(document.querySelectorAll('.p-sn-input'));
+            const isDuplicateInForm = allSnInputs.some(other => other !== input && other.value.trim().toUpperCase() === val);
+            if (isDuplicateInForm) {
+                triggerSnInputError(input, {
+                    title: 'Serial Duplicado en Entrada',
+                    message: `El serial <b>"${val}"</b> ya fue ingresado en esta entrada. Todos los seriales deben ser únicos.`,
+                    sn: val
+                });
+                return false;
+            }
+
+            // 2. Comprobar caché local de sesión (0 lecturas si ya se consultó antes)
+            if (sessionSerialDbCache.has(val)) {
+                const cached = sessionSerialDbCache.get(val);
+                if (cached.exists) {
+                    if (!editId || cached.data?.purchaseId !== editId) {
+                        triggerSnInputError(input, {
+                            title: 'Serial Ya Inscrito en Sistema',
+                            message: `El serial <b>"${val}"</b> ${cached.conflictMsg}`,
+                            sn: val
+                        });
+                        return false;
+                    }
+                } else {
+                    // Verificado previamente como libre en BD
+                    input._lastValidatedVal = val;
+                    input.classList.remove('animate-shake', 'border-red-500', 'bg-red-50', 'ring-2', 'ring-red-500/40');
+                    return true;
+                }
+            }
+
+            // 3. Validar si ya se encuentra inscrito en la base de datos (product_serials)
+            input._isValidating = true;
+            input.classList.add('opacity-70');
+            try {
+                const q = query(collection(db, "product_serials"), where("serialNumber", "==", val));
+                const snap = await getDocs(q);
+                if (!snap.empty) {
+                    let alreadyExists = false;
+                    let conflictMsg = "";
+                    let matchedData = null;
+                    for (const d of snap.docs) {
+                        const data = d.data();
+                        matchedData = data;
+                        if (editId && data.purchaseId === editId) continue;
+
+                        alreadyExists = true;
+                        if (data.status === 'AVAILABLE') {
+                            conflictMsg = `ya se encuentra registrado y DISPONIBLE en inventario para el producto "${data.productName || 'existente'}".`;
+                        } else if (data.status === 'DISPATCHED') {
+                            conflictMsg = `ya se encuentra registrado en el sistema como DESPACHADO (Orden #${data.orderId || ''}) para el producto "${data.productName || 'existente'}".`;
+                        } else {
+                            conflictMsg = `ya se encuentra registrado previamente en el sistema para el producto "${data.productName || 'existente'}".`;
+                        }
+                        break;
+                    }
+
+                    // Guardar en caché de sesión
+                    sessionSerialDbCache.set(val, { exists: true, data: matchedData, conflictMsg });
+
+                    if (alreadyExists) {
+                        triggerSnInputError(input, {
+                            title: 'Serial Ya Inscrito en Sistema',
+                            message: `El serial <b>"${val}"</b> ${conflictMsg}`,
+                            sn: val
+                        });
+                        return false;
+                    }
+                } else {
+                    // Registrar en caché que este serial NO existe en BD (libre para usar)
+                    sessionSerialDbCache.set(val, { exists: false, data: null });
+                }
+
+                input._lastValidatedVal = val;
+                input.classList.remove('animate-shake', 'border-red-500', 'bg-red-50', 'ring-2', 'ring-red-500/40');
+                return true;
+            } catch (err) {
+                console.error("Error al validar serial en BD:", err);
+                return true;
+            } finally {
+                input._isValidating = false;
+                input.classList.remove('opacity-70');
+            }
+        }
+
         function syncSerialInputs(row, initialSns = []) {
             const qtyInput = row.querySelector('.p-qty');
             let qty = parseInt(qtyInput ? qtyInput.value : 1) || 1;
@@ -479,29 +744,56 @@
 
             const newInputs = Array.from(container.querySelectorAll('.p-sn-input'));
             newInputs.forEach((input, index) => {
-                input.addEventListener('keydown', (e) => {
+                if (input.value.trim()) {
+                    input._lastValidatedVal = input.value.trim().toUpperCase();
+                }
+
+                input.addEventListener('input', (e) => {
+                    e.target.value = e.target.value.toUpperCase();
+                    input.classList.remove('animate-shake', 'border-red-500', 'bg-red-50', 'ring-2', 'ring-red-500/40');
+                    clearTimeout(input._errorTimer);
+                });
+
+                input.addEventListener('change', async function() {
+                    await validateSingleSnInput(this);
+                });
+
+                input.addEventListener('keydown', async function(e) {
                     if (e.key === 'Enter') {
                         e.preventDefault();
-                        input.value = input.value.trim().toUpperCase();
-                        const nextInput = newInputs[index + 1];
-                        if (nextInput) {
-                            nextInput.focus();
-                            nextInput.select();
-                        } else {
-                            const allRows = Array.from(document.querySelectorAll('.item-row'));
-                            const currentRowIdx = allRows.indexOf(row);
-                            if (currentRowIdx >= 0 && allRows[currentRowIdx + 1]) {
-                                const nextRowFirstInput = allRows[currentRowIdx + 1].querySelector('.p-sn-input');
-                                if (nextRowFirstInput) {
-                                    nextRowFirstInput.focus();
-                                    nextRowFirstInput.select();
-                                }
+                        const isValid = await validateSingleSnInput(this);
+                        if (isValid && this.value.trim() !== "") {
+                            playScanBeep('success');
+                            const allInputs = Array.from(document.querySelectorAll('.p-sn-input'));
+                            const currentIndex = allInputs.indexOf(this);
+                            if (currentIndex >= 0 && allInputs[currentIndex + 1]) {
+                                allInputs[currentIndex + 1].focus();
+                                allInputs[currentIndex + 1].select();
+                            } else {
+                                const btnSave = document.getElementById('btn-save-entry');
+                                if (btnSave) btnSave.focus();
                             }
                         }
                     }
                 });
-                input.addEventListener('input', (e) => {
-                    e.target.value = e.target.value.toUpperCase();
+
+                input.addEventListener('paste', async function(e) {
+                    const pastedText = (e.clipboardData || window.clipboardData)?.getData('text');
+                    if (!pastedText) return;
+                    const tokens = pastedText.split(/[\n,\r\t]+/).map(s => s.trim().toUpperCase()).filter(Boolean);
+                    if (tokens.length > 1) {
+                        e.preventDefault();
+                        const rowInputs = Array.from(container.querySelectorAll('.p-sn-input'));
+                        const startIndex = rowInputs.indexOf(this);
+                        for (let i = 0; i < tokens.length; i++) {
+                            const targetInput = rowInputs[startIndex + i];
+                            if (targetInput) {
+                                targetInput.value = tokens[i];
+                                const ok = await validateSingleSnInput(targetInput);
+                                if (!ok) break;
+                            }
+                        }
+                    }
                 });
             });
         }
@@ -509,21 +801,147 @@
         function setupPasteSnButton(row) {
             const btn = row.querySelector('.btn-paste-sn');
             if (!btn) return;
-            btn.onclick = () => {
+            btn.onclick = async () => {
                 const qtyInput = row.querySelector('.p-qty');
                 let qty = parseInt(qtyInput ? qtyInput.value : 1) || 1;
                 const text = prompt(`Pega los seriales para este producto separados por saltos de línea, espacios o comas:\n(Actualmente cantidad: ${qty})`);
                 if (text === null) return;
-                const serials = text.split(/[\n,\r\t]+/).map(s => s.trim().toUpperCase()).filter(Boolean);
-                if (serials.length === 0) return;
+                const rawSerials = text.split(/[\n,\r\t]+/).map(s => s.trim().toUpperCase()).filter(Boolean);
+                if (rawSerials.length === 0) return;
 
-                if (serials.length > qty) {
-                    if (confirm(`Pegaste ${serials.length} seriales y la fila tiene cantidad ${qty}. ¿Deseas ajustar la cantidad a ${serials.length}?`)) {
-                        qtyInput.value = serials.length;
+                // 1. Detectar duplicados dentro del texto pegado
+                const uniquePasted = [];
+                const internalDuplicates = [];
+                for (const sn of rawSerials) {
+                    if (uniquePasted.includes(sn)) {
+                        if (!internalDuplicates.includes(sn)) internalDuplicates.push(sn);
+                    } else {
+                        uniquePasted.push(sn);
+                    }
+                }
+
+                // 2. Detectar duplicados con otras filas de la entrada
+                const otherRowsInputs = Array.from(document.querySelectorAll('.item-row'))
+                    .filter(r => r !== row)
+                    .flatMap(r => Array.from(r.querySelectorAll('.p-sn-input')))
+                    .map(i => i.value.trim().toUpperCase())
+                    .filter(Boolean);
+
+                const formDuplicates = [];
+                const toCheckInDb = [];
+                for (const sn of uniquePasted) {
+                    if (otherRowsInputs.includes(sn)) {
+                        formDuplicates.push(sn);
+                    } else {
+                        toCheckInDb.push(sn);
+                    }
+                }
+
+                // 3. Validar contra caché de sesión y Firestore en bloques de 30 (minimiza lecturas)
+                const alreadyInDb = [];
+                const neededFromDb = [];
+
+                for (const sn of toCheckInDb) {
+                    if (sessionSerialDbCache.has(sn)) {
+                        const cached = sessionSerialDbCache.get(sn);
+                        if (cached.exists) {
+                            if (!editId || cached.data?.purchaseId !== editId) {
+                                alreadyInDb.push({
+                                    sn: cached.data?.serialNumber || sn,
+                                    productName: cached.data?.productName || 'Existente',
+                                    status: cached.data?.status
+                                });
+                            }
+                        }
+                    } else {
+                        neededFromDb.push(sn);
+                    }
+                }
+
+                if (neededFromDb.length > 0) {
+                    const chunkSize = 30;
+                    for (let i = 0; i < neededFromDb.length; i += chunkSize) {
+                        const chunk = neededFromDb.slice(i, i + chunkSize);
+                        try {
+                            const q = query(collection(db, "product_serials"), where("serialNumber", "in", chunk));
+                            const snap = await getDocs(q);
+                            const matchedChunkSns = new Set();
+                            if (!snap.empty) {
+                                for (const d of snap.docs) {
+                                    const data = d.data();
+                                    const sn = data.serialNumber;
+                                    matchedChunkSns.add(sn);
+                                    let conflictMsg = data.status === 'AVAILABLE'
+                                        ? `ya se encuentra registrado y DISPONIBLE en inventario para el producto "${data.productName || 'existente'}".`
+                                        : `ya figura en el sistema como DESPACHADO (Orden #${data.orderId || ''}) para el producto "${data.productName || 'existente'}".`;
+                                    sessionSerialDbCache.set(sn, { exists: true, data, conflictMsg });
+                                    if (editId && data.purchaseId === editId) continue;
+                                    alreadyInDb.push({
+                                        sn: data.serialNumber,
+                                        productName: data.productName || 'Existente',
+                                        status: data.status
+                                    });
+                                }
+                            }
+                            // Registrar los no encontrados como libres en caché
+                            chunk.forEach(sn => {
+                                if (!matchedChunkSns.has(sn)) {
+                                    sessionSerialDbCache.set(sn, { exists: false, data: null });
+                                }
+                            });
+                        } catch (err) {
+                            console.error("Error al consultar seriales en lote:", err);
+                        }
+                    }
+                }
+
+                // 4. Reportar seriales descartados si existen
+                const invalidSnsSet = new Set([
+                    ...internalDuplicates,
+                    ...formDuplicates,
+                    ...alreadyInDb.map(d => d.sn)
+                ]);
+
+                if (invalidSnsSet.size > 0) {
+                    let msgs = [];
+                    if (internalDuplicates.length > 0) {
+                        msgs.push(`• Duplicados en texto pegado: ${internalDuplicates.join(', ')}`);
+                    }
+                    if (formDuplicates.length > 0) {
+                        msgs.push(`• Ya usados en otra fila: ${formDuplicates.join(', ')}`);
+                    }
+                    if (alreadyInDb.length > 0) {
+                        msgs.push(`• Ya inscritos en BD: ${alreadyInDb.map(d => `${d.sn} (${d.status === 'AVAILABLE' ? 'DISPONIBLE' : 'DESPACHADO'})`).join(', ')}`);
+                    }
+                    playScanBeep('error');
+                    showHudToast({
+                        title: `Descartados ${invalidSnsSet.size} Seriales`,
+                        message: msgs.join('<br>'),
+                        type: 'warning',
+                        duration: 6500
+                    });
+                }
+
+                const validSerials = uniquePasted.filter(sn => !invalidSnsSet.has(sn));
+                if (validSerials.length === 0) {
+                    playScanBeep('error');
+                    showHudToast({
+                        title: 'Sin Seriales Válidos',
+                        message: 'No quedó ningún serial válido nuevo para asignar.',
+                        type: 'error',
+                        duration: 4500
+                    });
+                    return;
+                }
+
+                if (validSerials.length > qty) {
+                    if (confirm(`Pegaste ${validSerials.length} seriales válidos y la fila tiene cantidad ${qty}. ¿Deseas ajustar la cantidad a ${validSerials.length}?`)) {
+                        qtyInput.value = validSerials.length;
                         window.updateAllTotals();
                     }
                 }
-                syncSerialInputs(row, serials);
+                playScanBeep('success');
+                syncSerialInputs(row, validSerials);
             };
         }
 
@@ -790,7 +1208,7 @@
                     });
                 }
 
-                // Validar si algún serial ya existe en Firestore en product_serials como AVAILABLE
+                // Validar si algún serial ya existe en Firestore en product_serials
                 if (allSnsInEntry.length > 0) {
                     const chunkSize = 30;
                     for (let i = 0; i < allSnsInEntry.length; i += chunkSize) {
@@ -803,6 +1221,10 @@
                                 if (editId && sData.purchaseId === editId) continue;
                                 if (sData.status === 'AVAILABLE') {
                                     throw `⚠️ El serial "${sData.serialNumber}" ya se encuentra registrado y disponible en inventario para el producto "${sData.productName || ''}".`;
+                                } else if (sData.status === 'DISPATCHED') {
+                                    throw `⚠️ El serial "${sData.serialNumber}" ya figura en el sistema como DESPACHADO (Orden #${sData.orderId || ''}) para el producto "${sData.productName || ''}".`;
+                                } else {
+                                    throw `⚠️ El serial "${sData.serialNumber}" ya se encuentra registrado previamente en el sistema para el producto "${sData.productName || ''}".`;
                                 }
                             }
                         }
