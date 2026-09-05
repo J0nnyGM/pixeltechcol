@@ -1,4 +1,4 @@
-import { db, doc, getDoc, updateDoc, Timestamp, collection, getDocs, runTransaction, serverTimestamp, writeBatch, auth } from './firebase-init.js';
+import { db, doc, getDoc, updateDoc, Timestamp, collection, getDocs, runTransaction, serverTimestamp, writeBatch, auth, query, where } from './firebase-init.js';
 import { adjustStock } from './inventory-core.js'; 
 import { AdminStore } from './admin-store.js';
 
@@ -15,6 +15,37 @@ const safeSetText = (id, text) => { const el = getEl(id); if (el) el.textContent
 const formatCurrency = (num) => '$ ' + Number(num).toLocaleString('es-CO');
 const parseCurrency = (str) => Number(String(str).replace(/[^0-9-]/g, '')) || 0;
 const normalizeText = (str) => str ? str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "") : "";
+
+export const isNoSerial = (sn) => {
+    if (!sn) return false;
+    const clean = String(sn).trim().toUpperCase().replace(/[\s\-_/.]/g, '');
+    return ['SINSERIAL', 'NA', 'SN', 'NINGUNO', 'NOSERIAL', 'EXENTO', 'SINSN', 'NOAPLICA'].includes(clean);
+};
+window.isNoSerial = isNoSerial;
+
+window.toggleItemNoSerial = (idx) => {
+    const inputs = document.querySelectorAll(`.sn-input[data-item-index="${idx}"]`);
+    if (!inputs || inputs.length === 0) return;
+
+    const allCurrentlyNoSerial = Array.from(inputs).every(inp => isNoSerial(inp.value));
+
+    inputs.forEach(inp => {
+        if (allCurrentlyNoSerial) {
+            inp.value = '';
+            inp.classList.remove('bg-amber-50', 'text-amber-800', 'border-amber-300');
+            inp.classList.add('bg-white', 'text-brand-black', 'border-gray-200');
+        } else {
+            inp.value = 'SIN-SERIAL';
+            inp.classList.remove('bg-white', 'text-brand-black', 'border-gray-200');
+            inp.classList.add('bg-amber-50', 'text-amber-800', 'border-amber-300');
+        }
+    });
+
+    const lbl = document.getElementById(`label-noserial-${idx}`);
+    if (lbl) {
+        lbl.textContent = allCurrentlyNoSerial ? 'Marcar Sin Serial (N/A)' : 'Quitar Sin Serial';
+    }
+};
 
 async function loadAccountsCached() {
     if (accountsCache) return accountsCache;
@@ -156,23 +187,77 @@ export async function viewOrderDetail(orderId) {
         if (itemsList) {
             itemsList.innerHTML = (o.items || []).map((item, idx) => {
                 const img = item.mainImage || item.image || '/img/placeholder-tech.webp';
+                const itemHasAllNoSerial = item.sns && item.sns.length > 0 && item.sns.every(isNoSerial);
                 let snInputs = '';
                 for (let i = 0; i < (item.quantity || 1); i++) {
                     const val = (item.sns && item.sns[i]) ? item.sns[i] : '';
-                    const lockClass = isLocked ? 'bg-gray-100 text-gray-500 cursor-not-allowed border-gray-200' : 'bg-white text-brand-black border-gray-200 focus:border-brand-cyan focus:ring-1 focus:ring-brand-cyan/20';
-                    snInputs += `<div class="relative mb-2"><i class="fa-solid fa-barcode absolute left-3 top-3 text-brand-black text-xs"></i><input type="text" placeholder="${isLocked ? (val || 'No registrado') : 'Escanea Serial'}" value="${val}" data-item-index="${idx}" data-unit-index="${i}" class="sn-input w-full rounded-xl py-2 pl-8 pr-3 text-xs font-mono font-bold outline-none transition-all uppercase border ${lockClass}" ${isLocked ? 'readonly' : ''}></div>`;
+                    const isValNoSerial = isNoSerial(val);
+                    const lockClass = isLocked 
+                        ? (isValNoSerial ? 'bg-amber-50 text-amber-800 border-amber-200 cursor-not-allowed' : 'bg-gray-100 text-gray-500 cursor-not-allowed border-gray-200') 
+                        : (isValNoSerial ? 'bg-amber-50 text-amber-800 border-amber-300' : 'bg-white text-brand-black border-gray-200 focus:border-brand-cyan focus:ring-1 focus:ring-brand-cyan/20');
+                    const placeholder = isLocked ? (val || 'No registrado') : (isValNoSerial ? 'SIN-SERIAL' : 'Escanea Serial (o N/A)');
+                    snInputs += `<div class="relative mb-2">
+                        <i class="fa-solid fa-barcode absolute left-3 top-3 text-brand-black text-xs"></i>
+                        <input type="text" placeholder="${placeholder}" value="${val}" data-item-index="${idx}" data-unit-index="${i}" class="sn-input w-full rounded-xl py-2 pl-8 pr-3 text-xs font-mono font-bold outline-none transition-all uppercase border ${lockClass}" ${isLocked ? 'readonly' : ''}>
+                    </div>`;
                 }
-                return `<div class="p-6 border-b border-gray-100 last:border-0 flex flex-col md:flex-row gap-6 items-start"><div class="w-16 h-16 rounded-xl bg-white border border-gray-100 p-2 shrink-0 flex items-center justify-center"><img src="${img}" class="max-w-full max-h-full object-contain"></div><div class="flex-grow w-full"><div class="flex justify-between mb-2"><h5 class="font-black text-xs uppercase text-brand-black">${item.name || item.title}</h5><span class="text-xs font-black text-brand-cyan">x${item.quantity}</span></div><div class="flex gap-2 mb-4">${item.color ? `<span class="text-[8px] font-black uppercase bg-slate-100 px-2 py-1 rounded text-brand-black border border-gray-200">${item.color}</span>` : ''}</div><div class="bg-slate-100/50 p-3 rounded-xl border border-dashed border-gray-200"><p class="text-[8px] font-black text-brand-black uppercase tracking-widest mb-2">Seriales</p><div class="grid grid-cols-1 sm:grid-cols-2 gap-2">${snInputs}</div></div></div></div>`;
+                return `
+                    <div class="p-6 border-b border-gray-100 last:border-0 flex flex-col md:flex-row gap-6 items-start">
+                        <div class="w-16 h-16 rounded-xl bg-white border border-gray-100 p-2 shrink-0 flex items-center justify-center shadow-xs">
+                            <img src="${img}" class="max-w-full max-h-full object-contain">
+                        </div>
+                        <div class="flex-grow w-full">
+                            <div class="flex justify-between mb-2">
+                                <h5 class="font-black text-xs uppercase text-brand-black">${item.name || item.title}</h5>
+                                <span class="text-xs font-black text-brand-cyan">x${item.quantity}</span>
+                            </div>
+                            <div class="flex gap-2 mb-3">
+                                ${item.color ? `<span class="text-[8px] font-black uppercase bg-slate-100 px-2 py-1 rounded text-brand-black border border-gray-200">${item.color}</span>` : ''}
+                                ${item.capacity ? `<span class="text-[8px] font-black uppercase bg-slate-100 px-2 py-1 rounded text-brand-black border border-gray-200">${item.capacity}</span>` : ''}
+                            </div>
+                            <div class="bg-slate-100/60 p-3.5 rounded-2xl border border-gray-200/80">
+                                <div class="flex items-center justify-between mb-2.5">
+                                    <p class="text-[9px] font-black text-brand-black uppercase tracking-widest flex items-center gap-1.5">
+                                        <i class="fa-solid fa-barcode text-brand-cyan"></i> Seriales (SN)
+                                    </p>
+                                    ${!isLocked ? `
+                                        <button type="button" onclick="window.toggleItemNoSerial(${idx})" 
+                                            id="btn-toggle-noserial-${idx}"
+                                            class="text-[9px] font-bold text-gray-600 hover:text-brand-black bg-white hover:bg-slate-100 px-2.5 py-1 rounded-lg border border-gray-200 transition flex items-center gap-1 shadow-2xs">
+                                            <i class="fa-solid fa-ban text-[8px] text-amber-500"></i>
+                                            <span id="label-noserial-${idx}">${itemHasAllNoSerial ? 'Quitar Sin Serial' : 'Marcar Sin Serial (N/A)'}</span>
+                                        </button>
+                                    ` : ''}
+                                </div>
+                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">${snInputs}</div>
+                            </div>
+                        </div>
+                    </div>`;
             }).join('');
 
             if (!isLocked) {
                 setTimeout(() => {
                     const allInputs = Array.from(document.querySelectorAll('.sn-input'));
                     allInputs.forEach((input, currentIndex) => {
-                        input.addEventListener('change', function(e) {
+                        input.addEventListener('input', function() {
                             const val = this.value.trim().toUpperCase();
+                            if (isNoSerial(val)) {
+                                this.classList.add('bg-amber-50', 'text-amber-800', 'border-amber-300');
+                                this.classList.remove('bg-white', 'text-brand-black', 'border-gray-200');
+                            } else {
+                                this.classList.remove('bg-amber-50', 'text-amber-800', 'border-amber-300');
+                                this.classList.add('bg-white', 'text-brand-black', 'border-gray-200');
+                            }
+                        });
+                        input.addEventListener('change', function(e) {
+                            let val = this.value.trim().toUpperCase();
                             if (!val) return; 
-                            const isDuplicate = allInputs.some(otherInput => otherInput !== this && otherInput.value.trim().toUpperCase() === val);
+                            if (isNoSerial(val)) {
+                                this.value = 'SIN-SERIAL';
+                                this.classList.add('bg-amber-50', 'text-amber-800', 'border-amber-300');
+                                return;
+                            }
+                            const isDuplicate = allInputs.some(otherInput => otherInput !== this && !isNoSerial(otherInput.value) && otherInput.value.trim().toUpperCase() === val);
                             if (isDuplicate) {
                                 alert(`⚠️ ERROR: El serial "${val}" ya fue escaneado en esta orden. Por favor revisa.`);
                                 this.value = ""; this.focus(); this.classList.add('border-red-500', 'bg-red-50');
@@ -394,6 +479,28 @@ async function cancelManualOrder(order) {
             }
         }
 
+        // Liberar seriales vinculados a esta orden para que vuelvan a estar DISPONIBLES
+        try {
+            const linkedSerials = await getDocs(query(collection(db, "product_serials"), where("orderId", "==", order.id)));
+            if (!linkedSerials.empty) {
+                const batchSerials = writeBatch(db);
+                linkedSerials.forEach(d => {
+                    batchSerials.update(d.ref, {
+                        status: 'AVAILABLE',
+                        orderId: null,
+                        orderInternalNumber: null,
+                        clientName: null,
+                        clientPhone: null,
+                        dispatchedAt: null,
+                        updatedAt: new Date()
+                    });
+                });
+                await batchSerials.commit();
+            }
+        } catch(errSerials) {
+            console.warn("Error liberando seriales en anulación:", errSerials);
+        }
+
         alert("✅ Venta anulada exitosamente. \nEl stock fue devuelto al catálogo (si corresponde) y el dinero fue revertido de la cuenta (si aplica).");
         getEl('order-modal').classList.add('hidden');
         currentOrderData = null;
@@ -517,8 +624,11 @@ function injectEditModalHtml() {
     sInp.addEventListener('input', (e) => {
         const term = normalizeText(e.target.value);
         sRes.innerHTML = "";
-        if(term.length < 2) { sRes.classList.add('hidden'); return; }
-        const filtered = editProductsCache.filter(p => (p.searchStr || normalizeText(p.name)).includes(term));
+        const words = term.split(/\s+/).filter(Boolean);
+        const filtered = editProductsCache.filter(p => {
+            const str = normalizeText(`${p.name || ''} ${p.sku || ''} ${p.brand || ''} ${p.searchStr || ''}`);
+            return words.every(w => str.includes(w));
+        });
         if(filtered.length === 0) sRes.innerHTML = `<p class="p-3 text-[10px] font-bold text-gray-400 text-center uppercase">No encontrado</p>`;
         else {
             filtered.slice(0,10).forEach(p => {
@@ -827,19 +937,188 @@ export async function saveAlistamiento(onSuccess) {
     if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i>'; }
     try {
         const snap = await getDoc(doc(db, "orders", currentOrderId));
-        const items = snap.data().items;
-        const updatedItems = items.map((item, idx) => {
+        if (!snap.exists()) throw new Error("La orden no existe en la base de datos.");
+        const orderData = snap.data();
+        const items = orderData.items || [];
+
+        const allSnsInOrder = [];
+        const updatedItems = [];
+
+        // 1. Recoger y validar que todos los campos de serial tengan un valor
+        for (let idx = 0; idx < items.length; idx++) {
+            const item = items[idx];
+            const qty = item.quantity || 1;
             const inputs = document.querySelectorAll(`.sn-input[data-item-index="${idx}"]`);
-            return { ...item, sns: Array.from(inputs).map(i => i.value.trim()) };
+            const sns = Array.from(inputs).map(i => {
+                const val = i.value.trim().toUpperCase();
+                return isNoSerial(val) ? 'SIN-SERIAL' : val;
+            });
+
+            if (sns.length < qty) {
+                throw new Error(`Debes ingresar los ${qty} seriales para el producto "${item.name}".`);
+            }
+
+            const emptyIdx = sns.findIndex(s => !s);
+            if (emptyIdx !== -1) {
+                throw new Error(`⚠️ Falta ingresar el serial (SN) de la unidad #${emptyIdx + 1} para "${item.name}". (Si el producto no tiene serial físico, pulsa "Marcar Sin Serial").`);
+            }
+
+            for (const sn of sns) {
+                if (!isNoSerial(sn)) {
+                    if (allSnsInOrder.some(x => !isNoSerial(x.sn) && x.sn === sn)) {
+                        throw new Error(`⚠️ El serial "${sn}" está duplicado en este pedido. Cada unidad debe tener un serial diferente.`);
+                    }
+                }
+                allSnsInOrder.push({ 
+                    sn, 
+                    itemId: item.id, 
+                    itemName: item.name || item.title || 'Producto', 
+                    itemColor: item.color || null, 
+                    itemCapacity: item.capacity || null,
+                    sku: item.sku || ''
+                });
+            }
+
+            updatedItems.push({ ...item, sns });
+        }
+
+        // 2. Validación estricta y detección de seriales a actualizar o regularizar
+        const serialDocsToUpdate = [];
+        const unregisteredSerials = [];
+
+        for (const itemSn of allSnsInOrder) {
+            // Opción 3: Si es SIN-SERIAL, no se consulta en product_serials ni genera documento individual
+            if (isNoSerial(itemSn.sn)) {
+                continue;
+            }
+
+            const q = query(
+                collection(db, "product_serials"),
+                where("serialNumber", "==", itemSn.sn)
+            );
+            const serialSnap = await getDocs(q);
+
+            if (serialSnap.empty) {
+                // Opción 1: Serial de inventario antiguo no registrado previamente en compras
+                unregisteredSerials.push(itemSn);
+                continue;
+            }
+
+            // Buscar si coincide con el productId del ítem
+            const matchingDoc = serialSnap.docs.find(d => d.data().productId === itemSn.itemId);
+            if (!matchingDoc) {
+                const otherProduct = serialSnap.docs[0].data();
+                throw new Error(`🚨 Error de Alistamiento:\nEl serial "${itemSn.sn}" pertenece a otro producto ("${otherProduct.productName || 'otro equipo'}"), no a "${itemSn.itemName}".`);
+            }
+
+            const sData = matchingDoc.data();
+
+            // Si ya está despachado y no es esta misma orden
+            if (sData.status === 'DISPATCHED' && sData.orderId && sData.orderId !== currentOrderId) {
+                const prevOrderNum = sData.orderInternalNumber || sData.orderId.slice(0, 6).toUpperCase();
+                const clientInfo = sData.clientName ? ` (Cliente: ${sData.clientName})` : '';
+                throw new Error(`🚨 Error de Alistamiento:\nEl serial "${itemSn.sn}" ya fue despachado en la orden #${prevOrderNum}${clientInfo}. No se puede volver a despachar.`);
+            }
+
+            serialDocsToUpdate.push({ ref: matchingDoc.ref, sn: itemSn.sn });
+        }
+
+        // Opción 1: Si hay seriales no registrados en compras, confirmar su regularización sobre la marcha
+        if (unregisteredSerials.length > 0) {
+            const listMsg = unregisteredSerials.map(u => `• [${u.sn}] → ${u.itemName}`).join('\n');
+            const confirmMsg = `⚠️ REGULARIZACIÓN DE SERIALES ANTIGUOS:\n\nLos siguientes seriales no se encontraron registrados en compras previas:\n\n${listMsg}\n\n¿Deseas registrarlos automáticamente como "Inventario Inicial / Regularizado" y despacharlos en este pedido?`;
+            
+            const confirmed = window.confirm(confirmMsg);
+            if (!confirmed) {
+                throw new Error("Alistamiento cancelado por el usuario para verificar los seriales.");
+            }
+        }
+
+        // 3. Si todo es válido: actualizar orden y seriales
+        const now = new Date();
+        const orderInternal = orderData.orderNumber || orderData.internalOrderNumber || currentOrderId.slice(0, 8).toUpperCase();
+        const clientName = orderData.shippingData?.name || orderData.userName || orderData.customerName || 'Cliente';
+        const clientPhone = orderData.shippingData?.phone || orderData.userPhone || '';
+
+        // Buscar si esta orden tenía seriales previos que ya no están en esta lista (para liberarlos a AVAILABLE)
+        const previousLinkedSerialsSnap = await getDocs(
+            query(collection(db, "product_serials"), where("orderId", "==", currentOrderId))
+        );
+
+        const currentSnsList = allSnsInOrder.map(s => s.sn);
+        const batch = writeBatch(db);
+
+        // Liberar los seriales previos que se hayan quitado o reemplazado
+        previousLinkedSerialsSnap.docs.forEach(docSnap => {
+            const data = docSnap.data();
+            if (!currentSnsList.includes(data.serialNumber)) {
+                batch.update(docSnap.ref, {
+                    status: 'AVAILABLE',
+                    orderId: null,
+                    orderInternalNumber: null,
+                    clientName: null,
+                    clientPhone: null,
+                    dispatchedAt: null,
+                    updatedAt: now
+                });
+            }
         });
-        await updateDoc(doc(db, "orders", currentOrderId), { items: updatedItems, status: 'ALISTADO', updatedAt: new Date() });
-        alert("✅ Alistamiento guardado con éxito");
+
+        // Vincular los seriales existentes válidos a esta venta
+        serialDocsToUpdate.forEach(item => {
+            batch.update(item.ref, {
+                status: 'DISPATCHED',
+                orderId: currentOrderId,
+                orderInternalNumber: orderInternal,
+                clientName: clientName,
+                clientPhone: clientPhone,
+                dispatchedAt: now,
+                updatedAt: now
+            });
+        });
+
+        // Opción 1: Registrar los seriales de inventario antiguo sobre la marcha
+        unregisteredSerials.forEach(item => {
+            const newDocRef = doc(collection(db, "product_serials"));
+            batch.set(newDocRef, {
+                serialNumber: item.sn,
+                productId: item.itemId,
+                productName: item.itemName,
+                sku: item.sku || '',
+                color: item.itemColor || null,
+                capacity: item.itemCapacity || null,
+                status: 'DISPATCHED',
+                supplierName: 'Inventario Inicial / Regularizado',
+                source: 'REGULARIZADO_ALISTAMIENTO',
+                orderId: currentOrderId,
+                orderInternalNumber: orderInternal,
+                clientName: clientName,
+                clientPhone: clientPhone,
+                dispatchedAt: now,
+                createdAt: now,
+                updatedAt: now
+            });
+        });
+
+        // Actualizar la orden
+        batch.update(doc(db, "orders", currentOrderId), {
+            items: updatedItems,
+            status: 'ALISTADO',
+            updatedAt: now
+        });
+
+        await batch.commit();
+
+        alert("✅ Alistamiento guardado con éxito y seriales vinculados a la venta.");
         getEl('order-modal').classList.add('hidden');
-        if(onSuccess) onSuccess();
+        if (onSuccess) onSuccess();
         else if (window.switchTab) window.switchTab(window.currentTab || 'ACTIONABLE');
+        else if (window.renderOrdersMemory) window.renderOrdersMemory();
+
     } catch(e) { 
         console.error(e); 
-        alert("Error al guardar alistamiento: " + (e?.message || e));
+        const msg = e?.message || (typeof e === 'string' ? e : "Error al guardar alistamiento");
+        alert(msg);
     } finally { 
         if (btn) { btn.disabled = false; btn.innerHTML = originalText; } 
     }

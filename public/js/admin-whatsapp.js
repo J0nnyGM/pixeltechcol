@@ -1,6 +1,6 @@
 import { auth, db, collection, onAuthStateChanged, query, orderBy, onSnapshot, doc, updateDoc, setDoc, functions, httpsCallable, limitToLast, storage, ref, uploadBytes, getDownloadURL, where, getDocs, limit, startAt, endAt, startAfter, addDoc, Timestamp } from "./firebase-init.js";
 import { viewOrderDetail } from "./order-actions.js";
-import { initManualSale, openManualSaleModal } from "./manual-sale.js?v=1.0.4";
+import { initManualSale, openManualSaleModal } from "./manual-sale.js?v=1.0.6";
 import { AdminStore } from "./admin-store.js"; // 🔥 IMPORTAMOS EL CEREBRO
 
 // --- REFERENCIAS DOM ---

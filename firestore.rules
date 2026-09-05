@@ -157,5 +157,10 @@ service cloud.firestore {
       allow read, write: if isStaff();
     }
     
+    // 🏷️ Control de Seriales (SN) y Trazabilidad
+    match /product_serials/{serialId} {
+      allow read, write: if isStaff();
+    }
+    
   }
 }

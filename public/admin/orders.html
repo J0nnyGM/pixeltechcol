@@ -428,7 +428,7 @@
         import '../js/admin-guard.js';
         import { db, collection, getDocs, orderBy, query, limit, auth, doc, getDoc, where, onSnapshot, startAfter } from '../js/firebase-init.js';
         import { loadAdminSidebar } from '../js/admin-ui.js?v=2.0.0';
-        import { initManualSale, openManualSaleModal } from '../js/manual-sale.js?v=1.0.4';
+        import { initManualSale, openManualSaleModal } from '../js/manual-sale.js?v=1.0.6';
         import '../js/order-actions.js?v=1.0.4';
 
         loadAdminSidebar();
@@ -1109,6 +1109,16 @@
                 alert("⚠️ La función para generar rótulos aún no se ha cargado. Por favor, reintenta en un segundo.");
             }
         };
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const openOrderId = urlParams.get('openOrder') || urlParams.get('orderId');
+        if (openOrderId) {
+            setTimeout(() => {
+                if (typeof window.viewOrderDetail === 'function') {
+                    window.viewOrderDetail(openOrderId);
+                }
+            }, 600);
+        }
     </script>
     <script type="module" src="../js/admin-guard.js"></script>
 </body>

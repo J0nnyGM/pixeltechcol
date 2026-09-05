@@ -515,9 +515,9 @@ function renderViewFromMemory() {
         const prodSubcategory = getSubcategoryName(p);
         const prodBrand = getBrandName(p);
 
-        // 1. Buscador inteligente (Nombre, SKU, Marca, Categoría, Subcategoría)
+        // 1. Buscador inteligente (Nombre, SKU, Marca, Categoría, Subcategoría, Descripción)
         if (searchWords.length > 0) {
-            const searchable = p.searchStr || normalizeText(`${p.name || ''} ${prodBrand} ${p.sku || ''} ${prodCategory} ${prodSubcategory}`);
+            const searchable = normalizeText(`${p.name || ''} ${prodBrand} ${p.sku || ''} ${prodCategory} ${prodSubcategory} ${p.description || ''} ${p.searchStr || ''}`);
             const matchesAll = searchWords.every(w => searchable.includes(w));
             if (!matchesAll) return false;
         }
@@ -769,17 +769,20 @@ function renderRowHTML(product, index) {
         ? `<p class="font-black text-brand-black text-sm mb-1 leading-tight group-hover:text-brand-cyan transition-colors cursor-pointer" onclick="window.location.href='edit-product.html?id=${product.id}'">${product.name}</p>`
         : `<p class="font-black text-brand-black text-sm mb-1 leading-tight">${product.name}</p>`;
 
-    const actionButtonsHtml = canEdit
-        ? `
-            <div class="flex items-center justify-end gap-3 opacity-60 group-hover:opacity-100 transition-opacity">
-                <button onclick="openDiscountModal('${product.id}')" class="w-10 h-10 rounded-xl bg-white border border-gray-200 text-gray-400 hover:text-purple-600 hover:border-purple-500 transition shadow-sm flex items-center justify-center hover:-translate-y-1"><i class="fa-solid fa-tags"></i></button>
-                <button onclick="window.location.href='edit-product.html?id=${product.id}'" class="w-10 h-10 rounded-xl bg-white border border-gray-200 text-gray-400 hover:text-brand-cyan hover:border-brand-cyan transition shadow-sm flex items-center justify-center hover:-translate-y-1"><i class="fa-solid fa-pen"></i></button>
-                <button onclick="toggleProductStatus('${product.id}', '${product.status}')" class="w-10 h-10 rounded-xl bg-white border border-gray-200 text-gray-400 ${toggleColor} transition shadow-sm flex items-center justify-center hover:-translate-y-1">
+    const actionButtonsHtml = `
+        <div class="flex items-center justify-end gap-2 opacity-70 group-hover:opacity-100 transition-opacity">
+            <a href="product-serials.html?productId=${product.id}" title="Control de Seriales (SN)" class="w-10 h-10 rounded-xl bg-white border border-gray-200 text-gray-400 hover:text-brand-cyan hover:border-brand-cyan transition shadow-sm flex items-center justify-center hover:-translate-y-1">
+                <i class="fa-solid fa-barcode"></i>
+            </a>
+            ${canEdit ? `
+                <button onclick="openDiscountModal('${product.id}')" title="Descuentos" class="w-10 h-10 rounded-xl bg-white border border-gray-200 text-gray-400 hover:text-purple-600 hover:border-purple-500 transition shadow-sm flex items-center justify-center hover:-translate-y-1"><i class="fa-solid fa-tags"></i></button>
+                <button onclick="window.location.href='edit-product.html?id=${product.id}'" title="Editar Producto" class="w-10 h-10 rounded-xl bg-white border border-gray-200 text-gray-400 hover:text-brand-cyan hover:border-brand-cyan transition shadow-sm flex items-center justify-center hover:-translate-y-1"><i class="fa-solid fa-pen"></i></button>
+                <button onclick="toggleProductStatus('${product.id}', '${product.status}')" title="Cambiar Estado" class="w-10 h-10 rounded-xl bg-white border border-gray-200 text-gray-400 ${toggleColor} transition shadow-sm flex items-center justify-center hover:-translate-y-1">
                     <i class="fa-solid ${toggleIcon}"></i>
                 </button>
-            </div>
-          `
-        : ``;
+            ` : ''}
+        </div>
+    `;
 
     const categoryName = (product.category || 'General').trim();
     const subcategoryName = (product.subcategory || '').trim();

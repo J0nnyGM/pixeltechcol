@@ -1,0 +1,1714 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#00AEC7">
+    <link rel="apple-touch-icon" href="/img/icons/icon-192x192.webp">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Control de Seriales (SN) | PixelTech Admin</title>
+    <link rel="stylesheet" href="../css/styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+
+        .custom-scroll::-webkit-scrollbar {
+            width: 5px;
+            height: 5px;
+        }
+
+        .custom-scroll::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .custom-scroll::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 9999px;
+        }
+
+        .custom-scroll::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+
+        .fade-in {
+            animation: fadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(4px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+    </style>
+</head>
+
+<body class="bg-slate-50 font-sans text-brand-black flex h-screen overflow-hidden selection:bg-brand-cyan selection:text-white" style="display: none;">
+
+    <div id="admin-sidebar"></div>
+
+    <main class="flex-grow overflow-y-auto flex flex-col no-scrollbar relative">
+
+        <!-- HEADER PRINCIPAL -->
+        <header class="bg-white/90 backdrop-blur-xl border-b border-gray-100 px-4 sm:px-6 lg:px-8 py-4 sm:py-5 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 sticky top-0 z-40 shadow-sm transition-all">
+            <div>
+                <h2 class="font-black text-[10px] uppercase tracking-[0.3em] text-gray-400 mb-1">Inventario & Trazabilidad</h2>
+                <h1 class="text-2xl sm:text-3xl font-black text-brand-black tracking-tighter uppercase">
+                    Control de <span class="text-brand-cyan">Seriales (SN)</span>
+                </h1>
+            </div>
+
+            <div class="flex items-center gap-2 sm:gap-3 w-full sm:w-auto justify-end">
+                <button type="button" id="btn-open-window" onclick="window.openCurrentInNewWindow()"
+                    class="hidden flex-1 sm:flex-initial bg-white border border-gray-200 text-brand-black px-4 sm:px-5 py-3 rounded-2xl font-black uppercase text-[10px] tracking-[0.15em] shadow-sm hover:border-brand-cyan hover:text-brand-cyan hover:-translate-y-0.5 transition-all flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-arrow-up-right-from-square text-xs"></i> <span>Abrir en Ventana Nueva</span>
+                </button>
+                <button type="button" id="btn-export-serials" onclick="window.exportSerialsToExcel()"
+                    class="flex-1 sm:flex-initial bg-white border border-gray-200 text-brand-black px-4 sm:px-5 py-3 rounded-2xl font-black uppercase text-[10px] tracking-[0.15em] shadow-sm hover:bg-emerald-50 hover:text-emerald-600 hover:border-emerald-200 hover:-translate-y-0.5 transition-all flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-file-excel text-emerald-600 text-sm"></i> <span>Exportar Excel</span>
+                </button>
+            </div>
+        </header>
+
+        <div class="p-4 sm:p-6 lg:p-8 w-full max-w-[1600px] mx-auto flex-grow">
+
+            <!-- ================================================================= -->
+            <!-- VISTA A: SELECTOR / DIRECTORIO DE PRODUCTOS                      -->
+            <!-- ================================================================= -->
+            <div id="view-selector" class="fade-in space-y-8">
+                <!-- Tarjeta introductoria -->
+                <div class="bg-gradient-to-r from-brand-black to-slate-900 text-white p-8 rounded-[2.5rem] shadow-2xl relative overflow-hidden">
+                    <div class="absolute -right-10 -bottom-10 opacity-10 text-[180px] pointer-events-none">
+                        <i class="fa-solid fa-barcode"></i>
+                    </div>
+                    <div class="relative z-10 max-w-2xl">
+                        <span class="px-3 py-1 bg-brand-cyan/20 text-brand-cyan font-black text-[9px] uppercase tracking-widest rounded-full border border-brand-cyan/30 inline-block mb-3">
+                            Trazabilidad de Unidades
+                        </span>
+                        <h2 class="text-2xl sm:text-3xl font-black tracking-tight mb-2">
+                            Gestión Individual por Número de Serie
+                        </h2>
+                    </div>
+
+                    <!-- Métricas globales rápidas -->
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-8 pt-6 border-t border-white/10">
+                        <div>
+                            <p class="text-[9px] font-black text-gray-400 uppercase tracking-widest">Total Productos</p>
+                            <h3 id="stat-total-products" class="text-xl sm:text-2xl font-black text-white mt-1">0</h3>
+                        </div>
+                        <div>
+                            <p class="text-[9px] font-black text-gray-400 uppercase tracking-widest">Seriales Registrados</p>
+                            <h3 id="stat-total-serials" class="text-xl sm:text-2xl font-black text-brand-cyan mt-1">0</h3>
+                        </div>
+                        <div>
+                            <p class="text-[9px] font-black text-emerald-400 uppercase tracking-widest">Disponibles</p>
+                            <h3 id="stat-total-available" class="text-xl sm:text-2xl font-black text-emerald-400 mt-1">0</h3>
+                        </div>
+                        <div>
+                            <p class="text-[9px] font-black text-blue-400 uppercase tracking-widest">Despachados</p>
+                            <h3 id="stat-total-dispatched" class="text-xl sm:text-2xl font-black text-blue-400 mt-1">0</h3>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Barra de Búsqueda y Filtros Avanzados del Catálogo -->
+                <div class="flex flex-col gap-3.5">
+                    
+                    <!-- Buscador Principal y Pestañas Rápidas de Stock -->
+                    <div class="flex flex-col xl:flex-row gap-3 justify-between items-stretch xl:items-center">
+                        <form id="selector-search-form" class="relative flex-1 group" onsubmit="event.preventDefault();">
+                            <div class="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none text-sm">
+                                <i class="fa-solid fa-magnifying-glass"></i>
+                            </div>
+                            <input type="text" id="selector-search-input"
+                                placeholder="Buscar por nombre, SKU o marca del producto..."
+                                class="w-full h-11 bg-white border border-gray-200 rounded-xl py-2.5 pl-11 pr-9 text-xs font-bold outline-none focus:border-brand-cyan focus:ring-4 focus:ring-cyan-500/10 transition-all shadow-2xs placeholder-gray-400 text-brand-black">
+                            <button type="button" id="btn-clear-selector-search" onclick="window.clearSelectorSearch()" class="hidden absolute right-3 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-500 transition p-1">
+                                <i class="fa-solid fa-xmark text-sm"></i>
+                            </button>
+                        </form>
+
+                        <!-- Pestañas Rápidas de Stock -->
+                        <div class="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-1">
+                            <button type="button" onclick="window.setSelectorStockTab('all')" id="selector-tab-all" class="tab-btn shrink-0 px-3.5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider bg-brand-black text-white shadow-sm transition-all hover:-translate-y-0.5 border border-transparent">
+                                Todos
+                            </button>
+                            <button type="button" onclick="window.setSelectorStockTab('in_stock')" id="selector-tab-in_stock" class="tab-btn shrink-0 px-3.5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider bg-white text-gray-500 border border-gray-200 hover:text-emerald-700 hover:border-emerald-300 transition-all hover:-translate-y-0.5 shadow-2xs">
+                                <i class="fa-solid fa-circle text-[7px] text-emerald-500 mr-1"></i> Con Stock (>0)
+                            </button>
+                            <button type="button" onclick="window.setSelectorStockTab('out_of_stock')" id="selector-tab-out_of_stock" class="tab-btn shrink-0 px-3.5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider bg-white text-gray-500 border border-gray-200 hover:text-gray-700 hover:border-gray-400 transition-all hover:-translate-y-0.5 shadow-2xs">
+                                <i class="fa-solid fa-ban text-gray-400 mr-1"></i> Agotados (0)
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Barra de Filtros Interactivos y Ordenamiento -->
+                    <div class="bg-white p-3.5 rounded-2xl border border-gray-100 shadow-sm flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                        
+                        <!-- Desplegables con Buscador Interactivo -->
+                        <div class="flex flex-wrap items-center gap-2">
+                            
+                            <!-- 1. Dropdown Interactivo: Categoría -->
+                            <div class="relative dropdown-container" id="dropdown-selector-category-wrapper">
+                                <button type="button" onclick="window.toggleFilterDropdown('selector-category')" id="btn-dropdown-selector-category" class="h-10 flex items-center justify-between gap-2 bg-slate-50 hover:bg-slate-100 border border-gray-200/90 rounded-xl px-3 text-xs font-bold text-brand-black transition-all shadow-2xs min-w-[140px] max-w-[210px]">
+                                    <div class="flex items-center gap-1.5 min-w-0">
+                                        <i class="fa-solid fa-folder text-brand-cyan text-xs shrink-0"></i>
+                                        <span class="text-[9px] font-black uppercase tracking-wider text-gray-400 shrink-0">Cat:</span>
+                                        <span id="selected-selector-category-label" class="truncate text-xs font-bold text-brand-black">Todas</span>
+                                    </div>
+                                    <i id="arrow-dropdown-selector-category" class="fa-solid fa-chevron-down text-[9px] text-gray-400 transition-transform shrink-0"></i>
+                                </button>
+                                <div id="panel-dropdown-selector-category" class="filter-dropdown-panel hidden absolute left-0 top-full mt-2 w-72 max-w-[calc(100vw-2rem)] bg-white rounded-2xl shadow-2xl border border-gray-100 p-3 z-50">
+                                    <div class="relative mb-2">
+                                        <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs pointer-events-none"></i>
+                                        <input type="text" id="search-dropdown-selector-category" oninput="window.filterDropdownList('selector-category', this.value)" placeholder="Buscar categoría..." class="w-full bg-slate-50 border border-gray-200/90 rounded-xl py-2 pl-8 pr-3 text-xs font-bold text-brand-black outline-none focus:bg-white focus:border-brand-cyan transition-all">
+                                    </div>
+                                    <div id="options-dropdown-selector-category" class="max-h-56 overflow-y-auto custom-scroll space-y-1 text-xs">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 2. Dropdown Interactivo: Marca -->
+                            <div class="relative dropdown-container" id="dropdown-selector-brand-wrapper">
+                                <button type="button" onclick="window.toggleFilterDropdown('selector-brand')" id="btn-dropdown-selector-brand" class="h-10 flex items-center justify-between gap-2 bg-slate-50 hover:bg-slate-100 border border-gray-200/90 rounded-xl px-3 text-xs font-bold text-brand-black transition-all shadow-2xs min-w-[130px] max-w-[200px]">
+                                    <div class="flex items-center gap-1.5 min-w-0">
+                                        <i class="fa-solid fa-copyright text-brand-cyan text-xs shrink-0"></i>
+                                        <span class="text-[9px] font-black uppercase tracking-wider text-gray-400 shrink-0">Marca:</span>
+                                        <span id="selected-selector-brand-label" class="truncate text-xs font-bold text-brand-black">Todas</span>
+                                    </div>
+                                    <i id="arrow-dropdown-selector-brand" class="fa-solid fa-chevron-down text-[9px] text-gray-400 transition-transform shrink-0"></i>
+                                </button>
+                                <div id="panel-dropdown-selector-brand" class="filter-dropdown-panel hidden absolute left-0 top-full mt-2 w-72 max-w-[calc(100vw-2rem)] bg-white rounded-2xl shadow-2xl border border-gray-100 p-3 z-50">
+                                    <div class="relative mb-2">
+                                        <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs pointer-events-none"></i>
+                                        <input type="text" id="search-dropdown-selector-brand" oninput="window.filterDropdownList('selector-brand', this.value)" placeholder="Buscar marca..." class="w-full bg-slate-50 border border-gray-200/90 rounded-xl py-2 pl-8 pr-3 text-xs font-bold text-brand-black outline-none focus:bg-white focus:border-brand-cyan transition-all">
+                                    </div>
+                                    <div id="options-dropdown-selector-brand" class="max-h-56 overflow-y-auto custom-scroll space-y-1 text-xs">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 3. Botón Limpiar Filtros -->
+                            <button id="btn-reset-selector-filters" onclick="window.resetSelectorFilters()" class="hidden h-10 px-3 rounded-xl border border-gray-200 bg-gray-50 text-gray-500 hover:text-brand-red hover:border-brand-red hover:bg-red-50 text-[10px] font-black uppercase tracking-wider transition flex items-center gap-1.5 shadow-2xs">
+                                <i class="fa-solid fa-rotate-left"></i> Limpiar Filtros
+                            </button>
+                        </div>
+
+                        <!-- Ordenamiento y Paginación por Página -->
+                        <div class="flex items-center gap-2.5 pt-2 lg:pt-0 border-t lg:border-t-0 border-gray-100 justify-between lg:justify-end">
+                            <div class="h-10 flex items-center gap-1.5 bg-slate-50 border border-gray-200/90 rounded-xl px-3 shadow-2xs">
+                                <i class="fa-solid fa-arrow-down-short-wide text-brand-cyan text-xs shrink-0"></i>
+                                <span class="text-[9px] font-black uppercase tracking-wider text-gray-400 shrink-0">Orden:</span>
+                                <select id="selector-sort-select" class="bg-transparent text-xs font-bold text-brand-black outline-none cursor-pointer">
+                                    <option value="name_asc">Nombre (A - Z)</option>
+                                    <option value="name_desc">Nombre (Z - A)</option>
+                                    <option value="stock_desc">Mayor Stock</option>
+                                    <option value="stock_asc">Menor Stock</option>
+                                </select>
+                            </div>
+
+                            <div class="h-10 flex items-center gap-1.5 text-[10px] font-bold text-gray-400 uppercase bg-slate-50 border border-gray-200/90 rounded-xl px-3 shadow-2xs">
+                                <span>Ver:</span>
+                                <select id="selector-page-size-select" onchange="window.onSelectorPageSizeChange(this.value)" class="bg-transparent text-xs font-bold text-brand-black outline-none cursor-pointer">
+                                    <option value="9">9</option>
+                                    <option value="18" selected>18</option>
+                                    <option value="36">36</option>
+                                    <option value="72">72</option>
+                                 </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Contador de resultados -->
+                    <div class="flex items-center justify-between text-[10px] font-bold text-gray-400 px-2">
+                        <div>
+                            Mostrando <span id="selector-product-count" class="font-black text-brand-black">0</span> productos encontrados
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Grid de productos (3 Tarjetas Normales por fila) -->
+                <div id="products-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 sm:gap-6">
+                    <div class="col-span-full py-16 text-center text-gray-400">
+                        <i class="fa-solid fa-circle-notch fa-spin text-3xl text-brand-cyan mb-3"></i>
+                        <p class="text-xs font-bold uppercase tracking-widest">Cargando catálogo de productos...</p>
+                    </div>
+                </div>
+
+                <!-- Paginación de Productos del Catálogo -->
+                <div id="selector-pagination-bar" class="flex flex-col sm:flex-row justify-between items-center px-6 py-4 gap-4 bg-white rounded-2xl border border-gray-100 shadow-xs">
+                    <div class="flex items-center gap-3 text-xs text-gray-500 font-bold">
+                        <span>Mostrando <span id="selector-view-range" class="font-black text-brand-black">0-0</span> de <span id="selector-total-count" class="font-black text-brand-black">0</span> productos</span>
+                        <div class="flex items-center gap-1.5 ml-2">
+                            <span class="text-[10px] text-gray-400 uppercase tracking-wider">Ver:</span>
+                            <select id="selector-page-size-select" onchange="window.onSelectorPageSizeChange(this.value)"
+                                class="bg-slate-50 border border-gray-200 rounded-lg px-2 py-1 text-xs font-bold text-brand-black outline-none focus:border-brand-cyan cursor-pointer">
+                                <option value="9">9</option>
+                                <option value="18" selected>18</option>
+                                <option value="36">36</option>
+                                <option value="72">72</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-1.5" id="selector-pagination-controls">
+                        <!-- Inyectado dinámicamente -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- ================================================================= -->
+            <!-- VISTA B: VENTANA DEDICADA DEL PRODUCTO (SIN MODALES)              -->
+            <!-- ================================================================= -->
+            <div id="view-product-serials" class="hidden fade-in space-y-6">
+
+                <!-- Barra superior de navegación del producto -->
+                <div class="flex flex-wrap items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-gray-100 shadow-xs">
+                    <button type="button" onclick="window.backToSelector()"
+                        class="px-4 py-2 bg-slate-50 hover:bg-slate-100 text-brand-black border border-gray-200 rounded-xl text-xs font-black uppercase tracking-wider transition flex items-center gap-2">
+                        <i class="fa-solid fa-arrow-left"></i> Cambiar de Producto
+                    </button>
+
+                    <div class="flex items-center gap-2">
+                        <button type="button" onclick="window.openCurrentInNewWindow()"
+                            class="px-4 py-2 bg-slate-50 hover:bg-slate-100 text-brand-black border border-gray-200 rounded-xl text-xs font-black uppercase tracking-wider transition flex items-center gap-2">
+                            <i class="fa-solid fa-arrow-up-right-from-square text-brand-cyan"></i> Abrir en Ventana Dedicada
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Ficha del Producto y Métricas Clave -->
+                <div class="bg-white p-6 sm:p-8 rounded-[2.5rem] shadow-sm border border-gray-100 grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
+                    
+                    <!-- Imagen y datos del producto -->
+                    <div class="lg:col-span-6 flex items-center gap-6">
+                        <div class="w-24 h-24 sm:w-28 sm:h-28 rounded-3xl bg-slate-50 border border-gray-100 p-3 shrink-0 flex items-center justify-center shadow-xs">
+                            <img id="prod-card-img" src="/img/placeholder-tech.webp" alt="Producto" class="max-w-full max-h-full object-contain">
+                        </div>
+                        <div class="min-w-0">
+                            <span id="prod-card-brand" class="text-[9px] font-black uppercase tracking-widest text-brand-cyan block mb-1">Marca</span>
+                            <h2 id="prod-card-title" class="text-lg sm:text-xl font-black text-brand-black uppercase tracking-tight mb-1 break-words">
+                                Nombre del Producto
+                            </h2>
+                            <div class="flex flex-wrap items-center gap-2 text-[10px] font-bold text-gray-500">
+                                <span class="bg-slate-100 px-2.5 py-1 rounded-lg border border-gray-200">
+                                    SKU: <strong id="prod-card-sku" class="text-brand-black">---</strong>
+                                </span>
+                                <span class="bg-slate-100 px-2.5 py-1 rounded-lg border border-gray-200">
+                                    Stock Catálogo: <strong id="prod-card-stock" class="text-brand-black">0</strong>
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Tarjetas de métricas de seriales -->
+                    <div class="lg:col-span-6 grid grid-cols-3 gap-3">
+                        <div class="bg-slate-50 p-4 rounded-2xl border border-gray-100 text-center">
+                            <p class="text-[8px] font-black text-gray-400 uppercase tracking-widest mb-1">Registrados</p>
+                            <h4 id="metric-total-serials" class="text-2xl font-black text-brand-black">0</h4>
+                            <span class="text-[8px] font-bold text-gray-400 uppercase tracking-tighter">Histórico Total</span>
+                        </div>
+                        <div class="bg-emerald-50/70 p-4 rounded-2xl border border-emerald-100 text-center">
+                            <p class="text-[8px] font-black text-emerald-600 uppercase tracking-widest mb-1">Disponibles</p>
+                            <h4 id="metric-available-serials" class="text-2xl font-black text-emerald-600">0</h4>
+                            <span class="text-[8px] font-bold text-emerald-600/80 uppercase tracking-tighter">En Bodega</span>
+                        </div>
+                        <div class="bg-blue-50/70 p-4 rounded-2xl border border-blue-100 text-center">
+                            <p class="text-[8px] font-black text-blue-600 uppercase tracking-widest mb-1">Despachados</p>
+                            <h4 id="metric-dispatched-serials" class="text-2xl font-black text-blue-600">0</h4>
+                            <span class="text-[8px] font-bold text-blue-600/80 uppercase tracking-tighter">En Ventas</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Barra de Búsqueda y Filtros Avanzados de Seriales -->
+                <div class="flex flex-col gap-3.5">
+                    
+                    <!-- Fila 1: Buscador y Pestañas Rápidas de Estado -->
+                    <div class="flex flex-col xl:flex-row gap-3 justify-between items-stretch xl:items-center">
+                        <form id="serials-search-form" class="relative flex-1 group" onsubmit="event.preventDefault();">
+                            <div class="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none text-sm">
+                                <i class="fa-solid fa-magnifying-glass"></i>
+                            </div>
+                            <input type="text" id="serials-search-input"
+                                placeholder="Buscar serial (SN), # orden, cliente, teléfono, proveedor..."
+                                class="w-full h-11 bg-white border border-gray-200 rounded-xl py-2.5 pl-11 pr-9 text-xs font-bold outline-none focus:border-brand-cyan focus:ring-4 focus:ring-cyan-500/10 transition-all shadow-2xs placeholder-gray-400 text-brand-black">
+                            <button type="button" id="btn-clear-serials-search" onclick="window.clearSerialsSearch()" class="hidden absolute right-3 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-500 transition p-1">
+                                <i class="fa-solid fa-xmark text-sm"></i>
+                            </button>
+                        </form>
+
+                        <!-- Pestañas Rápidas -->
+                        <div class="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-1">
+                            <button type="button" onclick="window.setFilterTab('all')" id="tab-all" class="tab-btn active shrink-0 px-3.5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider bg-brand-black text-white shadow-sm transition-all hover:-translate-y-0.5 border border-transparent">
+                                Todos (<span id="count-tab-all">0</span>)
+                            </button>
+                            <button type="button" onclick="window.setFilterTab('available')" id="tab-available" class="tab-btn shrink-0 px-3.5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider bg-white text-gray-500 border border-gray-200 hover:text-emerald-700 hover:border-emerald-300 transition-all hover:-translate-y-0.5 shadow-2xs">
+                                <i class="fa-solid fa-circle text-[7px] text-emerald-500 mr-1"></i> Disponibles (<span id="count-tab-available">0</span>)
+                            </button>
+                            <button type="button" onclick="window.setFilterTab('dispatched')" id="tab-dispatched" class="tab-btn shrink-0 px-3.5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider bg-white text-gray-500 border border-gray-200 hover:text-blue-700 hover:border-blue-300 transition-all hover:-translate-y-0.5 shadow-2xs">
+                                <i class="fa-solid fa-truck-fast text-[9px] text-blue-500 mr-1"></i> Despachados (<span id="count-tab-dispatched">0</span>)
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Fila 2: Barra de Filtros Avanzados y Ordenamiento -->
+                    <div class="bg-white p-3.5 rounded-2xl border border-gray-100 shadow-sm flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+                        
+                        <!-- Desplegables con Buscador Interactivo -->
+                        <div class="flex flex-wrap items-center gap-2">
+                            
+                            <!-- 1. Dropdown Interactivo: Variante -->
+                            <div class="relative dropdown-container" id="dropdown-serial-variant-wrapper">
+                                <button type="button" onclick="window.toggleFilterDropdown('serial-variant')" id="btn-dropdown-serial-variant" class="h-10 flex items-center justify-between gap-2 bg-slate-50 hover:bg-slate-100 border border-gray-200/90 rounded-xl px-3 text-xs font-bold text-brand-black transition-all shadow-2xs min-w-[140px] max-w-[210px]">
+                                    <div class="flex items-center gap-1.5 min-w-0">
+                                        <i class="fa-solid fa-tags text-brand-cyan text-xs shrink-0"></i>
+                                        <span class="text-[9px] font-black uppercase tracking-wider text-gray-400 shrink-0">Var:</span>
+                                        <span id="selected-serial-variant-label" class="truncate text-xs font-bold text-brand-black">Todas</span>
+                                    </div>
+                                    <i id="arrow-dropdown-serial-variant" class="fa-solid fa-chevron-down text-[9px] text-gray-400 transition-transform shrink-0"></i>
+                                </button>
+                                <div id="panel-dropdown-serial-variant" class="filter-dropdown-panel hidden absolute left-0 top-full mt-2 w-72 max-w-[calc(100vw-2rem)] bg-white rounded-2xl shadow-2xl border border-gray-100 p-3 z-50">
+                                    <div class="relative mb-2">
+                                        <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs pointer-events-none"></i>
+                                        <input type="text" id="search-dropdown-serial-variant" oninput="window.filterDropdownList('serial-variant', this.value)" placeholder="Buscar variante..." class="w-full bg-slate-50 border border-gray-200/90 rounded-xl py-2 pl-8 pr-3 text-xs font-bold text-brand-black outline-none focus:bg-white focus:border-brand-cyan transition-all">
+                                    </div>
+                                    <div id="options-dropdown-serial-variant" class="max-h-56 overflow-y-auto custom-scroll space-y-1 text-xs">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 2. Dropdown Interactivo: Proveedor -->
+                            <div class="relative dropdown-container" id="dropdown-serial-supplier-wrapper">
+                                <button type="button" onclick="window.toggleFilterDropdown('serial-supplier')" id="btn-dropdown-serial-supplier" class="h-10 flex items-center justify-between gap-2 bg-slate-50 hover:bg-slate-100 border border-gray-200/90 rounded-xl px-3 text-xs font-bold text-brand-black transition-all shadow-2xs min-w-[140px] max-w-[210px]">
+                                    <div class="flex items-center gap-1.5 min-w-0">
+                                        <i class="fa-solid fa-truck-field text-brand-cyan text-xs shrink-0"></i>
+                                        <span class="text-[9px] font-black uppercase tracking-wider text-gray-400 shrink-0">Prov:</span>
+                                        <span id="selected-serial-supplier-label" class="truncate text-xs font-bold text-brand-black">Todos</span>
+                                    </div>
+                                    <i id="arrow-dropdown-serial-supplier" class="fa-solid fa-chevron-down text-[9px] text-gray-400 transition-transform shrink-0"></i>
+                                </button>
+                                <div id="panel-dropdown-serial-supplier" class="filter-dropdown-panel hidden absolute left-0 top-full mt-2 w-72 max-w-[calc(100vw-2rem)] bg-white rounded-2xl shadow-2xl border border-gray-100 p-3 z-50">
+                                    <div class="relative mb-2">
+                                        <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs pointer-events-none"></i>
+                                        <input type="text" id="search-dropdown-serial-supplier" oninput="window.filterDropdownList('serial-supplier', this.value)" placeholder="Buscar proveedor..." class="w-full bg-slate-50 border border-gray-200/90 rounded-xl py-2 pl-8 pr-3 text-xs font-bold text-brand-black outline-none focus:bg-white focus:border-brand-cyan transition-all">
+                                    </div>
+                                    <div id="options-dropdown-serial-supplier" class="max-h-56 overflow-y-auto custom-scroll space-y-1 text-xs">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 3. Filtro Fecha -->
+                            <div class="h-10 flex items-center gap-1.5 bg-slate-50 border border-gray-200/90 rounded-xl px-3 shadow-2xs">
+                                <i class="fa-solid fa-calendar-days text-brand-cyan text-xs shrink-0"></i>
+                                <span class="text-[9px] font-black uppercase tracking-wider text-gray-400 shrink-0">Fecha:</span>
+                                <select id="serials-date-filter" class="bg-transparent text-xs font-bold text-brand-black outline-none cursor-pointer">
+                                    <option value="all">Cualquier fecha</option>
+                                    <option value="today">Hoy</option>
+                                    <option value="7days">Últimos 7 días</option>
+                                    <option value="30days">Últimos 30 días</option>
+                                    <option value="this_month">Este mes</option>
+                                </select>
+                            </div>
+
+                            <!-- 4. Botón Limpiar Filtros -->
+                            <button id="btn-reset-serials-filters" onclick="window.resetSerialsFilters()" class="hidden h-10 px-3 rounded-xl border border-gray-200 bg-gray-50 text-gray-500 hover:text-brand-red hover:border-brand-red hover:bg-red-50 text-[10px] font-black uppercase tracking-wider transition flex items-center gap-1.5 shadow-2xs">
+                                <i class="fa-solid fa-rotate-left"></i> Limpiar Filtros
+                            </button>
+                        </div>
+
+                        <!-- Ordenamiento y Paginación por Página -->
+                        <div class="flex items-center gap-2.5 pt-2 lg:pt-0 border-t lg:border-t-0 border-gray-100 justify-between lg:justify-end">
+                            <div class="h-10 flex items-center gap-1.5 bg-slate-50 border border-gray-200/90 rounded-xl px-3 shadow-2xs">
+                                <i class="fa-solid fa-arrow-down-short-wide text-brand-cyan text-xs shrink-0"></i>
+                                <span class="text-[9px] font-black uppercase tracking-wider text-gray-400 shrink-0">Orden:</span>
+                                <select id="serials-sort-select" class="bg-transparent text-xs font-bold text-brand-black outline-none cursor-pointer">
+                                    <option value="recent">Más recientes</option>
+                                    <option value="oldest">Más antiguos</option>
+                                    <option value="sn_asc">Serial (A - Z)</option>
+                                    <option value="sn_desc">Serial (Z - A)</option>
+                                </select>
+                            </div>
+
+                            <div class="h-10 flex items-center gap-1.5 text-[10px] font-bold text-gray-400 uppercase bg-slate-50 border border-gray-200/90 rounded-xl px-3 shadow-2xs">
+                                <span>Ver:</span>
+                                <select id="serials-page-size-select" onchange="window.onSerialsPageSizeChange(this.value)" class="bg-transparent text-xs font-bold text-brand-black outline-none cursor-pointer">
+                                    <option value="15" selected>15</option>
+                                    <option value="25">25</option>
+                                    <option value="50">50</option>
+                                    <option value="100">100</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tabla de Seriales con Paginación Integrada -->
+                <div class="bg-white rounded-[2.5rem] shadow-xl shadow-slate-200/50 border border-gray-100 overflow-hidden">
+                    <div class="overflow-x-auto custom-scroll">
+                        <table class="w-full text-left border-collapse min-w-[950px]">
+                            <thead class="bg-slate-50/80 border-b border-gray-100">
+                                <tr>
+                                    <th class="py-5 px-6 text-[9px] font-black uppercase text-gray-400 tracking-widest text-center w-12">#</th>
+                                    <th class="py-5 px-6 text-[9px] font-black uppercase text-gray-400 tracking-widest">Código Serial (SN)</th>
+                                    <th class="py-5 px-6 text-[9px] font-black uppercase text-gray-400 tracking-widest">Variante</th>
+                                    <th class="py-5 px-6 text-[9px] font-black uppercase text-gray-400 tracking-widest text-center">Estado</th>
+                                    <th class="py-5 px-6 text-[9px] font-black uppercase text-gray-400 tracking-widest">Entrada / Proveedor</th>
+                                    <th class="py-5 px-6 text-[9px] font-black uppercase text-gray-400 tracking-widest">Venta Vinculada</th>
+                                </tr>
+                            </thead>
+                            <tbody id="serials-table-body" class="divide-y divide-gray-100 text-xs font-medium">
+                                <tr>
+                                    <td colspan="6" class="py-16 text-center text-gray-400">
+                                        <i class="fa-solid fa-circle-notch fa-spin text-2xl text-brand-cyan mb-2"></i>
+                                        <p class="font-bold uppercase tracking-widest text-[10px]">Cargando seriales del producto...</p>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <!-- Mensaje sin resultados -->
+                    <div id="serials-empty-state" class="hidden p-16 text-center">
+                        <div class="w-16 h-16 rounded-3xl bg-slate-100 text-gray-400 flex items-center justify-center mx-auto text-2xl mb-4">
+                            <i class="fa-solid fa-barcode"></i>
+                        </div>
+                        <h4 class="font-black text-sm uppercase tracking-tight text-brand-black mb-1">No se encontraron seriales</h4>
+                        <p id="serials-empty-msg" class="text-xs text-gray-400 font-medium max-w-sm mx-auto">
+                            No hay números de serie registrados para este producto o no coinciden con los filtros aplicados.
+                        </p>
+                    </div>
+
+                    <!-- Barra de Paginación de Seriales -->
+                    <div id="serials-pagination-bar" class="flex flex-col sm:flex-row justify-between items-center px-6 py-4 gap-4 border-t border-gray-100 bg-slate-50/50">
+                        <div class="flex items-center gap-3 text-xs text-gray-500 font-bold">
+                            <span>Mostrando <span id="serials-view-range" class="font-black text-brand-black">0-0</span> de <span id="serials-total-count" class="font-black text-brand-black">0</span> seriales</span>
+                            <div class="flex items-center gap-1.5 ml-2">
+                                <span class="text-[10px] text-gray-400 uppercase tracking-wider">Ver:</span>
+                                <select id="serials-page-size-select" onchange="window.onSerialsPageSizeChange(this.value)"
+                                    class="bg-white border border-gray-200 rounded-lg px-2 py-1 text-xs font-bold text-brand-black outline-none focus:border-brand-cyan cursor-pointer">
+                                    <option value="15" selected>15</option>
+                                    <option value="25">25</option>
+                                    <option value="50">50</option>
+                                    <option value="100">100</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-1.5" id="serials-pagination-controls">
+                            <!-- Inyectado dinámicamente -->
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+        </div>
+    </main>
+
+    <script type="module">
+        import '../js/admin-guard.js';
+        import { db, collection, getDocs, query, where, doc, getDoc, auth, onAuthStateChanged } from '../js/firebase-init.js';
+        import { loadAdminSidebar } from '../js/admin-ui.js?v=2.0.0';
+        import { AdminStore } from '../js/admin-store.js';
+
+        loadAdminSidebar();
+
+        // --- ESTADO LOCAL ---
+        let allProductsCache = [];
+        let allSerialsCache = [];
+        let currentSelectedProduct = null;
+
+        // Listas dinámicas para dropdowns interactivos (lista + buscador)
+        let selectorCategoriesList = [];
+        let selectorBrandsList = [];
+        let serialVariantsList = [];
+        let serialSuppliersList = [];
+
+        // Filtros y paginación del selector de productos
+        let selectorSearchQuery = '';
+        let selectorSelectedBrand = '';
+        let selectorSelectedCategory = '';
+        let selectorSelectedStock = 'all';
+        let selectorSelectedSort = 'name_asc';
+        let selectorPageSize = 18;
+        let selectorCurrentPage = 1;
+
+        // Filtros y paginación de la tabla de seriales
+        let currentFilterStatus = 'all'; // 'all', 'available', 'dispatched'
+        let currentSearchQuery = '';
+        let currentVariantFilter = '';
+        let currentSupplierFilter = '';
+        let currentDateFilter = 'all';
+        let currentSortFilter = 'recent';
+        let serialsPageSize = 15;
+        let serialsCurrentPage = 1;
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const initialProductId = urlParams.get('productId');
+
+        // Helpers de formato
+        const normalizeText = (str) => str ? str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "") : "";
+        const formatDate = (dateObj) => {
+            if (!dateObj) return "---";
+            const d = dateObj.toDate ? dateObj.toDate() : new Date(dateObj);
+            if (isNaN(d.getTime())) return "---";
+            return d.toLocaleDateString('es-CO', { year: 'numeric', month: 'short', day: 'numeric' });
+        };
+
+        const getProdCategoryName = (p) => {
+            if (!p) return '';
+            if (typeof p.category === 'string') return p.category.trim();
+            if (typeof p.category === 'object' && p.category !== null) return (p.category.name || p.category.label || '').trim();
+            return '';
+        };
+
+        const getProdBrandName = (p) => {
+            if (!p) return '';
+            if (typeof p.brand === 'string') return p.brand.trim();
+            if (typeof p.brand === 'object' && p.brand !== null) return (p.brand.name || '').trim();
+            return '';
+        };
+
+        const getProdSubcategoryName = (p) => {
+            if (!p) return '';
+            if (typeof p.subcategory === 'string') return p.subcategory.trim();
+            if (typeof p.subcategory === 'object' && p.subcategory !== null) return (p.subcategory.name || p.subcategory.label || '').trim();
+            return '';
+        };
+
+        // =========================================================================
+        // CONTROL INTERACTIVO DE DROPDOWNS (CON BUSCADOR Y LISTA)
+        // =========================================================================
+        window.toggleFilterDropdown = (type) => {
+            const panel = document.getElementById(`panel-dropdown-${type}`);
+            const arrow = document.getElementById(`arrow-dropdown-${type}`);
+            const wrapper = document.getElementById(`dropdown-${type}-wrapper`);
+            if (!panel) return;
+
+            const isHidden = panel.classList.contains('hidden');
+            window.closeAllDropdowns();
+
+            if (isHidden) {
+                panel.classList.remove('hidden');
+                if (arrow) arrow.classList.add('rotate-180');
+                if (wrapper) wrapper.classList.add('z-50');
+
+                // Prevenir desbordamiento horizontal en pantallas estrechas
+                const rect = panel.getBoundingClientRect();
+                if (rect.right > (window.innerWidth - 12)) {
+                    panel.classList.remove('left-0');
+                    panel.classList.add('right-0');
+                } else {
+                    panel.classList.remove('right-0');
+                    panel.classList.add('left-0');
+                }
+
+                const searchInp = document.getElementById(`search-dropdown-${type}`);
+                if (searchInp) {
+                    searchInp.value = '';
+                    renderDropdownOptions(type, '');
+                    setTimeout(() => searchInp.focus(), 50);
+                }
+            }
+        };
+
+        window.closeAllDropdowns = () => {
+            document.querySelectorAll('.filter-dropdown-panel').forEach(p => {
+                p.classList.add('hidden');
+                p.classList.remove('right-0');
+                p.classList.add('left-0');
+            });
+            document.querySelectorAll('[id^="arrow-dropdown-"]').forEach(a => a.classList.remove('rotate-180'));
+            document.querySelectorAll('.dropdown-container').forEach(c => c.classList.remove('z-50'));
+        };
+
+        window.filterDropdownList = (type, query) => {
+            renderDropdownOptions(type, query);
+        };
+
+        window.selectDropdownOption = (type, value) => {
+            if (type === 'selector-category') {
+                selectorSelectedCategory = value;
+                updateDropdownButtonLabel('selector-category');
+                selectorCurrentPage = 1;
+                renderProductsGrid();
+            } else if (type === 'selector-brand') {
+                selectorSelectedBrand = value;
+                updateDropdownButtonLabel('selector-brand');
+                selectorCurrentPage = 1;
+                renderProductsGrid();
+            } else if (type === 'serial-variant') {
+                currentVariantFilter = value;
+                updateDropdownButtonLabel('serial-variant');
+                serialsCurrentPage = 1;
+                renderSerialsTable();
+            } else if (type === 'serial-supplier') {
+                currentSupplierFilter = value;
+                updateDropdownButtonLabel('serial-supplier');
+                serialsCurrentPage = 1;
+                renderSerialsTable();
+            }
+
+            window.closeAllDropdowns();
+        };
+
+        function updateDropdownButtonLabel(type) {
+            const labelEl = document.getElementById(`selected-${type}-label`);
+            if (!labelEl) return;
+
+            if (type === 'selector-category') {
+                labelEl.textContent = selectorSelectedCategory ? selectorSelectedCategory : `Todas (${selectorCategoriesList.length})`;
+            } else if (type === 'selector-brand') {
+                labelEl.textContent = selectorSelectedBrand ? selectorSelectedBrand : `Todas (${selectorBrandsList.length})`;
+            } else if (type === 'serial-variant') {
+                labelEl.textContent = currentVariantFilter ? currentVariantFilter : `Todas (${serialVariantsList.length})`;
+            } else if (type === 'serial-supplier') {
+                labelEl.textContent = currentSupplierFilter ? currentSupplierFilter : `Todos (${serialSuppliersList.length})`;
+            }
+        }
+
+        function renderDropdownOptions(type, searchFilter = '') {
+            const container = document.getElementById(`options-dropdown-${type}`);
+            if (!container) return;
+
+            let items = [];
+            let currentSelected = '';
+            let totalAll = 0;
+            let allLabel = 'Todas';
+
+            if (type === 'selector-category') {
+                items = selectorCategoriesList;
+                currentSelected = selectorSelectedCategory;
+                totalAll = allProductsCache.length;
+            } else if (type === 'selector-brand') {
+                items = selectorBrandsList;
+                currentSelected = selectorSelectedBrand;
+                totalAll = allProductsCache.length;
+            } else if (type === 'serial-variant') {
+                items = serialVariantsList;
+                currentSelected = currentVariantFilter;
+                totalAll = allSerialsCache.length;
+            } else if (type === 'serial-supplier') {
+                items = serialSuppliersList;
+                currentSelected = currentSupplierFilter;
+                totalAll = allSerialsCache.length;
+                allLabel = 'Todos';
+            }
+
+            const searchWords = normalizeText(searchFilter.trim()).split(/\s+/).filter(Boolean);
+            const filteredItems = searchWords.length > 0
+                ? items.filter(item => searchWords.every(w => item.normalized.includes(w)))
+                : items;
+
+            let html = '';
+
+            // Opción "Todas" / "Todos" (cuando no hay búsqueda activa)
+            if (searchWords.length === 0) {
+                const isAllSelected = !currentSelected;
+                html += `
+                    <div onclick="window.selectDropdownOption('${type}', '')" class="px-3 py-2 rounded-xl flex items-center justify-between cursor-pointer transition-colors ${isAllSelected ? 'bg-brand-cyan/10 text-brand-cyan font-black' : 'hover:bg-slate-50 text-brand-black font-bold'}">
+                        <span class="flex items-center gap-2">
+                            ${isAllSelected ? '<i class="fa-solid fa-check text-xs"></i>' : ''}
+                            <span>${allLabel}</span>
+                        </span>
+                        <span class="text-[10px] font-bold px-2 py-0.5 rounded-full ${isAllSelected ? 'bg-brand-cyan/20 text-brand-cyan' : 'bg-slate-100 text-gray-400'}">${totalAll}</span>
+                    </div>
+                `;
+            }
+
+            if (filteredItems.length === 0) {
+                html += `
+                    <div class="p-4 text-center text-xs font-bold text-gray-400">
+                        <i class="fa-solid fa-magnifying-glass text-gray-300 text-sm mb-1 block"></i>
+                        No se encontraron opciones
+                    </div>
+                `;
+            } else {
+                filteredItems.forEach(item => {
+                    const isSelected = currentSelected && normalizeText(currentSelected) === item.normalized;
+                    const safeName = item.name.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+                    html += `
+                        <div onclick="window.selectDropdownOption('${type}', '${safeName}')" class="px-3 py-2 rounded-xl flex items-center justify-between cursor-pointer transition-colors ${isSelected ? 'bg-brand-cyan/10 text-brand-cyan font-black' : 'hover:bg-slate-50 text-brand-black font-bold'}">
+                            <span class="flex items-center gap-2 min-w-0 pr-2">
+                                ${isSelected ? '<i class="fa-solid fa-check text-xs shrink-0"></i>' : ''}
+                                <span class="truncate">${item.name}</span>
+                            </span>
+                            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${isSelected ? 'bg-brand-cyan/20 text-brand-cyan' : 'bg-slate-100 text-gray-400'}">${item.count}</span>
+                        </div>
+                    `;
+                });
+            }
+
+            container.innerHTML = html;
+        }
+
+        // Cierre global al hacer clic fuera o presionar escape
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.dropdown-container')) {
+                window.closeAllDropdowns();
+            }
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                window.closeAllDropdowns();
+            }
+        });
+
+        document.addEventListener('scroll', (e) => {
+            if (e.target && e.target.closest && e.target.closest('.filter-dropdown-panel')) {
+                return;
+            }
+            window.closeAllDropdowns();
+        }, { capture: true, passive: true });
+
+        // =========================================================================
+        // 1. CARGA INICIAL Y SUBSCRIPCIÓN AL CATÁLOGO
+        // =========================================================================
+        AdminStore.subscribeToProducts((products) => {
+            allProductsCache = products || [];
+            document.getElementById('stat-total-products').textContent = allProductsCache.length;
+
+            populateSelectorDropdowns();
+
+            if (initialProductId && !currentSelectedProduct) {
+                const found = allProductsCache.find(p => p.id === initialProductId);
+                if (found) {
+                    selectProduct(found, false);
+                } else {
+                    loadProductFallback(initialProductId);
+                }
+            } else if (!currentSelectedProduct) {
+                renderProductsGrid();
+            }
+        });
+
+        // Poblar opciones de marcas y categorías del catálogo con conteos
+        function populateSelectorDropdowns() {
+            if (!allProductsCache || allProductsCache.length === 0) return;
+
+            // Categorías con conteo
+            const catMap = new Map();
+            allProductsCache.forEach(p => {
+                const cat = getProdCategoryName(p);
+                if (!cat) return;
+                const norm = normalizeText(cat);
+                if (!catMap.has(norm)) {
+                    catMap.set(norm, { name: cat, count: 1, normalized: norm });
+                } else {
+                    catMap.get(norm).count++;
+                }
+            });
+            selectorCategoriesList = Array.from(catMap.values()).sort((a, b) => a.name.localeCompare(b.name, 'es'));
+
+            // Marcas con conteo
+            const brandMap = new Map();
+            allProductsCache.forEach(p => {
+                const br = getProdBrandName(p);
+                if (!br) return;
+                const norm = normalizeText(br);
+                if (!brandMap.has(norm)) {
+                    brandMap.set(norm, { name: br, count: 1, normalized: norm });
+                } else {
+                    brandMap.get(norm).count++;
+                }
+            });
+            selectorBrandsList = Array.from(brandMap.values()).sort((a, b) => a.name.localeCompare(b.name, 'es'));
+
+            updateDropdownButtonLabel('selector-category');
+            updateDropdownButtonLabel('selector-brand');
+            renderDropdownOptions('selector-category');
+            renderDropdownOptions('selector-brand');
+        }
+
+        // Cargar estadísticas globales de seriales
+        async function loadGlobalSerialStats() {
+            try {
+                const snap = await getDocs(collection(db, "product_serials"));
+                let total = snap.size;
+                let available = 0;
+                let dispatched = 0;
+                snap.forEach(d => {
+                    const st = d.data().status;
+                    if (st === 'AVAILABLE') available++;
+                    else if (st === 'DISPATCHED') dispatched++;
+                });
+                document.getElementById('stat-total-serials').textContent = total;
+                document.getElementById('stat-total-available').textContent = available;
+                document.getElementById('stat-total-dispatched').textContent = dispatched;
+            } catch (e) {
+                console.warn("Error cargando estadísticas globales de seriales:", e);
+            }
+        }
+
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                loadGlobalSerialStats();
+            }
+        });
+
+        async function loadProductFallback(id) {
+            try {
+                const snap = await getDoc(doc(db, "products", id));
+                if (snap.exists()) {
+                    selectProduct({ id: snap.id, ...snap.data() }, false);
+                } else {
+                    alert("⚠️ El producto especificado no fue encontrado.");
+                    window.backToSelector();
+                }
+            } catch (e) {
+                console.error(e);
+                window.backToSelector();
+            }
+        }
+
+        // =========================================================================
+        // 2. RENDERIZADO Y FILTRADO DEL DIRECTORIO DE PRODUCTOS (VISTA A)
+        // =========================================================================
+        function renderProductsGrid() {
+            const container = document.getElementById('products-grid');
+            const searchWords = normalizeText(selectorSearchQuery.trim()).split(/\s+/).filter(Boolean);
+
+            let filtered = allProductsCache.filter(p => {
+                // Buscador interactivo multi-palabra (ej: "aspiradora robot" coincide con "Aspiradora Xiaomi Robot")
+                if (searchWords.length > 0) {
+                    const prodName = p.name || '';
+                    const prodBrand = getProdBrandName(p);
+                    const prodCat = getProdCategoryName(p);
+                    const prodSubcat = getProdSubcategoryName(p);
+                    const prodSku = p.sku || '';
+                    const searchable = normalizeText(`${prodName} ${prodBrand} ${prodSku} ${prodCat} ${prodSubcat} ${p.searchStr || ''}`);
+
+                    const matchesAll = searchWords.every(word => searchable.includes(word));
+                    if (!matchesAll) return false;
+                }
+
+                // Filtro marca
+                if (selectorSelectedBrand && normalizeText(getProdBrandName(p)) !== normalizeText(selectorSelectedBrand)) return false;
+
+                // Filtro categoría
+                if (selectorSelectedCategory && normalizeText(getProdCategoryName(p)) !== normalizeText(selectorSelectedCategory)) return false;
+
+                // Filtro stock
+                const hasCombinations = p.combinations && Array.isArray(p.combinations) && p.combinations.length > 0;
+                const stock = hasCombinations 
+                    ? p.combinations.reduce((sum, c) => sum + (Number(c.stock) || 0), 0)
+                    : (Number(p.stock) || 0);
+
+                if (selectorSelectedStock === 'in_stock' && stock <= 0) return false;
+                if (selectorSelectedStock === 'out_of_stock' && stock > 0) return false;
+
+                return true;
+            });
+
+            // Ordenar productos
+            if (selectorSelectedSort === 'name_asc') {
+                filtered.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'es', { sensitivity: 'base' }));
+            } else if (selectorSelectedSort === 'name_desc') {
+                filtered.sort((a, b) => (b.name || '').localeCompare(a.name || '', 'es', { sensitivity: 'base' }));
+            } else if (selectorSelectedSort === 'stock_desc') {
+                filtered.sort((a, b) => (Number(b.stock) || 0) - (Number(a.stock) || 0));
+            } else if (selectorSelectedSort === 'stock_asc') {
+                filtered.sort((a, b) => (Number(a.stock) || 0) - (Number(b.stock) || 0));
+            }
+
+            const total = filtered.length;
+            document.getElementById('selector-product-count').textContent = total;
+            document.getElementById('selector-total-count').textContent = total;
+
+            // Mostrar/Ocultar botón de limpiar filtros
+            const hasActiveFilters = selectorSearchQuery || selectorSelectedBrand || selectorSelectedCategory || selectorSelectedStock !== 'all';
+            const btnReset = document.getElementById('btn-reset-selector-filters');
+            if (btnReset) {
+                if (hasActiveFilters) btnReset.classList.remove('hidden');
+                else btnReset.classList.add('hidden');
+            }
+
+            if (total === 0) {
+                container.innerHTML = `
+                    <div class="col-span-full py-16 text-center text-gray-400">
+                        <i class="fa-solid fa-box-open text-4xl mb-3 text-gray-300"></i>
+                        <p class="text-xs font-bold uppercase tracking-widest">No se encontraron productos coincidentes</p>
+                    </div>`;
+                document.getElementById('selector-view-range').textContent = '0-0';
+                document.getElementById('selector-pagination-controls').innerHTML = '';
+                return;
+            }
+
+            // Paginación
+            const totalPages = Math.ceil(total / selectorPageSize) || 1;
+            if (selectorCurrentPage > totalPages) selectorCurrentPage = totalPages;
+            if (selectorCurrentPage < 1) selectorCurrentPage = 1;
+
+            const startIndex = (selectorCurrentPage - 1) * selectorPageSize;
+            const endIndex = Math.min(startIndex + selectorPageSize, total);
+            const pageItems = filtered.slice(startIndex, endIndex);
+
+            document.getElementById('selector-view-range').textContent = `${startIndex + 1}-${endIndex}`;
+
+            container.innerHTML = pageItems.map(p => {
+                const img = p.mainImage || p.image || (p.images && p.images[0]) || '/img/placeholder-tech.webp';
+                const hasCombinations = p.combinations && Array.isArray(p.combinations) && p.combinations.length > 0;
+                const stock = hasCombinations 
+                    ? p.combinations.reduce((sum, c) => sum + (Number(c.stock) || 0), 0)
+                    : (Number(p.stock) || 0);
+                const brand = getProdBrandName(p) || 'PixelTech';
+                const category = getProdCategoryName(p);
+
+                return `
+                    <div class="bg-white p-5 sm:p-6 rounded-[2rem] border border-gray-100/90 hover:border-brand-cyan/50 hover:shadow-2xl hover:shadow-cyan-500/10 transition-all duration-300 group flex flex-col justify-between">
+                        <div>
+                            <!-- Header de la tarjeta con imagen y badges -->
+                            <div class="flex items-start gap-4 mb-3.5">
+                                <div class="w-20 h-20 sm:w-22 sm:h-22 rounded-2xl bg-slate-50 border border-gray-100 p-2.5 shrink-0 flex items-center justify-center group-hover:scale-105 transition-transform duration-300 shadow-2xs">
+                                    <img src="${img}" alt="${p.name}" class="max-w-full max-h-full object-contain">
+                                </div>
+                                <div class="min-w-0 flex-1 flex flex-col justify-center">
+                                    <div class="flex flex-wrap items-center gap-1.5 mb-1.5">
+                                        <span class="px-2.5 py-0.5 rounded-md bg-cyan-50 border border-cyan-200/60 text-brand-cyan font-black text-[9px] uppercase tracking-wider">${brand}</span>
+                                        ${category ? `<span class="px-2 py-0.5 rounded-md bg-slate-100 text-gray-500 font-bold text-[9px] uppercase tracking-wider truncate max-w-[130px]">${category}</span>` : ''}
+                                    </div>
+                                    <div class="flex items-center gap-1.5 text-[10px] font-bold text-gray-400 uppercase">
+                                        <span>SKU:</span>
+                                        <span class="font-mono text-gray-700 bg-slate-100 px-1.5 py-0.5 rounded border border-gray-200/60 font-black text-[9px] truncate max-w-[150px]">${p.sku || '---'}</span>
+                                    </div>
+                                    ${hasCombinations ? `
+                                        <div class="mt-1.5">
+                                            <span class="text-[9px] font-black text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md border border-gray-200 inline-flex items-center gap-1">
+                                                <i class="fa-solid fa-layer-group text-[8px] text-brand-cyan"></i> ${p.combinations.length} Variantes
+                                            </span>
+                                        </div>` : ''}
+                                </div>
+                            </div>
+
+                            <!-- Título Completo del Producto (Legible en 2 líneas) -->
+                            <h3 class="font-black text-sm uppercase text-brand-black tracking-tight leading-snug line-clamp-2 mb-3.5 group-hover:text-brand-cyan transition-colors min-h-[2.5rem]" title="${p.name}">
+                                ${p.name}
+                            </h3>
+
+                            <!-- Barra de Stock de Catálogo -->
+                            <div class="flex items-center justify-between py-2.5 px-3 bg-slate-50 rounded-xl border border-gray-100 text-xs font-bold mb-3.5">
+                                <span class="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Stock Catálogo:</span>
+                                <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${stock <= 0 ? 'bg-red-50 text-red-600 border border-red-200' : 'bg-emerald-50 text-emerald-700 border border-emerald-200'}">
+                                    <span class="w-1.5 h-1.5 rounded-full ${stock <= 0 ? 'bg-red-500' : 'bg-emerald-500 animate-pulse'}"></span>
+                                    ${stock <= 0 ? 'Agotado (0)' : `${stock} Unidades`}
+                                </span>
+                            </div>
+                        </div>
+
+                        <!-- Botones de Acción -->
+                        <div class="grid grid-cols-2 gap-2 pt-1">
+                            <button type="button" onclick="window.onSelectProductClick('${p.id}')"
+                                class="w-full bg-brand-black hover:bg-brand-cyan hover:text-brand-black text-white py-2.5 px-3 rounded-xl font-black text-[10px] uppercase tracking-wider transition-all flex items-center justify-center gap-2 shadow-xs hover:shadow-cyan-500/20 active:scale-95">
+                                <i class="fa-solid fa-barcode text-brand-cyan"></i> <span>Ver Seriales</span>
+                            </button>
+                            <button type="button" onclick="window.openProductInDedicatedWindow('${p.id}')"
+                                title="Abrir en ventana dedicada independiente"
+                                class="w-full bg-white hover:bg-slate-100 text-gray-700 hover:text-brand-black border border-gray-200/90 hover:border-brand-cyan/60 py-2.5 px-3 rounded-xl font-bold text-[10px] uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 shadow-2xs active:scale-95">
+                                <i class="fa-solid fa-arrow-up-right-from-square text-[10px] text-gray-400"></i> <span>Ventana</span>
+                            </button>
+                        </div>
+                    </div>`;
+            }).join('');
+
+            renderSelectorPaginationControls(totalPages);
+        }
+
+        function renderSelectorPaginationControls(totalPages) {
+            const controls = document.getElementById('selector-pagination-controls');
+            if (totalPages <= 1) {
+                controls.innerHTML = '';
+                return;
+            }
+
+            let html = `
+                <button type="button" onclick="window.changeSelectorPage(${selectorCurrentPage - 1})"
+                    ${selectorCurrentPage <= 1 ? 'disabled' : ''}
+                    class="px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-xs font-black uppercase text-gray-500 hover:border-brand-cyan hover:text-brand-cyan disabled:opacity-30 disabled:cursor-not-allowed transition">
+                    <i class="fa-solid fa-chevron-left text-[10px]"></i>
+                </button>
+            `;
+
+            for (let i = 1; i <= totalPages; i++) {
+                if (i === 1 || i === totalPages || (i >= selectorCurrentPage - 1 && i <= selectorCurrentPage + 1)) {
+                    const isActive = i === selectorCurrentPage;
+                    html += `
+                        <button type="button" onclick="window.changeSelectorPage(${i})"
+                            class="w-8 h-8 rounded-lg text-xs font-black transition ${
+                                isActive ? 'bg-brand-cyan text-brand-black shadow-sm' : 'bg-white border border-gray-200 text-gray-600 hover:bg-slate-50'
+                            }">
+                            ${i}
+                        </button>
+                    `;
+                } else if (i === selectorCurrentPage - 2 || i === selectorCurrentPage + 2) {
+                    html += `<span class="px-1 text-gray-400 font-black text-xs select-none">...</span>`;
+                }
+            }
+
+            html += `
+                <button type="button" onclick="window.changeSelectorPage(${selectorCurrentPage + 1})"
+                    ${selectorCurrentPage >= totalPages ? 'disabled' : ''}
+                    class="px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-xs font-black uppercase text-gray-500 hover:border-brand-cyan hover:text-brand-cyan disabled:opacity-30 disabled:cursor-not-allowed transition">
+                    <i class="fa-solid fa-chevron-right text-[10px]"></i>
+                </button>
+            `;
+
+            controls.innerHTML = html;
+        }
+
+        window.changeSelectorPage = (page) => {
+            selectorCurrentPage = page;
+            renderProductsGrid();
+        };
+
+        window.onSelectorPageSizeChange = (val) => {
+            selectorPageSize = parseInt(val) || 18;
+            selectorCurrentPage = 1;
+            document.querySelectorAll('#selector-page-size-select').forEach(s => s.value = selectorPageSize);
+            renderProductsGrid();
+        };
+
+        window.clearSelectorSearch = () => {
+            const inp = document.getElementById('selector-search-input');
+            const btn = document.getElementById('btn-clear-selector-search');
+            if (inp) inp.value = '';
+            if (btn) btn.classList.add('hidden');
+            selectorSearchQuery = '';
+            selectorCurrentPage = 1;
+            renderProductsGrid();
+        };
+
+        document.getElementById('selector-search-input').addEventListener('input', (e) => {
+            selectorSearchQuery = e.target.value;
+            const btn = document.getElementById('btn-clear-selector-search');
+            if (btn) {
+                if (selectorSearchQuery.trim()) btn.classList.remove('hidden');
+                else btn.classList.add('hidden');
+            }
+            selectorCurrentPage = 1;
+            renderProductsGrid();
+        });
+
+        window.setSelectorStockTab = (stockVal) => {
+            selectorSelectedStock = stockVal;
+            selectorCurrentPage = 1;
+            ['all', 'in_stock', 'out_of_stock'].forEach(tab => {
+                const btn = document.getElementById(`selector-tab-${tab}`);
+                if (!btn) return;
+                if (tab === stockVal) {
+                    btn.className = "tab-btn shrink-0 px-3.5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider bg-brand-black text-white shadow-sm transition-all hover:-translate-y-0.5 border border-transparent";
+                } else {
+                    btn.className = "tab-btn shrink-0 px-3.5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider bg-white text-gray-500 border border-gray-200 hover:text-emerald-700 hover:border-emerald-300 transition-all hover:-translate-y-0.5 shadow-2xs";
+                }
+            });
+            renderProductsGrid();
+        };
+
+        document.getElementById('selector-sort-select').addEventListener('change', (e) => {
+            selectorSelectedSort = e.target.value;
+            renderProductsGrid();
+        });
+
+        window.resetSelectorFilters = () => {
+            selectorSearchQuery = '';
+            selectorSelectedBrand = '';
+            selectorSelectedCategory = '';
+            selectorSelectedStock = 'all';
+            selectorSelectedSort = 'name_asc';
+            selectorCurrentPage = 1;
+
+            const inp = document.getElementById('selector-search-input');
+            if (inp) inp.value = '';
+            const btnClear = document.getElementById('btn-clear-selector-search');
+            if (btnClear) btnClear.classList.add('hidden');
+
+            const sortSel = document.getElementById('selector-sort-select');
+            if (sortSel) sortSel.value = 'name_asc';
+
+            window.setSelectorStockTab('all');
+
+            updateDropdownButtonLabel('selector-category');
+            updateDropdownButtonLabel('selector-brand');
+
+            renderProductsGrid();
+        };
+
+        window.onSelectProductClick = (productId) => {
+            const p = allProductsCache.find(x => x.id === productId);
+            if (p) selectProduct(p, true);
+        };
+
+        window.openProductInDedicatedWindow = (productId) => {
+            const url = `product-serials.html?productId=${productId}`;
+            window.open(url, `serials_${productId}`, 'width=1280,height=850,menubar=no,toolbar=no,location=no,status=no');
+        };
+
+        // =========================================================================
+        // 3. SELECCIÓN DE PRODUCTO Y CARGA DE SERIALES (VISTA B)
+        // =========================================================================
+        async function selectProduct(product, updateUrl = true) {
+            currentSelectedProduct = product;
+            serialsCurrentPage = 1;
+            currentFilterStatus = 'all';
+            currentSearchQuery = '';
+            currentVariantFilter = '';
+            currentSupplierFilter = '';
+            currentDateFilter = 'all';
+            currentSortFilter = 'recent';
+
+            const searchInp = document.getElementById('serials-search-input');
+            if (searchInp) searchInp.value = '';
+            const clearBtn = document.getElementById('btn-clear-serials-search');
+            if (clearBtn) clearBtn.classList.add('hidden');
+
+            const dateSel = document.getElementById('serials-date-filter');
+            if (dateSel) dateSel.value = 'all';
+            const sortSel = document.getElementById('serials-sort-select');
+            if (sortSel) sortSel.value = 'recent';
+
+            // Resetear pestañas de estado rápido
+            ['all', 'available', 'dispatched'].forEach(tab => {
+                const btn = document.getElementById(`tab-${tab}`);
+                if (!btn) return;
+                if (tab === 'all') {
+                    btn.className = "tab-btn active shrink-0 px-3.5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider bg-brand-black text-white shadow-sm transition-all hover:-translate-y-0.5 border border-transparent";
+                } else {
+                    btn.className = "tab-btn shrink-0 px-3.5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider bg-white text-gray-500 border border-gray-200 hover:text-brand-cyan hover:border-brand-cyan transition-all hover:-translate-y-0.5 shadow-2xs";
+                }
+            });
+
+            if (updateUrl) {
+                const newUrl = new URL(window.location);
+                newUrl.searchParams.set('productId', product.id);
+                window.history.pushState({}, '', newUrl);
+            }
+
+            // Cambiar visibilidad de vistas
+            document.getElementById('view-selector').classList.add('hidden');
+            document.getElementById('view-product-serials').classList.remove('hidden');
+            document.getElementById('btn-open-window').classList.remove('hidden');
+
+            // Llenar tarjeta de producto
+            const img = product.mainImage || product.image || (product.images && product.images[0]) || '/img/placeholder-tech.webp';
+            document.getElementById('prod-card-img').src = img;
+            document.getElementById('prod-card-title').textContent = product.name;
+            document.getElementById('prod-card-brand').textContent = product.brand || 'PixelTech';
+            document.getElementById('prod-card-sku').textContent = product.sku || '---';
+
+            const hasCombinations = product.combinations && Array.isArray(product.combinations) && product.combinations.length > 0;
+            const stock = hasCombinations 
+                ? product.combinations.reduce((sum, c) => sum + (Number(c.stock) || 0), 0)
+                : (Number(product.stock) || 0);
+            document.getElementById('prod-card-stock').textContent = `${stock} Unidades`;
+
+            // Cargar seriales desde Firestore
+            await loadSerialsForProduct(product.id);
+        }
+
+        async function loadSerialsForProduct(productId) {
+            const tbody = document.getElementById('serials-table-body');
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="6" class="py-16 text-center text-gray-400">
+                        <i class="fa-solid fa-circle-notch fa-spin text-2xl text-brand-cyan mb-2"></i>
+                        <p class="font-bold uppercase tracking-widest text-[10px]">Cargando seriales del producto...</p>
+                    </td>
+                </tr>`;
+
+            try {
+                const q = query(
+                    collection(db, "product_serials"),
+                    where("productId", "==", productId)
+                );
+                const snap = await getDocs(q);
+
+                allSerialsCache = [];
+                snap.forEach(d => {
+                    allSerialsCache.push({ id: d.id, ...d.data() });
+                });
+
+                // Extraer y poblar dropdowns interactivos de variantes y proveedores
+                populateSerialsDropdowns(currentSelectedProduct);
+
+                // Actualizar métricas del producto
+                const total = allSerialsCache.length;
+                const available = allSerialsCache.filter(s => s.status === 'AVAILABLE').length;
+                const dispatched = allSerialsCache.filter(s => s.status === 'DISPATCHED').length;
+
+                document.getElementById('metric-total-serials').textContent = total;
+                document.getElementById('metric-available-serials').textContent = available;
+                document.getElementById('metric-dispatched-serials').textContent = dispatched;
+
+                document.getElementById('count-tab-all').textContent = total;
+                document.getElementById('count-tab-available').textContent = available;
+                document.getElementById('count-tab-dispatched').textContent = dispatched;
+
+                renderSerialsTable();
+
+            } catch (e) {
+                console.error("Error al cargar seriales:", e);
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="6" class="py-12 text-center text-red-500 font-bold text-xs uppercase">
+                            Error al cargar seriales de la base de datos
+                        </td>
+                    </tr>`;
+            }
+        }
+
+        function populateSerialsDropdowns(product) {
+            // Variantes con conteo de seriales
+            const variantMap = new Map();
+
+            // 1. Variantes declaradas en combinaciones del producto
+            if (product && product.combinations && Array.isArray(product.combinations)) {
+                product.combinations.forEach(c => {
+                    const label = [c.color, c.capacity].filter(Boolean).join(' - ');
+                    if (label) {
+                        const norm = normalizeText(label);
+                        if (!variantMap.has(norm)) {
+                            variantMap.set(norm, { name: label, count: 0, normalized: norm });
+                        }
+                    }
+                });
+            }
+
+            // 2. Variantes registradas en los seriales
+            allSerialsCache.forEach(s => {
+                const label = [s.color, s.capacity].filter(Boolean).join(' - ') || 'Único';
+                const norm = normalizeText(label);
+                if (!variantMap.has(norm)) {
+                    variantMap.set(norm, { name: label, count: 1, normalized: norm });
+                } else {
+                    variantMap.get(norm).count++;
+                }
+            });
+
+            serialVariantsList = Array.from(variantMap.values()).sort((a, b) => a.name.localeCompare(b.name, 'es'));
+
+            // Proveedores con conteo de seriales
+            const suppMap = new Map();
+            allSerialsCache.forEach(s => {
+                const supp = (s.supplierName || 'Proveedor General').trim();
+                const norm = normalizeText(supp);
+                if (!suppMap.has(norm)) {
+                    suppMap.set(norm, { name: supp, count: 1, normalized: norm });
+                } else {
+                    suppMap.get(norm).count++;
+                }
+            });
+
+            serialSuppliersList = Array.from(suppMap.values()).sort((a, b) => a.name.localeCompare(b.name, 'es'));
+
+            updateDropdownButtonLabel('serial-variant');
+            updateDropdownButtonLabel('serial-supplier');
+            renderDropdownOptions('serial-variant');
+            renderDropdownOptions('serial-supplier');
+        }
+
+        // =========================================================================
+        // 4. RENDERIZADO, FILTRADO Y PAGINACIÓN DE LA TABLA DE SERIALES
+        // =========================================================================
+        function renderSerialsTable() {
+            const tbody = document.getElementById('serials-table-body');
+            const emptyState = document.getElementById('serials-empty-state');
+            const emptyMsg = document.getElementById('serials-empty-msg');
+            const paginationBar = document.getElementById('serials-pagination-bar');
+
+            const searchWords = normalizeText(currentSearchQuery.trim()).split(/\s+/).filter(Boolean);
+            const now = new Date();
+
+            let filtered = allSerialsCache.filter(s => {
+                // Filtro de estado
+                if (currentFilterStatus === 'available' && s.status !== 'AVAILABLE') return false;
+                if (currentFilterStatus === 'dispatched' && s.status !== 'DISPATCHED') return false;
+
+                // Filtro de variante
+                if (currentVariantFilter) {
+                    const varLabel = [s.color, s.capacity].filter(Boolean).join(' - ');
+                    if (varLabel !== currentVariantFilter) return false;
+                }
+
+                // Filtro de proveedor
+                if (currentSupplierFilter && (s.supplierName || '').trim() !== currentSupplierFilter) return false;
+
+                // Filtro de fecha
+                if (currentDateFilter !== 'all') {
+                    const dateVal = s.purchaseDate || s.createdAt;
+                    if (!dateVal) return false;
+                    const d = dateVal.toDate ? dateVal.toDate() : new Date(dateVal);
+                    if (isNaN(d.getTime())) return false;
+
+                    if (currentDateFilter === 'today') {
+                        if (d.toDateString() !== now.toDateString()) return false;
+                    } else if (currentDateFilter === '7days') {
+                        if ((now - d) > (7 * 24 * 60 * 60 * 1000)) return false;
+                    } else if (currentDateFilter === '30days') {
+                        if ((now - d) > (30 * 24 * 60 * 60 * 1000)) return false;
+                    } else if (currentDateFilter === 'this_month') {
+                        if (d.getMonth() !== now.getMonth() || d.getFullYear() !== now.getFullYear()) return false;
+                    }
+                }
+
+                // Buscador interactivo multi-palabra (SN, Orden, Cliente, Teléfono, Proveedor, Color, Capacidad)
+                if (searchWords.length > 0) {
+                    const searchable = normalizeText(`
+                        ${s.serialNumber || ''} 
+                        ${s.orderInternalNumber || ''} 
+                        ${s.orderId || ''} 
+                        ${s.clientName || ''} 
+                        ${s.clientPhone || ''} 
+                        ${s.supplierName || ''} 
+                        ${s.color || ''} 
+                        ${s.capacity || ''}
+                    `);
+                    const matchesAll = searchWords.every(w => searchable.includes(w));
+                    if (!matchesAll) return false;
+                }
+
+                return true;
+            });
+
+            // Ordenamiento de seriales
+            if (currentSortFilter === 'recent') {
+                filtered.sort((a, b) => {
+                    const tA = a.createdAt?.seconds || new Date(a.createdAt || 0).getTime();
+                    const tB = b.createdAt?.seconds || new Date(b.createdAt || 0).getTime();
+                    return tB - tA;
+                });
+            } else if (currentSortFilter === 'oldest') {
+                filtered.sort((a, b) => {
+                    const tA = a.createdAt?.seconds || new Date(a.createdAt || 0).getTime();
+                    const tB = b.createdAt?.seconds || new Date(b.createdAt || 0).getTime();
+                    return tA - tB;
+                });
+            } else if (currentSortFilter === 'sn_asc') {
+                filtered.sort((a, b) => (a.serialNumber || '').localeCompare(b.serialNumber || '', 'es', { sensitivity: 'base' }));
+            } else if (currentSortFilter === 'sn_desc') {
+                filtered.sort((a, b) => (b.serialNumber || '').localeCompare(a.serialNumber || '', 'es', { sensitivity: 'base' }));
+            }
+
+            const total = filtered.length;
+            document.getElementById('serials-total-count').textContent = total;
+
+            // Mostrar u ocultar botón de limpiar filtros de seriales
+            const hasActiveFilters = currentSearchQuery || currentVariantFilter || currentSupplierFilter || currentDateFilter !== 'all' || currentFilterStatus !== 'all';
+            const btnResetSerials = document.getElementById('btn-reset-serials-filters');
+            if (btnResetSerials) {
+                if (hasActiveFilters) btnResetSerials.classList.remove('hidden');
+                else btnResetSerials.classList.add('hidden');
+            }
+
+            if (total === 0) {
+                tbody.innerHTML = '';
+                emptyState.classList.remove('hidden');
+                if (allSerialsCache.length === 0) {
+                    emptyMsg.textContent = "Este producto no tiene seriales registrados aún. Los seriales se capturan y registran automáticamente al realizar una 'Nueva Entrada' de mercancía.";
+                } else {
+                    emptyMsg.textContent = "No hay seriales que coincidan con la búsqueda o los filtros seleccionados.";
+                }
+                document.getElementById('serials-view-range').textContent = '0-0';
+                document.getElementById('serials-pagination-controls').innerHTML = '';
+                return;
+            }
+
+            emptyState.classList.add('hidden');
+
+            // Paginación de seriales
+            const totalPages = Math.ceil(total / serialsPageSize) || 1;
+            if (serialsCurrentPage > totalPages) serialsCurrentPage = totalPages;
+            if (serialsCurrentPage < 1) serialsCurrentPage = 1;
+
+            const startIndex = (serialsCurrentPage - 1) * serialsPageSize;
+            const endIndex = Math.min(startIndex + serialsPageSize, total);
+            const pageItems = filtered.slice(startIndex, endIndex);
+
+            document.getElementById('serials-view-range').textContent = `${startIndex + 1}-${endIndex}`;
+
+            tbody.innerHTML = pageItems.map((s, idx) => {
+                const globalIdx = startIndex + idx + 1;
+                const isDispatched = s.status === 'DISPATCHED';
+                const statusBadge = isDispatched
+                    ? `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-blue-50 text-blue-700 border border-blue-200"><i class="fa-solid fa-truck-fast"></i> Despachado</span>`
+                    : `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200"><i class="fa-solid fa-check"></i> Disponible</span>`;
+
+                const variantBadge = (s.color || s.capacity)
+                    ? `<div class="flex flex-wrap gap-1.5">
+                        ${s.color ? `<span class="px-2 py-0.5 rounded-lg bg-slate-100 text-brand-black text-[9px] font-black border border-gray-200">${s.color}</span>` : ''}
+                        ${s.capacity ? `<span class="px-2 py-0.5 rounded-lg bg-slate-100 text-brand-black text-[9px] font-black border border-gray-200">${s.capacity}</span>` : ''}
+                       </div>`
+                    : `<span class="text-gray-400 text-[9px] uppercase font-bold">Único</span>`;
+
+                const entryInfo = `
+                    <div>
+                        <p class="font-bold text-brand-black text-xs">${s.supplierName || 'Proveedor General'}</p>
+                        <p class="text-[10px] text-gray-400 font-bold uppercase">${formatDate(s.purchaseDate || s.createdAt)}</p>
+                    </div>`;
+
+                const saleInfo = isDispatched
+                    ? `<div>
+                        <div class="flex items-center gap-2 mb-0.5">
+                            <a href="/admin/orders.html?openOrder=${s.orderId || ''}" target="_blank" title="Abrir Pedido #${s.orderInternalNumber || ''}"
+                                class="font-black text-xs text-brand-cyan hover:underline inline-flex items-center gap-1">
+                                <i class="fa-solid fa-receipt text-[10px]"></i> #${s.orderInternalNumber || (s.orderId ? s.orderId.slice(0,6).toUpperCase() : '---')}
+                            </a>
+                            <span class="text-[9px] text-gray-400 font-bold">${formatDate(s.dispatchedAt)}</span>
+                        </div>
+                        <p class="text-xs font-bold text-brand-black">${s.clientName || 'Cliente'}</p>
+                        ${s.clientPhone ? `<p class="text-[9px] font-medium text-gray-400"><i class="fa-brands fa-whatsapp text-emerald-500 mr-1"></i>${s.clientPhone}</p>` : ''}
+                       </div>`
+                    : `<span class="inline-flex items-center gap-1.5 text-xs text-gray-400 font-medium italic"><i class="fa-solid fa-warehouse text-gray-300"></i> En inventario (Sin asignar)</span>`;
+
+                return `
+                    <tr class="hover:bg-slate-50/70 transition-colors">
+                        <td class="py-4 px-6 text-center text-gray-400 font-bold text-[10px]">${globalIdx}</td>
+                        <td class="py-4 px-6">
+                            <div class="inline-flex items-center gap-2 bg-slate-100 px-3 py-1.5 rounded-xl border border-gray-200">
+                                <span class="font-mono font-black text-xs text-brand-black tracking-wider">${s.serialNumber}</span>
+                                <button type="button" onclick="window.copyToClipboard('${s.serialNumber}', this)" title="Copiar Serial"
+                                    class="text-gray-400 hover:text-brand-cyan transition p-1">
+                                    <i class="fa-solid fa-copy text-xs"></i>
+                                </button>
+                            </div>
+                        </td>
+                        <td class="py-4 px-6 align-middle">${variantBadge}</td>
+                        <td class="py-4 px-6 text-center align-middle">${statusBadge}</td>
+                        <td class="py-4 px-6 align-middle">${entryInfo}</td>
+                        <td class="py-4 px-6 align-middle">${saleInfo}</td>
+                    </tr>`;
+            }).join('');
+
+            renderSerialsPaginationControls(totalPages);
+        }
+
+        function renderSerialsPaginationControls(totalPages) {
+            const controls = document.getElementById('serials-pagination-controls');
+            if (totalPages <= 1) {
+                controls.innerHTML = '';
+                return;
+            }
+
+            let html = `
+                <button type="button" onclick="window.changeSerialsPage(${serialsCurrentPage - 1})"
+                    ${serialsCurrentPage <= 1 ? 'disabled' : ''}
+                    class="px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-xs font-black uppercase text-gray-500 hover:border-brand-cyan hover:text-brand-cyan disabled:opacity-30 disabled:cursor-not-allowed transition">
+                    <i class="fa-solid fa-chevron-left text-[10px]"></i>
+                </button>
+            `;
+
+            for (let i = 1; i <= totalPages; i++) {
+                if (i === 1 || i === totalPages || (i >= serialsCurrentPage - 1 && i <= serialsCurrentPage + 1)) {
+                    const isActive = i === serialsCurrentPage;
+                    html += `
+                        <button type="button" onclick="window.changeSerialsPage(${i})"
+                            class="w-8 h-8 rounded-lg text-xs font-black transition ${
+                                isActive ? 'bg-brand-cyan text-brand-black shadow-sm' : 'bg-white border border-gray-200 text-gray-600 hover:bg-slate-50'
+                            }">
+                            ${i}
+                        </button>
+                    `;
+                } else if (i === serialsCurrentPage - 2 || i === serialsCurrentPage + 2) {
+                    html += `<span class="px-1 text-gray-400 font-black text-xs select-none">...</span>`;
+                }
+            }
+
+            html += `
+                <button type="button" onclick="window.changeSerialsPage(${serialsCurrentPage + 1})"
+                    ${serialsCurrentPage >= totalPages ? 'disabled' : ''}
+                    class="px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-xs font-black uppercase text-gray-500 hover:border-brand-cyan hover:text-brand-cyan disabled:opacity-30 disabled:cursor-not-allowed transition">
+                    <i class="fa-solid fa-chevron-right text-[10px]"></i>
+                </button>
+            `;
+
+            controls.innerHTML = html;
+        }
+
+        window.changeSerialsPage = (page) => {
+            serialsCurrentPage = page;
+            renderSerialsTable();
+        };
+
+        window.onSerialsPageSizeChange = (val) => {
+            serialsPageSize = parseInt(val) || 15;
+            serialsCurrentPage = 1;
+            document.querySelectorAll('#serials-page-size-select').forEach(s => s.value = serialsPageSize);
+            renderSerialsTable();
+        };
+
+        // --- MANEJADORES DE FILTROS DE SERIALES ---
+        window.setFilterTab = (status) => {
+            currentFilterStatus = status;
+            serialsCurrentPage = 1;
+
+            const tabs = [
+                { id: 'all', activeClass: 'bg-brand-black text-white border-transparent' },
+                { id: 'available', activeClass: 'bg-emerald-600 text-white border-transparent' },
+                { id: 'dispatched', activeClass: 'bg-blue-600 text-white border-transparent' }
+            ];
+
+            tabs.forEach(t => {
+                const btn = document.getElementById(`tab-${t.id}`);
+                if (!btn) return;
+                if (t.id === status) {
+                    btn.className = `tab-btn active shrink-0 px-3.5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider shadow-sm transition-all hover:-translate-y-0.5 border ${t.activeClass}`;
+                } else {
+                    btn.className = "tab-btn shrink-0 px-3.5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider bg-white text-gray-500 border border-gray-200 hover:text-brand-black hover:border-gray-300 transition-all hover:-translate-y-0.5 shadow-2xs";
+                }
+            });
+
+            renderSerialsTable();
+        };
+
+        window.clearSerialsSearch = () => {
+            const inp = document.getElementById('serials-search-input');
+            const btn = document.getElementById('btn-clear-serials-search');
+            if (inp) inp.value = '';
+            if (btn) btn.classList.add('hidden');
+            currentSearchQuery = '';
+            serialsCurrentPage = 1;
+            renderSerialsTable();
+        };
+
+        document.getElementById('serials-search-input').addEventListener('input', (e) => {
+            currentSearchQuery = e.target.value;
+            const btn = document.getElementById('btn-clear-serials-search');
+            if (btn) {
+                if (currentSearchQuery.trim()) btn.classList.remove('hidden');
+                else btn.classList.add('hidden');
+            }
+            serialsCurrentPage = 1;
+            renderSerialsTable();
+        });
+
+        document.getElementById('serials-date-filter').addEventListener('change', (e) => {
+            currentDateFilter = e.target.value;
+            serialsCurrentPage = 1;
+            renderSerialsTable();
+        });
+
+        document.getElementById('serials-sort-select').addEventListener('change', (e) => {
+            currentSortFilter = e.target.value;
+            renderSerialsTable();
+        });
+
+        window.resetSerialsFilters = () => {
+            currentSearchQuery = '';
+            currentVariantFilter = '';
+            currentSupplierFilter = '';
+            currentDateFilter = 'all';
+            currentSortFilter = 'recent';
+            currentFilterStatus = 'all';
+            serialsCurrentPage = 1;
+
+            const inp = document.getElementById('serials-search-input');
+            if (inp) inp.value = '';
+            const btnClear = document.getElementById('btn-clear-serials-search');
+            if (btnClear) btnClear.classList.add('hidden');
+
+            const dateSel = document.getElementById('serials-date-filter');
+            if (dateSel) dateSel.value = 'all';
+            const sortSel = document.getElementById('serials-sort-select');
+            if (sortSel) sortSel.value = 'recent';
+
+            updateDropdownButtonLabel('serial-variant');
+            updateDropdownButtonLabel('serial-supplier');
+
+            window.setFilterTab('all');
+        };
+
+        window.backToSelector = () => {
+            currentSelectedProduct = null;
+            allSerialsCache = [];
+            window.closeAllDropdowns();
+            const newUrl = new URL(window.location);
+            newUrl.searchParams.delete('productId');
+            window.history.pushState({}, '', newUrl);
+
+            document.getElementById('view-product-serials').classList.add('hidden');
+            document.getElementById('btn-open-window').classList.add('hidden');
+            document.getElementById('view-selector').classList.remove('hidden');
+            renderProductsGrid();
+        };
+
+        window.openCurrentInNewWindow = () => {
+            if (!currentSelectedProduct) return;
+            window.openProductInDedicatedWindow(currentSelectedProduct.id);
+        };
+
+        window.copyToClipboard = (text, btn) => {
+            navigator.clipboard.writeText(text).then(() => {
+                const icon = btn.querySelector('i');
+                if (icon) {
+                    icon.className = "fa-solid fa-check text-emerald-500 text-xs";
+                    setTimeout(() => {
+                        icon.className = "fa-solid fa-copy text-xs";
+                    }, 1500);
+                }
+            });
+        };
+
+        // =========================================================================
+        // 5. EXPORTACIÓN A EXCEL / CSV
+        // =========================================================================
+        window.exportSerialsToExcel = () => {
+            if (!allSerialsCache || allSerialsCache.length === 0) {
+                alert("⚠️ No hay seriales para exportar.");
+                return;
+            }
+
+            const prodTitle = currentSelectedProduct ? currentSelectedProduct.name : 'Todos_Los_Productos';
+            const cleanTitle = prodTitle.replace(/[^a-zA-Z0-9_-]/g, '_');
+
+            const headers = [
+                "Serial (SN)",
+                "Producto",
+                "SKU",
+                "Color",
+                "Capacidad",
+                "Estado",
+                "Proveedor",
+                "Fecha Entrada",
+                "Orden Venta",
+                "Cliente",
+                "Telefono Cliente",
+                "Fecha Despacho"
+            ];
+
+            const rows = allSerialsCache.map(s => [
+                s.serialNumber || '',
+                s.productName || (currentSelectedProduct ? currentSelectedProduct.name : ''),
+                s.sku || '',
+                s.color || '',
+                s.capacity || '',
+                s.status === 'AVAILABLE' ? 'DISPONIBLE' : 'DESPACHADO',
+                s.supplierName || '',
+                formatDate(s.purchaseDate || s.createdAt),
+                s.orderInternalNumber || s.orderId || '',
+                s.clientName || '',
+                s.clientPhone || '',
+                s.dispatchedAt ? formatDate(s.dispatchedAt) : ''
+            ]);
+
+            const csvContent = "\uFEFF" + [headers, ...rows].map(row => 
+                row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(";")
+            ).join("\r\n");
+
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement("a");
+            const url = URL.createObjectURL(blob);
+            link.setAttribute("href", url);
+            link.setAttribute("download", `Seriales_${cleanTitle}_${new Date().toISOString().split('T')[0]}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        };
+    </script>
+</body>
+
+</html>

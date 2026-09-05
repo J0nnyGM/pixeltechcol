@@ -417,6 +417,19 @@
                             <div class="flex flex-col justify-center h-full"><label class="text-[8px] font-black text-gray-300 uppercase leading-none mb-1">Subtotal</label><span class="text-sm font-black text-brand-black p-row-total-display leading-none">$0</span></div>
                         <button type="button" class="w-9 h-9 rounded-xl bg-white border border-gray-200 text-gray-300 hover:text-brand-red hover:border-brand-red hover:bg-red-50 transition-all flex items-center justify-center shadow-sm" onclick="window.removeEntryRow(this)"><i class="fa-solid fa-trash-can text-xs"></i></button>
                     </div>
+                </div>
+                <div class="mt-4 pt-3 border-t border-gray-100 p-sn-wrapper">
+                    <div class="flex items-center justify-between mb-2">
+                        <div class="flex items-center gap-2">
+                            <i class="fa-solid fa-barcode text-brand-cyan text-xs"></i>
+                            <span class="text-[9px] font-black uppercase tracking-wider text-gray-500">Códigos Seriales (SN)</span>
+                            <span class="p-sn-counter text-[9px] font-black px-2 py-0.5 rounded-full bg-cyan-50 text-brand-cyan border border-cyan-200">1 Requerido</span>
+                        </div>
+                        <button type="button" class="btn-paste-sn text-[9px] font-black text-brand-cyan hover:underline uppercase tracking-wider flex items-center gap-1">
+                            <i class="fa-solid fa-paste text-[10px]"></i> Pegar Múltiples SN
+                        </button>
+                    </div>
+                    <div class="p-sn-container grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2"></div>
                 </div>`;
             itemsContainer.appendChild(div);
             setupRowLogic(div);
@@ -429,6 +442,90 @@
             row.style.opacity = '0';
             setTimeout(() => { row.remove(); window.updateAllTotals(); }, 300);
         };
+
+        function syncSerialInputs(row, initialSns = []) {
+            const qtyInput = row.querySelector('.p-qty');
+            let qty = parseInt(qtyInput ? qtyInput.value : 1) || 1;
+            if (qty < 1) qty = 1;
+            const container = row.querySelector('.p-sn-container');
+            const counter = row.querySelector('.p-sn-counter');
+            if (!container) return;
+
+            if (counter) {
+                counter.textContent = `${qty} ${qty === 1 ? 'Requerido' : 'Requeridos'}`;
+            }
+
+            const currentInputs = Array.from(container.querySelectorAll('.p-sn-input'));
+            const currentValues = currentInputs.map(i => i.value.trim().toUpperCase());
+
+            const finalValues = [];
+            for (let i = 0; i < qty; i++) {
+                if (initialSns && initialSns[i] !== undefined) {
+                    finalValues.push(initialSns[i]);
+                } else if (currentValues[i] !== undefined) {
+                    finalValues.push(currentValues[i]);
+                } else {
+                    finalValues.push('');
+                }
+            }
+
+            container.innerHTML = finalValues.map((val, idx) => `
+                <div class="relative flex items-center">
+                    <span class="absolute left-3 text-[9px] font-mono font-black text-gray-400 select-none pointer-events-none">#${idx + 1}</span>
+                    <input type="text" placeholder="Código SN..." value="${val}" data-sn-index="${idx}"
+                        class="p-sn-input w-full uppercase font-mono text-xs font-bold pl-8 pr-3 py-2 bg-white border border-gray-200 rounded-xl outline-none focus:border-brand-cyan focus:ring-2 focus:ring-cyan-500/10 transition-all">
+                </div>
+            `).join('');
+
+            const newInputs = Array.from(container.querySelectorAll('.p-sn-input'));
+            newInputs.forEach((input, index) => {
+                input.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        input.value = input.value.trim().toUpperCase();
+                        const nextInput = newInputs[index + 1];
+                        if (nextInput) {
+                            nextInput.focus();
+                            nextInput.select();
+                        } else {
+                            const allRows = Array.from(document.querySelectorAll('.item-row'));
+                            const currentRowIdx = allRows.indexOf(row);
+                            if (currentRowIdx >= 0 && allRows[currentRowIdx + 1]) {
+                                const nextRowFirstInput = allRows[currentRowIdx + 1].querySelector('.p-sn-input');
+                                if (nextRowFirstInput) {
+                                    nextRowFirstInput.focus();
+                                    nextRowFirstInput.select();
+                                }
+                            }
+                        }
+                    }
+                });
+                input.addEventListener('input', (e) => {
+                    e.target.value = e.target.value.toUpperCase();
+                });
+            });
+        }
+
+        function setupPasteSnButton(row) {
+            const btn = row.querySelector('.btn-paste-sn');
+            if (!btn) return;
+            btn.onclick = () => {
+                const qtyInput = row.querySelector('.p-qty');
+                let qty = parseInt(qtyInput ? qtyInput.value : 1) || 1;
+                const text = prompt(`Pega los seriales para este producto separados por saltos de línea, espacios o comas:\n(Actualmente cantidad: ${qty})`);
+                if (text === null) return;
+                const serials = text.split(/[\n,\r\t]+/).map(s => s.trim().toUpperCase()).filter(Boolean);
+                if (serials.length === 0) return;
+
+                if (serials.length > qty) {
+                    if (confirm(`Pegaste ${serials.length} seriales y la fila tiene cantidad ${qty}. ¿Deseas ajustar la cantidad a ${serials.length}?`)) {
+                        qtyInput.value = serials.length;
+                        window.updateAllTotals();
+                    }
+                }
+                syncSerialInputs(row, serials);
+            };
+        }
 
         function setupRowLogic(row) {
             const input = row.querySelector('.p-search');
@@ -458,8 +555,14 @@
                 if (!input.contains(e.target) && !results.contains(e.target)) results.classList.add('hidden');
             });
             
-            qtyInput.oninput = window.updateAllTotals;
+            qtyInput.oninput = () => {
+                window.updateAllTotals();
+                syncSerialInputs(row);
+            };
             unitCostInput.oninput = window.updateAllTotals;
+
+            setupPasteSnButton(row);
+            syncSerialInputs(row);
         }
 
         function renderVariants(row, product) {
@@ -604,6 +707,8 @@
                                 capSel.value = item.capacity;
                             }
                         }
+
+                        syncSerialInputs(row, item.sns || []);
                     }
                 } else {
                     addProductRow();
@@ -634,6 +739,7 @@
 
             try {
                 const groupedItems = {}; 
+                const allSnsInEntry = [];
 
                 for (const row of itemRows) {
                     const pid = row.querySelector('.p-id').value;
@@ -652,6 +758,26 @@
                     if (row.querySelector('.p-color') && !selectedColor) throw `⚠️ Selecciona un color para: ${name}`;
                     if (row.querySelector('.p-capacity') && !selectedCap) throw `⚠️ Selecciona una capacidad para: ${name}`;
 
+                    // Leer seriales (SN) de esta fila
+                    const snInputs = Array.from(row.querySelectorAll('.p-sn-input'));
+                    const sns = snInputs.map(input => input.value.trim().toUpperCase());
+
+                    if (sns.length < qty) {
+                        throw `⚠️ Debes ingresar ${qty} códigos seriales (SN) para: ${name}`;
+                    }
+
+                    const emptySnIdx = sns.findIndex(s => !s);
+                    if (emptySnIdx !== -1) {
+                        throw `⚠️ Falta ingresar el serial (SN) #${emptySnIdx + 1} para el producto: ${name}`;
+                    }
+
+                    for (const sn of sns) {
+                        if (allSnsInEntry.includes(sn)) {
+                            throw `⚠️ El serial "${sn}" está duplicado en este formulario de entrada. Todos los seriales deben ser únicos.`;
+                        }
+                        allSnsInEntry.push(sn);
+                    }
+
                     if (!groupedItems[pid]) groupedItems[pid] = { name, updates: [] };
                     
                     groupedItems[pid].updates.push({
@@ -659,8 +785,28 @@
                         unitCostEntered,
                         selectedColor,
                         selectedCap,
-                        name
+                        name,
+                        sns
                     });
+                }
+
+                // Validar si algún serial ya existe en Firestore en product_serials como AVAILABLE
+                if (allSnsInEntry.length > 0) {
+                    const chunkSize = 30;
+                    for (let i = 0; i < allSnsInEntry.length; i += chunkSize) {
+                        const chunk = allSnsInEntry.slice(i, i + chunkSize);
+                        const q = query(collection(db, "product_serials"), where("serialNumber", "in", chunk));
+                        const existingSnap = await getDocs(q);
+                        if (!existingSnap.empty) {
+                            for (const docSnap of existingSnap.docs) {
+                                const sData = docSnap.data();
+                                if (editId && sData.purchaseId === editId) continue;
+                                if (sData.status === 'AVAILABLE') {
+                                    throw `⚠️ El serial "${sData.serialNumber}" ya se encuentra registrado y disponible en inventario para el producto "${sData.productName || ''}".`;
+                                }
+                            }
+                        }
+                    }
                 }
 
                 const now = new Date();
@@ -678,6 +824,13 @@
                         }
                     } catch (err) {
                         console.warn("No se pudo consultar payable vinculado:", err);
+                    }
+
+                    let oldSerialsSnap = null;
+                    try {
+                        oldSerialsSnap = await getDocs(query(collection(db, "product_serials"), where("purchaseId", "==", editId)));
+                    } catch (err) {
+                        console.warn("No se pudieron consultar seriales previos:", err);
                     }
 
                     await runTransaction(db, async (transaction) => {
@@ -717,6 +870,7 @@
                         const newPurchaseItems = [];
                         const hasIvaGlobal = ivaToggle.checked;
                         const auditLogsToSave = [];
+                        const serialsToSave = [];
 
                         newPids.forEach(pid => {
                             groupedItems[pid].updates.forEach(update => {
@@ -730,8 +884,22 @@
                                     unitCostBase,
                                     totalRow: Math.round(rowTotal),
                                     color: update.selectedColor,
-                                    capacity: update.selectedCap
+                                    capacity: update.selectedCap,
+                                    sns: update.sns || []
                                 });
+
+                                if (update.sns && Array.isArray(update.sns)) {
+                                    update.sns.forEach(sn => {
+                                        serialsToSave.push({
+                                            sn,
+                                            pid,
+                                            productName: update.name,
+                                            color: update.selectedColor,
+                                            capacity: update.selectedCap,
+                                            unitCost: update.unitCostEntered
+                                        });
+                                    });
+                                }
                             });
                         });
 
@@ -873,6 +1041,41 @@
                             updatedAt: now
                         });
 
+                        // Reemplazar seriales disponibles previos por los nuevos
+                        if (oldSerialsSnap && !oldSerialsSnap.empty) {
+                            oldSerialsSnap.docs.forEach(d => {
+                                if (d.data().status === 'AVAILABLE') {
+                                    transaction.delete(d.ref);
+                                }
+                            });
+                        }
+                        serialsToSave.forEach(s => {
+                            const pSnap = productSnapsMap[s.pid];
+                            const pData = pSnap && pSnap.exists() ? pSnap.data() : {};
+                            const sRef = doc(collection(db, "product_serials"));
+                            transaction.set(sRef, {
+                                serialNumber: s.sn,
+                                productId: s.pid,
+                                productName: s.productName,
+                                sku: pData.sku || '',
+                                brand: pData.brand || '',
+                                color: s.color || null,
+                                capacity: s.capacity || null,
+                                status: 'AVAILABLE',
+                                purchaseId: editId,
+                                purchaseDate: now,
+                                supplierId: supplierId,
+                                supplierName: supplierSearchInput.value,
+                                unitCost: s.unitCost,
+                                orderId: null,
+                                orderInternalNumber: null,
+                                clientName: null,
+                                dispatchedAt: null,
+                                createdAt: now,
+                                updatedAt: now
+                            });
+                        });
+
                         // Actualizar cuenta por pagar
                         if (payableDocSnap && payableDocSnap.exists()) {
                             const pData = payableDocSnap.data();
@@ -920,6 +1123,7 @@
                     const purchaseItems = [];
                     const hasIvaGlobal = ivaToggle.checked;
                     const auditLogsToSave = [];
+                    const serialsToSave = [];
 
                     uniquePids.forEach((pid, index) => {
                         const pSnap = productSnaps[index];
@@ -968,8 +1172,24 @@
                                 unitCostBase,
                                 totalRow: Math.round(rowTotal),
                                 color: update.selectedColor,
-                                capacity: update.selectedCap
+                                capacity: update.selectedCap,
+                                sns: update.sns || []
                             });
+
+                            if (update.sns && Array.isArray(update.sns)) {
+                                update.sns.forEach(sn => {
+                                    serialsToSave.push({
+                                        sn,
+                                        pid,
+                                        productName: pData.name || group.name,
+                                        sku: pData.sku || '',
+                                        brand: pData.brand || '',
+                                        color: update.selectedColor || null,
+                                        capacity: update.selectedCap || null,
+                                        unitCost: update.unitCostEntered
+                                    });
+                                });
+                            }
                         });
 
                         let newStockTotal = 0;
@@ -1031,6 +1251,32 @@
                         createdAt: now,
                         updatedAt: now,
                         createdBy: document.getElementById('admin-name')?.textContent || 'Administrador'
+                    });
+
+                    // 2.1 Guardar los seriales individuales en product_serials
+                    serialsToSave.forEach(s => {
+                        const sRef = doc(collection(db, "product_serials"));
+                        transaction.set(sRef, {
+                            serialNumber: s.sn,
+                            productId: s.pid,
+                            productName: s.productName,
+                            sku: s.sku,
+                            brand: s.brand,
+                            color: s.color,
+                            capacity: s.capacity,
+                            status: 'AVAILABLE',
+                            purchaseId: purchaseRef.id,
+                            purchaseDate: now,
+                            supplierId: supplierId,
+                            supplierName: supplierSearchInput.value,
+                            unitCost: s.unitCost,
+                            orderId: null,
+                            orderInternalNumber: null,
+                            clientName: null,
+                            dispatchedAt: null,
+                            createdAt: now,
+                            updatedAt: now
+                        });
                     });
 
                     // 3. Registrar cuenta por pagar (con updatedAt y supplierId para Delta Sync y pagos)

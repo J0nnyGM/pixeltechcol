@@ -489,7 +489,7 @@ async function loadClientSerials() {
                 o.items.forEach(item => {
                     if (item.sns && Array.isArray(item.sns)) {
                         item.sns.forEach(sn => {
-                            if (sn && sn.trim() !== '') {
+                            if (sn && sn.trim() !== '' && !['SIN-SERIAL', 'N/A', 'SINSERIAL', 'NA', 'S/N'].includes(sn.trim().toUpperCase())) {
                                 newSerialsFound.push({
                                     sn: sn.trim().toUpperCase(),
                                     productName: item.name || 'Producto',

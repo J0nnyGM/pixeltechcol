@@ -11,8 +11,8 @@ export function loadAdminSidebar(userRole = 'customer') {
     const rolePermissions = {
         'admin': ['all'],
         'contabilidad': ['Dashboard', 'Facturación', 'Gestión de Cartera', 'Cuentas', 'Control de Gastos', 'Rentabilidad FIFO'],
-        'ventas': ['Dashboard', 'WhatsApp', 'Pedidos', 'Clientes', 'Garantías', 'Productos', 'Categorías', 'Banners y Promos'],
-        'logistica': ['Dashboard', 'Pedidos', 'Productos', 'Nueva Entrada', 'Inventario RMA', 'Logística']
+        'ventas': ['Dashboard', 'WhatsApp', 'Pedidos', 'Clientes', 'Garantías', 'Productos', 'Control de Seriales', 'Categorías', 'Banners y Promos'],
+        'logistica': ['Dashboard', 'Pedidos', 'Productos', 'Control de Seriales', 'Nueva Entrada', 'Inventario RMA', 'Logística']
     };
 
     // --- 2. DEFINICIÓN DE GRUPOS Y MENÚS BASE ---
@@ -38,6 +38,7 @@ export function loadAdminSidebar(userRole = 'customer') {
             title: 'Inventario & Catálogo',
             items: [
                 { name: 'Productos', icon: 'fa-box-open', path: '/admin/products.html' },
+                { name: 'Control de Seriales', icon: 'fa-barcode', path: '/admin/product-serials.html' },
                 { name: 'Categorías', icon: 'fa-tags', path: '/admin/categories.html' },
                 { name: 'Marcas', icon: 'fa-copyright', path: '/admin/brands.html' }, 
                 { name: 'Nueva Entrada', icon: 'fa-truck-loading', path: '/admin/inventory-entry.html' },
