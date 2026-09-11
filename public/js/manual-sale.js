@@ -367,6 +367,73 @@ function setupCurrencyInput(input) {
     input.addEventListener('focus', (e) => e.target.select());
 }
 
+function updatePriceBadgeUI(row) {
+    const priceInput = row.querySelector('.p-price-display');
+    if (!priceInput) return;
+    const badge = row.querySelector('.p-custom-badge');
+    const resetBtn = row.querySelector('.btn-reset-price');
+    const isCustom = priceInput.dataset.customPrice === 'true';
+
+    if (badge) {
+        if (isCustom) {
+            const catalogPrice = parseFloat(priceInput.dataset.catalogPrice) || 0;
+            const currentPrice = parseCurrency(priceInput.value);
+            if (catalogPrice > 0 && currentPrice < catalogPrice) {
+                const discountPct = Math.round(((catalogPrice - currentPrice) / catalogPrice) * 100);
+                badge.textContent = discountPct > 0 ? `-${discountPct}%` : 'Manual';
+                badge.title = `Precio con descuento (Catálogo: ${formatCurrency(catalogPrice)})`;
+            } else {
+                badge.textContent = 'Manual';
+                badge.title = `Precio manual (Catálogo: ${formatCurrency(catalogPrice)})`;
+            }
+            badge.classList.remove('hidden');
+        } else {
+            badge.classList.add('hidden');
+        }
+    }
+
+    if (resetBtn) {
+        resetBtn.classList.toggle('hidden', !isCustom);
+    }
+}
+
+function setupRowPriceInput(row) {
+    const priceInput = row.querySelector('.p-price-display');
+    const resetBtn = row.querySelector('.btn-reset-price');
+    if (!priceInput) return;
+
+    priceInput.addEventListener('input', (e) => {
+        const val = parseCurrency(e.target.value);
+        e.target.value = formatCurrency(val);
+
+        const catalogPrice = parseFloat(priceInput.dataset.catalogPrice) || 0;
+        if (catalogPrice > 0) {
+            priceInput.dataset.customPrice = (val !== catalogPrice) ? 'true' : 'false';
+        } else if (val > 0) {
+            priceInput.dataset.customPrice = 'true';
+        }
+
+        updatePriceBadgeUI(row);
+        calculateManualTotal();
+    });
+
+    priceInput.addEventListener('focus', (e) => e.target.select());
+
+    if (resetBtn) {
+        resetBtn.onclick = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const catalogPrice = parseFloat(priceInput.dataset.catalogPrice) || 0;
+            if (catalogPrice > 0) {
+                priceInput.value = formatCurrency(catalogPrice);
+                priceInput.dataset.customPrice = 'false';
+                updatePriceBadgeUI(row);
+                calculateManualTotal();
+            }
+        };
+    }
+}
+
 AdminStore.subscribeToProducts((products) => {
     manualProductsCache = products;
     const modal = document.getElementById('manual-modal');
@@ -392,7 +459,7 @@ AdminStore.subscribeToProducts((products) => {
                     const capSel = row.querySelector('.p-capacity');
                     if (colorSel) populateColorOptions(colorSel, updatedProd, capSel ? capSel.value : null, colorSel.value);
                     if (capSel) populateCapacityOptions(capSel, updatedProd, colorSel ? colorSel.value : null, capSel.value);
-                    updateRowStock(row, updatedProd);
+                    updateRowStock(row, updatedProd, false);
                 }
             }
         });
@@ -539,10 +606,16 @@ function addManualItemRow() {
             
             <!-- Columna Precio Unitario -->
             <div class="md:col-span-2">
-                <div class="flex items-center justify-center mb-1.5 h-4">
-                    <label for="p-price-${rId}" class="text-[9px] font-black text-gray-400 uppercase tracking-widest block text-center">Precio Unitario</label>
+                <div class="flex items-center justify-between mb-1.5 h-4 px-0.5">
+                    <label for="p-price-${rId}" class="text-[9px] font-black text-gray-400 uppercase tracking-widest block truncate">Precio Unit.</label>
+                    <div class="flex items-center gap-1.5 shrink-0">
+                        <span class="p-custom-badge hidden text-[8px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-50 text-amber-600 border border-amber-200 shadow-xs cursor-default">Manual</span>
+                        <button type="button" class="btn-reset-price hidden text-gray-400 hover:text-brand-cyan text-[10px] p-0.5 transition-colors" title="Restablecer precio de catálogo" aria-label="Restablecer precio de catálogo">
+                            <i class="fa-solid fa-rotate-left"></i>
+                        </button>
+                    </div>
                 </div>
-                <input type="text" id="p-price-${rId}" class="p-price-display currency-input h-11 w-full bg-white border border-gray-200 rounded-xl py-2 px-2 text-xs font-black text-center outline-none focus:border-brand-cyan text-brand-black shadow-xs transition-colors">
+                <input type="text" id="p-price-${rId}" data-custom-price="false" data-catalog-price="0" class="p-price-display currency-input h-11 w-full bg-white border border-gray-200 rounded-xl py-2 px-2 text-xs font-black text-center outline-none focus:border-brand-cyan text-brand-black shadow-xs transition-colors">
             </div>
             
             <!-- Columna Cantidad y Eliminar -->
@@ -565,8 +638,7 @@ function addManualItemRow() {
     
     document.getElementById('manual-items-container').appendChild(div);
     
-    const priceInput = div.querySelector('.p-price-display');
-    setupCurrencyInput(priceInput);
+    setupRowPriceInput(div);
     
     const qtyInput = div.querySelector('.p-qty');
     qtyInput.onchange = () => {
@@ -673,7 +745,15 @@ function selectProductForRow(row, product) {
     row.querySelector('.p-search').value = product.name;
     const imgUrl = product.mainImage || product.image || (product.images && product.images[0] ? product.images[0] : "");
     row.querySelector('.p-img').value = imgUrl;
-    row.querySelector('.p-price-display').value = formatCurrency(product.price);
+
+    const priceInput = row.querySelector('.p-price-display');
+    const initialPrice = parseFloat(product.price) || 0;
+    if (priceInput) {
+        priceInput.dataset.catalogPrice = initialPrice;
+        priceInput.dataset.customPrice = 'false';
+        priceInput.value = formatCurrency(initialPrice);
+    }
+    updatePriceBadgeUI(row);
 
     const preview = row.querySelector('.p-img-preview');
     if (preview) {
@@ -698,7 +778,7 @@ function selectProductForRow(row, product) {
     calculateManualTotal();
 }
 
-function updateRowStock(row, product) {
+function updateRowStock(row, product, allowPriceUpdate = false) {
     if (!product) return;
     const colorSel = row.querySelector('.p-color');
     const capSel = row.querySelector('.p-capacity');
@@ -713,6 +793,22 @@ function updateRowStock(row, product) {
     if (hasColor && !selectedColor) isFullySelected = false;
     if (hasCap && !selectedCap) isFullySelected = false;
 
+    const priceInput = row.querySelector('.p-price-display');
+    const catalogPrice = (hasColor || hasCap) 
+        ? getPriceForCombination(product, selectedColor, selectedCap) 
+        : (parseFloat(product.price) || 0);
+
+    if (priceInput) {
+        if (catalogPrice > 0) {
+            priceInput.dataset.catalogPrice = catalogPrice;
+        }
+        const isCustom = priceInput.dataset.customPrice === 'true';
+        if (allowPriceUpdate && !isCustom && catalogPrice > 0) {
+            priceInput.value = formatCurrency(catalogPrice);
+        }
+        updatePriceBadgeUI(row);
+    }
+
     if (hasColor || hasCap) {
         if (isFullySelected) {
             if (hasColor && hasCap) {
@@ -721,11 +817,6 @@ function updateRowStock(row, product) {
                 currentStock = getStockForColor(product, selectedColor, null);
             } else if (hasCap) {
                 currentStock = getStockForCapacity(product, selectedCap, null);
-            }
-
-            const comboPrice = getPriceForCombination(product, selectedColor, selectedCap);
-            if (comboPrice > 0) {
-                row.querySelector('.p-price-display').value = formatCurrency(comboPrice);
             }
 
             if (selectedColor && product.variants && Array.isArray(product.variants)) {
@@ -832,7 +923,7 @@ function renderVariantSelectors(row, product) {
             if (capSel) {
                 populateCapacityOptions(capSel, product, colorSel.value, capSel.value);
             }
-            updateRowStock(row, product);
+            updateRowStock(row, product, true);
         };
     }
 
@@ -842,11 +933,11 @@ function renderVariantSelectors(row, product) {
             if (colorSel) {
                 populateColorOptions(colorSel, product, capSel.value, colorSel.value);
             }
-            updateRowStock(row, product);
+            updateRowStock(row, product, true);
         };
     }
 
-    updateRowStock(row, product);
+    updateRowStock(row, product, true);
 }
 
 // 🔥 CÁLCULO TOTAL CON 4X1000
@@ -1068,9 +1159,21 @@ async function saveOrder() {
                 });
             }
 
+            const priceInput = row.querySelector('.p-price-display');
+            const customPrice = parseCurrency(priceInput.value);
+            const catalogPrice = parseFloat(priceInput.dataset.catalogPrice) || 0;
+            const isManualCustom = priceInput.dataset.customPrice === 'true';
+
             items.push({
-                id, name: prodName, price: parseCurrency(row.querySelector('.p-price-display').value),
-                quantity: qty, image: row.querySelector('.p-img').value, color: colorEl?.value || null, capacity: capEl?.value || null
+                id, 
+                name: prodName, 
+                price: customPrice,
+                originalPrice: catalogPrice > 0 ? catalogPrice : customPrice,
+                isCustomPrice: isManualCustom,
+                quantity: qty, 
+                image: row.querySelector('.p-img').value, 
+                color: colorEl?.value || null, 
+                capacity: capEl?.value || null
             });
         }
     });
