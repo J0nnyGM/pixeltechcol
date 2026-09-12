@@ -192,13 +192,20 @@ export async function viewOrderDetail(orderId) {
                 for (let i = 0; i < (item.quantity || 1); i++) {
                     const val = (item.sns && item.sns[i]) ? item.sns[i] : '';
                     const isValNoSerial = isNoSerial(val);
+                    const isReturned = Array.isArray(item.returnedSns) && item.returnedSns.includes(val);
                     const lockClass = isLocked 
-                        ? (isValNoSerial ? 'bg-amber-50 text-amber-800 border-amber-200 cursor-not-allowed' : 'bg-gray-100 text-gray-500 cursor-not-allowed border-gray-200') 
+                        ? (isReturned 
+                            ? 'bg-purple-50 text-purple-700 border-purple-200 cursor-not-allowed line-through font-semibold' 
+                            : (isValNoSerial ? 'bg-amber-50 text-amber-800 border-amber-200 cursor-not-allowed' : 'bg-gray-100 text-gray-500 cursor-not-allowed border-gray-200')) 
                         : (isValNoSerial ? 'bg-amber-50 text-amber-800 border-amber-300' : 'bg-white text-brand-black border-gray-200 focus:border-brand-cyan focus:ring-1 focus:ring-brand-cyan/20');
                     const placeholder = isLocked ? (val || 'No registrado') : (isValNoSerial ? 'SIN-SERIAL' : 'Escanea Serial (o N/A)');
+                    const badgeHtml = isReturned 
+                        ? `<span class="absolute right-2.5 top-1/2 -translate-y-1/2 text-[8px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-purple-100 text-purple-700 border border-purple-200 flex items-center gap-1 shadow-2xs"><i class="fa-solid fa-rotate-left text-[7px]"></i> Devuelto</span>` 
+                        : '';
                     snInputs += `<div class="relative mb-2">
                         <i class="fa-solid fa-barcode absolute left-3 top-3 text-brand-black text-xs"></i>
-                        <input type="text" placeholder="${placeholder}" value="${val}" data-item-index="${idx}" data-unit-index="${i}" class="sn-input w-full rounded-xl py-2 pl-8 pr-3 text-xs font-mono font-bold outline-none transition-all uppercase border ${lockClass}" ${isLocked ? 'readonly' : ''}>
+                        <input type="text" placeholder="${placeholder}" value="${val}" data-item-index="${idx}" data-unit-index="${i}" class="sn-input w-full rounded-xl py-2 pl-8 ${isReturned ? 'pr-24' : 'pr-3'} text-xs font-mono font-bold outline-none transition-all uppercase border ${lockClass}" ${isLocked ? 'readonly' : ''}>
+                        ${badgeHtml}
                     </div>`;
                 }
                 return `
@@ -1422,31 +1429,167 @@ async function openRefundModal(orderInput) {
         getEl('refund-items-container').innerHTML = "";
         let hasItemsToReturn = false;
 
+        // Sincronizar seriales vinculados a esta orden desde product_serials si hiciera falta
+        try {
+            const linkedSerialsSnap = await getDocs(query(collection(db, "product_serials"), where("orderId", "==", o.id)));
+            if (!linkedSerialsSnap.empty) {
+                const serialsByProd = {};
+                linkedSerialsSnap.forEach(d => {
+                    const data = d.data();
+                    if (data.status === 'DISPATCHED') {
+                        if (!serialsByProd[data.productId]) serialsByProd[data.productId] = [];
+                        serialsByProd[data.productId].push(data.serialNumber);
+                    }
+                });
+                items.forEach(item => {
+                    if ((!item.sns || item.sns.length === 0) && serialsByProd[item.id]) {
+                        item.sns = serialsByProd[item.id];
+                    }
+                });
+            }
+        } catch(err) {
+            console.warn("No se pudieron precargar seriales vinculados a la orden:", err);
+        }
+
         items.forEach((item, index) => {
-            const img = item.mainImage || item.image || '[https://placehold.co/50](https://placehold.co/50)';
+            const img = item.mainImage || item.image || '/img/placeholder-tech.webp';
             const originalQty = item.quantity || 0;
             const alreadyReturnedQty = item.returnedQty || 0; 
             const availableQty = originalQty - alreadyReturnedQty;
 
             if (availableQty <= 0) return; 
             hasItemsToReturn = true;
+
+            const itemSns = Array.isArray(item.sns) ? item.sns : [];
+            const returnedSns = Array.isArray(item.returnedSns) ? item.returnedSns : [];
+            const activeSns = itemSns.filter(sn => sn && !isNoSerial(sn) && !returnedSns.includes(sn));
+            const hasSerials = activeSns.length > 0;
             
+            let serialsHtml = '';
+            if (hasSerials) {
+                serialsHtml = `
+                    <div class="refund-serials-box mt-3 pt-2.5 border-t border-gray-100 hidden">
+                        <div class="flex items-center justify-between mb-1.5 px-0.5">
+                            <span class="text-[9px] font-black uppercase text-gray-500 tracking-wider flex items-center gap-1.5">
+                                <i class="fa-solid fa-barcode text-brand-cyan text-[10px]"></i> Seriales que regresan a bodega:
+                            </span>
+                            <span class="text-[8px] font-black uppercase tracking-wider px-2 py-0.5 rounded bg-cyan-50 text-brand-cyan border border-cyan-100 serials-counter">
+                                ${availableQty} selec.
+                            </span>
+                        </div>
+                        <div class="flex flex-wrap gap-1.5 serials-chips-container">
+                            ${activeSns.map((sn, sIdx) => `
+                                <label class="refund-sn-chip inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-mono font-black cursor-pointer transition-all select-none bg-slate-100 border-gray-200 text-gray-700 hover:bg-slate-200" title="Serial ${sn}">
+                                    <input type="checkbox" class="refund-sn-check accent-brand-cyan w-3.5 h-3.5 rounded cursor-pointer" data-item-index="${index}" value="${sn}" ${sIdx < availableQty ? 'checked' : ''}>
+                                    <span>${sn}</span>
+                                </label>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+            }
+
             const div = document.createElement('div');
-            div.className = "refund-item-row flex items-center gap-4 p-3 border border-gray-100 rounded-xl hover:bg-slate-50 transition bg-white";
-            div.innerHTML = `<div class="flex items-center h-full"><input type="checkbox" class="refund-check w-5 h-5 text-red-500 rounded border-gray-300 focus:ring-red-500 cursor-pointer" data-index="${index}"></div><img src="${img}" class="w-10 h-10 rounded-lg object-contain bg-gray-50 border border-gray-200"><div class="flex-grow min-w-0"><p class="text-[10px] font-black text-brand-black uppercase truncate">${item.name}</p><p class="text-[9px] text-gray-400 font-bold">$${(item.price || 0).toLocaleString()} c/u</p>${alreadyReturnedQty > 0 ? `<p class="text-[8px] text-orange-500 font-bold">Devueltos antes: ${alreadyReturnedQty}</p>` : ''}</div><div class="flex items-center gap-2"><span class="text-[8px] font-bold text-gray-400 uppercase">Cant.</span><input type="number" min="1" max="${availableQty}" value="${availableQty}" class="refund-qty w-12 p-2 text-center text-xs font-bold border border-gray-200 rounded-lg outline-none focus:border-red-500" disabled></div>`;
+            div.className = "refund-item-row p-3.5 border border-gray-100 rounded-2xl hover:bg-slate-50/70 transition bg-white shadow-2xs";
+            div.innerHTML = `
+                <div class="flex items-center gap-3">
+                    <div class="flex items-center h-full">
+                        <input type="checkbox" class="refund-check w-5 h-5 text-red-500 rounded border-gray-300 focus:ring-red-500 cursor-pointer" data-index="${index}">
+                    </div>
+                    <img src="${img}" class="w-11 h-11 rounded-xl object-contain bg-slate-50 border border-gray-200 p-1 shrink-0">
+                    <div class="flex-grow min-w-0">
+                        <p class="text-xs font-black text-brand-black uppercase truncate">${item.name}</p>
+                        <div class="flex items-center gap-2 mt-0.5">
+                            <p class="text-[10px] text-gray-400 font-bold">$${(item.price || 0).toLocaleString('es-CO')} c/u</p>
+                            ${item.color ? `<span class="text-[8px] font-black uppercase px-1.5 py-0.2 rounded bg-gray-100 text-gray-600">${item.color}</span>` : ''}
+                            ${item.capacity ? `<span class="text-[8px] font-black uppercase px-1.5 py-0.2 rounded bg-cyan-50 text-brand-cyan">${item.capacity}</span>` : ''}
+                            ${alreadyReturnedQty > 0 ? `<span class="text-[8px] font-bold text-orange-600 bg-orange-50 px-1.5 py-0.5 rounded border border-orange-200">Devueltos: ${alreadyReturnedQty}</span>` : ''}
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2 shrink-0">
+                        <span class="text-[9px] font-black text-gray-400 uppercase tracking-wider">Cant.</span>
+                        <input type="number" min="1" max="${availableQty}" value="${availableQty}" class="refund-qty w-12 p-2 text-center text-xs font-black border border-gray-200 rounded-xl outline-none focus:border-red-500 disabled:opacity-50 disabled:bg-slate-50 transition" disabled>
+                    </div>
+                </div>
+                ${serialsHtml}
+            `;
             getEl('refund-items-container').appendChild(div);
 
             const checkbox = div.querySelector('.refund-check');
             const qtyInput = div.querySelector('.refund-qty');
+            const serialsBox = div.querySelector('.refund-serials-box');
+            const snChecks = div.querySelectorAll('.refund-sn-check');
+            const counterLabel = div.querySelector('.serials-counter');
+
+            const updateChipStyles = () => {
+                let checkedCount = 0;
+                snChecks.forEach(ch => {
+                    const label = ch.closest('label');
+                    if (ch.checked) {
+                        checkedCount++;
+                        if (label) {
+                            label.className = "refund-sn-chip inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-mono font-black cursor-pointer transition-all select-none bg-cyan-50 text-brand-cyan border-cyan-300 shadow-2xs";
+                        }
+                    } else {
+                        if (label) {
+                            label.className = "refund-sn-chip inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-mono font-black cursor-pointer transition-all select-none bg-slate-100 border-gray-200 text-gray-500 hover:bg-slate-200 opacity-60";
+                        }
+                    }
+                });
+                if (counterLabel) {
+                    counterLabel.textContent = `${checkedCount} selec.`;
+                }
+            };
+
+            const syncChipsWithQty = (targetQty) => {
+                let count = 0;
+                snChecks.forEach(ch => {
+                    if (count < targetQty) {
+                        ch.checked = true;
+                        count++;
+                    } else {
+                        ch.checked = false;
+                    }
+                });
+                updateChipStyles();
+            };
 
             checkbox.addEventListener('change', () => {
                 qtyInput.disabled = !checkbox.checked;
                 div.classList.toggle('border-red-200', checkbox.checked);
-                div.classList.toggle('bg-red-50/30', checkbox.checked);
+                div.classList.toggle('bg-red-50/20', checkbox.checked);
+                
+                if (serialsBox) {
+                    serialsBox.classList.toggle('hidden', !checkbox.checked);
+                    if (checkbox.checked) {
+                        syncChipsWithQty(parseInt(qtyInput.value) || 1);
+                    }
+                }
+
                 if (isPaid) recalcRefundTotal(items);
             });
 
-            qtyInput.addEventListener('input', () => { if(isPaid) recalcRefundTotal(items); });
+            qtyInput.addEventListener('input', () => {
+                let val = parseInt(qtyInput.value) || 1;
+                if (val > availableQty) { val = availableQty; qtyInput.value = val; }
+                if (val < 1) { val = 1; qtyInput.value = 1; }
+                if (hasSerials) syncChipsWithQty(val);
+                if (isPaid) recalcRefundTotal(items);
+            });
+
+            snChecks.forEach(ch => {
+                ch.addEventListener('change', () => {
+                    const checkedTotal = div.querySelectorAll('.refund-sn-check:checked').length;
+                    if (checkedTotal > 0) {
+                        qtyInput.value = checkedTotal;
+                    } else {
+                        ch.checked = true;
+                        qtyInput.value = 1;
+                    }
+                    updateChipStyles();
+                    if (isPaid) recalcRefundTotal(items);
+                });
+            });
         });
 
         if (!hasItemsToReturn) {
@@ -1494,6 +1637,8 @@ if (refundForm) {
 
         try {
             let itemsToRestoreStock = [];
+            let serialsToRelease = [];
+            let finalOrderStatus = '';
 
             await runTransaction(db, async (t) => {
                 const orderRef = doc(db, "orders", orderId);
@@ -1516,13 +1661,34 @@ if (refundForm) {
 
                 document.querySelectorAll('.refund-item-row').forEach(row => {
                     const check = row.querySelector('.refund-check');
-                    if (check.checked) {
+                    if (check && check.checked) {
                         const idx = parseInt(check.dataset.index);
                         const qtyToReturn = parseInt(row.querySelector('.refund-qty').value);
                         
                         if (qtyToReturn > 0) {
                             updatedItems[idx].returnedQty = (updatedItems[idx].returnedQty || 0) + qtyToReturn;
                             itemsToRestoreStock.push({ id: updatedItems[idx].id, qty: qtyToReturn, color: updatedItems[idx].color, capacity: updatedItems[idx].capacity });
+
+                            // Recoger seriales seleccionados para liberar en esta fila
+                            const checkedSnInputs = row.querySelectorAll('.refund-sn-check:checked');
+                            const rowReturnedSns = Array.from(checkedSnInputs).map(i => i.value.trim()).filter(Boolean);
+
+                            if (rowReturnedSns.length > 0) {
+                                updatedItems[idx].returnedSns = [
+                                    ...(updatedItems[idx].returnedSns || []),
+                                    ...rowReturnedSns
+                                ];
+                                serialsToRelease.push(...rowReturnedSns);
+                            } else if (updatedItems[idx].sns && Array.isArray(updatedItems[idx].sns)) {
+                                // Fallback por si la UI no tenía chips pero el ítem tiene sns:
+                                const prevRet = updatedItems[idx].returnedSns || [];
+                                const avail = updatedItems[idx].sns.filter(s => !isNoSerial(s) && !prevRet.includes(s));
+                                const autoSns = avail.slice(0, qtyToReturn);
+                                if (autoSns.length > 0) {
+                                    updatedItems[idx].returnedSns = [...prevRet, ...autoSns];
+                                    serialsToRelease.push(...autoSns);
+                                }
+                            }
                         }
                     }
                 });
@@ -1536,6 +1702,7 @@ if (refundForm) {
                 if (totalReturnedQtySoFar > 0) {
                     newStatus = (totalReturnedQtySoFar >= totalOriginalQty) ? 'DEVUELTO' : 'DEVOLUCION_PARCIAL';
                 }
+                finalOrderStatus = newStatus;
 
                 if (wasPaid && amount > 0) {
                     const accRef = doc(db, "accounts", accountId);
@@ -1559,9 +1726,82 @@ if (refundForm) {
                 }
             }
 
-            alert("✅ Devolución procesada correctamente.");
+            // 🔥 Liberar seriales en product_serials a AVAILABLE
+            if (serialsToRelease.length > 0) {
+                try {
+                    const chunks = [];
+                    for (let i = 0; i < serialsToRelease.length; i += 30) {
+                        chunks.push(serialsToRelease.slice(i, i + 30));
+                    }
+                    const batchSerials = writeBatch(db);
+                    let countUpdated = 0;
+
+                    for (const chunk of chunks) {
+                        const q = query(
+                            collection(db, "product_serials"),
+                            where("serialNumber", "in", chunk)
+                        );
+                        const snap = await getDocs(q);
+                        snap.forEach(docSnap => {
+                            const data = docSnap.data();
+                            if (data.orderId === orderId || !data.orderId || data.status === 'DISPATCHED') {
+                                batchSerials.update(docSnap.ref, {
+                                    status: 'AVAILABLE',
+                                    orderId: null,
+                                    orderInternalNumber: null,
+                                    clientName: null,
+                                    clientPhone: null,
+                                    dispatchedAt: null,
+                                    returnedAt: serverTimestamp(),
+                                    updatedAt: serverTimestamp()
+                                });
+                                countUpdated++;
+                            }
+                        });
+                    }
+
+                    if (countUpdated > 0) {
+                        await batchSerials.commit();
+                        console.log(`✅ [Devolución] Se liberaron ${countUpdated} seriales a AVAILABLE.`);
+                    }
+                } catch (errSerials) {
+                    console.error("Error liberando seriales en devolución:", errSerials);
+                }
+            }
+
+            // Si la orden quedó completamente DEVUELTA, liberar cualquier serial residual vinculado
+            if (finalOrderStatus === 'DEVUELTO') {
+                try {
+                    const remainingLinkedSnap = await getDocs(query(collection(db, "product_serials"), where("orderId", "==", orderId)));
+                    if (!remainingLinkedSnap.empty) {
+                        const b = writeBatch(db);
+                        remainingLinkedSnap.forEach(d => {
+                            b.update(d.ref, {
+                                status: 'AVAILABLE',
+                                orderId: null,
+                                orderInternalNumber: null,
+                                clientName: null,
+                                clientPhone: null,
+                                dispatchedAt: null,
+                                returnedAt: serverTimestamp(),
+                                updatedAt: serverTimestamp()
+                            });
+                        });
+                        await b.commit();
+                    }
+                } catch(e) {
+                    console.warn("Error en cleanup de seriales para devolución completa:", e);
+                }
+            }
+
+            const serialMsg = serialsToRelease.length > 0 ? `\nSe liberaron ${serialsToRelease.length} serial(es) a inventario disponible.` : '';
+            alert(`✅ Devolución procesada correctamente.${serialMsg}`);
             currentOrderData = null; accountsCache = null;
-            getEl('refund-modal').classList.add('hidden'); getEl('order-modal').classList.add('hidden');
+            getEl('refund-modal').classList.add('hidden'); 
+            getEl('order-modal').classList.add('hidden');
+
+            if (window.switchTab) window.switchTab(window.currentTab || 'ALL');
+            else if (window.renderOrdersMemory) window.renderOrdersMemory();
 
         } catch (e) { alert("Error: " + (e.message || e)); } finally { btn.disabled = false; btn.innerHTML = originalText; }
     };

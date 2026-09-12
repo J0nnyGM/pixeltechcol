@@ -88,13 +88,21 @@
                     <div class="absolute -right-10 -bottom-10 opacity-10 text-[180px] pointer-events-none">
                         <i class="fa-solid fa-barcode"></i>
                     </div>
-                    <div class="relative z-10 max-w-2xl">
-                        <span class="px-3 py-1 bg-brand-cyan/20 text-brand-cyan font-black text-[9px] uppercase tracking-widest rounded-full border border-brand-cyan/30 inline-block mb-3">
-                            Trazabilidad de Unidades
-                        </span>
-                        <h2 class="text-2xl sm:text-3xl font-black tracking-tight mb-2">
-                            Gestión Individual por Número de Serie
-                        </h2>
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 relative z-10">
+                        <div class="max-w-2xl">
+                            <span class="px-3 py-1 bg-brand-cyan/20 text-brand-cyan font-black text-[9px] uppercase tracking-widest rounded-full border border-brand-cyan/30 inline-block mb-3">
+                                Trazabilidad de Unidades
+                            </span>
+                            <h2 class="text-2xl sm:text-3xl font-black tracking-tight mb-2">
+                                Gestión Individual por Número de Serie
+                            </h2>
+                        </div>
+                        <button type="button" onclick="window.auditAndFixReturnedSerials()" id="btn-fix-returned-serials"
+                            class="h-11 px-5 rounded-2xl bg-white/10 hover:bg-white/20 text-white border border-white/20 font-black text-xs uppercase tracking-wider flex items-center gap-2.5 transition-all shadow-sm shrink-0 backdrop-blur-sm self-start sm:self-auto cursor-pointer"
+                            title="Buscar y liberar seriales de pedidos devueltos, cancelados o eliminados">
+                            <i class="fa-solid fa-screwdriver-wrench text-brand-cyan"></i>
+                            <span>Liberar Seriales Devueltos</span>
+                        </button>
                     </div>
 
                     <!-- Métricas globales rápidas -->
@@ -513,7 +521,7 @@
 
     <script type="module">
         import '../js/admin-guard.js';
-        import { db, collection, getDocs, query, where, doc, getDoc, auth, onAuthStateChanged } from '../js/firebase-init.js';
+        import { db, collection, getDocs, query, where, doc, getDoc, auth, onAuthStateChanged, writeBatch, serverTimestamp } from '../js/firebase-init.js';
         import { loadAdminSidebar } from '../js/admin-ui.js?v=2.0.0';
         import { AdminStore } from '../js/admin-store.js';
 
@@ -1707,6 +1715,139 @@
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
+        };
+
+        // --- AUDITAR Y LIBERAR SERIALES DE ÓRDENES DEVUELTAS / CANCELADAS ---
+        window.auditAndFixReturnedSerials = async function() {
+            const btn = document.getElementById('btn-fix-returned-serials');
+            const originalHtml = btn ? btn.innerHTML : '';
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin text-brand-cyan"></i> <span>Analizando pedidos...</span>';
+            }
+
+            try {
+                // 1. Obtener todos los seriales registrados y todas las órdenes
+                const [serialsSnap, ordersSnap] = await Promise.all([
+                    getDocs(collection(db, "product_serials")),
+                    getDocs(collection(db, "orders"))
+                ]);
+
+                const ordersMap = new Map();
+                ordersSnap.forEach(d => ordersMap.set(d.id, { id: d.id, ...d.data() }));
+
+                const serialsToFix = [];
+
+                serialsSnap.forEach(docSnap => {
+                    const s = docSnap.data();
+                    // Solo evaluar seriales que estén como despachados o vinculados a una orden
+                    if (s.status === 'DISPATCHED' || s.orderId) {
+                        const order = ordersMap.get(s.orderId);
+
+                        // Caso A: La orden ya no existe en la base de datos (eliminada)
+                        if (!order) {
+                            serialsToFix.push({
+                                docRef: docSnap.ref,
+                                sn: s.serialNumber,
+                                product: s.productName || 'Producto',
+                                reason: `Orden #${s.orderInternalNumber || s.orderId || 'Desconocida'} no existe (eliminada)`
+                            });
+                            return;
+                        }
+
+                        // Caso B: La orden fue cancelada, rechazada o devuelta en su totalidad
+                        if (['CANCELADO', 'DEVUELTO', 'RECHAZADO'].includes(order.status)) {
+                            serialsToFix.push({
+                                docRef: docSnap.ref,
+                                sn: s.serialNumber,
+                                product: s.productName || 'Producto',
+                                reason: `Orden #${order.orderNumber || order.internalOrderNumber || order.id.slice(0,6).toUpperCase()} en estado ${order.status}`
+                            });
+                            return;
+                        }
+
+                        // Caso C: Devolución parcial o ítems devueltos en la orden
+                        const items = order.items || [];
+                        const item = items.find(i => i.id === s.productId || (i.name && s.productName && i.name.toLowerCase() === s.productName.toLowerCase()));
+                        
+                        if (item) {
+                            // Si el serial está registrado en returnedSns
+                            if (Array.isArray(item.returnedSns) && item.returnedSns.includes(s.serialNumber)) {
+                                serialsToFix.push({
+                                    docRef: docSnap.ref,
+                                    sn: s.serialNumber,
+                                    product: s.productName || item.name || 'Producto',
+                                    reason: `Registrado como devuelto en Orden #${order.orderNumber || order.internalOrderNumber || order.id.slice(0,6).toUpperCase()}`
+                                });
+                                return;
+                            }
+                            // Si todo el producto fue devuelto (returnedQty >= quantity)
+                            if (item.returnedQty && item.quantity && item.returnedQty >= item.quantity) {
+                                serialsToFix.push({
+                                    docRef: docSnap.ref,
+                                    sn: s.serialNumber,
+                                    product: s.productName || item.name || 'Producto',
+                                    reason: `Ítem completamente devuelto (${item.returnedQty}/${item.quantity}) en Orden #${order.orderNumber || order.internalOrderNumber || order.id.slice(0,6).toUpperCase()}`
+                                });
+                                return;
+                            }
+                        }
+                    }
+                });
+
+                if (serialsToFix.length === 0) {
+                    alert("✅ Todo en orden:\nNo se encontraron seriales bloqueados pertenecientes a órdenes canceladas, devueltas o eliminadas.");
+                    return;
+                }
+
+                // Mostrar reporte previo al usuario
+                const previewList = serialsToFix.slice(0, 10).map(s => `• [${s.sn}] (${s.product}) → ${s.reason}`).join('\n');
+                const moreCount = serialsToFix.length > 10 ? `\n... y ${serialsToFix.length - 10} más` : '';
+                const confirmMsg = `⚠️ SE ENCONTRARON ${serialsToFix.length} SERIALES BLOQUEADOS:\n\n${previewList}${moreCount}\n\n¿Deseas corregirlos y liberarlos ahora?\n\nSe desvincularán de las órdenes canceladas/devueltas y pasarán a estado 'DISPONIBLE' en inventario.`;
+
+                if (!confirm(confirmMsg)) {
+                    return;
+                }
+
+                if (btn) btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin text-brand-cyan"></i> <span>Liberando seriales...</span>';
+
+                // 2. Ejecutar liberación en lotes (batch) de 400
+                const batchSize = 400;
+                for (let i = 0; i < serialsToFix.length; i += batchSize) {
+                    const chunk = serialsToFix.slice(i, i + batchSize);
+                    const batch = writeBatch(db);
+                    chunk.forEach(s => {
+                        batch.update(s.docRef, {
+                            status: 'AVAILABLE',
+                            orderId: null,
+                            orderInternalNumber: null,
+                            clientName: null,
+                            clientPhone: null,
+                            dispatchedAt: null,
+                            returnedAt: serverTimestamp(),
+                            updatedAt: serverTimestamp()
+                        });
+                    });
+                    await batch.commit();
+                }
+
+                alert(`🎉 Éxito:\nSe liberaron correctamente ${serialsToFix.length} seriales. Ahora están marcados como 'DISPONIBLE' en inventario.`);
+
+                // 3. Recargar estadísticas y vista activa
+                await loadGlobalSerialStats();
+                if (currentSelectedProduct) {
+                    await selectProduct(currentSelectedProduct, true);
+                }
+
+            } catch (err) {
+                console.error("Error auditando y liberando seriales:", err);
+                alert("❌ Error al procesar la liberación: " + (err.message || err));
+            } finally {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = originalHtml;
+                }
+            }
         };
     </script>
 </body>
