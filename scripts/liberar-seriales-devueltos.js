@@ -1,16 +1,17 @@
 /**
- * SCRIPT DE CORRECCIÓN: LIBERACIÓN DE SERIALES HUÉRFANOS / DEVUELTOS
+ * SCRIPT DE CORRECCIÓN: LIBERACIÓN Y DEPURACIÓN DE SERIALES DEVUELTOS / REGULARIZADOS
  * 
  * ¿Qué hace este script?
  * 1. Lee todos los seriales registrados en la colección 'product_serials'.
- * 2. Identifica aquellos con estado 'DISPATCHED' o que tengan 'orderId' asociado.
- * 3. Cruza cada serial contra su orden correspondiente en 'orders':
- *    - Si la orden no existe (fue eliminada).
- *    - Si la orden está en estado 'DEVUELTO', 'CANCELADO' o 'RECHAZADO'.
- *    - Si el ítem específico fue marcado como devuelto (returnedQty >= quantity o está en returnedSns).
- * 4. Muestra un reporte detallado en la consola del navegador con console.table.
- * 5. Pide confirmación al usuario antes de modificar la base de datos.
- * 6. Actualiza en lotes (writeBatch) los seriales a 'AVAILABLE', desvinculándolos de la orden.
+ * 2. Identifica aquellos asociados a órdenes canceladas, devueltas, rechazadas o eliminadas.
+ * 3. También detecta seriales regularizados huérfanos que quedaron en 'AVAILABLE'.
+ * 4. Aplica la regla de negocio:
+ *    - Si el serial proviene de una COMPRA LEGÍTIMA: lo LIBERA a 'AVAILABLE'.
+ *    - Si el serial fue REGULARIZADO en alistamiento: lo ELIMINA de la base de datos
+ *      (para evitar que quede bloqueando o asignado al producto equivocado).
+ * 5. Muestra un reporte detallado en la consola del navegador con console.table.
+ * 6. Pide confirmación al usuario antes de modificar la base de datos.
+ * 7. Ejecuta los cambios en lotes seguros (writeBatch).
  * 
  * Modo de uso:
  * 1. Abre el navegador e inicia sesión como Administrador (en /admin/product-serials.html o /admin/orders.html).
@@ -18,8 +19,8 @@
  * 3. Pega este código completo y presiona Enter.
  */
 
-(async function corregirSerialesDevueltos() {
-    console.log("%c🔍 Iniciando auditoría de seriales...", "color: #00AEC7; font-weight: bold; font-size: 14px;");
+(async function corregirSerialesDevueltosYRegularizados() {
+    console.log("%c🔍 Iniciando auditoría y depuración de seriales...", "color: #00AEC7; font-weight: bold; font-size: 14px;");
 
     // Verificar disponibilidad de Firebase en el contexto del navegador
     const firestoreModule = await import('/js/firebase-init.js');
@@ -42,22 +43,27 @@
         const ordersMap = new Map();
         ordersSnap.forEach(d => ordersMap.set(d.id, { id: d.id, ...d.data() }));
 
-        const serialesALiberar = [];
+        const serialesAProcesar = [];
 
         serialsSnap.forEach(docSnap => {
             const s = docSnap.data();
+            const isRegularized = (s.source && s.source.toUpperCase().includes('REGULARIZADO')) ||
+                                  (s.supplierName && s.supplierName.toLowerCase().includes('regularizado'));
 
-            // Evaluar solo seriales despachados o asociados a una orden
+            // Caso 1: Serial despachado o asociado a una orden
             if (s.status === 'DISPATCHED' || s.orderId) {
                 const order = ordersMap.get(s.orderId);
 
-                // Caso 1: La orden ya no existe (fue borrada de la base de datos)
+                // Subcaso 1.1: La orden ya no existe (fue borrada de la base de datos)
                 if (!order) {
-                    serialesALiberar.push({
+                    serialesAProcesar.push({
                         idDoc: docSnap.id,
                         docRef: docSnap.ref,
                         serialNumber: s.serialNumber,
                         producto: s.productName || 'Desconocido',
+                        tipo: isRegularized ? 'Regularizado' : 'Compra Legítima',
+                        action: isRegularized ? 'ELIMINAR' : 'LIBERAR',
+                        isRegularized,
                         ordenId: s.orderId || 'N/A',
                         numOrden: s.orderInternalNumber || 'S/N',
                         motivo: 'Orden no existe (eliminada)'
@@ -65,13 +71,16 @@
                     return;
                 }
 
-                // Caso 2: La orden está en estado CANCELADO, DEVUELTO o RECHAZADO
+                // Subcaso 1.2: La orden está en estado CANCELADO, DEVUELTO o RECHAZADO
                 if (['CANCELADO', 'DEVUELTO', 'RECHAZADO'].includes(order.status)) {
-                    serialesALiberar.push({
+                    serialesAProcesar.push({
                         idDoc: docSnap.id,
                         docRef: docSnap.ref,
                         serialNumber: s.serialNumber,
                         producto: s.productName || 'Desconocido',
+                        tipo: isRegularized ? 'Regularizado' : 'Compra Legítima',
+                        action: isRegularized ? 'ELIMINAR' : 'LIBERAR',
+                        isRegularized,
                         ordenId: order.id,
                         numOrden: order.orderNumber || order.internalOrderNumber || order.id.slice(0,6).toUpperCase(),
                         motivo: `Orden en estado '${order.status}'`
@@ -79,18 +88,21 @@
                     return;
                 }
 
-                // Caso 3: Devolución parcial o ítems devueltos dentro de la orden
+                // Subcaso 1.3: Devolución parcial o ítems devueltos dentro de la orden
                 const items = order.items || [];
                 const item = items.find(i => i.id === s.productId || (i.name && s.productName && i.name.toLowerCase() === s.productName.toLowerCase()));
 
                 if (item) {
                     // Si el serial está registrado en el array de devueltos
                     if (Array.isArray(item.returnedSns) && item.returnedSns.includes(s.serialNumber)) {
-                        serialesALiberar.push({
+                        serialesAProcesar.push({
                             idDoc: docSnap.id,
                             docRef: docSnap.ref,
                             serialNumber: s.serialNumber,
                             producto: s.productName || item.name || 'Desconocido',
+                            tipo: isRegularized ? 'Regularizado' : 'Compra Legítima',
+                            action: isRegularized ? 'ELIMINAR' : 'LIBERAR',
+                            isRegularized,
                             ordenId: order.id,
                             numOrden: order.orderNumber || order.internalOrderNumber || order.id.slice(0,6).toUpperCase(),
                             motivo: 'Registrado explícitamente como devuelto (returnedSns)'
@@ -100,11 +112,14 @@
 
                     // Si toda la cantidad de ese ítem fue devuelta (ej. 2 de 2)
                     if (item.returnedQty && item.quantity && item.returnedQty >= item.quantity) {
-                        serialesALiberar.push({
+                        serialesAProcesar.push({
                             idDoc: docSnap.id,
                             docRef: docSnap.ref,
                             serialNumber: s.serialNumber,
                             producto: s.productName || item.name || 'Desconocido',
+                            tipo: isRegularized ? 'Regularizado' : 'Compra Legítima',
+                            action: isRegularized ? 'ELIMINAR' : 'LIBERAR',
+                            isRegularized,
                             ordenId: order.id,
                             numOrden: order.orderNumber || order.internalOrderNumber || order.id.slice(0,6).toUpperCase(),
                             motivo: `Ítem devuelto completamente (${item.returnedQty}/${item.quantity})`
@@ -113,23 +128,54 @@
                     }
                 }
             }
+
+            // Caso 2: Serial regularizado huérfano que quedó en AVAILABLE sin compra previa
+            if (s.status === 'AVAILABLE' && isRegularized && !s.purchaseId) {
+                serialesAProcesar.push({
+                    idDoc: docSnap.id,
+                    docRef: docSnap.ref,
+                    serialNumber: s.serialNumber,
+                    producto: s.productName || 'Desconocido',
+                    tipo: 'Regularizado',
+                    action: 'ELIMINAR',
+                    isRegularized: true,
+                    ordenId: 'N/A',
+                    numOrden: 'N/A',
+                    motivo: `Serial regularizado disponible sin compra (origen: ${s.source || s.supplierName})`
+                });
+                return;
+            }
         });
 
-        if (serialesALiberar.length === 0) {
-            console.log("%c✅ Todo está perfecto: No hay seriales bloqueados en órdenes canceladas o devueltas.", "color: #10B981; font-weight: bold; font-size: 13px;");
-            alert("✅ Todo en orden: No se encontraron seriales bloqueados pertenecientes a órdenes canceladas o devueltas.");
+        if (serialesAProcesar.length === 0) {
+            console.log("%c✅ Todo está perfecto: No hay seriales bloqueados ni regularizados huérfanos.", "color: #10B981; font-weight: bold; font-size: 13px;");
+            alert("✅ Todo en orden: No se encontraron seriales bloqueados ni regularizados huérfanos.");
             return;
         }
 
-        console.log(`%c⚠️ Se encontraron ${serialesALiberar.length} seriales bloqueados que deben liberarse:`, "color: #F59E0B; font-weight: bold; font-size: 13px;");
-        console.table(serialesALiberar.map(s => ({
+        const aLiberar = serialesAProcesar.filter(s => s.action === 'LIBERAR');
+        const aEliminar = serialesAProcesar.filter(s => s.action === 'ELIMINAR');
+
+        console.log(`%c⚠️ Se encontraron ${serialesAProcesar.length} seriales a procesar:`, "color: #F59E0B; font-weight: bold; font-size: 14px;");
+        console.log(`• ${aLiberar.length} seriales legítimos a LIBERAR a 'DISPONIBLE'`);
+        console.log(`• ${aEliminar.length} seriales regularizados a ELIMINAR`);
+
+        console.table(serialesAProcesar.map(s => ({
+            Accion: s.action === 'ELIMINAR' ? '🗑️ ELIMINAR' : '🔄 LIBERAR',
             Serial: s.serialNumber,
             Producto: s.producto,
+            Tipo: s.tipo,
             Orden: s.numOrden,
             Motivo: s.motivo
         })));
 
-        const confirmar = confirm(`⚠️ Se encontraron ${serialesALiberar.length} seriales bloqueados en órdenes devueltas o canceladas.\n\n¿Deseas corregirlos ahora mismo?\n(Pasarán a estado DISPONIBLE en inventario)`);
+        const confirmMsg = `⚠️ AUDITORÍA DE SERIALES DEVUELTOS / CANCELADOS:\n\n` +
+            `Se encontraron ${serialesAProcesar.length} seriales:\n` +
+            `• ${aLiberar.length} seriales legítimos de compras pasarán a estado 'DISPONIBLE'.\n` +
+            `• ${aEliminar.length} seriales REGULARIZADOS serán ELIMINADOS (para evitar errores con el producto real).\n\n` +
+            `¿Deseas aplicar estos cambios ahora mismo en la base de datos?`;
+
+        const confirmar = confirm(confirmMsg);
         if (!confirmar) {
             console.log("Operación cancelada por el usuario. No se realizaron cambios.");
             return;
@@ -139,30 +185,34 @@
         const batchSize = 400;
         let procesados = 0;
 
-        for (let i = 0; i < serialesALiberar.length; i += batchSize) {
-            const chunk = serialesALiberar.slice(i, i + batchSize);
+        for (let i = 0; i < serialesAProcesar.length; i += batchSize) {
+            const chunk = serialesAProcesar.slice(i, i + batchSize);
             const batch = writeBatch(db);
 
             chunk.forEach(item => {
-                batch.update(item.docRef, {
-                    status: 'AVAILABLE',
-                    orderId: null,
-                    orderInternalNumber: null,
-                    clientName: null,
-                    clientPhone: null,
-                    dispatchedAt: null,
-                    returnedAt: serverTimestamp(),
-                    updatedAt: serverTimestamp()
-                });
+                if (item.action === 'ELIMINAR') {
+                    batch.delete(item.docRef);
+                } else {
+                    batch.update(item.docRef, {
+                        status: 'AVAILABLE',
+                        orderId: null,
+                        orderInternalNumber: null,
+                        clientName: null,
+                        clientPhone: null,
+                        dispatchedAt: null,
+                        returnedAt: serverTimestamp(),
+                        updatedAt: serverTimestamp()
+                    });
+                }
             });
 
             await batch.commit();
             procesados += chunk.length;
-            console.log(`Progreso: ${procesados}/${serialesALiberar.length} seriales liberados...`);
+            console.log(`Progreso: ${procesados}/${serialesAProcesar.length} seriales procesados...`);
         }
 
         console.log("%c🎉 ¡Proceso completado exitosamente!", "color: #10B981; font-weight: bold; font-size: 14px;");
-        alert(`🎉 Éxito:\nSe liberaron correctamente ${serialesALiberar.length} seriales en la base de datos. Ahora están marcados como 'DISPONIBLE'.`);
+        alert(`🎉 Éxito:\nSe procesaron ${serialesAProcesar.length} seriales correctamente:\n\n- ${aLiberar.length} liberados a 'DISPONIBLE'.\n- ${aEliminar.length} regularizados eliminados.`);
 
         // Si estamos en la página de control de seriales, refrescar vista
         if (typeof window.loadGlobalSerialStats === 'function') {

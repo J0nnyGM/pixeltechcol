@@ -99,9 +99,9 @@
                         </div>
                         <button type="button" onclick="window.auditAndFixReturnedSerials()" id="btn-fix-returned-serials"
                             class="h-11 px-5 rounded-2xl bg-white/10 hover:bg-white/20 text-white border border-white/20 font-black text-xs uppercase tracking-wider flex items-center gap-2.5 transition-all shadow-sm shrink-0 backdrop-blur-sm self-start sm:self-auto cursor-pointer"
-                            title="Buscar y liberar seriales de pedidos devueltos, cancelados o eliminados">
+                            title="Auditar seriales: libera legítimos de compras y elimina regularizados de pedidos cancelados o devueltos">
                             <i class="fa-solid fa-screwdriver-wrench text-brand-cyan"></i>
-                            <span>Liberar Seriales Devueltos</span>
+                            <span>Liberar / Depurar Seriales</span>
                         </button>
                     </div>
 
@@ -1740,7 +1740,10 @@
 
                 serialsSnap.forEach(docSnap => {
                     const s = docSnap.data();
-                    // Solo evaluar seriales que estén como despachados o vinculados a una orden
+                    const isRegularized = (s.source && s.source.toUpperCase().includes('REGULARIZADO')) ||
+                                          (s.supplierName && s.supplierName.toLowerCase().includes('regularizado'));
+
+                    // CASO 1: Serial con orden asociada o en estado despachado
                     if (s.status === 'DISPATCHED' || s.orderId) {
                         const order = ordersMap.get(s.orderId);
 
@@ -1750,6 +1753,8 @@
                                 docRef: docSnap.ref,
                                 sn: s.serialNumber,
                                 product: s.productName || 'Producto',
+                                action: isRegularized ? 'DELETE' : 'RELEASE',
+                                isRegularized,
                                 reason: `Orden #${s.orderInternalNumber || s.orderId || 'Desconocida'} no existe (eliminada)`
                             });
                             return;
@@ -1761,6 +1766,8 @@
                                 docRef: docSnap.ref,
                                 sn: s.serialNumber,
                                 product: s.productName || 'Producto',
+                                action: isRegularized ? 'DELETE' : 'RELEASE',
+                                isRegularized,
                                 reason: `Orden #${order.orderNumber || order.internalOrderNumber || order.id.slice(0,6).toUpperCase()} en estado ${order.status}`
                             });
                             return;
@@ -1777,6 +1784,8 @@
                                     docRef: docSnap.ref,
                                     sn: s.serialNumber,
                                     product: s.productName || item.name || 'Producto',
+                                    action: isRegularized ? 'DELETE' : 'RELEASE',
+                                    isRegularized,
                                     reason: `Registrado como devuelto en Orden #${order.orderNumber || order.internalOrderNumber || order.id.slice(0,6).toUpperCase()}`
                                 });
                                 return;
@@ -1787,51 +1796,81 @@
                                     docRef: docSnap.ref,
                                     sn: s.serialNumber,
                                     product: s.productName || item.name || 'Producto',
+                                    action: isRegularized ? 'DELETE' : 'RELEASE',
+                                    isRegularized,
                                     reason: `Ítem completamente devuelto (${item.returnedQty}/${item.quantity}) en Orden #${order.orderNumber || order.internalOrderNumber || order.id.slice(0,6).toUpperCase()}`
                                 });
                                 return;
                             }
                         }
                     }
+
+                    // CASO 2: Serial regularizado que quedó en AVAILABLE sin compra previa (de una devolución previa)
+                    if (s.status === 'AVAILABLE' && isRegularized && !s.purchaseId) {
+                        serialsToFix.push({
+                            docRef: docSnap.ref,
+                            sn: s.serialNumber,
+                            product: s.productName || 'Producto',
+                            action: 'DELETE',
+                            isRegularized: true,
+                            reason: `Serial regularizado disponible sin compra previa (origen: ${s.source || s.supplierName})`
+                        });
+                        return;
+                    }
                 });
 
                 if (serialsToFix.length === 0) {
-                    alert("✅ Todo en orden:\nNo se encontraron seriales bloqueados pertenecientes a órdenes canceladas, devueltas o eliminadas.");
+                    alert("✅ Todo en orden:\nNo se encontraron seriales bloqueados ni seriales regularizados huérfanos.");
                     return;
                 }
 
+                const toRelease = serialsToFix.filter(s => s.action === 'RELEASE');
+                const toDelete = serialsToFix.filter(s => s.action === 'DELETE');
+
                 // Mostrar reporte previo al usuario
-                const previewList = serialsToFix.slice(0, 10).map(s => `• [${s.sn}] (${s.product}) → ${s.reason}`).join('\n');
+                let summaryDetails = `⚠️ SE ENCONTRARON ${serialsToFix.length} SERIALES A PROCESAR:\n\n`;
+                if (toRelease.length > 0) {
+                    summaryDetails += `• ${toRelease.length} seriales legítimos de compras pasarán a estado 'DISPONIBLE'.\n`;
+                }
+                if (toDelete.length > 0) {
+                    summaryDetails += `• ${toDelete.length} seriales REGULARIZADOS serán ELIMINADOS (para evitar que bloqueen el producto correcto si pertenecían a otro equipo).\n`;
+                }
+
+                const previewList = serialsToFix.slice(0, 10).map(s => `• [${s.sn}] (${s.product}) → ${s.action === 'DELETE' ? '🗑️ ELIMINAR' : '🔄 LIBERAR'} (${s.reason})`).join('\n');
                 const moreCount = serialsToFix.length > 10 ? `\n... y ${serialsToFix.length - 10} más` : '';
-                const confirmMsg = `⚠️ SE ENCONTRARON ${serialsToFix.length} SERIALES BLOQUEADOS:\n\n${previewList}${moreCount}\n\n¿Deseas corregirlos y liberarlos ahora?\n\nSe desvincularán de las órdenes canceladas/devueltas y pasarán a estado 'DISPONIBLE' en inventario.`;
+                const confirmMsg = `${summaryDetails}\nDetalle (primeros ${Math.min(10, serialsToFix.length)}):\n${previewList}${moreCount}\n\n¿Deseas aplicar estos cambios en la base de datos?`;
 
                 if (!confirm(confirmMsg)) {
                     return;
                 }
 
-                if (btn) btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin text-brand-cyan"></i> <span>Liberando seriales...</span>';
+                if (btn) btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin text-brand-cyan"></i> <span>Aplicando cambios...</span>';
 
-                // 2. Ejecutar liberación en lotes (batch) de 400
+                // 2. Ejecutar procesamiento en lotes (batch) de 400
                 const batchSize = 400;
                 for (let i = 0; i < serialsToFix.length; i += batchSize) {
                     const chunk = serialsToFix.slice(i, i + batchSize);
                     const batch = writeBatch(db);
                     chunk.forEach(s => {
-                        batch.update(s.docRef, {
-                            status: 'AVAILABLE',
-                            orderId: null,
-                            orderInternalNumber: null,
-                            clientName: null,
-                            clientPhone: null,
-                            dispatchedAt: null,
-                            returnedAt: serverTimestamp(),
-                            updatedAt: serverTimestamp()
-                        });
+                        if (s.action === 'DELETE') {
+                            batch.delete(s.docRef);
+                        } else {
+                            batch.update(s.docRef, {
+                                status: 'AVAILABLE',
+                                orderId: null,
+                                orderInternalNumber: null,
+                                clientName: null,
+                                clientPhone: null,
+                                dispatchedAt: null,
+                                returnedAt: serverTimestamp(),
+                                updatedAt: serverTimestamp()
+                            });
+                        }
                     });
                     await batch.commit();
                 }
 
-                alert(`🎉 Éxito:\nSe liberaron correctamente ${serialsToFix.length} seriales. Ahora están marcados como 'DISPONIBLE' en inventario.`);
+                alert(`🎉 Éxito:\nSe procesaron ${serialsToFix.length} seriales correctamente.\n\n- ${toRelease.length} seriales liberados a 'DISPONIBLE'.\n- ${toDelete.length} seriales regularizados eliminados.`);
 
                 // 3. Recargar estadísticas y vista activa
                 await loadGlobalSerialStats();
@@ -1840,8 +1879,8 @@
                 }
 
             } catch (err) {
-                console.error("Error auditando y liberando seriales:", err);
-                alert("❌ Error al procesar la liberación: " + (err.message || err));
+                console.error("Error auditando y procesando seriales:", err);
+                alert("❌ Error al procesar: " + (err.message || err));
             } finally {
                 if (btn) {
                     btn.disabled = false;

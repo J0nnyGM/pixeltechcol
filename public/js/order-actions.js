@@ -23,6 +23,14 @@ export const isNoSerial = (sn) => {
 };
 window.isNoSerial = isNoSerial;
 
+export const isRegularizedSerial = (data) => {
+    if (!data) return false;
+    const source = (data.source || '').toUpperCase();
+    const supplier = (data.supplierName || '').toLowerCase();
+    return source.includes('REGULARIZADO') || supplier.includes('regularizado');
+};
+window.isRegularizedSerial = isRegularizedSerial;
+
 window.toggleItemNoSerial = (idx) => {
     const inputs = document.querySelectorAll(`.sn-input[data-item-index="${idx}"]`);
     if (!inputs || inputs.length === 0) return;
@@ -486,26 +494,34 @@ async function cancelManualOrder(order) {
             }
         }
 
-        // Liberar seriales vinculados a esta orden para que vuelvan a estar DISPONIBLES
+        // Liberar seriales legítimos a AVAILABLE o eliminar seriales regularizados
         try {
             const linkedSerials = await getDocs(query(collection(db, "product_serials"), where("orderId", "==", order.id)));
             if (!linkedSerials.empty) {
                 const batchSerials = writeBatch(db);
                 linkedSerials.forEach(d => {
-                    batchSerials.update(d.ref, {
-                        status: 'AVAILABLE',
-                        orderId: null,
-                        orderInternalNumber: null,
-                        clientName: null,
-                        clientPhone: null,
-                        dispatchedAt: null,
-                        updatedAt: new Date()
-                    });
+                    const data = d.data();
+                    if (isRegularizedSerial(data)) {
+                        // Serial regularizado en alistamiento: se elimina para evitar asignarlo al producto incorrecto
+                        batchSerials.delete(d.ref);
+                    } else {
+                        // Serial legítimo de compras: vuelve a estar DISPONIBLE
+                        batchSerials.update(d.ref, {
+                            status: 'AVAILABLE',
+                            orderId: null,
+                            orderInternalNumber: null,
+                            clientName: null,
+                            clientPhone: null,
+                            dispatchedAt: null,
+                            returnedAt: serverTimestamp(),
+                            updatedAt: serverTimestamp()
+                        });
+                    }
                 });
                 await batchSerials.commit();
             }
         } catch(errSerials) {
-            console.warn("Error liberando seriales en anulación:", errSerials);
+            console.warn("Error procesando seriales en anulación:", errSerials);
         }
 
         alert("✅ Venta anulada exitosamente. \nEl stock fue devuelto al catálogo (si corresponde) y el dinero fue revertido de la cuenta (si aplica).");
@@ -1055,19 +1071,23 @@ export async function saveAlistamiento(onSuccess) {
         const currentSnsList = allSnsInOrder.map(s => s.sn);
         const batch = writeBatch(db);
 
-        // Liberar los seriales previos que se hayan quitado o reemplazado
+        // Liberar o eliminar los seriales previos que se hayan quitado o reemplazado
         previousLinkedSerialsSnap.docs.forEach(docSnap => {
             const data = docSnap.data();
             if (!currentSnsList.includes(data.serialNumber)) {
-                batch.update(docSnap.ref, {
-                    status: 'AVAILABLE',
-                    orderId: null,
-                    orderInternalNumber: null,
-                    clientName: null,
-                    clientPhone: null,
-                    dispatchedAt: null,
-                    updatedAt: now
-                });
+                if (isRegularizedSerial(data)) {
+                    batch.delete(docSnap.ref);
+                } else {
+                    batch.update(docSnap.ref, {
+                        status: 'AVAILABLE',
+                        orderId: null,
+                        orderInternalNumber: null,
+                        clientName: null,
+                        clientPhone: null,
+                        dispatchedAt: null,
+                        updatedAt: now
+                    });
+                }
             }
         });
 
@@ -1726,7 +1746,10 @@ if (refundForm) {
                 }
             }
 
-            // 🔥 Liberar seriales en product_serials a AVAILABLE
+            // 🔥 Liberar seriales legítimos a AVAILABLE o eliminar regularizados en devolución
+            let countUpdated = 0;
+            let countDeleted = 0;
+
             if (serialsToRelease.length > 0) {
                 try {
                     const chunks = [];
@@ -1734,7 +1757,6 @@ if (refundForm) {
                         chunks.push(serialsToRelease.slice(i, i + 30));
                     }
                     const batchSerials = writeBatch(db);
-                    let countUpdated = 0;
 
                     for (const chunk of chunks) {
                         const q = query(
@@ -1745,7 +1767,50 @@ if (refundForm) {
                         snap.forEach(docSnap => {
                             const data = docSnap.data();
                             if (data.orderId === orderId || !data.orderId || data.status === 'DISPATCHED') {
-                                batchSerials.update(docSnap.ref, {
+                                if (isRegularizedSerial(data)) {
+                                    // Regularizado en alistamiento: se elimina para evitar asignarlo al producto equivocado
+                                    batchSerials.delete(docSnap.ref);
+                                    countDeleted++;
+                                } else {
+                                    // Compra legítima: vuelve a disponible
+                                    batchSerials.update(docSnap.ref, {
+                                        status: 'AVAILABLE',
+                                        orderId: null,
+                                        orderInternalNumber: null,
+                                        clientName: null,
+                                        clientPhone: null,
+                                        dispatchedAt: null,
+                                        returnedAt: serverTimestamp(),
+                                        updatedAt: serverTimestamp()
+                                    });
+                                    countUpdated++;
+                                }
+                            }
+                        });
+                    }
+
+                    if (countUpdated > 0 || countDeleted > 0) {
+                        await batchSerials.commit();
+                        console.log(`✅ [Devolución] Seriales procesados: ${countUpdated} liberados a AVAILABLE, ${countDeleted} regularizados eliminados.`);
+                    }
+                } catch (errSerials) {
+                    console.error("Error liberando/eliminando seriales en devolución:", errSerials);
+                }
+            }
+
+            // Si la orden quedó completamente DEVUELTA, liberar cualquier serial residual vinculado o eliminar si fue regularizado
+            if (finalOrderStatus === 'DEVUELTO') {
+                try {
+                    const remainingLinkedSnap = await getDocs(query(collection(db, "product_serials"), where("orderId", "==", orderId)));
+                    if (!remainingLinkedSnap.empty) {
+                        const b = writeBatch(db);
+                        remainingLinkedSnap.forEach(d => {
+                            const data = d.data();
+                            if (isRegularizedSerial(data)) {
+                                b.delete(d.ref);
+                                countDeleted++;
+                            } else {
+                                b.update(d.ref, {
                                     status: 'AVAILABLE',
                                     orderId: null,
                                     orderInternalNumber: null,
@@ -1758,35 +1823,6 @@ if (refundForm) {
                                 countUpdated++;
                             }
                         });
-                    }
-
-                    if (countUpdated > 0) {
-                        await batchSerials.commit();
-                        console.log(`✅ [Devolución] Se liberaron ${countUpdated} seriales a AVAILABLE.`);
-                    }
-                } catch (errSerials) {
-                    console.error("Error liberando seriales en devolución:", errSerials);
-                }
-            }
-
-            // Si la orden quedó completamente DEVUELTA, liberar cualquier serial residual vinculado
-            if (finalOrderStatus === 'DEVUELTO') {
-                try {
-                    const remainingLinkedSnap = await getDocs(query(collection(db, "product_serials"), where("orderId", "==", orderId)));
-                    if (!remainingLinkedSnap.empty) {
-                        const b = writeBatch(db);
-                        remainingLinkedSnap.forEach(d => {
-                            b.update(d.ref, {
-                                status: 'AVAILABLE',
-                                orderId: null,
-                                orderInternalNumber: null,
-                                clientName: null,
-                                clientPhone: null,
-                                dispatchedAt: null,
-                                returnedAt: serverTimestamp(),
-                                updatedAt: serverTimestamp()
-                            });
-                        });
                         await b.commit();
                     }
                 } catch(e) {
@@ -1794,7 +1830,13 @@ if (refundForm) {
                 }
             }
 
-            const serialMsg = serialsToRelease.length > 0 ? `\nSe liberaron ${serialsToRelease.length} serial(es) a inventario disponible.` : '';
+            let serialMsg = '';
+            if (countUpdated > 0 || countDeleted > 0) {
+                const parts = [];
+                if (countUpdated > 0) parts.push(`${countUpdated} liberado(s) a disponible`);
+                if (countDeleted > 0) parts.push(`${countDeleted} regularizado(s) eliminado(s)`);
+                serialMsg = `\nSeriales: ${parts.join(', ')}.`;
+            }
             alert(`✅ Devolución procesada correctamente.${serialMsg}`);
             currentOrderData = null; accountsCache = null;
             getEl('refund-modal').classList.add('hidden'); 
