@@ -1,4 +1,4 @@
-const CACHE_NAME = 'pixeltech-shell-v10.18'; // 🔥 Subimos la versión para forzar actualización de sliders y banners
+const CACHE_NAME = 'pixeltech-shell-v10.19'; // 🔥 Subimos la versión para forzar actualización de sincronización de órdenes garantizadas
 
 // Archivos vitales para que la app arranque sin internet
 const urlsToCache = [

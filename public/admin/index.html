@@ -438,7 +438,7 @@
 
                 // Pedidos (Tabla Central en Vivo)
                 if (unsubscribeOrdersTable) unsubscribeOrdersTable();
-                const qOrders = query(collection(db, "orders"), where("status", "in", ["PAGADO", "PENDIENTE", "ALISTADO"]), orderBy("createdAt", "desc"), limit(100));
+                const qOrders = query(collection(db, "orders"), where("status", "in", ["PAGADO", "PENDIENTE", "ALISTADO"]), orderBy("createdAt", "desc"));
                 
                 unsubscribeOrdersTable = onSnapshot(qOrders, (snap) => {
                     let packingCount = 0;

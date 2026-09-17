@@ -484,13 +484,17 @@
         };
 
         // ==========================================================================
-        // 🧠 SMART REAL-TIME CACHE: MOTOR CENTRAL DE ÓRDENES
+        // 🧠 SMART REAL-TIME CACHE: MOTOR CENTRAL DE ÓRDENES (DUAL STREAM)
         // ==========================================================================
         const SmartAdminOrdersSync = {
             STORAGE_KEY: 'pixeltech_admin_orders_cache',
             runtimeMap: {},
+            actionableMap: {},
+            recentMap: {},
+            olderMap: {},
             lastSyncTime: 0,
-            unsubscribe: null,
+            unsubActionable: null,
+            unsubRecent: null,
 
             init() {
                 const cachedRaw = localStorage.getItem(this.STORAGE_KEY);
@@ -499,6 +503,7 @@
                         const parsed = JSON.parse(cachedRaw);
                         if (parsed.map && parsed.lastSync) {
                             this.runtimeMap = parsed.map;
+                            this.olderMap = { ...parsed.map };
                             this.lastSyncTime = parsed.lastSync;
 
                             this.updateGlobalArray();
@@ -528,13 +533,13 @@
 
             saveToStorage() {
                 try {
-                    // Para evitar saturar el límite de 5MB de localStorage del navegador,
-                    // solo persistimos en disco las 50 órdenes más recientes (en RAM se conservan todas).
-                    const recentOrders = adminOrdersCache.slice(0, 50);
+                    // Persistimos en disco TODAS las órdenes por atender (clave para que no se pierdan)
+                    // más las 40 órdenes más recientes generales (evitando superar límite de 5MB).
+                    const actionableOrders = adminOrdersCache.filter(o => ["PAGADO", "PENDIENTE", "ALISTADO"].includes(o.status));
+                    const recentOrders = adminOrdersCache.slice(0, 40);
                     const cacheMap = {};
-                    recentOrders.forEach(o => {
-                        if (o && o.id) cacheMap[o.id] = o;
-                    });
+                    actionableOrders.forEach(o => { if (o && o.id) cacheMap[o.id] = o; });
+                    recentOrders.forEach(o => { if (o && o.id) cacheMap[o.id] = o; });
 
                     localStorage.setItem(this.STORAGE_KEY, JSON.stringify({
                         map: cacheMap,
@@ -542,7 +547,7 @@
                     }));
                 } catch (e) {
                     try {
-                        const miniOrders = adminOrdersCache.slice(0, 20);
+                        const miniOrders = adminOrdersCache.slice(0, 25);
                         const miniMap = {};
                         miniOrders.forEach(o => { if (o && o.id) miniMap[o.id] = o; });
                         localStorage.setItem(this.STORAGE_KEY, JSON.stringify({
@@ -556,56 +561,94 @@
                 }
             },
 
+            syncAndRender() {
+                // Preservar cualquier orden añadida manualmente a runtimeMap (por búsquedas directas)
+                Object.keys(this.runtimeMap).forEach(id => {
+                    if (!this.actionableMap[id] && !this.recentMap[id] && !this.olderMap[id]) {
+                        this.olderMap[id] = this.runtimeMap[id];
+                    }
+                });
+
+                // Fusión limpia: historial viejo + 50 recientes + todas las por atender en vivo
+                this.runtimeMap = { ...this.olderMap, ...this.recentMap, ...this.actionableMap };
+
+                if (Object.keys(this.runtimeMap).length === 0) {
+                    adminOrdersCache = [];
+                    const tableBody = document.getElementById('orders-table-body');
+                    if (tableBody) tableBody.innerHTML = `<tr><td colspan="8" class="p-10 text-center text-xs text-brand-black font-bold uppercase">No se encontraron pedidos.</td></tr>`;
+                    updatePaginationControls(0, 0, 0);
+                    return;
+                }
+
+                this.updateGlobalArray();
+                this.saveToStorage();
+                this.lastSyncTime = Date.now();
+
+                scheduleRenderOrders();
+            },
+
             listenForUpdates() {
-                if (this.unsubscribe) this.unsubscribe();
+                if (this.unsubActionable) { this.unsubActionable(); this.unsubActionable = null; }
+                if (this.unsubRecent) { this.unsubRecent(); this.unsubRecent = null; }
 
                 const ordersRef = collection(db, "orders");
-                console.log("☁️ [Orders] Estableciendo conexión en vivo (Fuente de Verdad)...");
+                console.log("☁️ [Orders] Conectando flujos duales en vivo (Por Atender garantizadas + Historial)...");
                 
-                const q = query(ordersRef, orderBy("createdAt", "desc"), limit(100));
+                // 1. FLUJO VITAL: Todas las órdenes Por Atender (Sin límite de 100, así sean de hace 1000 órdenes)
+                const qActionable = query(
+                    ordersRef, 
+                    where("status", "in", ["PAGADO", "PENDIENTE", "ALISTADO"]), 
+                    orderBy("createdAt", "desc")
+                );
 
-                this.unsubscribe = onSnapshot(q, (snapshot) => {
-                    if (snapshot.empty) {
-                        this.runtimeMap = {};
-                        adminOrdersCache = [];
-                        localStorage.removeItem(this.STORAGE_KEY);
-                        document.getElementById('orders-table-body').innerHTML = `<tr><td colspan="8" class="p-10 text-center text-xs text-brand-black font-bold uppercase">No se encontraron pedidos.</td></tr>`;
-                        return;
-                    }
-
-                    const freshMap = {};
+                this.unsubActionable = onSnapshot(qActionable, (snapshot) => {
+                    const freshActionable = {};
                     snapshot.docs.forEach(docSnap => {
                         const data = docSnap.data();
                         const id = docSnap.id;
-
                         if (!data.updatedAt) data.updatedAt = data.createdAt;
                         if (data.createdAt?.toDate) data.createdAt = data.createdAt.toDate().toISOString();
                         if (data.updatedAt?.toDate) data.updatedAt = data.updatedAt.toDate().toISOString();
-
-                        freshMap[id] = { id, ...data };
+                        freshActionable[id] = { id, ...data };
                     });
 
-                    Object.keys(this.runtimeMap).forEach(key => {
-                        if(!freshMap[key]) {
-                            freshMap[key] = this.runtimeMap[key];
+                    // Limpieza en olderMap de pedidos que antes estaban 'por atender' pero ya cambiaron de estado en el servidor
+                    Object.keys(this.olderMap).forEach(id => {
+                        const o = this.olderMap[id];
+                        if (o && ["PAGADO", "PENDIENTE", "ALISTADO"].includes(o.status) && !freshActionable[id]) {
+                            delete this.olderMap[id];
                         }
+                    });
+
+                    this.actionableMap = freshActionable;
+                    console.log(`🔔 [Orders] Órdenes por atender en vivo garantizadas: ${Object.keys(freshActionable).length}`);
+                    this.syncAndRender();
+                }, (error) => {
+                    console.error("Error Live Actionable Orders:", error);
+                });
+
+                // 2. FLUJO HISTÓRICO: Últimas 50 órdenes generales para el resto de pestañas (Ahorro de lecturas)
+                const qRecent = query(ordersRef, orderBy("createdAt", "desc"), limit(50));
+
+                this.unsubRecent = onSnapshot(qRecent, (snapshot) => {
+                    const freshRecent = {};
+                    snapshot.docs.forEach(docSnap => {
+                        const data = docSnap.data();
+                        const id = docSnap.id;
+                        if (!data.updatedAt) data.updatedAt = data.createdAt;
+                        if (data.createdAt?.toDate) data.createdAt = data.createdAt.toDate().toISOString();
+                        if (data.updatedAt?.toDate) data.updatedAt = data.updatedAt.toDate().toISOString();
+                        freshRecent[id] = { id, ...data };
                     });
 
                     if (!lastVisibleServerDoc && snapshot.docs.length > 0) {
                         lastVisibleServerDoc = snapshot.docs[snapshot.docs.length - 1];
                     }
 
-                    this.runtimeMap = freshMap;
-                    this.updateGlobalArray();
-                    this.saveToStorage();
-                    this.lastSyncTime = Date.now();
-
-                    console.log(`🔥 [Orders] Sincronización perfecta: ${adminOrdersCache.length} pedidos al día.`);
-
-                    scheduleRenderOrders();
-
+                    this.recentMap = freshRecent;
+                    this.syncAndRender();
                 }, (error) => {
-                    console.error("Error Live Orders:", error);
+                    console.error("Error Live Recent Orders:", error);
                 });
             }
         };
@@ -636,11 +679,10 @@
                     if (data.createdAt?.toDate) data.createdAt = data.createdAt.toDate().toISOString();
                     if (data.updatedAt?.toDate) data.updatedAt = data.updatedAt.toDate().toISOString();
                     
-                    SmartAdminOrdersSync.runtimeMap[id] = { id, ...data };
+                    SmartAdminOrdersSync.olderMap[id] = { id, ...data };
                 });
                 
-                SmartAdminOrdersSync.updateGlobalArray();
-                SmartAdminOrdersSync.saveToStorage();
+                SmartAdminOrdersSync.syncAndRender();
 
                 isFetchingOlderServerDocs = false;
                 return true;
@@ -792,7 +834,7 @@
             } else if (currentFilter === 'WAITING') {
                 filteredOrdersMemory = adminOrdersCache.filter(o => o.status === "PENDIENTE_PAGO");
             } else if (currentFilter === 'DISPATCHED') {
-                filteredOrdersMemory = adminOrdersCache.filter(o => o.status === "DESPACHADO");
+                filteredOrdersMemory = adminOrdersCache.filter(o => ["DESPACHADO", "ENTREGADO"].includes(o.status));
             } else if (currentFilter === 'REFUNDS') {
                 filteredOrdersMemory = adminOrdersCache.filter(o => ["DEVUELTO", "DEVOLUCION_PARCIAL"].includes(o.status));
             } else if (currentFilter === 'FAILED') {
