@@ -55,6 +55,59 @@ window.toggleItemNoSerial = (idx) => {
     }
 };
 
+// --- SISTEMA DE TOAST HUD NO BLOQUEANTE ---
+export function showActionToast(msg, type = 'info', duration = 3500) {
+    let container = document.getElementById('action-toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'action-toast-container';
+        container.className = 'fixed top-5 right-5 z-[99999] flex flex-col gap-2.5 pointer-events-none max-w-md w-full px-4';
+        document.body.appendChild(container);
+    }
+
+    const toast = document.createElement('div');
+    const isError = type === 'error' || msg.includes('⚠️') || msg.includes('❌') || msg.toLowerCase().includes('error');
+    const isSuccess = type === 'success' || msg.includes('✅') || msg.includes('🚚');
+
+    const bgClass = isError 
+        ? 'bg-slate-900 text-red-200 border-red-500/50 shadow-red-950/40' 
+        : (isSuccess ? 'bg-slate-900 text-emerald-200 border-emerald-500/50 shadow-emerald-950/40' : 'bg-slate-900 text-slate-100 border-slate-700 shadow-black/40');
+    
+    const icon = isError 
+        ? '<i class="fa-solid fa-triangle-exclamation text-red-400 text-base shrink-0 mt-0.5"></i>' 
+        : (isSuccess ? '<i class="fa-solid fa-circle-check text-emerald-400 text-base shrink-0 mt-0.5"></i>' : '<i class="fa-solid fa-circle-info text-cyan-400 text-base shrink-0 mt-0.5"></i>');
+
+    const cleanMsg = msg.replace(/^[⚠️✅🚚❌]\s*/, '');
+
+    toast.className = `pointer-events-auto flex items-start gap-3 p-4 rounded-2xl shadow-2xl border ${bgClass} text-xs font-bold leading-snug transition-all duration-200 transform -translate-y-2 opacity-0`;
+    toast.innerHTML = `
+        ${icon}
+        <div class="flex-1 whitespace-pre-line text-white">${cleanMsg}</div>
+        <button class="text-gray-400 hover:text-white transition ml-2 text-base leading-none shrink-0">&times;</button>
+    `;
+
+    const closeBtn = toast.querySelector('button');
+    if (closeBtn) {
+        closeBtn.onclick = () => {
+            toast.classList.add('opacity-0', '-translate-y-2');
+            setTimeout(() => toast.remove(), 250);
+        };
+    }
+
+    container.appendChild(toast);
+    requestAnimationFrame(() => {
+        toast.classList.remove('opacity-0', '-translate-y-2');
+    });
+
+    setTimeout(() => {
+        if (toast.parentElement) {
+            toast.classList.add('opacity-0', '-translate-y-2');
+            setTimeout(() => toast.remove(), 250);
+        }
+    }, duration);
+}
+window.showActionToast = showActionToast;
+
 async function loadAccountsCached() {
     if (accountsCache) return accountsCache;
     try {
@@ -253,39 +306,64 @@ export async function viewOrderDetail(orderId) {
             if (!isLocked) {
                 setTimeout(() => {
                     const allInputs = Array.from(document.querySelectorAll('.sn-input'));
+                    const updateInputStyle = (el, val) => {
+                        const noSn = isNoSerial(val);
+                        if (noSn) {
+                            el.classList.add('bg-amber-50', 'text-amber-800', 'border-amber-300');
+                            el.classList.remove('bg-white', 'text-brand-black', 'border-gray-200');
+                        } else {
+                            el.classList.remove('bg-amber-50', 'text-amber-800', 'border-amber-300');
+                            el.classList.add('bg-white', 'text-brand-black', 'border-gray-200');
+                        }
+                    };
+
                     allInputs.forEach((input, currentIndex) => {
+                        let debounceTimer = null;
                         input.addEventListener('input', function() {
-                            const val = this.value.trim().toUpperCase();
-                            if (isNoSerial(val)) {
-                                this.classList.add('bg-amber-50', 'text-amber-800', 'border-amber-300');
-                                this.classList.remove('bg-white', 'text-brand-black', 'border-gray-200');
-                            } else {
-                                this.classList.remove('bg-amber-50', 'text-amber-800', 'border-amber-300');
-                                this.classList.add('bg-white', 'text-brand-black', 'border-gray-200');
-                            }
+                            clearTimeout(debounceTimer);
+                            debounceTimer = setTimeout(() => {
+                                updateInputStyle(this, this.value.trim().toUpperCase());
+                            }, 150);
                         });
+
                         input.addEventListener('change', function(e) {
+                            clearTimeout(debounceTimer);
                             let val = this.value.trim().toUpperCase();
-                            if (!val) return; 
+                            this.value = val;
+                            if (!val) {
+                                updateInputStyle(this, '');
+                                return; 
+                            }
                             if (isNoSerial(val)) {
                                 this.value = 'SIN-SERIAL';
-                                this.classList.add('bg-amber-50', 'text-amber-800', 'border-amber-300');
+                                updateInputStyle(this, 'SIN-SERIAL');
                                 return;
                             }
+                            updateInputStyle(this, val);
+
                             const isDuplicate = allInputs.some(otherInput => otherInput !== this && !isNoSerial(otherInput.value) && otherInput.value.trim().toUpperCase() === val);
                             if (isDuplicate) {
-                                alert(`⚠️ ERROR: El serial "${val}" ya fue escaneado en esta orden. Por favor revisa.`);
-                                this.value = ""; this.focus(); this.classList.add('border-red-500', 'bg-red-50');
+                                showActionToast(`⚠️ El serial "${val}" ya fue escaneado en esta orden. Por favor revisa.`, 'error');
+                                this.value = ""; 
+                                this.focus(); 
+                                this.classList.add('border-red-500', 'bg-red-50');
                                 setTimeout(() => this.classList.remove('border-red-500', 'bg-red-50'), 2000);
                             }
                         });
+
                         input.addEventListener('keydown', function(e) {
                             if (e.key === 'Enter') {
-                                e.preventDefault(); this.dispatchEvent(new Event('change'));
+                                e.preventDefault(); 
+                                this.dispatchEvent(new Event('change'));
                                 if (this.value.trim() !== "") {
                                     const nextInput = allInputs[currentIndex + 1];
-                                    if (nextInput) nextInput.focus(); 
-                                    else { const btnSave = getEl('btn-save-alistado'); if(btnSave && !btnSave.classList.contains('hidden')) btnSave.focus(); }
+                                    if (nextInput) {
+                                        nextInput.focus();
+                                        nextInput.select();
+                                    } else { 
+                                        const btnSave = getEl('btn-save-alistado'); 
+                                        if(btnSave && !btnSave.classList.contains('hidden')) btnSave.focus(); 
+                                    }
                                 }
                             }
                         });
@@ -556,7 +634,7 @@ async function safeAdjustStock(id, delta, color, capacity, reason = null, detail
 function injectEditModalHtml() {
     if (getEl('edit-order-modal')) return;
     const html = `
-    <div id="edit-order-modal" class="fixed inset-0 z-[100] hidden flex items-center justify-center p-4 sm:p-6 bg-slate-900/90 backdrop-blur-sm">
+    <div id="edit-order-modal" class="fixed inset-0 z-[100] hidden flex items-center justify-center p-4 sm:p-6 bg-slate-900/95">
         <div class="relative bg-white w-full max-w-4xl rounded-[2.5rem] shadow-2xl flex flex-col max-h-[95vh] overflow-hidden">
             <div class="px-8 py-6 border-b border-gray-100 flex justify-between items-center bg-brand-cyan shrink-0">
                 <h3 class="text-xl font-black uppercase text-brand-black flex items-center gap-2">
@@ -1136,7 +1214,7 @@ export async function saveAlistamiento(onSuccess) {
 
         await batch.commit();
 
-        alert("✅ Alistamiento guardado con éxito y seriales vinculados a la venta.");
+        showActionToast("✅ Alistamiento guardado con éxito y seriales vinculados a la venta.", "success");
         getEl('order-modal').classList.add('hidden');
         if (onSuccess) onSuccess();
         else if (window.switchTab) window.switchTab(window.currentTab || 'ACTIONABLE');
@@ -1145,7 +1223,7 @@ export async function saveAlistamiento(onSuccess) {
     } catch(e) { 
         console.error(e); 
         const msg = e?.message || (typeof e === 'string' ? e : "Error al guardar alistamiento");
-        alert(msg);
+        showActionToast(msg, "error");
     } finally { 
         if (btn) { btn.disabled = false; btn.innerHTML = originalText; } 
     }
@@ -1179,12 +1257,12 @@ export async function openDispatchModal() {
                     shippedAt: new Date(), 
                     updatedAt: new Date() 
                 });
-                alert("🚚 Pedido entregado y despachado con éxito");
+                showActionToast("🚚 Pedido entregado y despachado con éxito", "success");
                 getEl('order-modal').classList.add('hidden');
                 if (window.switchTab) window.switchTab('ACTIONABLE');
             } catch(e) { 
                 console.error(e); 
-                alert("⚠️ Error al realizar la entrega: " + e.message);
+                showActionToast("⚠️ Error al realizar la entrega: " + e.message, "error");
             } finally { 
                 if (btn) {
                     btn.disabled = false;
@@ -1208,18 +1286,21 @@ export async function confirmDispatch(onSuccess) {
     const carrier = getEl('dispatch-carrier').value;
     const tracking = getEl('dispatch-tracking').value;
     
-    if (!carrier || !tracking) return alert("⚠️ Faltan datos de envío");
+    if (!carrier || !tracking) return showActionToast("⚠️ Faltan datos de envío (Transportadora o Guía)", "error");
     
     btn.disabled = true;
     try {
         await updateDoc(doc(db, "orders", currentOrderId), { 
             status: 'DESPACHADO', shippingCarrier: carrier, shippingTracking: tracking, shippedAt: new Date(), updatedAt: new Date() 
         });
-        alert("🚚 Despachado");
+        showActionToast("🚚 Despachado exitosamente", "success");
         getEl('dispatch-modal').classList.add('hidden');
         getEl('order-modal').classList.add('hidden');
         if(onSuccess) onSuccess();
-    } catch(e) { console.error(e); } finally { btn.disabled = false; }
+    } catch(e) { 
+        console.error(e); 
+        showActionToast("Error al despachar: " + e.message, "error");
+    } finally { btn.disabled = false; }
 }
 
 // --- 3. IMPRIMIR PDF ---

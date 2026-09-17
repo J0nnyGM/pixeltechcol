@@ -39,7 +39,7 @@
     <div id="admin-sidebar"></div>
 
     <main class="flex-grow overflow-y-auto relative custom-scroll">
-        <header class="bg-white/90 backdrop-blur-xl border-b border-gray-100 px-8 py-5 flex justify-between items-center sticky top-0 z-20 shadow-sm">
+        <header class="bg-white border-b border-gray-100 px-8 py-5 flex justify-between items-center sticky top-0 z-20 shadow-sm">
             <h2 class="font-black text-brand-black text-[9px] uppercase tracking-[0.3em]">Resumen de Operaciones</h2>
             <div class="flex items-center gap-4">
                 <button id="btn-open-manual" class="bg-brand-black text-white px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-brand-cyan hover:text-brand-black hover:shadow-lg transition-all flex items-center gap-2 transform active:scale-95">
@@ -189,7 +189,7 @@
     </main>
 
     <div id="order-modal" class="fixed inset-0 z-[70] hidden flex items-center justify-center p-4">
-        <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-md transition-opacity" onclick="document.getElementById('order-modal').classList.add('hidden')"></div>
+        <div class="absolute inset-0 bg-slate-900/80 transition-opacity" onclick="document.getElementById('order-modal').classList.add('hidden')"></div>
         <div class="relative bg-white w-full max-w-6xl rounded-[2.5rem] shadow-2xl flex flex-col max-h-[92vh] overflow-hidden animate-fadeIn">
             
             <div class="p-6 md:p-8 border-b border-gray-50 flex justify-between items-center bg-slate-50/50 shrink-0">
@@ -278,7 +278,7 @@
     </div>
 
     <div id="dispatch-modal" class="fixed inset-0 z-[80] hidden flex items-center justify-center p-4">
-        <div class="absolute inset-0 bg-slate-900/70 backdrop-blur-sm" onclick="document.getElementById('dispatch-modal').classList.add('hidden')"></div>
+        <div class="absolute inset-0 bg-slate-900/80" onclick="document.getElementById('dispatch-modal').classList.add('hidden')"></div>
         <div class="relative bg-white w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl text-center">
             <h3 class="text-xl font-black text-brand-black uppercase mb-6">Confirmar Envío</h3>
             <div class="space-y-4 mb-8 text-left">
@@ -290,7 +290,7 @@
     </div>
 
     <div id="payment-modal" class="fixed inset-0 z-[80] hidden flex items-center justify-center p-4">
-        <div class="absolute inset-0 bg-slate-900/70 backdrop-blur-sm" onclick="document.getElementById('payment-modal').classList.add('hidden')"></div>
+        <div class="absolute inset-0 bg-slate-900/80" onclick="document.getElementById('payment-modal').classList.add('hidden')"></div>
         <div class="relative bg-white w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl text-center animate-in zoom-in duration-200">
             <h3 class="text-xl font-black text-brand-black uppercase mb-2">Registrar Pago</h3>
             <p id="pay-modal-order-id" class="text-xs font-bold text-gray-400 mb-6">...</p>
@@ -445,8 +445,6 @@
                     let dispatchCount = 0;
                     
                     const tableBody = document.getElementById('orders-table-body');
-                    if (tableBody) tableBody.innerHTML = "";
-
                     const todayOrders = [];
                     const tomorrowOrders = [];
                     const now = new Date();
@@ -479,15 +477,17 @@
                     if (document.getElementById('stat-dispatch')) document.getElementById('stat-dispatch').textContent = dispatchCount;
 
                     if (tableBody) {
+                        let htmlBuffer = '';
                         if (todayOrders.length > 0) {
-                            tableBody.innerHTML += `<tr class="bg-green-50/50 border-b border-green-100 fade-in"><td colspan="7" class="py-4 px-8"><div class="flex items-center gap-3 text-green-700"><div class="p-1.5 bg-green-100 rounded-lg"><i class="fa-solid fa-truck-fast text-xs"></i></div><span class="text-[10px] font-black uppercase tracking-widest">Prioridad: Despachar Hoy</span></div></td></tr>`;
-                            todayOrders.forEach(o => renderRow(o));
+                            htmlBuffer += `<tr class="bg-green-50/50 border-b border-green-100 fade-in"><td colspan="7" class="py-4 px-8"><div class="flex items-center gap-3 text-green-700"><div class="p-1.5 bg-green-100 rounded-lg"><i class="fa-solid fa-truck-fast text-xs"></i></div><span class="text-[10px] font-black uppercase tracking-widest">Prioridad: Despachar Hoy</span></div></td></tr>`;
+                            todayOrders.forEach(o => { htmlBuffer += renderRow(o); });
                         }
 
                         if (tomorrowOrders.length > 0) {
-                            tableBody.innerHTML += `<tr class="bg-blue-50/50 border-b border-blue-100 fade-in"><td colspan="7" class="py-4 px-8"><div class="flex items-center gap-3 text-blue-700"><div class="p-1.5 bg-blue-100 rounded-lg"><i class="fa-solid fa-clock text-xs"></i></div><span class="text-[10px] font-black uppercase tracking-widest">Despachar Mañana</span></div></td></tr>`;
-                            tomorrowOrders.forEach(o => renderRow(o));
+                            htmlBuffer += `<tr class="bg-blue-50/50 border-b border-blue-100 fade-in"><td colspan="7" class="py-4 px-8"><div class="flex items-center gap-3 text-blue-700"><div class="p-1.5 bg-blue-100 rounded-lg"><i class="fa-solid fa-clock text-xs"></i></div><span class="text-[10px] font-black uppercase tracking-widest">Despachar Mañana</span></div></td></tr>`;
+                            tomorrowOrders.forEach(o => { htmlBuffer += renderRow(o); });
                         }
+                        tableBody.innerHTML = htmlBuffer;
                     }
                 });
             }
@@ -548,7 +548,7 @@
             const netTotal = total - refunded;
             let priceHtml = `<span class="font-black text-brand-black text-sm">$${total.toLocaleString('es-CO')}</span>`;
 
-            tableBody.innerHTML += `
+            return `
                 <tr class="hover:bg-slate-50 transition border-b border-gray-50 group fade-in">
                     <td class="px-8 py-6">
                         <div class="font-mono text-[10px] text-brand-black uppercase font-bold">#${(o.internalOrderNumber || o.id.slice(0, 8)).toString().toUpperCase()}</div>

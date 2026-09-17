@@ -149,7 +149,7 @@ async function initHeaderLogic() {
         const renderBanner = (data) => {
             let freeHTML = '';
             if (data && data.freeThreshold > 0) {
-                freeHTML = `<span class="mx-8 flex items-center gap-2 text-brand-cyan"><i class="fa-solid fa-gift animate-pulse"></i> ENVÍO GRATIS DESDE $${parseInt(data.freeThreshold).toLocaleString('es-CO')}</span>`;
+                freeHTML = `<a href="/policies/shipping.html" class="mx-8 flex items-center gap-2 text-brand-cyan hover:underline transition"><i class="fa-solid fa-gift animate-pulse"></i> ENVÍO GRATIS DESDE $${parseInt(data.freeThreshold).toLocaleString('es-CO')}* <span class="text-[9px] text-gray-400 font-bold tracking-normal normal-case">(Aplican T&C)</span></a>`;
             }
             const baseContent = `<span class="mx-8 flex items-center gap-2"><i class="fa-solid fa-truck-fast text-brand-cyan"></i> Envíos a toda Colombia</span><span class="mx-8 flex items-center gap-2"><i class="fa-solid fa-hand-holding-dollar text-brand-cyan"></i> Contra entrega en Bogotá</span><span class="mx-8 flex items-center gap-2"><i class="fa-solid fa-credit-card text-brand-cyan"></i> Paga con ADDI o SISTECREDITO</span>${freeHTML}`;
             topBanner.innerHTML = `<div class="flex items-center animate-marquee font-black uppercase tracking-[0.3em]">${baseContent} ${baseContent} ${baseContent}</div>`;
@@ -411,18 +411,18 @@ async function initHeaderLogic() {
             const container = document.getElementById('user-info-desktop');
             const mobileProfile = document.getElementById('mobile-profile-link');
             if (user) {
-                if (container) {
-                    let role = sessionStorage.getItem('pixeltech_user_role');
-                    if (!role) {
-                        getDoc(doc(db, "users", user.uid)).then(userSnap => {
-                            role = (userSnap.exists() && userSnap.data().role === 'admin') ? 'admin' : 'user';
-                            sessionStorage.setItem('pixeltech_user_role', role);
-                            renderUserLink(role, container, mobileProfile);
-                        });
-                    } else {
-                        renderUserLink(role, container, mobileProfile);
+                let role = sessionStorage.getItem('pixeltech_user_role');
+                if (!role || role === 'user') {
+                    try {
+                        const userSnap = await getDoc(doc(db, "users", user.uid));
+                        role = (userSnap.exists() && userSnap.data().role) ? userSnap.data().role.toLowerCase().trim() : 'customer';
+                        sessionStorage.setItem('pixeltech_user_role', role);
+                    } catch (err) {
+                        console.error("Error al obtener rol:", err);
+                        role = 'customer';
                     }
                 }
+                renderUserLink(role, container, mobileProfile);
             } else {
                 if (container) {
                     container.innerHTML = `<a href="/auth/login.html" class="flex flex-col items-center gap-1 group w-14"><div class="w-12 h-12 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center group-hover:bg-brand-cyan transition duration-300 shadow-lg"><i class="fa-regular fa-user text-xl text-white group-hover:text-brand-black"></i></div><span class="text-[8px] font-black uppercase tracking-widest text-gray-500 group-hover:text-brand-cyan text-center">Ingresar</span></a>`;
@@ -439,11 +439,22 @@ async function initHeaderLogic() {
     }
 
     function renderUserLink(role, container, mobileProfile) {
-        const isAdmin = role === 'admin';
-        const label = isAdmin ? 'Admin' : 'Cuenta';
-        const link = isAdmin ? '/admin/index.html' : '/profile.html';
-        container.innerHTML = `<a href="${link}" class="flex flex-col items-center gap-1 group w-14"><div class="w-12 h-12 rounded-2xl bg-brand-cyan text-brand-black flex items-center justify-center shadow-lg transition duration-300 hover:bg-white"><i class="fa-solid ${isAdmin ? 'fa-user-shield' : 'fa-user-check'} text-xl"></i></div><span class="text-[8px] font-black uppercase tracking-widest text-brand-cyan text-center">${label}</span></a>`;
-        if (mobileProfile) mobileProfile.href = link;
+        const staffRoles = ['admin', 'contabilidad', 'ventas', 'logistica'];
+        const isStaff = staffRoles.includes(String(role || '').toLowerCase().trim());
+        const label = isStaff ? 'Admin' : 'Cuenta';
+        const link = isStaff ? '/admin/index.html' : '/profile.html';
+        if (container) {
+            container.innerHTML = `<a href="${link}" class="flex flex-col items-center gap-1 group w-14"><div class="w-12 h-12 rounded-2xl bg-brand-cyan text-brand-black flex items-center justify-center shadow-lg transition duration-300 hover:bg-white"><i class="fa-solid ${isStaff ? 'fa-user-shield' : 'fa-user-check'} text-xl"></i></div><span class="text-[8px] font-black uppercase tracking-widest text-brand-cyan text-center">${label}</span></a>`;
+        }
+        if (mobileProfile) {
+            mobileProfile.href = link;
+            const mobileLabel = mobileProfile.querySelector('span');
+            if (mobileLabel) mobileLabel.textContent = isStaff ? 'Admin' : 'Perfil';
+            const mobileIcon = mobileProfile.querySelector('i');
+            if (mobileIcon && isStaff) {
+                mobileIcon.className = 'fa-solid fa-user-shield text-xl mb-1';
+            }
+        }
     }
 
     const handleSearch = (e) => { if (e.key === 'Enter' && e.target.value.trim()) window.location.href = `/shop/search.html?q=${encodeURIComponent(e.target.value.trim())}`; };

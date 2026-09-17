@@ -5,7 +5,7 @@ import { AdminStore } from './admin-store.js';
 // --- HTML DEL MODAL ---
 const MODAL_HTML = `
 <div id="manual-modal" class="fixed inset-0 z-[80] hidden flex items-center justify-center p-3 sm:p-4 md:p-6">
-    <div class="absolute inset-0 bg-slate-900/70 backdrop-blur-sm" id="btn-close-overlay"></div>
+    <div class="absolute inset-0 bg-slate-900/80" id="btn-close-overlay"></div>
     <div class="relative bg-white w-full max-w-5xl rounded-3xl shadow-2xl flex flex-col max-h-[92vh] overflow-hidden border border-slate-100">
         
         <div class="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-slate-50/90 shrink-0">
@@ -155,7 +155,7 @@ const MODAL_HTML = `
             </div>
         </div>
         
-        <div class="px-6 py-4 border-t border-gray-100 bg-slate-50/90 backdrop-blur-sm grid grid-cols-1 md:grid-cols-12 gap-4 items-center shrink-0 rounded-b-3xl">
+        <div class="px-6 py-4 border-t border-gray-100 bg-slate-50 grid grid-cols-1 md:grid-cols-12 gap-4 items-center shrink-0 rounded-b-3xl">
              <div class="md:col-span-4 flex flex-col justify-center">
                 <label for="m-shipping-cost" class="text-[9px] font-black uppercase text-gray-400 tracking-widest mb-1 block ml-1">Costo de Envío Extra</label>
                 <div class="relative">

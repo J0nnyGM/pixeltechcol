@@ -1,4 +1,4 @@
-const CACHE_NAME = 'pixeltech-shell-v10.15'; // 🔥 Subimos la versión para forzar actualización
+const CACHE_NAME = 'pixeltech-shell-v10.18'; // 🔥 Subimos la versión para forzar actualización de sliders y banners
 
 // Archivos vitales para que la app arranque sin internet
 const urlsToCache = [
@@ -48,7 +48,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-// Lista negra de dominios y archivos que el Service Worker DEBE IGNORAR (siempre consultar a la red).
+// Lista negra de dominios y archivos que el Service Worker DEBE IGNORAR (siempre consultar a la red sin interceptar).
   const ignoredDomains = [
     'firebasestorage', 
     'firestore', 
@@ -57,6 +57,12 @@ self.addEventListener('fetch', (event) => {
     'addi.com',      
     'amazonaws.com',  
     'google-analytics',
+    'doubleclick',
+    'googletagmanager',
+    'google',
+    'analytics',
+    'facebook',
+    'connect.facebook.net',
     'gstatic.com',
     'cdnjs.cloudflare.com',
     'googleapis.com'
@@ -101,6 +107,8 @@ self.addEventListener('fetch', (event) => {
             if (isNavigate) {
               return caches.match('/offline.html');
             }
+            // Retornar una Response válida para evitar errores de tipo en el Service Worker
+            return new Response('', { status: 408, statusText: 'Request Timed Out' });
           });
         })
     );
@@ -123,7 +131,8 @@ self.addEventListener('fetch', (event) => {
         }
         return networkResponse;
       }).catch(() => {
-        // Ignoramos errores de red en assets secundarios
+        // Ignoramos errores de red devolviendo una Response neutra segura
+        return new Response('', { status: 404, statusText: 'Asset Not Found' });
       });
     })
   );

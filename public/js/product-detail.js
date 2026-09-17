@@ -317,27 +317,47 @@ async function loadRelatedProductsOptimized(category, currentId) {
     let autoScrollInterval;
 
     const startAutoScroll = () => {
+        if (document.hidden) return;
+        if (autoScrollInterval) clearInterval(autoScrollInterval);
         autoScrollInterval = setInterval(() => {
+            if (document.hidden) {
+                stopAutoScroll();
+                return;
+            }
             if (!grid) return;
             const maxScrollLeft = grid.scrollWidth - grid.clientWidth;
             
             if (grid.scrollLeft >= maxScrollLeft - 10) {
                 grid.scrollTo({ left: 0, behavior: 'smooth' });
             } else {
-                const cardWidth = grid.querySelector('div').offsetWidth + 16; 
+                const firstCard = grid.querySelector('div');
+                const cardWidth = firstCard ? firstCard.offsetWidth + 16 : 240; 
                 grid.scrollBy({ left: cardWidth, behavior: 'smooth' });
             }
         }, 3500); 
     };
 
-    const stopAutoScroll = () => clearInterval(autoScrollInterval);
+    const stopAutoScroll = () => {
+        if (autoScrollInterval) {
+            clearInterval(autoScrollInterval);
+            autoScrollInterval = null;
+        }
+    };
 
     startAutoScroll();
 
     grid.addEventListener('mouseenter', stopAutoScroll);
-    grid.addEventListener('mouseleave', startAutoScroll);
+    grid.addEventListener('mouseleave', () => { if (!document.hidden) startAutoScroll(); });
     grid.addEventListener('touchstart', stopAutoScroll, { passive: true });
-    grid.addEventListener('touchend', startAutoScroll, { passive: true });
+    grid.addEventListener('touchend', () => { if (!document.hidden) startAutoScroll(); }, { passive: true });
+
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) {
+            stopAutoScroll();
+        } else {
+            startAutoScroll();
+        }
+    });
 }
 
 function initStickyBar() {

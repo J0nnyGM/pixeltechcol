@@ -122,21 +122,26 @@ onAuthStateChanged(auth, async (user) => {
     const userInfo = document.getElementById("user-info-global");
     if (!userInfo) return;
 
+    const staffRoles = ['admin', 'contabilidad', 'ventas', 'logistica'];
+
     if (user) {
-        const cachedRole = sessionStorage.getItem(`role_${user.uid}`);
-        if (cachedRole) {
-            renderUserButton(cachedRole === 'admin');
+        let role = sessionStorage.getItem(`role_${user.uid}`) || sessionStorage.getItem('pixeltech_user_role');
+        if (role && role !== 'customer' && role !== 'user') {
+            const isStaff = staffRoles.includes(role.toLowerCase().trim());
+            renderUserButton(isStaff);
         } else {
             try {
                 const userDoc = await getDoc(doc(db, "users", user.uid));
-                const isAdmin = userDoc.exists() && userDoc.data().role === 'admin';
-                sessionStorage.setItem(`role_${user.uid}`, isAdmin ? 'admin' : 'customer');
-                renderUserButton(isAdmin);
+                const userRole = (userDoc.exists() && userDoc.data().role) ? userDoc.data().role.toLowerCase().trim() : 'customer';
+                sessionStorage.setItem(`role_${user.uid}`, userRole);
+                sessionStorage.setItem('pixeltech_user_role', userRole);
+                const isStaff = staffRoles.includes(userRole);
+                renderUserButton(isStaff);
             } catch (e) { console.error("Error auth:", e); }
         }
     } else {
         userInfo.innerHTML = `
-            <a href="auth/login.html" class="flex flex-col items-center gap-1 group w-14">
+            <a href="/auth/login.html" class="flex flex-col items-center gap-1 group w-14">
                 <div class="w-10 h-10 md:w-12 md:h-12 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-center group-hover:bg-brand-cyan transition duration-300 shadow-lg">
                     <i class="fa-regular fa-user text-lg text-white group-hover:text-brand-black"></i>
                 </div>
@@ -144,13 +149,13 @@ onAuthStateChanged(auth, async (user) => {
             </a>`;
     }
 
-    function renderUserButton(isAdmin) {
-        const targetPath = isAdmin ? '/admin/products.html' : '/profile.html';
-        const label = isAdmin ? 'Admin' : 'Cuenta';
+    function renderUserButton(isStaff) {
+        const targetPath = isStaff ? '/admin/index.html' : '/profile.html';
+        const label = isStaff ? 'Admin' : 'Cuenta';
         userInfo.innerHTML = `
             <a href="${targetPath}" class="flex flex-col items-center gap-1 group w-14">
                 <div class="w-10 h-10 md:w-12 md:h-12 rounded-xl bg-brand-cyan text-brand-black flex items-center justify-center shadow-lg transition duration-300">
-                    <i class="fa-solid ${isAdmin ? 'fa-user-shield' : 'fa-user-check'} text-lg"></i>
+                    <i class="fa-solid ${isStaff ? 'fa-user-shield' : 'fa-user-check'} text-lg"></i>
                 </div>
                 <span class="hidden md:block text-[8px] font-black uppercase tracking-widest text-brand-cyan text-center">${label}</span>
             </a>`;
@@ -596,7 +601,50 @@ let bestSellersData = [];
    CARGADORES OPTIMIZADOS (TIEMPO REAL PARA BANNERS, CACHÉ PARA EL RESTO)
    ========================================================================== */
 
-// --- NUEVA FUNCIÓN: MOVER SLIDERS MANUALMENTE ---
+// Helper de sincronización estricta de diapositivas (evita elementos fantasma o desincronizados)
+function setSliderActiveIndex(container, slideClass, targetIdx) {
+    if (!container) return;
+    const slides = container.querySelectorAll(slideClass);
+    if (!slides || slides.length === 0) return;
+
+    let validIdx = targetIdx;
+    if (validIdx < 0) validIdx = slides.length - 1;
+    if (validIdx >= slides.length) validIdx = 0;
+
+    slides.forEach((slide, idx) => {
+        if (idx === validIdx) {
+            slide.classList.remove('opacity-0', 'z-0', 'pointer-events-none');
+            slide.classList.add('opacity-100', 'z-10');
+        } else {
+            slide.classList.remove('opacity-100', 'z-10');
+            slide.classList.add('opacity-0', 'z-0', 'pointer-events-none');
+        }
+    });
+
+    container.dataset.activeIdx = validIdx;
+}
+
+// Pausa inteligente por hover y touch
+function attachSliderHoverPause(containerId) {
+    const container = document.getElementById(containerId);
+    if (!container || container.dataset.hoverAttached === "true") return;
+    container.dataset.hoverAttached = "true";
+
+    container.addEventListener('mouseenter', () => {
+        if (window.stopMasterSliders) window.stopMasterSliders();
+    });
+    container.addEventListener('mouseleave', () => {
+        if (!document.hidden && window.initMasterSliders) window.initMasterSliders();
+    });
+    container.addEventListener('touchstart', () => {
+        if (window.stopMasterSliders) window.stopMasterSliders();
+    }, { passive: true });
+    container.addEventListener('touchend', () => {
+        if (!document.hidden && window.initMasterSliders) window.initMasterSliders();
+    }, { passive: true });
+}
+
+// --- FUNCIÓN: MOVER SLIDERS MANUALMENTE ---
 window.moveSlider = (containerId, direction) => {
     const container = document.getElementById(containerId);
     if (!container) return;
@@ -606,22 +654,10 @@ window.moveSlider = (containerId, direction) => {
     if (slides.length <= 1) return;
 
     const currentIdx = parseInt(container.dataset.activeIdx || 0);
-    let nextIdx = currentIdx + direction;
+    setSliderActiveIndex(container, slideClass, currentIdx + direction);
 
-    // Lógica circular (si pasa del último vuelve al primero y viceversa)
-    if (nextIdx < 0) nextIdx = slides.length - 1;
-    if (nextIdx >= slides.length) nextIdx = 0;
-
-    slides[currentIdx].classList.remove('opacity-100', 'z-10');
-    slides[currentIdx].classList.add('opacity-0', 'z-0', 'pointer-events-none');
-
-    slides[nextIdx].classList.remove('opacity-0', 'z-0', 'pointer-events-none');
-    slides[nextIdx].classList.add('opacity-100', 'z-10');
-
-    container.dataset.activeIdx = nextIdx;
-
-    // Reiniciamos el reloj maestro para que el usuario tenga 5 segundos completos para ver la imagen
-    if (window.initMasterSliders) window.initMasterSliders();
+    // Reiniciamos el reloj maestro solo si la pestaña está visible
+    if (window.initMasterSliders && !document.hidden) window.initMasterSliders();
 };
 
 
@@ -696,6 +732,7 @@ function loadPromoSlider() {
 
         container.innerHTML = html;
         container.dataset.activeIdx = 0; 
+        attachSliderHoverPause('promo-slider-container');
     };
 
     const cachedPromosRaw = localStorage.getItem('pixeltech_promo_slider_cache');
@@ -794,6 +831,7 @@ function loadNewLaunch() {
         
         container.innerHTML = html;
         container.dataset.activeIdx = 0; 
+        attachSliderHoverPause('new-launch-banner');
     };
 
     const cachedLaunchRaw = localStorage.getItem('pixeltech_launch_cache');
@@ -829,26 +867,31 @@ function loadNewLaunch() {
     });
 }
 
-// --- 3. RELOJ MAESTRO (Permite ser reiniciado globalmente) ---
+// --- 3. RELOJ MAESTRO (Permite ser pausado y reiniciado limpiamente) ---
+window.stopMasterSliders = function() {
+    if (window.masterSliderInterval) {
+        clearInterval(window.masterSliderInterval);
+        window.masterSliderInterval = null;
+    }
+};
+
 window.initMasterSliders = function() {
-    if (window.masterSliderInterval) clearInterval(window.masterSliderInterval);
-    
+    if (window.stopMasterSliders) window.stopMasterSliders();
+    if (document.hidden) return; // NUNCA correr temporizadores si la pestaña está en segundo plano
+
     window.masterSliderInterval = setInterval(() => {
-        
+        if (document.hidden) {
+            window.stopMasterSliders();
+            return;
+        }
+
         // 1. Avanzar Slider Principal
         const promoContainer = document.getElementById('promo-slider-container');
         if (promoContainer) {
             const pSlides = promoContainer.querySelectorAll('.promo-slide');
             if (pSlides.length > 1) {
                 const currentIdx = parseInt(promoContainer.dataset.activeIdx || 0);
-                const nextIdx = (currentIdx + 1) % pSlides.length;
-
-                pSlides[currentIdx].classList.remove('opacity-100', 'z-10');
-                pSlides[currentIdx].classList.add('opacity-0', 'z-0', 'pointer-events-none');
-                pSlides[nextIdx].classList.remove('opacity-0', 'z-0', 'pointer-events-none');
-                pSlides[nextIdx].classList.add('opacity-100', 'z-10');
-
-                promoContainer.dataset.activeIdx = nextIdx;
+                setSliderActiveIndex(promoContainer, '.promo-slide', currentIdx + 1);
             }
         }
 
@@ -858,19 +901,21 @@ window.initMasterSliders = function() {
             const lSlides = launchContainer.querySelectorAll('.launch-slide');
             if (lSlides.length > 1) {
                 const currentIdx = parseInt(launchContainer.dataset.activeIdx || 0);
-                const nextIdx = (currentIdx + 1) % lSlides.length;
-
-                lSlides[currentIdx].classList.remove('opacity-100', 'z-10');
-                lSlides[currentIdx].classList.add('opacity-0', 'z-0', 'pointer-events-none');
-                lSlides[nextIdx].classList.remove('opacity-0', 'z-0', 'pointer-events-none');
-                lSlides[nextIdx].classList.add('opacity-100', 'z-10');
-
-                launchContainer.dataset.activeIdx = nextIdx;
+                setSliderActiveIndex(launchContainer, '.launch-slide', currentIdx + 1);
             }
         }
 
     }, 5000); 
 };
+
+// Control de visibilidad global: congela sliders en segundo plano y los reanuda al volver
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+        if (window.stopMasterSliders) window.stopMasterSliders();
+    } else {
+        if (window.initMasterSliders) window.initMasterSliders();
+    }
+});
 
 
 function loadViewHistory() {

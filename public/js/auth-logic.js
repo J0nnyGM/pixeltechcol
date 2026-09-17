@@ -22,13 +22,17 @@ async function smartRedirect(user) {
     try {
         const userDoc = await getDoc(doc(db, "users", user.uid));
         if (userDoc.exists()) {
-            const role = userDoc.data().role;
+            const role = (userDoc.data().role || '').toLowerCase().trim();
             const staffRoles = ['admin', 'contabilidad', 'ventas', 'logistica'];
             
             if (staffRoles.includes(role)) {
+                sessionStorage.setItem('pixeltech_user_role', role);
+                sessionStorage.setItem(`role_${user.uid}`, role);
                 console.log(`Acceso Empleado (${role}).`);
                 window.location.href = "/admin/index.html";
             } else {
+                sessionStorage.setItem('pixeltech_user_role', 'customer');
+                sessionStorage.setItem(`role_${user.uid}`, 'customer');
                 console.log("Acceso Cliente.");
                 window.location.href = "/index.html";
             }
