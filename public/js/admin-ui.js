@@ -240,7 +240,7 @@ export function loadAdminSidebar(userRole = 'customer') {
 
     if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('/service-worker.js', { updateViaCache: 'none' }).then(reg => {
-            reg.update();
+            reg.update().catch(err => console.warn('Verificación de actualización SW omitida:', err));
             if (reg.waiting) showUpdateButton(reg.waiting);
             if (reg.installing) reg.installing.addEventListener('statechange', (e) => { if (e.target.state === 'installed') showUpdateButton(e.target); });
             reg.addEventListener('updatefound', () => {
@@ -248,6 +248,8 @@ export function loadAdminSidebar(userRole = 'customer') {
                 if (!newWorkerInstalling) return; 
                 newWorkerInstalling.addEventListener('statechange', (e) => { if (e.target.state === 'installed') showUpdateButton(e.target); });
             });
+        }).catch(err => {
+            console.warn('Registro de Service Worker omitido:', err);
         });
         let refreshing;
         navigator.serviceWorker.addEventListener('controllerchange', () => {

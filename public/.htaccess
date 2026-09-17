@@ -115,6 +115,14 @@ ErrorDocument 404 /404.html
     # CSS y JavaScript
     ExpiresByType text/css                      "access plus 1 year"
     ExpiresByType application/javascript        "access plus 1 year"
+
+    # Excepción crítica para el Service Worker: NUNCA cachear para permitir actualizaciones instantáneas
+    <FilesMatch "service-worker\.js$">
+        ExpiresActive Off
+        Header set Cache-Control "no-cache, no-store, must-revalidate, max-age=0"
+        Header set Pragma "no-cache"
+        Header set Expires "0"
+    </FilesMatch>
 </IfModule>
 
 # ----------------------------------------------------------------------
