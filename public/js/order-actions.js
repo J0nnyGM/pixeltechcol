@@ -1,4 +1,4 @@
-import { db, doc, getDoc, updateDoc, Timestamp, collection, getDocs, runTransaction, serverTimestamp, writeBatch, auth, query, where } from './firebase-init.js';
+import { db, doc, getDoc, updateDoc, Timestamp, collection, getDocs, runTransaction, serverTimestamp, writeBatch, auth, query, where, functions, httpsCallable } from './firebase-init.js';
 import { adjustStock } from './inventory-core.js'; 
 import { AdminStore } from './admin-store.js';
 
@@ -31,6 +31,135 @@ export const isRegularizedSerial = (data) => {
 };
 window.isRegularizedSerial = isRegularizedSerial;
 
+// --- SISTEMA DE BORRADORES LOCALES DE SERIALES (PERSISTENCIA LOCAL EN DISPOSITIVO) ---
+const DRAFT_SERIALS_KEY_PREFIX = 'pixeltech_draft_serials_';
+
+export function pruneOldDraftSerials() {
+    try {
+        const now = Date.now();
+        const maxAge = 7 * 24 * 60 * 60 * 1000; // 7 días de vigencia
+        for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key && key.startsWith(DRAFT_SERIALS_KEY_PREFIX)) {
+                try {
+                    const data = JSON.parse(localStorage.getItem(key));
+                    if (data && data.savedAt && (now - data.savedAt > maxAge)) {
+                        localStorage.removeItem(key);
+                    }
+                } catch(e) {
+                    localStorage.removeItem(key);
+                }
+            }
+        }
+    } catch(e) {}
+}
+
+export function getDraftSerials(orderId) {
+    if (!orderId) return null;
+    try {
+        const raw = localStorage.getItem(`${DRAFT_SERIALS_KEY_PREFIX}${orderId}`);
+        if (!raw) return null;
+        const data = JSON.parse(raw);
+        if (data.savedAt && (Date.now() - data.savedAt > 7 * 24 * 60 * 60 * 1000)) {
+            localStorage.removeItem(`${DRAFT_SERIALS_KEY_PREFIX}${orderId}`);
+            return null;
+        }
+        return data;
+    } catch(e) {
+        console.warn("Error leyendo borrador de seriales:", e);
+        return null;
+    }
+}
+
+export function hasDraftSerials(orderId) {
+    if (!orderId) return false;
+    try {
+        return !!localStorage.getItem(`${DRAFT_SERIALS_KEY_PREFIX}${orderId}`);
+    } catch(e) {
+        return false;
+    }
+}
+
+export function saveDraftSerials(orderId) {
+    if (!orderId) return;
+    try {
+        const inputs = document.querySelectorAll('.sn-input');
+        if (!inputs || inputs.length === 0) return;
+
+        const serials = {};
+        let count = 0;
+
+        inputs.forEach(inp => {
+            const itemIdx = inp.getAttribute('data-item-index');
+            const unitIdx = inp.getAttribute('data-unit-index');
+            const val = (inp.value || '').trim().toUpperCase();
+            if (itemIdx !== null && unitIdx !== null) {
+                serials[`${itemIdx}_${unitIdx}`] = val;
+                if (val) count++;
+            }
+        });
+
+        if (count > 0) {
+            localStorage.setItem(`${DRAFT_SERIALS_KEY_PREFIX}${orderId}`, JSON.stringify({
+                orderId,
+                savedAt: Date.now(),
+                count,
+                serials
+            }));
+            updateDraftUI(orderId, true, count);
+        } else {
+            localStorage.removeItem(`${DRAFT_SERIALS_KEY_PREFIX}${orderId}`);
+            updateDraftUI(orderId, false, 0);
+        }
+    } catch(e) {
+        console.warn("Error guardando borrador de seriales:", e);
+    }
+}
+
+export function clearDraftSerials(orderId) {
+    if (!orderId) return;
+    try {
+        localStorage.removeItem(`${DRAFT_SERIALS_KEY_PREFIX}${orderId}`);
+        updateDraftUI(orderId, false, 0);
+    } catch(e) {}
+}
+
+export function discardDraftSerials(orderId) {
+    if (!orderId) return;
+    if (!confirm("¿Deseas descartar los seriales guardados localmente para este pedido y empezar de nuevo?")) return;
+    clearDraftSerials(orderId);
+    showActionToast("🗑️ Borrador local de seriales descartado.", "info");
+    if (typeof window.viewOrderDetail === 'function') {
+        window.viewOrderDetail(orderId);
+    }
+}
+
+export function closeOrderModal() {
+    if (currentOrderId) {
+        saveDraftSerials(currentOrderId);
+    }
+    const modal = getEl('order-modal');
+    if (modal) modal.classList.add('hidden');
+}
+
+function updateDraftUI(orderId, hasDraft, count = 0) {
+    const banner = document.getElementById('draft-serials-banner');
+    if (!banner) return;
+    if (hasDraft && count > 0) {
+        banner.classList.remove('hidden');
+        banner.className = 'px-5 py-2.5 bg-cyan-500/10 border-b border-cyan-500/20 flex items-center justify-between flex-wrap gap-2 animate-fadeIn';
+        const textEl = document.getElementById('draft-banner-text');
+        const countEl = document.getElementById('draft-banner-count');
+        if (textEl) textEl.textContent = 'Auto-guardado local activo';
+        if (countEl) countEl.textContent = `(${count} serial${count > 1 ? 'es' : ''} en progreso)`;
+    } else {
+        banner.classList.add('hidden');
+    }
+}
+
+// Ejecutar limpieza preventiva de borradores antiguos al cargar módulo
+pruneOldDraftSerials();
+
 window.toggleItemNoSerial = (idx) => {
     const inputs = document.querySelectorAll(`.sn-input[data-item-index="${idx}"]`);
     if (!inputs || inputs.length === 0) return;
@@ -52,6 +181,10 @@ window.toggleItemNoSerial = (idx) => {
     const lbl = document.getElementById(`label-noserial-${idx}`);
     if (lbl) {
         lbl.textContent = allCurrentlyNoSerial ? 'Marcar Sin Serial (N/A)' : 'Quitar Sin Serial';
+    }
+
+    if (currentOrderId) {
+        saveDraftSerials(currentOrderId);
     }
 };
 
@@ -165,6 +298,7 @@ export async function viewOrderDetail(orderId) {
         }
 
         const paymentSection = getEl('modal-payment-info');
+        const isML = (o.source && o.source.startsWith('MERCADOLIBRE')) || o.channel === 'MERCADOLIBRE' || (o.paymentMethod && o.paymentMethod.startsWith('MERCADOLIBRE')) || String(orderId).startsWith('ML');
         if (paymentSection) {
             const methods = {
                 'MERCADOPAGO': { label: 'MercadoPago', icon: 'fa-regular fa-credit-card', color: 'text-blue-500' },
@@ -174,16 +308,74 @@ export async function viewOrderDetail(orderId) {
                 'ADDI': { label: 'Crédito ADDI', icon: 'fa-solid fa-hand-holding-dollar', color: 'text-[#00D6D6]' },
                 'SISTECREDITO': { label: 'Sistecrédito', icon: 'fa-solid fa-money-check-dollar', color: 'text-emerald-500' },
                 'PSE': { label: 'Pago con PSE', icon: 'fa-solid fa-building-columns', color: 'text-blue-600' },
-                'MERCADOLIBRE': { label: 'MercadoLibre Tienda 1', icon: 'fa-solid fa-store', color: 'text-yellow-500' },
-                'MERCADOLIBRE_2': { label: 'MercadoLibre Tienda 2', icon: 'fa-solid fa-store', color: 'text-yellow-600' },
-                'MERCADOLIBRE_3': { label: 'MercadoLibre Tienda 3', icon: 'fa-solid fa-store', color: 'text-yellow-700' },
+                'MERCADOLIBRE': { label: 'MercadoLibre (Tienda 1)', icon: 'fa-solid fa-handshake', color: 'text-yellow-600' },
+                'MERCADOLIBRE_STORE2': { label: 'MercadoLibre (Tienda 2)', icon: 'fa-solid fa-handshake', color: 'text-yellow-600' },
+                'MERCADOLIBRE_2': { label: 'MercadoLibre (Tienda 2)', icon: 'fa-solid fa-handshake', color: 'text-yellow-600' },
+                'MERCADOLIBRE_STORE3': { label: 'MercadoLibre (Tienda 3)', icon: 'fa-solid fa-handshake', color: 'text-yellow-600' },
+                'MERCADOLIBRE_3': { label: 'MercadoLibre (Tienda 3)', icon: 'fa-solid fa-handshake', color: 'text-yellow-600' },
                 'MANUAL': { label: 'Venta Manual', icon: 'fa-solid fa-cash-register', color: 'text-gray-500' }
             };
             const methodKey = (o.paymentMethod || 'MANUAL').toUpperCase();
-            const mInfo = methods[methodKey] || methods['MANUAL'];
+            const mInfo = methods[methodKey] || (isML ? methods['MERCADOLIBRE'] : methods['MANUAL']);
             const isPaid = o.paymentStatus === 'PAID' || o.status === 'PAGADO'; 
             const statusHtml = isPaid ? `<span class="px-2 py-1 rounded bg-green-50 text-green-600 border border-green-100 text-[9px] font-black uppercase"><i class="fa-solid fa-check"></i> Pagado</span>` : `<span class="px-2 py-1 rounded bg-orange-50 text-orange-600 border border-orange-100 text-[9px] font-black uppercase"><i class="fa-regular fa-clock"></i> Pendiente</span>`;
-            paymentSection.innerHTML = `<div class="flex justify-between items-start"><div class="flex items-center gap-3"><div class="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center ${mInfo.color} text-lg"><i class="${mInfo.icon}"></i></div><div><p class="text-[10px] font-black uppercase text-gray-400 leading-none mb-1">Método de Pago</p><p class="text-xs font-black text-brand-black uppercase">${mInfo.label}</p></div></div>${statusHtml}</div>${o.paymentId ? `<div class="mt-2 pt-2 border-t border-gray-100 text-[9px] text-gray-400 font-mono">Ref: ${o.paymentId}</div>` : ''}`;
+            
+            // Tarjeta de Desglose Financiero exclusivo de MercadoLibre
+            let mlBreakdownHtml = '';
+            if (isML) {
+                let mlStoreLabel = 'Tienda 1';
+                if (o.source === 'MERCADOLIBRE_STORE2' || o.source === 'MERCADOLIBRE_2' || o.mlStore === 2 || String(orderId).startsWith('ML2-')) mlStoreLabel = 'Tienda 2';
+                else if (o.source === 'MERCADOLIBRE_STORE3' || o.source === 'MERCADOLIBRE_3' || o.mlStore === 3 || String(orderId).startsWith('ML3-')) mlStoreLabel = 'Tienda 3';
+
+                const gross = Number(o.grossTotal) || Number(o.total) || 0;
+                const fee = Number(o.mlFee) || 0;
+                const taxes = Number(o.mlTaxes) || 0;
+                const shipping = Number(o.mlShipping) || 0;
+                const bonus = Number(o.mlShippingBonus) || 0;
+                const net = Number(o.netAmount) || Number(o.total) || 0;
+
+                mlBreakdownHtml = `
+                    <div class="mt-3 p-3.5 rounded-xl bg-amber-50/90 border border-amber-200 text-xs">
+                        <div class="flex items-center justify-between font-black text-amber-900 mb-2 border-b border-amber-200/80 pb-1.5">
+                            <span class="flex items-center gap-1.5 text-xs uppercase tracking-wider"><i class="fa-solid fa-handshake text-yellow-600"></i> Liquidación MercadoLibre (${mlStoreLabel})</span>
+                            <button type="button" onclick="window.recalcMLFinances('${orderId}')" id="btn-recalc-ml-${orderId}" class="text-[9px] font-black text-amber-900 hover:text-black bg-amber-200 hover:bg-amber-300 px-2 py-0.5 rounded-md border border-amber-300 transition flex items-center gap-1 active:scale-95 cursor-pointer uppercase tracking-wider shadow-2xs" title="Consultar a la API de MercadoLibre para actualizar comisiones y deducciones exactas">
+                                <i class="fa-solid fa-rotate text-[8px]"></i> Recalcular
+                            </button>
+                        </div>
+                        <div class="space-y-1.5 text-slate-700">
+                            <div class="flex justify-between font-semibold">
+                                <span>Venta Bruta (Pagado en ML):</span>
+                                <span class="font-bold text-brand-black">$${gross.toLocaleString('es-CO')}</span>
+                            </div>
+                            <div class="flex justify-between text-red-600 font-medium">
+                                <span>Comisión ML (Sale Fee):</span>
+                                <span>-$${fee.toLocaleString('es-CO')}</span>
+                            </div>
+                            ${taxes > 0 ? `
+                            <div class="flex justify-between text-red-600 font-medium">
+                                <span>Retenciones (Retefuente / ICA):</span>
+                                <span>-$${taxes.toLocaleString('es-CO')}</span>
+                            </div>` : ''}
+                            ${shipping > 0 ? `
+                            <div class="flex justify-between text-red-600 font-medium">
+                                <span>Costo Envío Vendedor:</span>
+                                <span>-$${shipping.toLocaleString('es-CO')}</span>
+                            </div>` : ''}
+                            ${bonus > 0 ? `
+                            <div class="flex justify-between text-emerald-700 font-medium">
+                                <span>Bonificación Envío Flex:</span>
+                                <span>+$${bonus.toLocaleString('es-CO')}</span>
+                            </div>` : ''}
+                            <div class="border-t border-amber-200 pt-1.5 flex justify-between font-black text-brand-black text-sm">
+                                <span>Neto Liquidado en Cuenta:</span>
+                                <span class="text-emerald-700 font-black">$${net.toLocaleString('es-CO')}</span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            paymentSection.innerHTML = `<div class="flex justify-between items-start"><div class="flex items-center gap-3"><div class="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center ${mInfo.color} text-lg"><i class="${mInfo.icon}"></i></div><div><p class="text-[10px] font-black uppercase text-gray-400 leading-none mb-1">Método de Pago</p><p class="text-xs font-black text-brand-black uppercase">${mInfo.label}</p></div></div>${statusHtml}</div>${o.paymentId ? `<div class="mt-2 pt-2 border-t border-gray-100 text-[9px] text-gray-400 font-mono">Ref: ${o.paymentId}</div>` : ''}${mlBreakdownHtml}`;
             paymentSection.classList.remove('hidden');
         }
 
@@ -210,14 +402,21 @@ export async function viewOrderDetail(orderId) {
         const mlLabelContainer = getEl('modal-ml-label-container');
         const printBtn = getEl('btn-print-ml-label');
         if (mlLabelContainer && printBtn) {
-            const shipmentId = o.shippingData?.shipmentId;
-            const isML = o.source && o.source.startsWith('MERCADOLIBRE');
-            if (isML && shipmentId) {
+            const shipmentId = o.shippingId || o.shippingData?.shipmentId;
+            if (isML && (shipmentId || orderId)) {
                 let functionsUrl = "https://us-central1-pixeltechcol.cloudfunctions.net/getMercadoLibreLabel";
                 if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
                     functionsUrl = "http://localhost:5001/pixeltechcol/us-central1/getMercadoLibreLabel";
                 }
-                printBtn.href = `${functionsUrl}?orderId=${orderId}`;
+                let store = String(o.mlStore || '');
+                if (!store) {
+                    if (o.source === 'MERCADOLIBRE_STORE2' || o.source === 'MERCADOLIBRE_2' || String(orderId).startsWith('ML2-')) store = '2';
+                    else if (o.source === 'MERCADOLIBRE_STORE3' || o.source === 'MERCADOLIBRE_3' || String(orderId).startsWith('ML3-')) store = '3';
+                    else store = '1';
+                }
+                const queryStr = shipmentId ? `shipmentId=${shipmentId}&store=${store}&orderId=${orderId}` : `orderId=${orderId}&store=${store}`;
+                printBtn.href = `${functionsUrl}?${queryStr}`;
+                printBtn.target = "_blank";
                 mlLabelContainer.classList.remove('hidden');
             } else {
                 mlLabelContainer.classList.add('hidden');
@@ -246,13 +445,33 @@ export async function viewOrderDetail(orderId) {
         const itemsList = getEl('modal-items-list-responsive');
         
         if (itemsList) {
-            itemsList.innerHTML = (o.items || []).map((item, idx) => {
+            // Cargar borrador local si aplica
+            const draftData = (!isLocked) ? getDraftSerials(orderId) : null;
+            const draftSerials = draftData?.serials || null;
+            let restoredDraftCount = 0;
+
+            if (isLocked) {
+                clearDraftSerials(orderId);
+            }
+
+            const itemsHtml = (o.items || []).map((item, idx) => {
                 const img = item.mainImage || item.image || '/img/placeholder-tech.webp';
-                const itemHasAllNoSerial = item.sns && item.sns.length > 0 && item.sns.every(isNoSerial);
                 let snInputs = '';
-                for (let i = 0; i < (item.quantity || 1); i++) {
-                    const val = (item.sns && item.sns[i]) ? item.sns[i] : '';
+                let itemAllNoSerial = true;
+                const totalUnits = item.quantity || 1;
+
+                for (let i = 0; i < totalUnits; i++) {
+                    const serverVal = (item.sns && item.sns[i]) ? item.sns[i] : '';
+                    const draftVal = draftSerials ? draftSerials[`${idx}_${i}`] : undefined;
+
+                    let val = serverVal;
+                    if (draftVal !== undefined && draftVal !== '') {
+                        val = draftVal;
+                        if (val !== serverVal) restoredDraftCount++;
+                    }
+
                     const isValNoSerial = isNoSerial(val);
+                    if (!isValNoSerial) itemAllNoSerial = false;
                     const isReturned = Array.isArray(item.returnedSns) && item.returnedSns.includes(val);
                     const lockClass = isLocked 
                         ? (isReturned 
@@ -269,6 +488,8 @@ export async function viewOrderDetail(orderId) {
                         ${badgeHtml}
                     </div>`;
                 }
+
+                const itemHasAllNoSerial = itemAllNoSerial && totalUnits > 0;
                 return `
                     <div class="p-6 border-b border-gray-100 last:border-0 flex flex-col md:flex-row gap-6 items-start">
                         <div class="w-16 h-16 rounded-xl bg-white border border-gray-100 p-2 shrink-0 flex items-center justify-center shadow-xs">
@@ -303,6 +524,42 @@ export async function viewOrderDetail(orderId) {
                     </div>`;
             }).join('');
 
+            let draftBannerHtml = '';
+            if (restoredDraftCount > 0 && !isLocked) {
+                draftBannerHtml = `
+                    <div id="draft-serials-banner" class="px-5 py-2.5 bg-cyan-500/10 border-b border-cyan-500/20 flex items-center justify-between flex-wrap gap-2 animate-fadeIn">
+                        <div class="flex items-center gap-2">
+                            <span class="w-2 h-2 rounded-full bg-cyan-500 animate-pulse"></span>
+                            <span class="text-[10px] font-black uppercase text-cyan-950 tracking-wider flex items-center gap-1.5">
+                                <i class="fa-solid fa-clock-rotate-left text-brand-cyan"></i> Borrador local restaurado
+                            </span>
+                            <span id="draft-banner-count" class="text-[9px] font-bold text-cyan-700">(${restoredDraftCount} serial${restoredDraftCount > 1 ? 'es' : ''} recuperado${restoredDraftCount > 1 ? 's' : ''})</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="text-[8px] font-bold text-cyan-700 uppercase tracking-wider hidden sm:inline"><i class="fa-solid fa-check text-emerald-600"></i> Guardado en este equipo</span>
+                            <button type="button" onclick="window.discardDraftSerials('${orderId}')" class="text-[9px] font-black uppercase text-rose-600 hover:text-white hover:bg-rose-500 bg-white px-2.5 py-1 rounded-lg border border-rose-200 transition shadow-2xs cursor-pointer active:scale-95" title="Borrar seriales temporales de este equipo">
+                                <i class="fa-solid fa-trash-can mr-1"></i> Descartar
+                            </button>
+                        </div>
+                    </div>
+                `;
+            } else if (!isLocked) {
+                draftBannerHtml = `
+                    <div id="draft-serials-banner" class="px-5 py-2.5 bg-cyan-500/10 border-b border-cyan-500/20 flex items-center justify-between flex-wrap gap-2 text-[9px] text-gray-500 font-bold hidden animate-fadeIn">
+                        <div class="flex items-center gap-2">
+                            <i class="fa-solid fa-floppy-disk text-brand-cyan"></i>
+                            <span id="draft-banner-text" class="text-cyan-950 uppercase font-black tracking-wider">Auto-guardado local activo</span>
+                            <span id="draft-banner-count" class="text-cyan-700 font-bold"></span>
+                        </div>
+                        <button type="button" onclick="window.discardDraftSerials('${orderId}')" class="text-[9px] font-black uppercase text-rose-600 hover:text-white hover:bg-rose-500 bg-white px-2.5 py-1 rounded-lg border border-rose-200 transition shadow-2xs cursor-pointer active:scale-95" title="Limpiar seriales no guardados">
+                            <i class="fa-solid fa-trash-can mr-1"></i> Descartar
+                        </button>
+                    </div>
+                `;
+            }
+
+            itemsList.innerHTML = draftBannerHtml + itemsHtml;
+
             if (!isLocked) {
                 setTimeout(() => {
                     const allInputs = Array.from(document.querySelectorAll('.sn-input'));
@@ -318,11 +575,14 @@ export async function viewOrderDetail(orderId) {
                     };
 
                     allInputs.forEach((input, currentIndex) => {
+                        updateInputStyle(input, input.value.trim().toUpperCase());
+
                         let debounceTimer = null;
                         input.addEventListener('input', function() {
                             clearTimeout(debounceTimer);
                             debounceTimer = setTimeout(() => {
                                 updateInputStyle(this, this.value.trim().toUpperCase());
+                                saveDraftSerials(currentOrderId);
                             }, 150);
                         });
 
@@ -332,11 +592,13 @@ export async function viewOrderDetail(orderId) {
                             this.value = val;
                             if (!val) {
                                 updateInputStyle(this, '');
+                                saveDraftSerials(currentOrderId);
                                 return; 
                             }
                             if (isNoSerial(val)) {
                                 this.value = 'SIN-SERIAL';
                                 updateInputStyle(this, 'SIN-SERIAL');
+                                saveDraftSerials(currentOrderId);
                                 return;
                             }
                             updateInputStyle(this, val);
@@ -349,12 +611,18 @@ export async function viewOrderDetail(orderId) {
                                 this.classList.add('border-red-500', 'bg-red-50');
                                 setTimeout(() => this.classList.remove('border-red-500', 'bg-red-50'), 2000);
                             }
+                            saveDraftSerials(currentOrderId);
+                        });
+
+                        input.addEventListener('blur', function() {
+                            saveDraftSerials(currentOrderId);
                         });
 
                         input.addEventListener('keydown', function(e) {
                             if (e.key === 'Enter') {
                                 e.preventDefault(); 
                                 this.dispatchEvent(new Event('change'));
+                                saveDraftSerials(currentOrderId);
                                 if (this.value.trim() !== "") {
                                     const nextInput = allInputs[currentIndex + 1];
                                     if (nextInput) {
@@ -602,6 +870,7 @@ async function cancelManualOrder(order) {
             console.warn("Error procesando seriales en anulación:", errSerials);
         }
 
+        clearDraftSerials(order.id);
         alert("✅ Venta anulada exitosamente. \nEl stock fue devuelto al catálogo (si corresponde) y el dinero fue revertido de la cuenta (si aplica).");
         getEl('order-modal').classList.add('hidden');
         currentOrderData = null;
@@ -1214,6 +1483,9 @@ export async function saveAlistamiento(onSuccess) {
 
         await batch.commit();
 
+        // 🔥 Limpiar borrador local ya que quedó persistido en la base de datos
+        clearDraftSerials(currentOrderId);
+
         showActionToast("✅ Alistamiento guardado con éxito y seriales vinculados a la venta.", "success");
         getEl('order-modal').classList.add('hidden');
         if (onSuccess) onSuccess();
@@ -1303,129 +1575,257 @@ export async function confirmDispatch(onSuccess) {
     } finally { btn.disabled = false; }
 }
 
-// --- 3. IMPRIMIR PDF ---
-export async function printRemission(orderId) {
+// --- 3. VER RECIBO / REMISIÓN EN NUEVA PESTAÑA (SIN AUTO-PRINT Y SIN BLOQUEAR PÁGINA) ---
+export async function viewReceipt(orderId) {
     try {
-        const snap = await getDoc(doc(db, "orders", orderId));
-        if (!snap.exists()) return alert("Error al generar la remisión");
+        let o = null;
+        const cache = window.adminOrdersCache || [];
+        const foundInCache = cache.find(item => item.id === orderId);
+        if (foundInCache) {
+            o = foundInCache;
+        } else {
+            const snap = await getDoc(doc(db, "orders", orderId));
+            if (!snap.exists()) return alert("Error al encontrar los datos del pedido para generar el recibo");
+            o = { id: snap.id, ...snap.data() };
+        }
         
-        const o = snap.data();
+        const dateStr = o.createdAt?.toDate ? o.createdAt.toDate().toLocaleString('es-CO') : (o.createdAt?.seconds ? new Date(o.createdAt.seconds * 1000).toLocaleString('es-CO') : '--');
+        const remissionNumber = o.internalOrderNumber ? `#${o.internalOrderNumber}` : (o.id ? `#${o.id.slice(0, 8).toUpperCase()}` : 'S/N');
+        const shortId = (o.id || orderId).slice(0, 8).toUpperCase();
         
-        const dateStr = o.createdAt?.toDate ? o.createdAt.toDate().toLocaleString('es-CO') : '--';
-        const remissionNumber = o.internalOrderNumber ? `#${o.internalOrderNumber}` : 'S/N';
-        const shortId = snap.id.slice(0, 8).toUpperCase();
-        
-        let address = o.shippingData?.address || o.address || 'Retiro en Local';
+        let address = o.shippingData?.address || o.address || 'Retiro en Local / Tienda';
         if (o.shippingData?.city) address += `, ${o.shippingData.city}`;
         if (o.shippingData?.department) address += ` - ${o.shippingData.department}`;
 
-        const clientName = o.userName || o.buyerInfo?.name || 'N/A';
-        const clientPhone = o.phone || o.buyerInfo?.phone || 'N/A';
-        const clientDoc = o.clientDoc || o.buyerInfo?.document || 'N/A';
+        const clientName = o.userName || o.buyerInfo?.name || o.shippingData?.name || 'Cliente';
+        const clientPhone = o.phone || o.buyerInfo?.phone || o.shippingData?.phone || 'N/A';
+        const clientDoc = o.clientDoc || o.buyerInfo?.document || o.shippingData?.clientDoc || 'N/A';
 
         const itemsHtml = (o.items || []).map(i => {
             let variantText = '';
             if(i.color || i.capacity) {
-                variantText = `<br><span style="color:#6b7280; font-size:11px;">${i.capacity ? i.capacity + ' ' : ''}${i.color ? i.color : ''}</span>`;
+                variantText = `<br><span style="color:#64748b; font-size:11px;">${i.capacity ? i.capacity + ' ' : ''}${i.color ? i.color : ''}</span>`;
             }
+            const unitPrice = Number(i.grossPrice) || Number(i.price) || 0;
+            const itemQty = Number(i.quantity) || 1;
+            const itemTotal = unitPrice * itemQty;
             
             return `
             <tr>
-                <td><strong>${i.name || i.title}</strong>${variantText}</td>
-                <td style="text-align:center">${i.quantity}</td>
-                <td style="text-align:right">$${(i.price || 0).toLocaleString('es-CO')}</td>
-                <td style="text-align:right; font-weight:bold;">$${((i.price || 0) * i.quantity).toLocaleString('es-CO')}</td>
+                <td><strong>${i.name || i.title || 'Producto'}</strong>${variantText}</td>
+                <td style="text-align:center">${itemQty}</td>
+                <td style="text-align:right">$${unitPrice.toLocaleString('es-CO')}</td>
+                <td style="text-align:right; font-weight:bold;">$${itemTotal.toLocaleString('es-CO')}</td>
             </tr>`;
         }).join('');
 
-        const subtotal = o.subtotal || o.total;
-        const shipping = o.shippingCost || 0;
-        const tax4x1000 = o.tax4x1000 || 0;
-        const total = o.total || 0;
+        const subtotal = Number(o.grossTotal) || Number(o.subtotal) || Number(o.total) || 0;
+        const shipping = Number(o.shippingCost) || 0;
+        const tax4x1000 = Number(o.tax4x1000) || 0;
+        const total = Number(o.total) || (subtotal + shipping + tax4x1000);
 
         let taxRow = tax4x1000 > 0 ? `<tr><td>Impuesto 4x1000</td><td>$${tax4x1000.toLocaleString('es-CO')}</td></tr>` : '';
+        let shippingRow = shipping > 0 ? `<tr><td>Envío</td><td>$${shipping.toLocaleString('es-CO')}</td></tr>` : '<tr><td>Envío</td><td>Gratis</td></tr>';
 
-        const w = window.open('', '_blank', 'width=800,height=800');
-        w.document.write(`
+        let notesHtml = '';
+        const noteText = o.notes || o.shippingData?.notes;
+        if (noteText && String(noteText).trim().length > 0) {
+            notesHtml = `
+            <div style="margin-bottom: 25px; background: #fffbeb; border: 1px solid #fef3c7; padding: 12px 16px; border-radius: 8px; font-size: 12px; color: #92400e;">
+                <strong>Nota / Observación:</strong> ${noteText}
+            </div>`;
+        }
+
+        const receiptHtml = `
             <!DOCTYPE html>
             <html lang="es">
             <head>
                 <meta charset="UTF-8">
-                <title>Remisión ${remissionNumber}</title>
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>Recibo de Venta ${remissionNumber} - PixelTech</title>
+                <link rel="preconnect" href="https://fonts.googleapis.com">
+                <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+                <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
                 <style>
-                    body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; padding: 40px; font-size: 13px; color: #111827; max-width: 800px; margin: 0 auto; }
+                    * { box-sizing: border-box; }
+                    body { font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f8fafc; margin: 0; padding: 0; font-size: 13px; color: #111827; }
+                    .receipt-wrapper { max-width: 820px; margin: 25px auto 50px auto; background: #ffffff; padding: 45px 50px; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.06); border: 1px solid #e2e8f0; }
+                    
+                    /* Barra superior de acciones (no imprimible) */
+                    .top-action-bar {
+                        position: sticky;
+                        top: 0;
+                        z-index: 999;
+                        background: rgba(15, 23, 42, 0.95);
+                        backdrop-filter: blur(8px);
+                        color: #ffffff;
+                        padding: 12px 24px;
+                        display: flex;
+                        justify-content: space-between;
+                        align-items: center;
+                        border-bottom: 1px solid rgba(255,255,255,0.1);
+                        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+                    }
+                    .btn-print {
+                        background: #00AEC7;
+                        color: #000000;
+                        border: none;
+                        padding: 9px 20px;
+                        border-radius: 10px;
+                        font-weight: 800;
+                        font-size: 12px;
+                        cursor: pointer;
+                        display: inline-flex;
+                        align-items: center;
+                        gap: 8px;
+                        transition: all 0.2s;
+                        letter-spacing: 0.5px;
+                        text-transform: uppercase;
+                    }
+                    .btn-print:hover { background: #33c2d6; transform: translateY(-1px); }
+                    .btn-close {
+                        background: rgba(255,255,255,0.1);
+                        color: #ffffff;
+                        border: 1px solid rgba(255,255,255,0.2);
+                        padding: 9px 16px;
+                        border-radius: 10px;
+                        font-weight: 700;
+                        font-size: 12px;
+                        cursor: pointer;
+                        transition: all 0.2s;
+                    }
+                    .btn-close:hover { background: rgba(255,255,255,0.2); }
+
                     h1, h2, h3, h4 { color: #111827; margin: 0 0 5px 0; line-height: 1.2; }
-                    .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 30px; border-bottom: 2px solid #111827; padding-bottom: 20px; }
-                    .store-info h1 { font-size: 28px; font-weight: 900; letter-spacing: -1px; margin-bottom: 2px; }
-                    .store-info p { margin: 0; color: #4b5563; font-size: 12px; }
+                    .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 30px; border-bottom: 2px solid #0f172a; padding-bottom: 20px; }
+                    .store-info h1 { font-size: 26px; font-weight: 900; letter-spacing: -0.5px; margin-bottom: 3px; color: #0f172a; }
+                    .store-info p { margin: 2px 0; color: #64748b; font-size: 12px; font-weight: 500; }
                     .remission-info { text-align: right; }
-                    .remission-info h2 { font-size: 22px; font-weight: 900; letter-spacing: 2px; }
-                    .remission-info .consecutivo { font-size: 18px; font-weight: 900; color: #00AEC7; margin-bottom: 5px; display: block;}
-                    .remission-info p { margin: 2px 0; font-size: 12px; color: #4b5563; }
-                    .badge { display: inline-block; background: #f3f4f6; padding: 4px 8px; border-radius: 4px; font-family: monospace; margin-top: 5px; font-weight: bold; font-size: 11px;}
-                    .section-title { font-size: 10px; font-weight: 900; color: #9ca3af; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 10px; border-bottom: 1px solid #e5e7eb; padding-bottom: 5px;}
-                    .customer-info { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 30px; background: #f9fafb; padding: 20px; border-radius: 12px; }
-                    .customer-box p { margin: 0; font-size: 13px; font-weight: bold;}
-                    .customer-box label { font-size: 9px; font-weight: 900; color: #9ca3af; text-transform: uppercase; display: block; margin-bottom: 2px; letter-spacing: 0.5px;}
+                    .remission-info h2 { font-size: 20px; font-weight: 900; letter-spacing: 2px; color: #0f172a; }
+                    .remission-info .consecutivo { font-size: 18px; font-weight: 900; color: #00AEC7; margin-bottom: 5px; display: block; }
+                    .remission-info p { margin: 2px 0; font-size: 12px; color: #64748b; }
+                    .badge { display: inline-block; background: #f1f5f9; padding: 4px 10px; border-radius: 6px; font-family: monospace; margin-top: 6px; font-weight: 800; font-size: 11px; color: #334155; border: 1px solid #e2e8f0; }
+                    
+                    .section-title { font-size: 10px; font-weight: 900; color: #94a3b8; letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 12px; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px; }
+                    .customer-info { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 30px; background: #f8fafc; padding: 20px 24px; border-radius: 14px; border: 1px solid #edf2f7; }
+                    .customer-box p { margin: 0; font-size: 13px; font-weight: 700; color: #0f172a; }
+                    .customer-box label { font-size: 9px; font-weight: 900; color: #64748b; text-transform: uppercase; display: block; margin-bottom: 3px; letter-spacing: 0.8px; }
+                    
                     table { width: 100%; border-collapse: collapse; margin-bottom: 30px; }
-                    th { text-align: left; background: #f9fafb; padding: 12px; font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: 1px; color: #6b7280; border-bottom: 2px solid #e5e7eb; }
-                    td { padding: 15px 12px; border-bottom: 1px solid #f3f4f6; vertical-align: top; }
-                    .totals-container { display: flex; justify-content: flex-end; margin-bottom: 40px; }
-                    .totals-table { width: 300px; border-collapse: collapse; }
-                    .totals-table td { padding: 10px; border-bottom: 1px solid #f3f4f6; }
-                    .totals-table tr:last-child td { border-bottom: none; font-size: 16px; font-weight: 900; border-top: 2px solid #111827; }
-                    .totals-table td:last-child { text-align: right; font-weight: bold; color: #111827; }
-                    .totals-table td:first-child { text-align: left; color: #6b7280; font-weight: bold; }
-                    .footer { margin-top: 50px; text-align: center; color: #4b5563; font-size: 11px; border-top: 1px solid #e5e7eb; padding-top: 20px; line-height: 1.6; }
-                    .footer strong { color: #111827; font-size: 12px;}
-                    .info-line { margin-bottom: 12px; border-bottom: 2px solid #111827; display: flex; align-items: flex-start; padding-bottom: 3px; }
-                    .info-line strong { font-weight: 900; margin-right: 8px; font-size: 13px; white-space: nowrap; margin-top: 2px; }
-                    .info-line span { flex-grow: 1; font-weight: 700; font-size: 13px; text-align: left; white-space: normal; word-break: break-word; line-height: 1.2; }
-                    .info-row { display: flex; gap: 15px; }
-                    @media print { body { padding: 0; } table { page-break-inside: auto; } tr { page-break-inside: avoid; page-break-after: auto; } }
+                    th { text-align: left; background: #f8fafc; padding: 12px 14px; font-size: 10px; font-weight: 900; text-transform: uppercase; letter-spacing: 1px; color: #475569; border-bottom: 2px solid #e2e8f0; }
+                    td { padding: 14px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
+                    
+                    .totals-container { display: flex; justify-content: flex-end; margin-bottom: 35px; }
+                    .totals-table { width: 320px; border-collapse: collapse; }
+                    .totals-table td { padding: 8px 12px; border-bottom: 1px solid #f1f5f9; }
+                    .totals-table tr:last-child td { border-bottom: none; font-size: 17px; font-weight: 900; border-top: 2px solid #0f172a; padding-top: 12px; color: #0f172a; }
+                    .totals-table td:last-child { text-align: right; font-weight: 800; color: #0f172a; }
+                    .totals-table td:first-child { text-align: left; color: #64748b; font-weight: 700; }
+                    
+                    .footer { margin-top: 40px; text-align: center; color: #64748b; font-size: 11px; border-top: 1px solid #e2e8f0; padding-top: 22px; line-height: 1.6; }
+                    .footer strong { color: #0f172a; font-size: 12px; }
+
+                    @media print {
+                        .no-print { display: none !important; }
+                        body { background: #ffffff !important; padding: 0 !important; font-size: 12px; }
+                        .receipt-wrapper { max-width: 100% !important; margin: 0 !important; padding: 0 !important; border: none !important; box-shadow: none !important; border-radius: 0 !important; }
+                        table { page-break-inside: auto; }
+                        tr { page-break-inside: avoid; page-break-after: auto; }
+                    }
                 </style>
             </head>
             <body>
-                <div class="header">
-                    <div class="store-info">
-                        <h1>PIXELTECH</h1>
-                        <p>Lo mejor en tecnología</p>
-                        <p>Bogotá, Colombia</p>
+                <div class="top-action-bar no-print">
+                    <div style="display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 13px;">
+                        <span style="width: 10px; height: 10px; border-radius: 50%; background: #10B981; display: inline-block;"></span>
+                        Recibo de Venta / Remisión ${remissionNumber}
                     </div>
-                    <div class="remission-info">
-                        <h2>REMISIÓN</h2>
-                        <span class="consecutivo">${remissionNumber}</span>
-                        <p>${dateStr}</p>
-                        <div class="badge">Pedido ID: ${shortId}</div>
+                    <div style="display: flex; gap: 10px;">
+                        <button onclick="window.print()" class="btn-print" title="Imprimir o Guardar como PDF">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 14h12v8H6z"/></svg>
+                            Imprimir / PDF
+                        </button>
+                        <button onclick="window.close()" class="btn-close">
+                            ✕ Cerrar
+                        </button>
                     </div>
                 </div>
-                <div class="section-title">Información del Cliente</div>
-                <div class="customer-info">
-                    <div class="customer-box"><label>Cliente</label><p>${clientName}</p></div>
-                    <div class="customer-box"><label>Teléfono</label><p>${clientPhone}</p></div>
-                    <div class="customer-box"><label>Identificación</label><p>${clientDoc}</p></div>
-                    <div class="customer-box"><label>Dirección de Entrega</label><p>${address}</p></div>
-                </div>
-                <table>
-                    <thead><tr><th>Descripción</th><th style="text-align:center">Cant</th><th style="text-align:right">Unitario</th><th style="text-align:right">Total</th></tr></thead>
-                    <tbody>${itemsHtml}</tbody>
-                </table>
-                <div class="totals-container">
-                    <table class="totals-table">
-                        <tr><td>Subtotal</td><td>$${subtotal.toLocaleString('es-CO')}</td></tr>
-                        <tr><td>Envío</td><td>$${shipping.toLocaleString('es-CO')}</td></tr>
-                        ${taxRow}
-                        <tr><td>TOTAL</td><td>$${total.toLocaleString('es-CO')}</td></tr>
+
+                <div class="receipt-wrapper">
+                    <div class="header">
+                        <div class="store-info">
+                            <h1>PIXELTECH</h1>
+                            <p>Pixel Tech Col SAS • NIT: 901.561.037-7</p>
+                            <p>Calle 31 # 13A - 51 Oficina 223 • Bogotá, Colombia</p>
+                            <p>Contacto: 300 904 6450 • pixeltechsas@gmail.com</p>
+                        </div>
+                        <div class="remission-info">
+                            <h2>RECIBO / REMISIÓN</h2>
+                            <span class="consecutivo">${remissionNumber}</span>
+                            <p>${dateStr}</p>
+                            <div class="badge">Pedido: ${shortId}</div>
+                        </div>
+                    </div>
+
+                    <div class="section-title">Información del Comprador y Envío</div>
+                    <div class="customer-info">
+                        <div class="customer-box"><label>Cliente</label><p>${clientName}</p></div>
+                        <div class="customer-box"><label>Teléfono</label><p>${clientPhone}</p></div>
+                        <div class="customer-box"><label>Identificación</label><p>${clientDoc}</p></div>
+                        <div class="customer-box"><label>Dirección de Entrega</label><p>${address}</p></div>
+                    </div>
+
+                    ${notesHtml}
+
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Descripción del Producto</th>
+                                <th style="text-align:center">Cant</th>
+                                <th style="text-align:right">Precio Unitario</th>
+                                <th style="text-align:right">Total</th>
+                            </tr>
+                        </thead>
+                        <tbody>${itemsHtml}</tbody>
                     </table>
+
+                    <div class="totals-container">
+                        <table class="totals-table">
+                            <tr><td>Subtotal</td><td>$${subtotal.toLocaleString('es-CO')}</td></tr>
+                            ${shippingRow}
+                            ${taxRow}
+                            <tr><td>TOTAL</td><td>$${total.toLocaleString('es-CO')}</td></tr>
+                        </table>
+                    </div>
+
+                    <div class="footer">
+                        Este documento es una remisión comercial de entrega de mercancía y soporte de garantía oficial.<br>
+                        <strong>Para solicitud de factura electrónica con código CUFE o soporte técnico, contáctanos al WhatsApp 300 904 6450.</strong>
+                    </div>
                 </div>
-                <div class="footer">Este documento es una remisión de entrega y soporte de garantía.<br><strong>Para solicitud de factura con código CUFE contáctanos al 3009046450</strong></div>
-                <script>setTimeout(() => { window.print(); window.close(); }, 800);</script>
             </body>
             </html>
-        `);
-        w.document.close();
-    } catch(e) { console.error(e); }
+        `;
+
+        const blob = new Blob([receiptHtml], { type: 'text/html;charset=utf-8' });
+        const blobUrl = URL.createObjectURL(blob);
+        const newTab = window.open(blobUrl, '_blank');
+        if (newTab) {
+            try {
+                newTab.opener = null;
+            } catch(e) {}
+        }
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 120000);
+    } catch(e) {
+        console.error("Error al abrir recibo:", e);
+        if (typeof showActionToast === 'function') {
+            showActionToast("⚠️ Error al abrir el recibo: " + e.message, "error");
+        } else {
+            alert("Error al abrir el recibo: " + e.message);
+        }
+    }
 }
+export const printRemission = viewReceipt;
 
 // --- 4. SOLICITAR FACTURA ---
 export async function requestInvoice(orderId) {
@@ -1439,11 +1839,18 @@ export async function requestInvoice(orderId) {
 
 // --- 5. EXPORTAR AL WINDOW ---
 window.viewOrderDetail = viewOrderDetail;
-window.printRemission = printRemission;
+window.viewReceipt = viewReceipt;
+window.printRemission = viewReceipt;
 window.requestInvoice = requestInvoice;
 window.saveAlistamiento = saveAlistamiento; 
 window.openDispatchModal = openDispatchModal;
 window.confirmDispatch = confirmDispatch;
+window.closeOrderModal = closeOrderModal;
+window.getDraftSerials = getDraftSerials;
+window.hasDraftSerials = hasDraftSerials;
+window.saveDraftSerials = saveDraftSerials;
+window.clearDraftSerials = clearDraftSerials;
+window.discardDraftSerials = discardDraftSerials;
 
 // --- 6. REGISTRAR PAGO MANUAL ---
 export async function openPaymentModal(orderId, amountDue) {
@@ -2537,4 +2944,43 @@ window.printSelectedLabels = (ordersArray) => {
         return;
     }
     generateLabels(selectedOrders);
+};
+
+window.recalcMLFinances = async function(orderId) {
+    const btn = document.getElementById(`btn-recalc-ml-${orderId}`);
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin text-[8px]"></i> Recalculando...';
+    }
+    try {
+        const recalcFn = httpsCallable(functions, 'recalcMLOrderFinances');
+        await recalcFn({ orderId });
+        if (typeof showActionToast === 'function') {
+            showActionToast('✅ Comisiones recalculadas con éxito desde MercadoLibre', 'success', 3000);
+        } else {
+            alert('✅ Comisiones recalculadas con éxito desde MercadoLibre');
+        }
+        if (typeof window.viewOrderDetail === 'function') {
+            window.viewOrderDetail(orderId);
+        }
+    } catch (e) {
+        console.error("Error recalculando finanzas ML:", e);
+        if (typeof showActionToast === 'function') {
+            showActionToast('⚠️ Error al recalcular: ' + e.message, 'error', 4000);
+        } else {
+            alert('⚠️ Error al recalcular: ' + e.message);
+        }
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fa-solid fa-rotate text-[8px]"></i> Recalcular';
+        }
+    }
+};
+
+window.openMercadoLibreLabel = function(orderId) {
+    let functionsUrl = "https://us-central1-pixeltechcol.cloudfunctions.net/getMercadoLibreLabel";
+    if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
+        functionsUrl = "http://localhost:5001/pixeltechcol/us-central1/getMercadoLibreLabel";
+    }
+    window.open(`${functionsUrl}?orderId=${orderId}`, '_blank');
 };

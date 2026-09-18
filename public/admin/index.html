@@ -189,7 +189,7 @@
     </main>
 
     <div id="order-modal" class="fixed inset-0 z-[70] hidden flex items-center justify-center p-4">
-        <div class="absolute inset-0 bg-slate-900/80 transition-opacity" onclick="document.getElementById('order-modal').classList.add('hidden')"></div>
+        <div class="absolute inset-0 bg-slate-900/80 transition-opacity" onclick="window.closeOrderModal()"></div>
         <div class="relative bg-white w-full max-w-6xl rounded-[2.5rem] shadow-2xl flex flex-col max-h-[92vh] overflow-hidden animate-fadeIn">
             
             <div class="p-6 md:p-8 border-b border-gray-50 flex justify-between items-center bg-slate-50/50 shrink-0">
@@ -203,7 +203,12 @@
                         <p id="modal-order-date" class="text-[9px] md:text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1">...</p>
                     </div>
                 </div>
-                <button class="w-10 h-10 rounded-full bg-white border border-gray-200 text-brand-black hover:bg-brand-red hover:text-white transition flex items-center justify-center shrink-0" onclick="document.getElementById('order-modal').classList.add('hidden')"><i class="fa-solid fa-xmark"></i></button>
+                <div class="flex items-center gap-2">
+                    <button id="modal-btn-view-receipt" onclick="window.viewReceipt(document.getElementById('modal-order-id').textContent.replace('#',''))" title="Ver Recibo" class="h-9 px-3.5 rounded-xl bg-white border border-rose-200 text-rose-600 hover:bg-rose-500 hover:text-white transition flex items-center gap-1.5 text-xs font-black uppercase tracking-wider shadow-2xs shrink-0 active:scale-95">
+                        <i class="fa-solid fa-receipt text-xs"></i> <span class="hidden sm:inline">Ver Recibo</span>
+                    </button>
+                    <button class="w-10 h-10 rounded-full bg-white border border-gray-200 text-brand-black hover:bg-brand-red hover:text-white transition flex items-center justify-center shrink-0" onclick="window.closeOrderModal()"><i class="fa-solid fa-xmark"></i></button>
+                </div>
             </div>
             
             <div class="p-6 md:p-8 overflow-y-auto custom-scroll space-y-8 bg-white flex-grow">
@@ -321,7 +326,7 @@
         import { loadAdminSidebar } from '../js/admin-ui.js?v=2.0.0';
         import { initManualSale, openManualSaleModal } from '../js/manual-sale.js?v=1.0.6';
         import { AdminStore } from '../js/admin-store.js'; // 🔥 EL CEREBRO
-        import '../js/order-actions.js?v=1.0.5';
+        import '../js/order-actions.js?v=1.1.0';
 
         loadAdminSidebar();
         initManualSale();
@@ -552,7 +557,10 @@
                 <tr class="hover:bg-slate-50 transition border-b border-gray-50 group fade-in">
                     <td class="px-8 py-6">
                         <div class="font-mono text-[10px] text-brand-black uppercase font-bold">#${(o.internalOrderNumber || o.id.slice(0, 8)).toString().toUpperCase()}</div>
-                        <div class="text-[9px] font-bold text-gray-400 mt-1">${dateStr}</div>
+                        <div class="text-[9px] font-bold text-gray-400 mt-1 flex items-center gap-1 flex-wrap">
+                            <span>${dateStr}</span>
+                            ${(window.hasDraftSerials && window.hasDraftSerials(o.id) && !['DESPACHADO', 'ENTREGADO', 'CANCELADO', 'RECHAZADO', 'DEVUELTO'].includes(o.status)) ? `<span class="text-slate-300">•</span><span class="text-cyan-800 bg-cyan-50 border border-cyan-200 px-1.5 py-0.2 rounded text-[8px] font-black uppercase inline-flex items-center gap-1" title="Tienes seriales guardados localmente para este pedido"><i class="fa-solid fa-floppy-disk text-[7px] text-brand-cyan"></i> Borrador</span>` : ''}
+                        </div>
                     </td>
                     <td class="px-8 py-6">
                         <div class="font-black text-brand-black uppercase text-xs">${o.buyerInfo?.name || o.userName || 'Cliente'}</div>
@@ -569,7 +577,7 @@
                     <td class="px-8 py-6 text-center">
                         <div class="flex items-center justify-center gap-2">
                             <button onclick="window.viewOrderDetail('${o.id}')" title="Ver/Gestionar" class="w-9 h-9 rounded-xl bg-white border border-gray-200 text-brand-black hover:bg-brand-black hover:text-white transition shadow-sm flex items-center justify-center"><i class="fa-solid fa-eye text-xs"></i></button>
-                            <button onclick="window.printRemission('${o.id}')" title="Imprimir" class="w-9 h-9 rounded-xl bg-white border border-red-200 text-red-500 hover:bg-red-500 hover:text-white transition shadow-sm flex items-center justify-center"><i class="fa-solid fa-file-pdf text-xs"></i></button>
+                            <button onclick="window.viewReceipt('${o.id}')" title="Ver Recibo" class="w-9 h-9 rounded-xl bg-white border border-rose-200 text-rose-500 hover:bg-rose-500 hover:text-white transition shadow-sm flex items-center justify-center"><i class="fa-solid fa-receipt text-xs"></i></button>
                             ${payActionBtn}
                         </div>
                     </td>

@@ -240,7 +240,7 @@
         <div class="bg-white w-full max-w-4xl rounded-[2.5rem] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
             <div class="bg-slate-50 p-6 md:p-8 border-b border-gray-100 flex justify-between items-start shrink-0">
                 <div class="flex items-center gap-4"><div id="modal-source-icon"></div><div><h2 class="text-2xl font-black text-brand-black uppercase tracking-tighter" id="modal-order-id">...</h2><div class="flex items-center gap-2 mt-1"><p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest" id="modal-order-date">...</p><span id="modal-order-status-badge"></span></div></div></div>
-                <button onclick="document.getElementById('order-modal').classList.add('hidden')" class="w-10 h-10 rounded-full bg-white border border-gray-200 text-gray-400 hover:text-brand-red transition flex items-center justify-center"><i class="fa-solid fa-xmark"></i></button>
+                <button onclick="window.closeOrderModal()" class="w-10 h-10 rounded-full bg-white border border-gray-200 text-gray-400 hover:text-brand-red transition flex items-center justify-center"><i class="fa-solid fa-xmark"></i></button>
             </div>
             <div class="flex-1 overflow-y-auto chat-scroll p-6 md:p-8">
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
@@ -437,7 +437,7 @@
     <script type="module">
         import { loadAdminSidebar } from '../js/admin-ui.js?v=2.0.0';
         import { auth, onAuthStateChanged } from '../js/firebase-init.js';
-        import '../js/order-actions.js?v=1.0.5';
+        import '../js/order-actions.js?v=1.1.0';
         loadAdminSidebar();
         onAuthStateChanged(auth, (user) => { if (!user) window.location.href = '/auth/login.html'; });
     </script>
