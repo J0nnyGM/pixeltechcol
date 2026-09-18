@@ -253,7 +253,7 @@
                     </div>
                 </div>
                 <div class="flex items-center gap-2">
-                    <button id="modal-btn-view-receipt" onclick="window.viewReceipt(document.getElementById('modal-order-id').textContent.replace('#',''))" title="Ver Recibo" class="h-9 px-3.5 rounded-xl bg-white border border-rose-200 text-rose-600 hover:bg-rose-500 hover:text-white transition flex items-center gap-1.5 text-xs font-black uppercase tracking-wider shadow-2xs shrink-0 active:scale-95">
+                    <button id="modal-btn-view-receipt" onclick="window.viewReceipt()" title="Ver Recibo" class="h-9 px-3.5 rounded-xl bg-white border border-rose-200 text-rose-600 hover:bg-rose-500 hover:text-white transition flex items-center gap-1.5 text-xs font-black uppercase tracking-wider shadow-2xs shrink-0 active:scale-95">
                         <i class="fa-solid fa-receipt text-xs"></i> <span class="hidden sm:inline">Ver Recibo</span>
                     </button>
                     <button class="w-10 h-10 rounded-full bg-white border border-gray-200 text-brand-black hover:bg-brand-red hover:text-white transition flex items-center justify-center shadow-xs shrink-0" onclick="window.closeOrderModal()"><i class="fa-solid fa-xmark"></i></button>
@@ -494,7 +494,7 @@
         import { db, collection, getDocs, orderBy, query, limit, auth, doc, getDoc, where, onSnapshot, startAfter } from '../js/firebase-init.js';
         import { loadAdminSidebar } from '../js/admin-ui.js?v=2.0.0';
         import { initManualSale, openManualSaleModal } from '../js/manual-sale.js?v=1.0.6';
-        import '../js/order-actions.js?v=1.1.0';
+        import '../js/order-actions.js?v=1.1.1';
 
         loadAdminSidebar();
 

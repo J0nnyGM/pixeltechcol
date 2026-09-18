@@ -1,4 +1,4 @@
-import { db, doc, getDoc, updateDoc, Timestamp, collection, getDocs, runTransaction, serverTimestamp, writeBatch, auth, query, where, functions, httpsCallable } from './firebase-init.js';
+import { db, doc, getDoc, updateDoc, Timestamp, collection, getDocs, runTransaction, serverTimestamp, writeBatch, auth, query, where, limit, functions, httpsCallable } from './firebase-init.js';
 import { adjustStock } from './inventory-core.js'; 
 import { AdminStore } from './admin-store.js';
 
@@ -259,7 +259,9 @@ async function loadAccountsCached() {
 // ==========================================================================
 export async function viewOrderDetail(orderId) {
     currentOrderId = orderId;
+    window.currentOrderId = orderId;
     currentOrderData = null; 
+    window.currentOrderData = null;
     const modal = getEl('order-modal');
     
     try {
@@ -273,6 +275,7 @@ export async function viewOrderDetail(orderId) {
         if (!snap.exists()) return;
         const o = snap.data();
         currentOrderData = { id: snap.id, ...o };
+        window.currentOrderData = currentOrderData;
 
         const isWeb = o.source === 'TIENDA' || o.source === 'TIENDA_WEB';
         const iconContainer = getEl('modal-source-icon');
@@ -1579,14 +1582,53 @@ export async function confirmDispatch(onSuccess) {
 export async function viewReceipt(orderId) {
     try {
         let o = null;
-        const cache = window.adminOrdersCache || [];
-        const foundInCache = cache.find(item => item.id === orderId);
-        if (foundInCache) {
-            o = foundInCache;
-        } else {
-            const snap = await getDoc(doc(db, "orders", orderId));
-            if (!snap.exists()) return alert("Error al encontrar los datos del pedido para generar el recibo");
-            o = { id: snap.id, ...snap.data() };
+        const targetId = orderId || currentOrderId || window.currentOrderId || currentOrderData?.id;
+
+        // 1. Si los datos ya están en memoria (orden actualmente abierta en el modal)
+        if (currentOrderData && (!targetId || targetId === currentOrderData.id || targetId === currentOrderId || String(targetId) === String(currentOrderData.internalOrderNumber))) {
+            o = currentOrderData;
+        }
+
+        // 2. Si no, buscar en la caché en memoria de pedidos
+        if (!o && targetId) {
+            const cache = window.adminOrdersCache || [];
+            const foundInCache = cache.find(item => item.id === targetId || String(item.internalOrderNumber) === String(targetId));
+            if (foundInCache) {
+                o = foundInCache;
+            }
+        }
+
+        // 3. Si no, consultar en Firestore por Document ID directo
+        if (!o && targetId) {
+            try {
+                const snap = await getDoc(doc(db, "orders", targetId));
+                if (snap.exists()) {
+                    o = { id: snap.id, ...snap.data() };
+                }
+            } catch(errDoc) {}
+        }
+
+        // 4. Si no se encontró por ID directo, probar búsqueda por internalOrderNumber (ej: 1045)
+        if (!o && targetId) {
+            const num = Number(targetId);
+            if (!isNaN(num)) {
+                try {
+                    const qSnap = await getDocs(query(collection(db, "orders"), where("internalOrderNumber", "==", num), limit(1)));
+                    if (!qSnap.empty) {
+                        o = { id: qSnap.docs[0].id, ...qSnap.docs[0].data() };
+                    }
+                } catch(errNum) {}
+            }
+        }
+
+        if (!o) {
+            const msg = "Error al encontrar los datos del pedido para generar el recibo";
+            if (typeof showActionToast === 'function') {
+                showActionToast("⚠️ " + msg, "error");
+            } else {
+                alert(msg);
+            }
+            return;
         }
         
         const dateStr = o.createdAt?.toDate ? o.createdAt.toDate().toLocaleString('es-CO') : (o.createdAt?.seconds ? new Date(o.createdAt.seconds * 1000).toLocaleString('es-CO') : '--');
