@@ -16,6 +16,63 @@ const formatCurrency = (num) => '$ ' + Number(num).toLocaleString('es-CO');
 const parseCurrency = (str) => Number(String(str).replace(/[^0-9-]/g, '')) || 0;
 const normalizeText = (str) => str ? str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "") : "";
 
+// --- FORMATEADOR UNIVERSAL DE FECHAS DE ÓRDENES ---
+export const parseOrderDate = (order) => {
+    if (!order) return new Date();
+    const candidates = [
+        order.createdAt,
+        order.dateCreated,
+        order.date_created,
+        order.created_at,
+        order.timestamp,
+        order.updatedAt,
+        order.dispatchedAt,
+        order.shippedAt
+    ];
+
+    for (const c of candidates) {
+        if (!c) continue;
+        if (typeof c.toDate === 'function') {
+            const d = c.toDate();
+            if (!isNaN(d.getTime())) return d;
+        }
+        if (c instanceof Date && !isNaN(c.getTime())) {
+            return c;
+        }
+        if (typeof c === 'object') {
+            const secs = c.seconds ?? c._seconds;
+            if (typeof secs === 'number') {
+                const d = new Date(secs * 1000);
+                if (!isNaN(d.getTime())) return d;
+            }
+        }
+        if (typeof c === 'number' && !isNaN(c) && c > 0) {
+            const ms = c < 1e11 ? c * 1000 : c;
+            const d = new Date(ms);
+            if (!isNaN(d.getTime())) return d;
+        }
+        if (typeof c === 'string' && c.trim()) {
+            const d = new Date(c.trim());
+            if (!isNaN(d.getTime())) return d;
+        }
+    }
+    return new Date();
+};
+window.parseOrderDate = parseOrderDate;
+
+export const formatOrderDateStr = (order) => {
+    const d = parseOrderDate(order);
+    return d.toLocaleDateString('es-CO', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true
+    });
+};
+window.formatOrderDateStr = formatOrderDateStr;
+
 export const isNoSerial = (sn) => {
     if (!sn) return false;
     const clean = String(sn).trim().toUpperCase().replace(/[\s\-_/.]/g, '');
@@ -285,7 +342,7 @@ export async function viewOrderDetail(orderId) {
         }
 
         safeSetText('modal-order-id', `#${o.internalOrderNumber || snap.id.slice(0, 8).toUpperCase()}`);
-        safeSetText('modal-order-date', o.createdAt?.toDate ? o.createdAt.toDate().toLocaleString('es-CO') : '---');
+        safeSetText('modal-order-date', formatOrderDateStr(o));
 
         const badge = getEl('modal-order-status-badge');
         if (badge) {
@@ -1631,7 +1688,7 @@ export async function viewReceipt(orderId) {
             return;
         }
         
-        const dateStr = o.createdAt?.toDate ? o.createdAt.toDate().toLocaleString('es-CO') : (o.createdAt?.seconds ? new Date(o.createdAt.seconds * 1000).toLocaleString('es-CO') : '--');
+        const dateStr = formatOrderDateStr(o);
         const remissionNumber = o.internalOrderNumber ? `#${o.internalOrderNumber}` : (o.id ? `#${o.id.slice(0, 8).toUpperCase()}` : 'S/N');
         const shortId = (o.id || orderId).slice(0, 8).toUpperCase();
         
@@ -1744,8 +1801,8 @@ export async function viewReceipt(orderId) {
                     .store-info p { margin: 2px 0; color: #64748b; font-size: 12px; font-weight: 500; }
                     .remission-info { text-align: right; }
                     .remission-info h2 { font-size: 20px; font-weight: 900; letter-spacing: 2px; color: #0f172a; }
-                    .remission-info .consecutivo { font-size: 18px; font-weight: 900; color: #00AEC7; margin-bottom: 5px; display: block; }
-                    .remission-info p { margin: 2px 0; font-size: 12px; color: #64748b; }
+                    .remission-info p { margin: 2px 0; font-size: 12px; color: #475569; }
+                    .remission-info .remission-date strong { color: #0f172a; font-weight: 800; }
                     .badge { display: inline-block; background: #f1f5f9; padding: 4px 10px; border-radius: 6px; font-family: monospace; margin-top: 6px; font-weight: 800; font-size: 11px; color: #334155; border: 1px solid #e2e8f0; }
                     
                     .section-title { font-size: 10px; font-weight: 900; color: #94a3b8; letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 12px; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px; }
@@ -1797,14 +1854,13 @@ export async function viewReceipt(orderId) {
                     <div class="header">
                         <div class="store-info">
                             <h1>PIXELTECH</h1>
-                            <p>Pixel Tech Col SAS • NIT: 901.561.037-7</p>
-                            <p>Calle 31 # 13A - 51 Oficina 223 • Bogotá, Colombia</p>
-                            <p>Contacto: 300 904 6450 • pixeltechsas@gmail.com</p>
+                            <p>Lo mejor en tecnologia</p>
+                            <p>Bogotá, Colombia</p>
                         </div>
                         <div class="remission-info">
                             <h2>RECIBO / REMISIÓN</h2>
                             <span class="consecutivo">${remissionNumber}</span>
-                            <p>${dateStr}</p>
+                            <p class="remission-date"><strong>Fecha:</strong> ${dateStr}</p>
                             <div class="badge">Pedido: ${shortId}</div>
                         </div>
                     </div>
