@@ -17,8 +17,8 @@ const parseCurrency = (str) => Number(String(str).replace(/[^0-9-]/g, '')) || 0;
 const normalizeText = (str) => str ? str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "") : "";
 
 // --- FORMATEADOR UNIVERSAL DE FECHAS DE ÓRDENES ---
-export const parseOrderDate = (order) => {
-    if (!order) return new Date();
+export const parseOrderDate = (order, fallbackToNow = false) => {
+    if (!order) return fallbackToNow ? new Date() : null;
     const candidates = [
         order.createdAt,
         order.dateCreated,
@@ -56,12 +56,47 @@ export const parseOrderDate = (order) => {
             if (!isNaN(d.getTime())) return d;
         }
     }
-    return new Date();
+    return fallbackToNow ? new Date() : null;
 };
 window.parseOrderDate = parseOrderDate;
 
+export const getOrderTimestamp = (order) => {
+    const d = parseOrderDate(order, false);
+    return d ? d.getTime() : 0;
+};
+window.getOrderTimestamp = getOrderTimestamp;
+
+export const compareOrdersDescending = (a, b) => {
+    if (!a && !b) return 0;
+    if (!a) return 1;
+    if (!b) return -1;
+
+    // 1. Si ambos tienen consecutivo de remisión interno numérico, comparar directamente por remisión (mayor primero)
+    const numA = Number(a.internalOrderNumber) || 0;
+    const numB = Number(b.internalOrderNumber) || 0;
+    if (numA > 0 && numB > 0 && numA !== numB) {
+        return numB - numA;
+    }
+
+    // 2. Si no ambos tienen remisión interna, comparar por fecha/hora más reciente primero
+    const timeA = getOrderTimestamp(a);
+    const timeB = getOrderTimestamp(b);
+    if (timeB !== timeA) {
+        return timeB - timeA;
+    }
+
+    // 3. Si uno tiene remisión y el otro no (con fecha idéntica o sin fecha)
+    if (numB !== numA) {
+        return numB - numA;
+    }
+
+    // 4. Fallback determinista por ID descendente
+    return String(b.id || '').localeCompare(String(a.id || ''));
+};
+window.compareOrdersDescending = compareOrdersDescending;
+
 export const formatOrderDateStr = (order) => {
-    const d = parseOrderDate(order);
+    const d = parseOrderDate(order, true);
     return d.toLocaleDateString('es-CO', {
         year: 'numeric',
         month: '2-digit',

@@ -494,7 +494,7 @@
         import { db, collection, getDocs, orderBy, query, limit, auth, doc, getDoc, where, onSnapshot, startAfter } from '../js/firebase-init.js';
         import { loadAdminSidebar } from '../js/admin-ui.js?v=2.0.0';
         import { initManualSale, openManualSaleModal } from '../js/manual-sale.js?v=1.0.6';
-        import '../js/order-actions.js?v=1.1.2';
+        import '../js/order-actions.js?v=1.1.3';
 
         loadAdminSidebar();
 
@@ -510,6 +510,219 @@
         let filteredOrdersMemory = []; 
         let lastVisibleServerDoc = null; 
         let isFetchingOlderServerDocs = false;
+
+        // --- HELPERS UNIVERSALES DE FECHAS Y ORDENAMIENTO CRONOLÓGICO DE REMISIONES ---
+        function getOrderDate(o) {
+            if (!o) return null;
+            if (typeof window.parseOrderDate === 'function') {
+                const d = window.parseOrderDate(o, false);
+                if (d && !isNaN(d.getTime())) return d;
+            }
+            const candidates = [
+                o.createdAt,
+                o.dateCreated,
+                o.date_created,
+                o.created_at,
+                o.timestamp,
+                o.updatedAt,
+                o.dispatchedAt,
+                o.shippedAt
+            ];
+            for (const c of candidates) {
+                if (!c) continue;
+                if (typeof c.toDate === 'function') {
+                    const d = c.toDate();
+                    if (!isNaN(d.getTime())) return d;
+                }
+                if (c instanceof Date && !isNaN(c.getTime())) return c;
+                if (typeof c === 'object') {
+                    const secs = c.seconds ?? c._seconds;
+                    if (typeof secs === 'number') {
+                        const d = new Date(secs * 1000);
+                        if (!isNaN(d.getTime())) return d;
+                    }
+                }
+                if (typeof c === 'number' && !isNaN(c) && c > 0) {
+                    const ms = c < 1e11 ? c * 1000 : c;
+                    const d = new Date(ms);
+                    if (!isNaN(d.getTime())) return d;
+                }
+                if (typeof c === 'string' && c.trim()) {
+                    const d = new Date(c.trim());
+                    if (!isNaN(d.getTime())) return d;
+                }
+            }
+            return null;
+        }
+
+        function getOrderTimestamp(o) {
+            if (typeof window.getOrderTimestamp === 'function') {
+                return window.getOrderTimestamp(o);
+            }
+            const d = getOrderDate(o);
+            return d ? d.getTime() : 0;
+        }
+
+        function compareOrdersDescending(a, b) {
+            if (typeof window.compareOrdersDescending === 'function') {
+                return window.compareOrdersDescending(a, b);
+            }
+            if (!a && !b) return 0;
+            if (!a) return 1;
+            if (!b) return -1;
+            const numA = Number(a.internalOrderNumber) || 0;
+            const numB = Number(b.internalOrderNumber) || 0;
+            if (numA > 0 && numB > 0 && numA !== numB) {
+                return numB - numA;
+            }
+            const timeA = getOrderTimestamp(a);
+            const timeB = getOrderTimestamp(b);
+            if (timeB !== timeA) {
+                return timeB - timeA;
+            }
+            if (numB !== numA) {
+                return numB - numA;
+            }
+            return String(b.id || '').localeCompare(String(a.id || ''));
+        }
+
+        // --- 🗄️ INDEXEDDB NATIVO PARA ÓRDENES (CAPACIDAD ILIMITADA Y PERSISTENCIA REAL) ---
+        class IDBOrdersStorage {
+            constructor(dbName = 'PixelTechAdminOrdersDB', storeName = 'orders_cache') {
+                this.dbName = dbName;
+                this.storeName = storeName;
+                this.dbPromise = null;
+            }
+            getDB() {
+                if (!this.dbPromise) {
+                    this.dbPromise = new Promise((resolve, reject) => {
+                        const request = indexedDB.open(this.dbName, 1);
+                        request.onupgradeneeded = (e) => {
+                            const db = e.target.result;
+                            if (!db.objectStoreNames.contains(this.storeName)) {
+                                db.createObjectStore(this.storeName);
+                            }
+                        };
+                        request.onsuccess = (e) => resolve(e.target.result);
+                        request.onerror = (e) => reject(e.target.error);
+                    });
+                }
+                return this.dbPromise;
+            }
+            async get(key) {
+                try {
+                    const db = await this.getDB();
+                    return new Promise((resolve) => {
+                        const tx = db.transaction(this.storeName, 'readonly');
+                        const store = tx.objectStore(this.storeName);
+                        const req = store.get(key);
+                        req.onsuccess = () => resolve(req.result || null);
+                        req.onerror = () => resolve(null);
+                    });
+                } catch (e) { return null; }
+            }
+            async set(key, value) {
+                try {
+                    const db = await this.getDB();
+                    return new Promise((resolve) => {
+                        const tx = db.transaction(this.storeName, 'readwrite');
+                        const store = tx.objectStore(this.storeName);
+                        const req = store.put(value, key);
+                        req.onsuccess = () => resolve(true);
+                        req.onerror = (e) => reject(e.target.error);
+                    });
+                } catch (e) { return false; }
+            }
+        }
+        const ordersIdb = new IDBOrdersStorage();
+
+        // --- HELPER UNIFICADO DE BÚSQUEDA EXHAUSTIVA DE ÓRDENES ---
+        function stripAccents(str) {
+            return String(str || '')
+                .normalize("NFD")
+                .replace(/[\u0300-\u036f]/g, "")
+                .toLowerCase();
+        }
+
+        function buildOrderSearchCorpus(o) {
+            if (!o) return '';
+            const parts = [
+                o.id,
+                o.buyerInfo?.name,
+                o.userName,
+                o.shippingData?.name,
+                o.buyerInfo?.phone,
+                o.phone,
+                o.shippingData?.phone,
+                o.buyerInfo?.document,
+                o.clientDoc,
+                o.shippingData?.clientDoc,
+                o.billingInfo?.document,
+                o.internalOrderNumber ? `#${o.internalOrderNumber}` : null,
+                o.internalOrderNumber ? String(o.internalOrderNumber) : null,
+                o.orderNumber ? `#${o.orderNumber}` : null,
+                o.orderNumber ? String(o.orderNumber) : null,
+                o.shippingData?.city,
+                o.buyerInfo?.city,
+                o.city,
+                o.mlOrderId ? String(o.mlOrderId) : null,
+                o.pack_id ? String(o.pack_id) : null,
+                o.shippingId ? String(o.shippingId) : null,
+                o.channel,
+                o.status,
+                o.notes,
+                o.observations
+            ];
+
+            const docDigits = String(o.buyerInfo?.document || o.clientDoc || o.billingInfo?.document || '').replace(/\D/g, '');
+            if (docDigits && docDigits.length >= 5) parts.push(docDigits);
+            const phoneDigits = String(o.buyerInfo?.phone || o.phone || o.shippingData?.phone || '').replace(/\D/g, '');
+            if (phoneDigits && phoneDigits.length >= 7) parts.push(phoneDigits);
+
+            if (Array.isArray(o.items)) {
+                o.items.forEach(it => {
+                    if (it.name) parts.push(it.name);
+                    if (it.title) parts.push(it.title);
+                    if (it.sku) parts.push(it.sku);
+                    if (Array.isArray(it.sns)) {
+                        it.sns.forEach(sn => parts.push(String(sn)));
+                    }
+                });
+            }
+
+            return stripAccents(parts.filter(Boolean).join(' '));
+        }
+
+        function matchesSearchTerm(o, searchTermRaw) {
+            if (!o || !searchTermRaw) return false;
+            const term = stripAccents(searchTermRaw).trim();
+            if (!term) return false;
+
+            const corpus = buildOrderSearchCorpus(o);
+            if (!corpus) return false;
+
+            // 1. Coincidencia directa de la frase completa
+            if (corpus.includes(term)) return true;
+
+            // 2. Si el término es numérico directo o remisión con # (ej: #2675 o 2675)
+            const cleanNum = term.replace(/^[#\s]+/, '').trim();
+            if (cleanNum && !isNaN(cleanNum)) {
+                const orderNum = String(o.internalOrderNumber || o.orderNumber || '');
+                if (orderNum === cleanNum) return true;
+            }
+
+            // 3. Búsqueda multi-palabra con lógica AND estricta:
+            // Cada palabra introducida por el usuario DEBE estar presente en la orden
+            const tokens = term.split(/\s+/).filter(t => t.length > 0);
+            if (tokens.length > 1) {
+                return tokens.every(token => {
+                    const cleanToken = token.replace(/^[#\s]+/, '').trim();
+                    return corpus.includes(token) || (cleanToken && corpus.includes(cleanToken));
+                });
+            }
+
+            return false;
+        }
 
         initManualSale(() => { window.switchTab('ACTIONABLE'); });
         document.getElementById('btn-open-manual').onclick = openManualSaleModal;
@@ -531,7 +744,7 @@
                     accSelect.innerHTML = ops;
                 }
 
-                SmartAdminOrdersSync.init();
+                await SmartAdminOrdersSync.init();
                 updateTabBadgesAndKPIs();
 
             } catch (e) { console.error("Error init data:", e); }
@@ -551,10 +764,11 @@
         };
 
         // ==========================================================================
-        // 🧠 SMART REAL-TIME CACHE: MOTOR CENTRAL DE ÓRDENES (DUAL STREAM)
+        // 🧠 SMART REAL-TIME CACHE: MOTOR CENTRAL DE ÓRDENES (DUAL STREAM + INDEXEDDB)
         // ==========================================================================
         const SmartAdminOrdersSync = {
-            STORAGE_KEY: 'pixeltech_admin_orders_cache',
+            STORAGE_KEY: 'pixeltech_orders_v2',
+            LEGACY_KEY: 'pixeltech_admin_orders_cache',
             runtimeMap: {},
             actionableMap: {},
             recentMap: {},
@@ -563,25 +777,33 @@
             unsubActionable: null,
             unsubRecent: null,
 
-            init() {
-                const cachedRaw = localStorage.getItem(this.STORAGE_KEY);
-                if (cachedRaw) {
+            async init() {
+                // 1. Cargar desde IndexedDB nativo (sin límites de 5MB)
+                let cached = await ordersIdb.get(this.STORAGE_KEY);
+                
+                // 2. Migración si existe caché legacy en localStorage
+                if (!cached) {
                     try {
-                        const parsed = JSON.parse(cachedRaw);
-                        if (parsed.map && parsed.lastSync) {
-                            this.runtimeMap = parsed.map;
-                            this.olderMap = { ...parsed.map };
-                            this.lastSyncTime = parsed.lastSync;
-
-                            this.updateGlobalArray();
-                            if (adminOrdersCache.length > 0) {
-                                console.log(`⚡ [Orders] Cargados ${adminOrdersCache.length} pedidos de caché local.`);
-                                renderOrdersFromMemory();
+                        const legacyRaw = localStorage.getItem(this.LEGACY_KEY);
+                        if (legacyRaw) {
+                            const parsed = JSON.parse(legacyRaw);
+                            if (parsed.map) {
+                                cached = { map: parsed.map, lastSync: parsed.lastSync || Date.now() };
+                                await ordersIdb.set(this.STORAGE_KEY, cached);
+                                localStorage.removeItem(this.LEGACY_KEY);
                             }
                         }
-                    } catch (e) {
-                        console.warn("Caché corrupto, limpiando...");
-                        localStorage.removeItem(this.STORAGE_KEY);
+                    } catch (e) {}
+                }
+
+                if (cached && cached.map) {
+                    this.runtimeMap = cached.map;
+                    this.olderMap = { ...cached.map };
+                    this.lastSyncTime = cached.lastSync || 0;
+                    this.updateGlobalArray();
+                    if (adminOrdersCache.length > 0) {
+                        console.log(`⚡ [Orders] Cargados ${adminOrdersCache.length} pedidos de base local.`);
+                        renderOrdersFromMemory();
                     }
                 }
 
@@ -589,42 +811,18 @@
             },
 
             updateGlobalArray() {
-                adminOrdersCache = Object.values(this.runtimeMap).sort((a, b) => {
-                    const dateA = a.createdAt?.seconds || new Date(a.createdAt).getTime();
-                    const dateB = b.createdAt?.seconds || new Date(b.createdAt).getTime();
-                    return dateB - dateA;
-                });
-                
+                adminOrdersCache = Object.values(this.runtimeMap).sort(compareOrdersDescending);
                 window.adminOrdersCache = adminOrdersCache; 
             },
 
-            saveToStorage() {
+            async saveToStorage() {
                 try {
-                    // Persistimos en disco TODAS las órdenes por atender (clave para que no se pierdan)
-                    // más las 40 órdenes más recientes generales (evitando superar límite de 5MB).
-                    const actionableOrders = adminOrdersCache.filter(o => ["PAGADO", "PENDIENTE", "ALISTADO"].includes(o.status));
-                    const recentOrders = adminOrdersCache.slice(0, 40);
-                    const cacheMap = {};
-                    actionableOrders.forEach(o => { if (o && o.id) cacheMap[o.id] = o; });
-                    recentOrders.forEach(o => { if (o && o.id) cacheMap[o.id] = o; });
-
-                    localStorage.setItem(this.STORAGE_KEY, JSON.stringify({
-                        map: cacheMap,
+                    await ordersIdb.set(this.STORAGE_KEY, {
+                        map: this.runtimeMap,
                         lastSync: Date.now()
-                    }));
+                    });
                 } catch (e) {
-                    try {
-                        const miniOrders = adminOrdersCache.slice(0, 25);
-                        const miniMap = {};
-                        miniOrders.forEach(o => { if (o && o.id) miniMap[o.id] = o; });
-                        localStorage.setItem(this.STORAGE_KEY, JSON.stringify({
-                            map: miniMap,
-                            lastSync: Date.now()
-                        }));
-                    } catch (err) {
-                        console.warn("⚠️ localStorage saturado por otros datos. Liberando caché de órdenes.");
-                        try { localStorage.removeItem(this.STORAGE_KEY); } catch (_) {}
-                    }
+                    console.warn("Error guardando órdenes en IndexedDB:", e);
                 }
             },
 
@@ -636,7 +834,7 @@
                     }
                 });
 
-                // Fusión limpia: historial viejo + 50 recientes + todas las por atender en vivo
+                // Fusión limpia: historial viejo + recientes + todas las por atender en vivo
                 this.runtimeMap = { ...this.olderMap, ...this.recentMap, ...this.actionableMap };
 
                 if (Object.keys(this.runtimeMap).length === 0) {
@@ -696,8 +894,8 @@
                     console.error("Error Live Actionable Orders:", error);
                 });
 
-                // 2. FLUJO HISTÓRICO: Últimas 50 órdenes generales para el resto de pestañas (Ahorro de lecturas)
-                const qRecent = query(ordersRef, orderBy("createdAt", "desc"), limit(50));
+                // 2. FLUJO HISTÓRICO: Órdenes generales recientes (Ahorro de lecturas + amplio contexto)
+                const qRecent = query(ordersRef, orderBy("createdAt", "desc"), limit(150));
 
                 this.unsubRecent = onSnapshot(qRecent, (snapshot) => {
                     const freshRecent = {};
@@ -814,7 +1012,7 @@
                 const tomorrowOrders = [];
 
                 pageItems.forEach(o => {
-                    const orderDate = new Date(o.createdAt);
+                    const orderDate = getOrderDate(o) || new Date();
                     const isToday = orderDate.toDateString() === now.toDateString();
                     if (isToday && orderDate > cutoffDateToday) tomorrowOrders.push(o);
                     else todayOrders.push(o);
@@ -927,7 +1125,7 @@
 
         function matchesDateFilter(order, filterKey) {
             if (!filterKey || filterKey === 'ALL') return true;
-            const rawDate = order.createdAt?.seconds ? (order.createdAt.seconds * 1000) : (order.createdAt ? new Date(order.createdAt).getTime() : 0);
+            const rawDate = getOrderTimestamp(order);
             if (!rawDate) return false;
 
             const now = new Date();
@@ -960,26 +1158,53 @@
         const searchInput = document.getElementById('search-input');
         let searchDebounceTimer = null;
 
-        async function performServerSearch(valRaw) {
+        async function performServerSearch(valRaw, showLoading = true) {
             const val = valRaw.trim();
-            if (val.length < 3) return;
+            if (val.length < 2) return;
+            const valLower = val.toLowerCase();
 
             const tableBody = document.getElementById('orders-table-body');
-            tableBody.innerHTML = `<tr><td colspan="8" class="p-8 text-center"><i class="fa-solid fa-cloud-arrow-down fa-bounce text-brand-cyan"></i> Buscando "${val}" en toda la base de datos...</td></tr>`;
+            if (showLoading && tableBody) {
+                tableBody.innerHTML = `<tr><td colspan="8" class="p-8 text-center"><i class="fa-solid fa-cloud-arrow-down fa-bounce text-brand-cyan"></i> Buscando "${val}" en toda la base de datos...</td></tr>`;
+            }
 
             try {
                 const ordersRef = collection(db, "orders");
                 let finalDocs = [];
                 const addedIds = new Set();
 
+                // 0. Incluir las órdenes que ya tenemos en memoria local que coincidan
+                adminOrdersCache.filter(o => matchesSearchTerm(o, valLower)).forEach(o => {
+                    if (!addedIds.has(o.id)) {
+                        addedIds.add(o.id);
+                        finalDocs.push(o);
+                    }
+                });
+
+                const normalizeOrderDoc = (id, data) => {
+                    const item = { id, ...data };
+                    if (!item.updatedAt) item.updatedAt = item.createdAt;
+                    if (item.createdAt?.toDate) {
+                        item.createdAt = item.createdAt.toDate().toISOString();
+                    } else if (item.createdAt?.seconds) {
+                        item.createdAt = new Date(item.createdAt.seconds * 1000).toISOString();
+                    }
+                    if (item.updatedAt?.toDate) {
+                        item.updatedAt = item.updatedAt.toDate().toISOString();
+                    } else if (item.updatedAt?.seconds) {
+                        item.updatedAt = new Date(item.updatedAt.seconds * 1000).toISOString();
+                    }
+                    return item;
+                };
+
                 const addResultsFromSnapshot = (snap) => {
                     snap.forEach(d => {
-                        if (!addedIds.has(d.id)) {
+                        const item = normalizeOrderDoc(d.id, d.data());
+                        SmartAdminOrdersSync.runtimeMap[d.id] = item;
+                        SmartAdminOrdersSync.olderMap[d.id] = item;
+                        if (matchesSearchTerm(item, val) && !addedIds.has(d.id)) {
                             addedIds.add(d.id);
-                            const data = d.data();
-                            const item = { id: d.id, ...data };
                             finalDocs.push(item);
-                            SmartAdminOrdersSync.runtimeMap[d.id] = item;
                         }
                     });
                 };
@@ -998,52 +1223,73 @@
                     try {
                         const docSnap = await getDoc(doc(db, "orders", cId));
                         if (docSnap.exists()) {
-                            addedIds.add(docSnap.id);
-                            const data = docSnap.data();
-                            const item = { id: docSnap.id, ...data };
-                            finalDocs.push(item);
+                            const item = normalizeOrderDoc(docSnap.id, docSnap.data());
                             SmartAdminOrdersSync.runtimeMap[docSnap.id] = item;
+                            SmartAdminOrdersSync.olderMap[docSnap.id] = item;
+                            if (matchesSearchTerm(item, val) && !addedIds.has(docSnap.id)) {
+                                addedIds.add(docSnap.id);
+                                finalDocs.push(item);
+                            }
                         }
                     } catch (err) {}
                 }
 
-                // 2. Si es numérico, buscar por internalOrderNumber
-                if (!isNaN(val)) {
+                // 2. Si es numérico (o remisión con prefijo #), buscar por internalOrderNumber
+                const cleanNum = val.replace(/^[#\s]+/, '').trim();
+                if (!isNaN(cleanNum) && cleanNum.length > 0) {
+                    const parsedNum = parseInt(cleanNum);
                     try {
-                        const qNum = query(ordersRef, where("internalOrderNumber", "==", parseInt(val)));
-                        const snapNum = await getDocs(qNum);
+                        const [snapNum, snapOrdNum] = await Promise.all([
+                            getDocs(query(ordersRef, where("internalOrderNumber", "==", parsedNum), limit(50))),
+                            getDocs(query(ordersRef, where("orderNumber", "==", parsedNum), limit(50)))
+                        ]);
                         addResultsFromSnapshot(snapNum);
+                        addResultsFromSnapshot(snapOrdNum);
                     } catch (err) {}
                 }
 
                 // 3. Buscar directamente por Cédula / NIT / Documento en Firestore
-                const docQueries = [
-                    query(ordersRef, where("buyerInfo.document", "==", val), limit(50)),
-                    query(ordersRef, where("clientDoc", "==", val), limit(50)),
-                    query(ordersRef, where("shippingData.clientDoc", "==", val), limit(50)),
-                    query(ordersRef, where("billingInfo.document", "==", val), limit(50))
-                ];
-                for (const qDoc of docQueries) {
-                    try {
-                        const snapDoc = await getDocs(qDoc);
-                        addResultsFromSnapshot(snapDoc);
-                    } catch (e) {}
+                const cleanDoc = val.replace(/[\.\s\-]/g, '');
+                const docCandidates = Array.from(new Set([val, cleanDoc])).filter(Boolean);
+                for (const dVal of docCandidates) {
+                    const docQueries = [
+                        query(ordersRef, where("buyerInfo.document", "==", dVal), limit(100)),
+                        query(ordersRef, where("clientDoc", "==", dVal), limit(100)),
+                        query(ordersRef, where("shippingData.clientDoc", "==", dVal), limit(100)),
+                        query(ordersRef, where("billingInfo.document", "==", dVal), limit(100))
+                    ];
+                    for (const qDoc of docQueries) {
+                        try {
+                            const snapDoc = await getDocs(qDoc);
+                            addResultsFromSnapshot(snapDoc);
+                        } catch (e) {}
+                    }
                 }
 
-                // 4. Buscar directamente por Teléfono en Firestore
-                const phoneQueries = [
-                    query(ordersRef, where("buyerInfo.phone", "==", val), limit(50)),
-                    query(ordersRef, where("phone", "==", val), limit(50)),
-                    query(ordersRef, where("shippingData.phone", "==", val), limit(50))
-                ];
-                for (const qPhone of phoneQueries) {
-                    try {
-                        const snapPhone = await getDocs(qPhone);
-                        addResultsFromSnapshot(snapPhone);
-                    } catch (e) {}
+                // 4. Buscar directamente por Teléfono en Firestore (con y sin código 57)
+                const digits = val.replace(/\D/g, '');
+                if (digits.length >= 7) {
+                    const phoneCandidates = Array.from(new Set([
+                        val,
+                        digits,
+                        digits.startsWith('57') ? digits.slice(2) : '57' + digits
+                    ])).filter(Boolean);
+                    for (const pVal of phoneCandidates) {
+                        const phoneQueries = [
+                            query(ordersRef, where("buyerInfo.phone", "==", pVal), limit(100)),
+                            query(ordersRef, where("phone", "==", pVal), limit(100)),
+                            query(ordersRef, where("shippingData.phone", "==", pVal), limit(100))
+                        ];
+                        for (const qPhone of phoneQueries) {
+                            try {
+                                const snapPhone = await getDocs(qPhone);
+                                addResultsFromSnapshot(snapPhone);
+                            } catch (e) {}
+                        }
+                    }
                 }
 
-                // 4.1 Buscar directamente por IDs de MercadoLibre (Order ID, Pack ID, Shipping ID)
+                // 5. Buscar directamente por IDs de MercadoLibre (Order ID, Pack ID, Shipping ID)
                 const mlQueries = [
                     query(ordersRef, where("mlOrderId", "==", val), limit(50)),
                     query(ordersRef, where("pack_id", "==", val), limit(50)),
@@ -1056,56 +1302,118 @@
                     } catch (e) {}
                 }
 
-                // 5. Buscar por Nombre del Cliente en Firestore (Caja original, mayúsculas y minúsculas)
-                const nameVariants = Array.from(new Set([val, val.toLowerCase(), val.toUpperCase(), val.toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")]));
-                for (const nVar of nameVariants) {
-                    const nameQueries = [
-                        query(ordersRef, where("buyerInfo.name", "==", nVar), limit(50)),
-                        query(ordersRef, where("userName", "==", nVar), limit(50)),
-                        query(ordersRef, where("shippingData.name", "==", nVar), limit(50))
+                // 6. Cruce con colección USERS (Encontrar cliente por nombre y traer TODAS sus órdenes)
+                try {
+                    const usersRef = collection(db, "users");
+                    const userQueries = [
+                        query(usersRef, where("name", ">=", val.toUpperCase()), where("name", "<=", val.toUpperCase() + "\uf8ff"), limit(20)),
+                        query(usersRef, where("name", ">=", val), where("name", "<=", val + "\uf8ff"), limit(20)),
+                        query(usersRef, where("userName", ">=", val.toUpperCase()), where("userName", "<=", val.toUpperCase() + "\uf8ff"), limit(20)),
+                        query(usersRef, where("email", "==", val.toLowerCase()), limit(10))
                     ];
-                    for (const qName of nameQueries) {
+                    const relatedDocs = new Set();
+                    const relatedPhones = new Set();
+                    const relatedUserIds = new Set();
+
+                    for (const uq of userQueries) {
                         try {
-                            const snapName = await getDocs(qName);
-                            addResultsFromSnapshot(snapName);
+                            const uSnap = await getDocs(uq);
+                            uSnap.forEach(ud => {
+                                const u = ud.data();
+                                if (ud.id) relatedUserIds.add(ud.id);
+                                if (u.document) relatedDocs.add(u.document);
+                                if (u.phone) relatedPhones.add(u.phone);
+                            });
+                        } catch (err) {}
+                    }
+
+                    for (const uDoc of relatedDocs) {
+                        try {
+                            const sDoc = await getDocs(query(ordersRef, where("buyerInfo.document", "==", uDoc), limit(100)));
+                            addResultsFromSnapshot(sDoc);
+                            const sDoc2 = await getDocs(query(ordersRef, where("clientDoc", "==", uDoc), limit(100)));
+                            addResultsFromSnapshot(sDoc2);
+                        } catch (err) {}
+                    }
+                    for (const uPh of relatedPhones) {
+                        try {
+                            const sPh = await getDocs(query(ordersRef, where("buyerInfo.phone", "==", uPh), limit(100)));
+                            addResultsFromSnapshot(sPh);
+                        } catch (err) {}
+                    }
+                    for (const uId of relatedUserIds) {
+                        try {
+                            const sUid = await getDocs(query(ordersRef, where("userId", "==", uId), limit(100)));
+                            addResultsFromSnapshot(sUid);
+                        } catch (err) {}
+                    }
+                } catch (e) {
+                    console.warn("User cross-reference search error:", e);
+                }
+
+                // 7. Búsqueda por Nombre / Prefijo en orders
+                const nameWords = val.split(/\s+/).filter(w => w.length >= 2);
+                const prefixCandidates = new Set();
+                prefixCandidates.add(val);
+                prefixCandidates.add(val.toUpperCase());
+                prefixCandidates.add(val.toLowerCase());
+                nameWords.forEach(w => {
+                    prefixCandidates.add(w.toUpperCase());
+                    prefixCandidates.add(w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
+                });
+
+                for (const pfx of prefixCandidates) {
+                    const nameQueries = [
+                        query(ordersRef, where("buyerInfo.name", ">=", pfx), where("buyerInfo.name", "<=", pfx + "\uf8ff"), limit(100)),
+                        query(ordersRef, where("userName", ">=", pfx), where("userName", "<=", pfx + "\uf8ff"), limit(100)),
+                        query(ordersRef, where("shippingData.name", ">=", pfx), where("shippingData.name", "<=", pfx + "\uf8ff"), limit(100)),
+                        query(ordersRef, where("buyerInfo.name", "==", pfx), limit(100)),
+                        query(ordersRef, where("userName", "==", pfx), limit(100))
+                    ];
+                    for (const qn of nameQueries) {
+                        try {
+                            const snap = await getDocs(qn);
+                            addResultsFromSnapshot(snap);
                         } catch (e) {}
                     }
                 }
 
-                // 6. Si aún no hemos encontrado coincidencia directa, escanear bloques históricos del servidor
-                if (finalDocs.length === 0) {
+                // 8. Escaneo histórico en bloques si aún hay pocos resultados
+                // (Permite encontrar por productos, notas, ciudades o seriales no indexables)
+                if (finalDocs.length < 50 && lastVisibleServerDoc) {
                     let fetches = 0;
-                    while (lastVisibleServerDoc && fetches < 10 && finalDocs.length === 0) {
+                    while (lastVisibleServerDoc && fetches < 12) {
                         fetches++;
                         const fetchedMore = await fetchOlderOrdersFromServer();
-                        
-                        const matches = adminOrdersCache.filter(o => {
-                            const idMatch = o.id.toLowerCase().includes(val.toLowerCase());
-                            const phoneMatch = (o.buyerInfo?.phone || o.phone || "").toLowerCase().includes(val.toLowerCase());
-                            const nameMatch = (o.buyerInfo?.name || o.userName || "").toLowerCase().includes(val.toLowerCase());
-                            const docMatch = (o.buyerInfo?.document || o.clientDoc || "").toLowerCase().includes(val.toLowerCase());
-                            const internalNumMatch = (o.internalOrderNumber || "").toString().includes(val);
-                            return idMatch || phoneMatch || nameMatch || docMatch || internalNumMatch;
-                        });
-
+                        const matches = adminOrdersCache.filter(o => matchesSearchTerm(o, valLower));
                         matches.forEach(m => {
                             if (!addedIds.has(m.id)) {
                                 addedIds.add(m.id);
                                 finalDocs.push(m);
                             }
                         });
-
                         if (!fetchedMore) break;
                     }
                 }
 
                 SmartAdminOrdersSync.updateGlobalArray();
+                SmartAdminOrdersSync.saveToStorage();
 
                 tableBody.innerHTML = "";
 
+                if (currentDateFilter !== 'ALL') {
+                    finalDocs = finalDocs.filter(o => matchesDateFilter(o, currentDateFilter));
+                }
+
                 if (finalDocs.length > 0) {
-                    let serverHtml = `<tr class="bg-gray-800 text-white"><td colspan="8" class="py-3 px-8 text-[10px] font-black uppercase tracking-widest"><i class="fa-solid fa-cloud text-brand-cyan mr-2"></i> ${finalDocs.length} Resultado(s) Encontrado(s)</td></tr>`;
+                    finalDocs.sort(compareOrdersDescending);
+                    let serverHtml = `<tr class="bg-gray-800 text-white"><td colspan="8" class="py-3 px-4 md:px-6"><div class="flex items-center justify-between w-full text-[10px] font-black uppercase tracking-widest"><span><i class="fa-solid fa-cloud text-brand-cyan mr-2"></i> ${finalDocs.length} Resultado(s) Encontrado(s)</span><span class="text-[9px] text-gray-400 font-bold lowercase">Orden cronológico de remisión garantizado</span></div></td></tr>`;
                     finalDocs.forEach(o => { serverHtml += renderRow(o); });
+
+                    if (lastVisibleServerDoc) {
+                        serverHtml += `<tr class="bg-slate-100 border-t border-slate-200"><td colspan="8" class="py-3 px-4 text-center"><button type="button" onclick="window.searchDeeperServer('${encodeURIComponent(val)}')" class="inline-flex items-center gap-2 text-xs font-bold text-brand-cyan hover:text-brand-black transition cursor-pointer px-4 py-1.5 rounded-lg hover:bg-slate-200"><i class="fa-solid fa-cloud-arrow-down"></i> Buscar en más órdenes antiguas del servidor...</button></td></tr>`;
+                    }
+
                     tableBody.innerHTML = serverHtml;
                     updatePaginationControls(1, finalDocs.length, finalDocs.length);
                     const btnNext = document.getElementById('btn-next-page');
@@ -1113,7 +1421,7 @@
                     if (btnNext) btnNext.disabled = true;
                     if (btnPrev) btnPrev.disabled = true;
                 } else {
-                    tableBody.innerHTML = `<tr><td colspan="8" class="p-10 text-center text-xs text-red-500 font-bold uppercase">No se encontró la orden con ID, Código o Cliente: "${val}".</td></tr>`;
+                    tableBody.innerHTML = `<tr><td colspan="8" class="p-10 text-center text-xs text-red-500 font-bold uppercase">No se encontró la orden con ID, Código, Cliente o Producto: "${val}".</td></tr>`;
                     updatePaginationControls(0, 0, 0);
                 }
 
@@ -1122,6 +1430,21 @@
                 renderOrdersFromMemory();
             }
         }
+        window.performServerSearch = performServerSearch;
+
+        window.searchDeeperServer = async (encodedVal) => {
+            const val = decodeURIComponent(encodedVal);
+            const btn = event?.currentTarget;
+            if (btn) btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i> Buscando en historial antiguo...';
+
+            let fetches = 0;
+            while (lastVisibleServerDoc && fetches < 10) {
+                fetches++;
+                const fetched = await fetchOlderOrdersFromServer();
+                if (!fetched) break;
+            }
+            performServerSearch(val, false);
+        };
 
         searchInput.addEventListener('input', function (e) {
             const val = this.value.trim();
@@ -1136,28 +1459,16 @@
                 return;
             }
 
-            let results = adminOrdersCache.filter(o => {
-                const idMatch = o.id.toLowerCase().includes(valLower);
-                const phoneMatch = (o.buyerInfo?.phone || o.phone || "").toLowerCase().includes(valLower);
-                const nameMatch = (o.buyerInfo?.name || o.userName || "").toLowerCase().includes(valLower);
-                const docMatch = (o.buyerInfo?.document || o.clientDoc || "").toLowerCase().includes(valLower);
-                const internalNumMatch = (o.internalOrderNumber || "").toString().includes(valLower);
-                const cityMatch = (o.shippingData?.city || o.buyerInfo?.city || o.city || "").toLowerCase().includes(valLower);
-                const mlMatch = (o.mlOrderId || o.pack_id || o.shippingId || "").toString().toLowerCase().includes(valLower);
-                const itemMatch = (o.items || []).some(it => 
-                    (it.name || it.title || "").toLowerCase().includes(valLower) ||
-                    (Array.isArray(it.sns) && it.sns.some(sn => String(sn).toLowerCase().includes(valLower)))
-                );
-
-                return idMatch || phoneMatch || nameMatch || docMatch || internalNumMatch || cityMatch || mlMatch || itemMatch;
-            });
+            // 1. FILTRO INSTANTÁNEO EN MEMORIA RAM (0ms de latencia)
+            let results = adminOrdersCache.filter(o => matchesSearchTerm(o, valLower));
 
             if (currentDateFilter !== 'ALL') {
                 results = results.filter(o => matchesDateFilter(o, currentDateFilter));
             }
 
             if (results.length > 0) {
-                let searchHtml = `<tr class="bg-brand-cyan/10 border-b border-brand-cyan/20"><td colspan="8" class="py-2.5 px-4 md:px-6 text-[10px] font-black uppercase text-brand-black tracking-widest"><i class="fa-solid fa-search text-brand-cyan mr-2"></i> Resultados de Búsqueda</td></tr>`;
+                results.sort(compareOrdersDescending);
+                let searchHtml = `<tr class="bg-brand-cyan/10 border-b border-brand-cyan/20"><td colspan="8" class="py-2.5 px-4 md:px-6"><div class="flex items-center justify-between w-full text-[10px] font-black uppercase text-brand-black tracking-widest"><span><i class="fa-solid fa-search text-brand-cyan mr-2"></i> ${results.length} Coincidencia(s) en Memoria</span><span class="text-[9px] text-slate-500 font-bold lowercase">Buscando también en la nube...</span></div></td></tr>`;
                 results.slice(0, ORDERS_PAGE_SIZE).forEach(o => { searchHtml += renderRow(o); });
                 tableBody.innerHTML = searchHtml;
                 updatePaginationControls(1, Math.min(results.length, ORDERS_PAGE_SIZE), results.length);
@@ -1165,23 +1476,25 @@
                 const btnPrev = document.getElementById('btn-prev-page');
                 if (btnNext) btnNext.disabled = true;
                 if (btnPrev) btnPrev.disabled = true;
-            } else if (val.length >= 3) {
-                // Si en memoria RAM local no se encuentra nada, disparar búsqueda automática en servidor tras 400ms
-                searchDebounceTimer = setTimeout(() => {
-                    performServerSearch(val);
-                }, 400);
             } else {
-                tableBody.innerHTML = `<tr><td colspan="8" class="p-10 text-center text-xs text-red-500 font-bold uppercase">No se encontró coincidencia en memoria local. Escribe al menos 3 caracteres para buscar en servidor.</td></tr>`;
+                tableBody.innerHTML = `<tr><td colspan="8" class="p-8 text-center"><i class="fa-solid fa-cloud-arrow-down fa-bounce text-brand-cyan mr-2"></i> Buscando "${val}" en toda la base de datos...</td></tr>`;
                 updatePaginationControls(0, 0, 0);
+            }
+
+            // 2. DISPARAR BÚSQUEDA EXHAUSTIVA EN SERVIDOR TRAS 350MS
+            if (val.length >= 2) {
+                searchDebounceTimer = setTimeout(() => {
+                    performServerSearch(val, results.length === 0);
+                }, 350);
             }
         });
 
         searchInput.addEventListener('keyup', function (e) {
             if (e.key === 'Enter') {
                 const val = this.value.trim();
-                if (val.length >= 3) {
+                if (val.length >= 2) {
                     if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
-                    performServerSearch(val);
+                    performServerSearch(val, true);
                 }
             }
         });
@@ -1238,8 +1551,8 @@
                 pBadge = `<span class="inline-flex items-center gap-1 text-[9px] font-black uppercase text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200 shadow-2xs"><i class="fa-solid fa-check text-[8px]"></i> Pagado</span>`;
             }
 
-            const dateObj = new Date(o.createdAt);
-            const dateStr = !isNaN(dateObj) ? dateObj.toLocaleDateString('es-CO', {day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit'}) : '--';
+            const orderDate = getOrderDate(o);
+            const dateStr = orderDate ? orderDate.toLocaleDateString('es-CO', {day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit'}) : '--';
             
             const invoiceBtn = o.requiresInvoice 
                 ? `<span class="w-8 h-8 rounded-lg bg-blue-50 text-blue-500 border border-blue-100 flex items-center justify-center cursor-default shadow-2xs" title="Factura Solicitada"><i class="fa-solid fa-check text-xs"></i></span>`
