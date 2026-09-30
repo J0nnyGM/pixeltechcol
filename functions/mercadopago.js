@@ -2,10 +2,23 @@ const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 const { MercadoPagoConfig, Preference, Payment } = require("mercadopago");
 
-// --- CONFIGURACIÓN ---
-// Asegúrate de tener esto en tu archivo .env
-const MP_TOKEN = process.env.MP_ACCESS_TOKEN;
-const client = MP_TOKEN ? new MercadoPagoConfig({ accessToken: MP_TOKEN }) : null;
+// --- CONFIGURACIÓN DINÁMICA CON FALLBACK A .ENV ---
+async function getMPClient(db) {
+    let token = process.env.MP_ACCESS_TOKEN;
+    try {
+        if (!db) db = admin.firestore();
+        const devDoc = await db.collection('config').doc('developer').get();
+        if (devDoc.exists) {
+            const data = devDoc.data();
+            if (data.MP_ACCESS_TOKEN && data.MP_ACCESS_TOKEN.trim()) {
+                token = data.MP_ACCESS_TOKEN.trim();
+            }
+        }
+    } catch (e) {
+        console.error("Error al obtener token de MP de Firestore:", e.message);
+    }
+    return token ? new MercadoPagoConfig({ accessToken: token }) : null;
+}
 
 // CAMBIA ESTO POR TU URL REAL DE FIREBASE FUNCTIONS
 const WEBHOOK_URL = "https://us-central1-pixeltechcol.cloudfunctions.net/mercadoPagoWebhook"; 
@@ -22,7 +35,8 @@ exports.createPreference = async (data, context) => {
 
     console.log("🚀 Iniciando Checkout MP...");
 
-    if (!client) throw new functions.https.HttpsError('internal', 'Pasarela no configurada.');
+    const client = await getMPClient(db);
+    if (!client) throw new functions.https.HttpsError('internal', 'Pasarela Mercado Pago no configurada.');
 
     // --- 1. AUTENTICACIÓN ---
     const userToken = data.userToken || (data.data && data.data.userToken);
@@ -186,6 +200,7 @@ exports.webhook = async (req, res) => {
     const db = admin.firestore();
     
     try {
+        const client = await getMPClient(db);
         if (!client) return res.status(500).send("No config");
 
         const paymentId = req.query.id || req.query['data.id'] || req.body?.data?.id || req.body?.id;

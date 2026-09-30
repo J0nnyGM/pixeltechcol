@@ -64,7 +64,7 @@ export function loadAdminSidebar(userRole = 'customer') {
     // --- 3. FILTRAR MENÚ SEGÚN EL ROL ---
     const filteredGroups = navGroups.map(group => {
         const allowedItems = group.items.filter(item => {
-            if (userRole === 'admin') return true;
+            if (userRole === 'admin' || userRole === 'developer') return true;
             // Configuración y Usuarios siempre restringidos a Admin
             if (item.name === 'Gestión Usuarios' || item.name === 'Configuración' || item.name === 'Proveedores' || item.name === 'Marcas') return false; 
             return rolePermissions[userRole]?.includes(item.name);
@@ -98,8 +98,8 @@ export function loadAdminSidebar(userRole = 'customer') {
     };
 
     // --- 4. BARRA INFERIOR (SOLO MÓVIL) DINÁMICA ---
-    const showOrders = userRole === 'admin' || userRole === 'ventas' || userRole === 'logistica';
-    const showProducts = userRole === 'admin' || userRole === 'ventas' || userRole === 'logistica';
+    const showOrders = userRole === 'admin' || userRole === 'developer' || userRole === 'ventas' || userRole === 'logistica';
+    const showProducts = userRole === 'admin' || userRole === 'developer' || userRole === 'ventas' || userRole === 'logistica';
 
     const mobileBottomBar = `
         <nav class="md:hidden fixed bottom-0 left-0 w-full bg-brand-black text-gray-400 border-t border-gray-800 z-[60] flex justify-around items-center pb-safe">

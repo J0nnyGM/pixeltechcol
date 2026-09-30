@@ -68,6 +68,7 @@ function renderStaffTable(staffList) {
                         <option value="contabilidad" ${u.role === 'contabilidad' ? 'selected' : ''}>Contabilidad</option>
                         <option value="logistica" ${u.role === 'logistica' ? 'selected' : ''}>Logística / Despachos</option>
                         <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>Super Admin</option>
+                        <option value="developer" ${u.role === 'developer' ? 'selected' : ''}>Desarrollador / Developer</option>
                     </select>
                     <i class="fa-solid fa-chevron-down absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none text-[10px]"></i>
                 </div>
@@ -148,6 +149,7 @@ searchAllUsers.addEventListener('input', (e) => {
             <div class="flex gap-2 opacity-0 group-hover:opacity-100 transition">
                 <button onclick="window.updateUserRole('${u.id}', 'ventas')" class="px-3 py-1.5 bg-brand-cyan text-brand-black text-[9px] font-black uppercase rounded-lg hover:scale-105 transition">Ventas</button>
                 <button onclick="window.updateUserRole('${u.id}', 'logistica')" class="px-3 py-1.5 bg-brand-black text-white text-[9px] font-black uppercase rounded-lg hover:scale-105 transition">Logística</button>
+                <button onclick="window.updateUserRole('${u.id}', 'developer')" class="px-3 py-1.5 bg-amber-500 text-brand-black text-[9px] font-black uppercase rounded-lg hover:scale-105 transition">Dev</button>
             </div>
         </div>
     `).join('');
@@ -155,6 +157,16 @@ searchAllUsers.addEventListener('input', (e) => {
 
 // --- 4. FUNCIONES DE ACTUALIZACIÓN A BD ---
 window.updateUserRole = async (uid, newRole) => {
+    // 🔒 Validación estricta con contraseña exclusiva para rol DEVELOPER
+    if (newRole === 'developer') {
+        const securityPass = prompt("🔐 Validación de Seguridad:\n\nPara asignar el rol de DESARROLLADOR ingresa la contraseña maestra de autorización:");
+        if (!securityPass || securityPass.trim().toLowerCase() !== 'pixeltech') {
+            alert("⛔ Contraseña incorrecta. No tienes autorización para asignar el rol de Desarrollador.");
+            renderStaffTable(staffCache); // Revertir visualmente el select
+            return;
+        }
+    }
+
     if(!confirm(`¿Confirmas el cambio de rol a ${newRole.toUpperCase()}? Esta persona tendrá acceso al panel administrativo.`)) {
         renderStaffTable(staffCache); // Revertir visualmente el select si cancela
         return;

@@ -23,7 +23,7 @@ async function smartRedirect(user) {
         const userDoc = await getDoc(doc(db, "users", user.uid));
         if (userDoc.exists()) {
             const role = (userDoc.data().role || '').toLowerCase().trim();
-            const staffRoles = ['admin', 'contabilidad', 'ventas', 'logistica'];
+            const staffRoles = ['admin', 'developer', 'contabilidad', 'ventas', 'logistica'];
             
             if (staffRoles.includes(role)) {
                 sessionStorage.setItem('pixeltech_user_role', role);

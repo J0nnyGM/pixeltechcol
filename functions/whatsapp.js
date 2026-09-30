@@ -5,13 +5,41 @@ const sharp = require("sharp"); // 🔥 NUEVA LIBRERÍA DE CONVERSIÓN
 const db = admin.firestore();
 const storage = admin.storage();
 
-// --- CONFIGURACIÓN ---
-const VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN;
-const API_TOKEN = process.env.WHATSAPP_API_TOKEN;
-const PHONE_ID = process.env.WHATSAPP_PHONE_ID;
+// --- CONFIGURACIÓN DINÁMICA CON FALLBACK A .ENV ---
+async function getWhatsAppConfig() {
+    let verifyToken = process.env.WHATSAPP_VERIFY_TOKEN;
+    let apiToken = process.env.WHATSAPP_API_TOKEN;
+    let phoneId = process.env.WHATSAPP_PHONE_ID;
+
+    try {
+        const devDoc = await db.collection('config').doc('developer').get();
+        if (devDoc.exists) {
+            const data = devDoc.data();
+            if (data.WHATSAPP_VERIFY_TOKEN && data.WHATSAPP_VERIFY_TOKEN.trim()) {
+                verifyToken = data.WHATSAPP_VERIFY_TOKEN.trim();
+            }
+            if (data.WHATSAPP_API_TOKEN && data.WHATSAPP_API_TOKEN.trim()) {
+                apiToken = data.WHATSAPP_API_TOKEN.trim();
+            }
+            if (data.WHATSAPP_PHONE_ID && data.WHATSAPP_PHONE_ID.trim()) {
+                phoneId = data.WHATSAPP_PHONE_ID.trim();
+            }
+        }
+    } catch (e) {
+        console.error("Error al obtener credenciales de WhatsApp de Firestore:", e.message);
+    }
+
+    return { verifyToken, apiToken, phoneId };
+}
 
 // Memoria caché para no convertir la misma imagen 500 veces en campañas masivas
 const convertedImageCache = {}; 
+
+// 🛡️ Lista de números bloqueados (Blacklist)
+const BLOCKED_NUMBERS = new Set([
+    '573174534110',
+    '3174534110'
+]);
 
 // --- HELPERS ---
 
@@ -55,7 +83,8 @@ async function getMetaCompatibleUrl(mediaUrl) {
 
 // 1. Enviar mensaje a Meta
 async function sendToMeta(phoneNumber, message, type = 'text', mediaUrl = null, templateName = null, templateLang = 'en_US') {
-    const url = `https://graph.facebook.com/v17.0/${PHONE_ID}/messages`;
+    const waConfig = await getWhatsAppConfig();
+    const url = `https://graph.facebook.com/v17.0/${waConfig.phoneId}/messages`;
     let body = { 
         messaging_product: 'whatsapp', 
         to: phoneNumber, 
@@ -80,7 +109,7 @@ async function sendToMeta(phoneNumber, message, type = 'text', mediaUrl = null, 
 
     try {
         const response = await axios.post(url, body, {
-            headers: { 'Authorization': `Bearer ${API_TOKEN}`, 'Content-Type': 'application/json' }
+            headers: { 'Authorization': `Bearer ${waConfig.apiToken}`, 'Content-Type': 'application/json' }
         });
         return response.data.messages[0].id;
     } catch (error) {
@@ -92,12 +121,13 @@ async function sendToMeta(phoneNumber, message, type = 'text', mediaUrl = null, 
 // 2. Descargar y subir multimedia entrante
 async function downloadAndUploadMedia(mediaId, mimeType, phoneNumber) {
     try {
+        const waConfig = await getWhatsAppConfig();
         const metaRes = await axios.get(`https://graph.facebook.com/v17.0/${mediaId}`, {
-            headers: { 'Authorization': `Bearer ${API_TOKEN}` }
+            headers: { 'Authorization': `Bearer ${waConfig.apiToken}` }
         });
         const fileRes = await axios.get(metaRes.data.url, {
             responseType: 'arraybuffer',
-            headers: { 'Authorization': `Bearer ${API_TOKEN}` }
+            headers: { 'Authorization': `Bearer ${waConfig.apiToken}` }
         });
 
         const ext = mimeType.split('/')[1].split(';')[0] || 'bin';
@@ -116,7 +146,8 @@ async function downloadAndUploadMedia(mediaId, mimeType, phoneNumber) {
 // --- WEBHOOK (RECIBIR + BOT) ---
 exports.webhook = onRequest({ timeoutSeconds: 60 }, async (req, res) => {
     if (req.method === "GET") {
-        if (req.query["hub.mode"] === "subscribe" && req.query["hub.verify_token"] === VERIFY_TOKEN) {
+        const waConfig = await getWhatsAppConfig();
+        if (req.query["hub.mode"] === "subscribe" && req.query["hub.verify_token"] === waConfig.verifyToken) {
             console.log("✅ Webhook verificado por Meta correctamente.");
             res.status(200).send(req.query["hub.challenge"]);
         } else {
@@ -135,6 +166,15 @@ exports.webhook = onRequest({ timeoutSeconds: 60 }, async (req, res) => {
             if (change?.messages) {
                 const message = change.messages[0];
                 const phoneNumber = message.from;
+                const cleanPhone = phoneNumber ? phoneNumber.replace(/\D/g, '') : '';
+
+                // 🛡️ Filtro de seguridad: Descartar mensajes de números bloqueados
+                if (BLOCKED_NUMBERS.has(cleanPhone)) {
+                    console.log(`🚫 [WHATSAPP WEBHOOK] Mensaje ignorado de número bloqueado: ${phoneNumber}`);
+                    res.sendStatus(200);
+                    return;
+                }
+
                 const userName = change.contacts?.[0]?.profile?.name || "Usuario";
                 const type = message.type;
                 
@@ -246,6 +286,11 @@ exports.sendMessage = onCall(async (request) => {
     
     const { phoneNumber, message, type, mediaUrl } = request.data;
     
+    const cleanPhone = phoneNumber ? String(phoneNumber).replace(/\D/g, '') : '';
+    if (BLOCKED_NUMBERS.has(cleanPhone)) {
+        throw new HttpsError('permission-denied', `El número ${phoneNumber} se encuentra bloqueado.`);
+    }
+    
     let agentName = request.auth.token.name;
     if (!agentName) {
         try {
@@ -315,11 +360,17 @@ exports.sendMassTemplate = onCall(async (request) => {
     
     const { phoneNumber, templateName, imageUrl, clientName, customMessage, linkPath } = request.data;
     
+    const cleanPhone = phoneNumber ? String(phoneNumber).replace(/\D/g, '') : '';
+    if (BLOCKED_NUMBERS.has(cleanPhone)) {
+        throw new HttpsError('permission-denied', `El número ${phoneNumber} se encuentra bloqueado.`);
+    }
+    
     try {
         // 🔥 PROCESAR LA IMAGEN DE LA CAMPAÑA (Solo se procesa 1 vez gracias a la caché)
         const finalImageUrl = await getMetaCompatibleUrl(imageUrl);
+        const waConfig = await getWhatsAppConfig();
 
-        const url = `https://graph.facebook.com/v17.0/${PHONE_ID}/messages`;
+        const url = `https://graph.facebook.com/v17.0/${waConfig.phoneId}/messages`;
         
         const body = {
             messaging_product: 'whatsapp',
@@ -355,7 +406,7 @@ exports.sendMassTemplate = onCall(async (request) => {
         };
 
         const response = await axios.post(url, body, {
-            headers: { 'Authorization': `Bearer ${API_TOKEN}`, 'Content-Type': 'application/json' }
+            headers: { 'Authorization': `Bearer ${waConfig.apiToken}`, 'Content-Type': 'application/json' }
         });
 
         const chatRef = db.collection('chats').doc(phoneNumber);

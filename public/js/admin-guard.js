@@ -25,7 +25,7 @@ onAuthStateChanged(auth, async (user) => {
 
         if (docSnap.exists()) {
             const role = docSnap.data().role || 'customer';
-            const staffRoles = ['admin', 'contabilidad', 'ventas', 'logistica'];
+            const staffRoles = ['admin', 'developer', 'contabilidad', 'ventas', 'logistica'];
 
             // 1. Verificar si es empleado
             if (!staffRoles.includes(role)) {
@@ -39,13 +39,14 @@ onAuthStateChanged(auth, async (user) => {
             
             const allowedRoutes = {
                 'admin': ['all'], // Todo permitido
+                'developer': ['all'], // Todo permitido para desarrolladores
                 'contabilidad': ['index.html', 'invoices.html', 'cartera.html', 'treasury.html', 'expenses.html', 'profitability.html'],
                 'ventas': ['index.html', 'whatsapp.html', 'orders.html', 'clients.html', 'warranties.html', 'products.html', 'create-product.html', 'categories.html', 'promotions.html', 'product-serials.html'],
                 'logistica': ['index.html', 'orders.html', 'products.html', 'inventory-entry.html', 'warranty-inventory.html', 'shipping-config.html', 'product-serials.html']
             };
 
             // 3. Proteger las rutas estrictamente
-            if (role !== 'admin') {
+            if (role !== 'admin' && role !== 'developer') {
                 const userAllowedRoutes = allowedRoutes[role] || [];
                 // Si la ruta actual no está en su lista permitida, lo mandamos al dashboard
                 if (!userAllowedRoutes.includes(path) && path !== '') {

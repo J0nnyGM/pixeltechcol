@@ -21,12 +21,16 @@ service cloud.firestore {
     }
 
     // Funciones de validación de roles
+    function isDeveloper() {
+      return isAuthenticated() && getUserData().role == 'developer';
+    }
+
     function isAdmin() {
-      return isAuthenticated() && getUserData().role == 'admin';
+      return isAuthenticated() && (getUserData().role in ['admin', 'administrador', 'developer']);
     }
 
     function isStaff() {
-      return isAuthenticated() && getUserData().role in ['admin', 'ventas', 'contabilidad', 'logistica'];
+      return isAuthenticated() && (getUserData().role in ['admin', 'administrador', 'developer', 'ventas', 'contabilidad', 'logistica']);
     }
 
     // ====================================================
@@ -129,9 +133,35 @@ service cloud.firestore {
     match /accounts/{accountId} { allow read, write: if isStaff(); }
     match /payables/{payableId} { allow read, write: if isStaff(); }
     
-    match /config/{configDoc} {
+    // 🛡️ CONFIGURACIONES Y BLINDAJE DE SEGURIDAD
+    // Credenciales sensibles: lectura permitida a Admin/Developer (para monitoreo de estado), escritura EXCLUSIVA a Developer
+    match /config/developer {
+      allow read: if isAdmin() || isDeveloper();
+      allow write: if isDeveloper();
+    }
+
+    // Configuración de modo mantenimiento (tienda pública)
+    match /config/system {
       allow read: if true;
-      allow write: if isAdmin(); // Configuraciones críticas solo Admin
+      allow write: if isAdmin() || isDeveloper();
+    }
+
+    // Configuración de píxeles y analítica (frontend público, modificación exclusiva developer)
+    match /config/analytics {
+      allow read: if true;
+      allow write: if isDeveloper();
+    }
+
+    // Configuración de envíos y tarifas (necesario para cotizar en tienda y checkout)
+    match /config/shipping {
+      allow read: if true;
+      allow write: if isStaff();
+    }
+
+    // Otras configuraciones operativas (mercadolibre, falabella, etc.)
+    match /config/{configDoc} {
+      allow read: if configDoc != 'developer' && isStaff();
+      allow write: if configDoc != 'developer' && (isAdmin() || isDeveloper());
     }
 
     // 8. CHATS Y ESTADÍSTICAS (Marketing)

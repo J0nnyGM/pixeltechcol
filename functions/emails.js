@@ -1,16 +1,42 @@
 const { onDocumentCreated, onDocumentUpdated } = require("firebase-functions/v2/firestore");
 const nodemailer = require("nodemailer");
+const admin = require("firebase-admin");
 
-// --- CONFIGURACIÓN DE TRANSPORTE ---
-const transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port: parseInt(process.env.SMTP_PORT) || 465,
-    secure: true,
-    auth: {
-        user: process.env.SMTP_EMAIL,
-        pass: process.env.SMTP_PASSWORD
+// --- CONFIGURACIÓN DINÁMICA DE TRANSPORTE SMTP ---
+async function getEmailSender(db) {
+    let host = process.env.SMTP_HOST;
+    let port = parseInt(process.env.SMTP_PORT) || 465;
+    let user = process.env.SMTP_EMAIL;
+    let pass = process.env.SMTP_PASSWORD;
+
+    try {
+        if (!db) db = admin.firestore();
+        const devDoc = await db.collection('config').doc('developer').get();
+        if (devDoc.exists) {
+            const d = devDoc.data();
+            if (d.SMTP_HOST && d.SMTP_HOST.trim()) host = d.SMTP_HOST.trim();
+            if (d.SMTP_PORT) port = parseInt(d.SMTP_PORT) || 465;
+            if (d.SMTP_EMAIL && d.SMTP_EMAIL.trim()) user = d.SMTP_EMAIL.trim();
+            if (d.SMTP_PASSWORD && d.SMTP_PASSWORD.trim()) pass = d.SMTP_PASSWORD.trim();
+        }
+    } catch (e) {
+        console.error("Error al obtener configuración SMTP de Firestore:", e.message);
     }
-});
+
+    if (!host || !user || !pass) {
+        console.warn("⚠️ Configuración SMTP incompleta o no encontrada.");
+        return null;
+    }
+
+    const transporter = nodemailer.createTransport({
+        host,
+        port,
+        secure: port === 465,
+        auth: { user, pass }
+    });
+
+    return { transporter, user };
+}
 
 // --- HELPER: Formatear Moneda ---
 const formatMoney = (amount) => {
@@ -232,17 +258,23 @@ exports.sendOrderConfirmation = onDocumentCreated("orders/{orderId}", async (eve
         return;
     }
 
+    const sender = await getEmailSender();
+    if (!sender) {
+        console.warn(`No se envió email de confirmación para orden ${orderId}: SMTP no configurado.`);
+        return;
+    }
+
     const htmlContent = getBeautifulEmailTemplate('CONFIRMATION', orderData, orderId);
 
     const mailOptions = {
-        from: `"PixelTech Pedidos" <${process.env.SMTP_EMAIL}>`,
+        from: `"PixelTech Pedidos" <${sender.user}>`,
         to: email,
         subject: `¡Recibimos tu pedido! #${orderId.slice(0,8).toUpperCase()} 🎉`,
         html: htmlContent
     };
 
     try {
-        await transporter.sendMail(mailOptions);
+        await sender.transporter.sendMail(mailOptions);
         console.log(`Email CONFIRMACION enviado a ${email}`);
         return event.data.ref.update({ confirmationEmailSent: true });
     } catch (error) {
@@ -266,17 +298,23 @@ exports.sendDispatchNotification = onDocumentUpdated("orders/{orderId}", async (
         const email = newData.buyerInfo?.email;
         if (!email) return;
 
+        const sender = await getEmailSender();
+        if (!sender) {
+            console.warn(`No se envió email de despacho para orden ${orderId}: SMTP no configurado.`);
+            return;
+        }
+
         const htmlContent = getBeautifulEmailTemplate('DISPATCH', newData, orderId);
 
         const mailOptions = {
-            from: `"PixelTech Envíos" <${process.env.SMTP_EMAIL}>`,
+            from: `"PixelTech Envíos" <${sender.user}>`,
             to: email,
             subject: `¡Tu pedido va en camino! 🚚 #${orderId.slice(0,8).toUpperCase()}`,
             html: htmlContent
         };
 
         try {
-            await transporter.sendMail(mailOptions);
+            await sender.transporter.sendMail(mailOptions);
             console.log(`Email DESPACHO enviado a ${email}`);
             return event.data.after.ref.update({ dispatchEmailSent: true });
         } catch (error) {

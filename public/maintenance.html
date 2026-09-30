@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="es" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mantenimiento Programado | PixelTech</title>
+    <link rel="icon" href="/img/icons/icon-192x192.webp" type="image/webp">
+    <link rel="manifest" href="/manifest.json">
+    <meta name="theme-color" content="#0f172a">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Outfit', 'sans-serif'],
+                    },
+                    colors: {
+                        brand: {
+                            cyan: '#00AEC7',
+                            black: '#111827',
+                            red: '#EF4444'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            font-family: 'Outfit', sans-serif;
+        }
+        @keyframes pulse-cyan {
+            0%, 100% {
+                box-shadow: 0 0 20px rgba(0, 174, 199, 0.2);
+            }
+            50% {
+                box-shadow: 0 0 40px rgba(0, 174, 199, 0.5);
+            }
+        }
+        .glow-cyan {
+            animation: pulse-cyan 3s infinite ease-in-out;
+        }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col justify-between selection:bg-brand-cyan selection:text-slate-950">
+
+    <!-- Ambient background glow effects -->
+    <div class="fixed inset-0 overflow-hidden pointer-events-none z-0">
+        <div class="absolute -top-40 left-1/2 -translate-x-1/2 w-[700px] h-[500px] bg-brand-cyan/15 rounded-full blur-[140px]"></div>
+        <div class="absolute -bottom-40 left-1/4 w-[500px] h-[500px] bg-blue-600/10 rounded-full blur-[140px]"></div>
+    </div>
+
+    <!-- Top Header -->
+    <header class="relative z-10 w-full px-6 py-6 max-w-5xl mx-auto flex items-center justify-between">
+        <div class="flex items-center gap-3">
+            <img src="/img/logo.webp" alt="PixelTech" class="h-10 w-auto object-contain">
+        </div>
+        <div id="live-indicator" class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-900/80 border border-slate-800 text-[11px] font-bold text-slate-300 backdrop-blur-md">
+            <span class="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
+            <span>Mantenimiento Activo</span>
+        </div>
+    </header>
+
+    <!-- Main Content Card -->
+    <main class="relative z-10 w-full max-w-xl mx-auto px-6 py-8 flex-1 flex flex-col justify-center items-center text-center">
+        
+        <!-- Glowing Maintenance Badge -->
+        <div class="w-24 h-24 rounded-3xl bg-slate-900 border border-slate-800 flex items-center justify-center text-brand-cyan text-4xl mb-8 shadow-2xl glow-cyan">
+            <i class="fa-solid fa-screwdriver-wrench"></i>
+        </div>
+
+        <div class="space-y-4 max-w-lg mb-8">
+            <span class="px-3.5 py-1 rounded-full text-[10px] font-black uppercase tracking-[0.25em] bg-brand-cyan/10 text-brand-cyan border border-brand-cyan/30 inline-block">
+                Actualización de Plataforma
+            </span>
+            <h1 class="text-3xl sm:text-4xl font-black text-white tracking-tight uppercase">
+                Estamos optimizando <span class="text-brand-cyan">PixelTech</span>
+            </h1>
+            <p class="text-sm sm:text-base text-slate-400 font-medium leading-relaxed">
+                Nos encontramos realizando labores de mantenimiento y optimización para brindarte una plataforma más rápida, segura y con las mejores ofertas en tecnología.
+            </p>
+        </div>
+
+        <!-- Realtime notice -->
+        <div class="w-full bg-slate-900/60 border border-slate-800/80 rounded-2xl p-5 mb-8 backdrop-blur-md">
+            <div class="flex items-center justify-center gap-3 text-xs font-semibold text-slate-300">
+                <i class="fa-solid fa-arrows-rotate fa-spin text-brand-cyan"></i>
+                <span>Monitoreando servicios en tiempo real...</span>
+            </div>
+            <p class="text-[11px] text-slate-500 mt-2">
+                Esta página te redirigirá automáticamente a la tienda en cuanto el mantenimiento concluya.
+            </p>
+        </div>
+
+        <!-- WhatsApp Support Button -->
+        <div class="w-full space-y-3">
+            <a href="https://wa.me/573009046450?text=Hola%20PixelTech,%20necesito%20asesor%C3%ADa%20o%20soporte%20mientras%20la%20tienda%20est%C3%A1%20en%20mantenimiento" target="_blank" rel="noopener noreferrer" class="w-full bg-[#25D366] hover:bg-[#20bd5a] text-slate-950 hover:text-black py-4 px-6 rounded-2xl font-black text-xs uppercase tracking-widest transition flex items-center justify-center gap-3 shadow-xl hover:shadow-[#25D366]/20 active:scale-95 cursor-pointer">
+                <i class="fa-brands fa-whatsapp text-lg"></i>
+                <span>Atención y Ventas por WhatsApp</span>
+            </a>
+        </div>
+
+        <!-- Staff notice container (only visible if logged in as staff) -->
+        <div id="staff-banner" class="hidden w-full mt-6 p-4 rounded-2xl bg-brand-cyan/10 border border-brand-cyan/30 text-left">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2.5">
+                    <i class="fa-solid fa-user-shield text-brand-cyan"></i>
+                    <p class="text-xs text-white font-bold">Sesión activa como personal autorizado</p>
+                </div>
+                <a href="/admin/index.html" class="text-[10px] font-black uppercase tracking-wider bg-brand-cyan text-slate-950 px-3 py-1.5 rounded-lg hover:bg-white transition">
+                    Ir al Admin
+                </a>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="relative z-10 w-full px-6 py-6 max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-slate-900 text-xs text-slate-500">
+        <div>
+            &copy; <span id="current-year"></span> PixelTech Colombia. Todos los derechos reservados.
+        </div>
+        <div>
+            <a href="/auth/login.html" class="hover:text-brand-cyan transition flex items-center gap-1.5 font-semibold text-[11px]">
+                <i class="fa-solid fa-lock text-[9px]"></i> Acceso para el Equipo
+            </a>
+        </div>
+    </footer>
+
+    <!-- Firebase Real-time Maintenance Listener -->
+    <script type="module">
+        import { db, doc, onSnapshot, auth, onAuthStateChanged, getDoc } from '/js/firebase-init.js';
+
+        document.getElementById('current-year').textContent = new Date().getFullYear();
+
+        const staffRoles = ['admin', 'developer', 'ventas', 'contabilidad', 'logistica'];
+
+        // Escuchar en tiempo real el estado de mantenimiento
+        const systemRef = doc(db, "config", "system");
+        onSnapshot(systemRef, (snap) => {
+            if (snap.exists()) {
+                const data = snap.data();
+                const isMaintenance = !!data.maintenanceMode;
+                // Si el mantenimiento ya se desactivó, redirigir a la tienda pública
+                if (!isMaintenance) {
+                    window.location.replace('/index.html');
+                }
+            } else {
+                // Si no existe el doc, asumir que no hay mantenimiento activo
+                window.location.replace('/index.html');
+            }
+        }, (error) => {
+            console.warn("Error leyendo config/system:", error);
+        });
+
+        // Verificar si el usuario actual es Staff para facilitarle el acceso
+        onAuthStateChanged(auth, async (user) => {
+            if (!user) return;
+            try {
+                let role = sessionStorage.getItem('pixeltech_user_role');
+                if (!role || role === 'user') {
+                    const snap = await getDoc(doc(db, "users", user.uid));
+                    if (snap.exists()) {
+                        role = (snap.data().role || 'customer').toLowerCase().trim();
+                        sessionStorage.setItem('pixeltech_user_role', role);
+                    }
+                }
+                if (staffRoles.includes(role)) {
+                    const staffBanner = document.getElementById('staff-banner');
+                    if (staffBanner) staffBanner.classList.remove('hidden');
+                }
+            } catch (e) {
+                console.warn("Error al validar rol de staff en maintenance:", e);
+            }
+        });
+    </script>
+</body>
+</html>

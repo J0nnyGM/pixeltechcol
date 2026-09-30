@@ -393,7 +393,13 @@ export async function viewOrderDetail(orderId) {
         }
 
         const paymentSection = getEl('modal-payment-info');
-        const isML = (o.source && o.source.startsWith('MERCADOLIBRE')) || o.channel === 'MERCADOLIBRE' || (o.paymentMethod && o.paymentMethod.startsWith('MERCADOLIBRE')) || String(orderId).startsWith('ML');
+        const isML = (o.source && o.source.startsWith('MERCADOLIBRE')) || 
+                     o.channel === 'MERCADOLIBRE' || 
+                     (o.paymentMethod && o.paymentMethod.startsWith('MERCADOLIBRE')) || 
+                     String(orderId).startsWith('ML-') || 
+                     String(orderId).startsWith('ML2-') || 
+                     String(orderId).startsWith('ML3-') || 
+                     Boolean(o.mlOrderId);
         if (paymentSection) {
             const methods = {
                 'MERCADOPAGO': { label: 'MercadoPago', icon: 'fa-regular fa-credit-card', color: 'text-blue-500' },
@@ -403,11 +409,11 @@ export async function viewOrderDetail(orderId) {
                 'ADDI': { label: 'Crédito ADDI', icon: 'fa-solid fa-hand-holding-dollar', color: 'text-[#00D6D6]' },
                 'SISTECREDITO': { label: 'Sistecrédito', icon: 'fa-solid fa-money-check-dollar', color: 'text-emerald-500' },
                 'PSE': { label: 'Pago con PSE', icon: 'fa-solid fa-building-columns', color: 'text-blue-600' },
-                'MERCADOLIBRE': { label: 'MercadoLibre (Tienda 1)', icon: 'fa-solid fa-handshake', color: 'text-yellow-600' },
-                'MERCADOLIBRE_STORE2': { label: 'MercadoLibre (Tienda 2)', icon: 'fa-solid fa-handshake', color: 'text-yellow-600' },
-                'MERCADOLIBRE_2': { label: 'MercadoLibre (Tienda 2)', icon: 'fa-solid fa-handshake', color: 'text-yellow-600' },
-                'MERCADOLIBRE_STORE3': { label: 'MercadoLibre (Tienda 3)', icon: 'fa-solid fa-handshake', color: 'text-yellow-600' },
-                'MERCADOLIBRE_3': { label: 'MercadoLibre (Tienda 3)', icon: 'fa-solid fa-handshake', color: 'text-yellow-600' },
+                'MERCADOLIBRE': { label: `MercadoLibre (${(window.mlStoreNames && window.mlStoreNames[1]) || 'Tienda 1'})`, icon: 'fa-solid fa-handshake', color: 'text-yellow-600' },
+                'MERCADOLIBRE_STORE2': { label: `MercadoLibre (${(window.mlStoreNames && window.mlStoreNames[2]) || 'Tienda 2'})`, icon: 'fa-solid fa-handshake', color: 'text-yellow-600' },
+                'MERCADOLIBRE_2': { label: `MercadoLibre (${(window.mlStoreNames && window.mlStoreNames[2]) || 'Tienda 2'})`, icon: 'fa-solid fa-handshake', color: 'text-yellow-600' },
+                'MERCADOLIBRE_STORE3': { label: `MercadoLibre (${(window.mlStoreNames && window.mlStoreNames[3]) || 'Tienda 3'})`, icon: 'fa-solid fa-handshake', color: 'text-yellow-600' },
+                'MERCADOLIBRE_3': { label: `MercadoLibre (${(window.mlStoreNames && window.mlStoreNames[3]) || 'Tienda 3'})`, icon: 'fa-solid fa-handshake', color: 'text-yellow-600' },
                 'MANUAL': { label: 'Venta Manual', icon: 'fa-solid fa-cash-register', color: 'text-gray-500' }
             };
             const methodKey = (o.paymentMethod || 'MANUAL').toUpperCase();
@@ -418,9 +424,10 @@ export async function viewOrderDetail(orderId) {
             // Tarjeta de Desglose Financiero exclusivo de MercadoLibre
             let mlBreakdownHtml = '';
             if (isML) {
-                let mlStoreLabel = 'Tienda 1';
-                if (o.source === 'MERCADOLIBRE_STORE2' || o.source === 'MERCADOLIBRE_2' || o.mlStore === 2 || String(orderId).startsWith('ML2-')) mlStoreLabel = 'Tienda 2';
-                else if (o.source === 'MERCADOLIBRE_STORE3' || o.source === 'MERCADOLIBRE_3' || o.mlStore === 3 || String(orderId).startsWith('ML3-')) mlStoreLabel = 'Tienda 3';
+                let stNum = 1;
+                if (o.source === 'MERCADOLIBRE_STORE2' || o.source === 'MERCADOLIBRE_2' || o.mlStore === 2 || String(orderId).startsWith('ML2-')) stNum = 2;
+                else if (o.source === 'MERCADOLIBRE_STORE3' || o.source === 'MERCADOLIBRE_3' || o.mlStore === 3 || String(orderId).startsWith('ML3-')) stNum = 3;
+                const mlStoreLabel = (window.mlStoreNames && window.mlStoreNames[stNum]) ? window.mlStoreNames[stNum] : `Tienda ${stNum}`;
 
                 const gross = Number(o.grossTotal) || Number(o.total) || 0;
                 const fee = Number(o.mlFee) || 0;

@@ -131,6 +131,19 @@
                         </select>
                         <i class="fa-solid fa-chevron-down absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-[10px] pointer-events-none"></i>
                     </div>
+                    <div class="relative w-full sm:w-auto" id="channel-filter-wrapper">
+                        <i class="fa-solid fa-store absolute left-3.5 top-1/2 -translate-y-1/2 text-brand-black text-xs pointer-events-none"></i>
+                        <select id="channel-filter-select" onchange="window.setChannelFilter(this.value)" 
+                            class="w-full sm:w-auto pl-9 pr-8 py-3 rounded-xl border border-gray-200 text-xs font-bold outline-none focus:border-brand-cyan transition bg-white shadow-sm text-brand-black cursor-pointer appearance-none">
+                            <option value="ALL">🛒 Todos los Canales</option>
+                            <option value="WEB">🌐 Tienda Web / Directa</option>
+                            <option value="ML_ALL" id="opt-filter-ml-all" class="hidden">🤝 Todo MercadoLibre</option>
+                            <option value="ML_1" id="opt-filter-ml1" class="hidden">🤝 MercadoLibre 1</option>
+                            <option value="ML_2" id="opt-filter-ml2" class="hidden">🤝 MercadoLibre 2</option>
+                            <option value="ML_3" id="opt-filter-ml3" class="hidden">🤝 MercadoLibre 3</option>
+                        </select>
+                        <i class="fa-solid fa-chevron-down absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-[10px] pointer-events-none"></i>
+                    </div>
                     <div class="relative w-full sm:w-auto">
                         <i class="fa-solid fa-search absolute left-4 top-1/2 -translate-y-1/2 text-brand-black text-xs"></i>
                         <input type="text" id="search-input" placeholder="Buscar por # Orden o Cliente..."
@@ -494,16 +507,148 @@
         import { db, collection, getDocs, orderBy, query, limit, auth, doc, getDoc, where, onSnapshot, startAfter } from '../js/firebase-init.js';
         import { loadAdminSidebar } from '../js/admin-ui.js?v=2.0.0';
         import { initManualSale, openManualSaleModal } from '../js/manual-sale.js?v=1.0.6';
-        import '../js/order-actions.js?v=1.1.3';
+        import '../js/order-actions.js?v=1.1.4';
 
         loadAdminSidebar();
 
         // --- ESTADO GLOBAL ---
         let currentFilter = 'ACTIONABLE';
         let currentDateFilter = 'ALL';
+        let currentChannelFilter = 'ALL';
         let globalConfig = { cutoffTime: "14:00" };
         let adminOrdersCache = []; 
         
+        // TIENDAS MERCADOLIBRE (ESTADO ACTIVO Y NOMBRES COMERCIALES)
+        let mlStoreNames = { 1: 'MercadoLibre 1', 2: 'MercadoLibre 2', 3: 'MercadoLibre 3' };
+        window.mlStoreNames = mlStoreNames;
+        let mlStoreStatus = { 1: false, 2: false, 3: false };
+
+        function getOrderMLStore(o) {
+            if (!o) return null;
+            const isML = (o.source && o.source.startsWith('MERCADOLIBRE')) ||
+                         o.channel === 'MERCADOLIBRE' ||
+                         (o.paymentMethod && o.paymentMethod.startsWith('MERCADOLIBRE')) ||
+                         String(o.id || '').startsWith('ML-') ||
+                         String(o.id || '').startsWith('ML2-') ||
+                         String(o.id || '').startsWith('ML3-') ||
+                         Boolean(o.mlOrderId);
+            if (!isML) return null;
+
+            if (o.source === 'MERCADOLIBRE_STORE2' || o.source === 'MERCADOLIBRE_2' || o.mlStore === 2 || String(o.id || '').startsWith('ML2-')) {
+                return 2;
+            }
+            if (o.source === 'MERCADOLIBRE_STORE3' || o.source === 'MERCADOLIBRE_3' || o.mlStore === 3 || String(o.id || '').startsWith('ML3-')) {
+                return 3;
+            }
+            return 1;
+        }
+
+        function matchesChannelFilter(order, channelKey) {
+            if (!channelKey || channelKey === 'ALL') return true;
+            const mlStore = getOrderMLStore(order);
+            if (channelKey === 'WEB') return mlStore === null;
+            if (channelKey === 'ML_ALL') return mlStore !== null;
+            if (channelKey === 'ML_1') return mlStore === 1;
+            if (channelKey === 'ML_2') return mlStore === 2;
+            if (channelKey === 'ML_3') return mlStore === 3;
+            return true;
+        }
+
+        function updateChannelFilterUI() {
+            const optAll = document.getElementById('opt-filter-ml-all');
+            const opt1 = document.getElementById('opt-filter-ml1');
+            const opt2 = document.getElementById('opt-filter-ml2');
+            const opt3 = document.getElementById('opt-filter-ml3');
+            const selectEl = document.getElementById('channel-filter-select');
+
+            const hasAnyML = mlStoreStatus[1] || mlStoreStatus[2] || mlStoreStatus[3];
+            if (optAll) {
+                if (hasAnyML) optAll.classList.remove('hidden');
+                else optAll.classList.add('hidden');
+            }
+
+            if (opt1) {
+                if (mlStoreStatus[1]) {
+                    opt1.classList.remove('hidden');
+                    opt1.textContent = `🤝 ${mlStoreNames[1] || 'MercadoLibre 1'}`;
+                } else {
+                    opt1.classList.add('hidden');
+                }
+            }
+
+            if (opt2) {
+                if (mlStoreStatus[2]) {
+                    opt2.classList.remove('hidden');
+                    opt2.textContent = `🤝 ${mlStoreNames[2] || 'MercadoLibre 2'}`;
+                } else {
+                    opt2.classList.add('hidden');
+                }
+            }
+
+            if (opt3) {
+                if (mlStoreStatus[3]) {
+                    opt3.classList.remove('hidden');
+                    opt3.textContent = `🤝 ${mlStoreNames[3] || 'MercadoLibre 3'}`;
+                } else {
+                    opt3.classList.add('hidden');
+                }
+            }
+
+            // Si el filtro activo pertenecía a una tienda que ya no está activa, resetear a ALL
+            if (currentChannelFilter === 'ML_1' && !mlStoreStatus[1]) currentChannelFilter = 'ALL';
+            if (currentChannelFilter === 'ML_2' && !mlStoreStatus[2]) currentChannelFilter = 'ALL';
+            if (currentChannelFilter === 'ML_3' && !mlStoreStatus[3]) currentChannelFilter = 'ALL';
+            if (currentChannelFilter === 'ML_ALL' && !hasAnyML) currentChannelFilter = 'ALL';
+
+            if (selectEl && selectEl.value !== currentChannelFilter) {
+                selectEl.value = currentChannelFilter;
+            }
+        }
+
+        window.setChannelFilter = function(val) {
+            currentChannelFilter = val || 'ALL';
+            currentOrdersPage = 1;
+            const searchVal = document.getElementById('search-input')?.value.trim() || '';
+            if (searchVal.length > 0) {
+                document.getElementById('search-input').dispatchEvent(new Event('input'));
+            } else {
+                reCalcularFiltroLocal();
+                renderPage();
+            }
+        };
+
+        function initMLStoresTracking() {
+            // 1. Escuchar nombres de tiendas en config/system (accesible para Admin y Dev)
+            onSnapshot(doc(db, "config", "system"), (snap) => {
+                if (snap.exists()) {
+                    const data = snap.data();
+                    mlStoreNames[1] = data.mlStoreName1 || data.mlStoreNames?.[1] || 'MercadoLibre 1';
+                    mlStoreNames[2] = data.mlStoreName2 || data.mlStoreNames?.[2] || 'MercadoLibre 2';
+                    mlStoreNames[3] = data.mlStoreName3 || data.mlStoreNames?.[3] || 'MercadoLibre 3';
+                    window.mlStoreNames = mlStoreNames;
+                    updateChannelFilterUI();
+                    renderOrdersFromMemory();
+                }
+            }, (err) => {
+                console.warn("No se pudieron cargar nombres de tiendas ML desde config/system:", err);
+            });
+
+            // 2. Escuchar estado activo de tiendas en config/developer (lectura permitida a Admin y Dev)
+            onSnapshot(doc(db, "config", "developer"), (snap) => {
+                if (snap.exists()) {
+                    const data = snap.data();
+                    mlStoreStatus[1] = !!(data.ML_ACCESS_TOKEN || data.ML_REFRESH_TOKEN);
+                    mlStoreStatus[2] = !!(data.ML_ACCESS_TOKEN_2 || data.ML_REFRESH_TOKEN_2);
+                    mlStoreStatus[3] = !!(data.ML_ACCESS_TOKEN_3 || data.ML_REFRESH_TOKEN_3);
+                    updateChannelFilterUI();
+                    reCalcularFiltroLocal();
+                    renderPage();
+                }
+            }, (err) => {
+                console.warn("No se pudo cargar estado activo de tiendas ML:", err);
+            });
+        }
+
         // VARIABLES DE PAGINACIÓN INTEGRADAS
         const ORDERS_PAGE_SIZE = 100;
         let currentOrdersPage = 1;
@@ -668,11 +813,33 @@
                 o.mlOrderId ? String(o.mlOrderId) : null,
                 o.pack_id ? String(o.pack_id) : null,
                 o.shippingId ? String(o.shippingId) : null,
+                o.source ? String(o.source) : null,
                 o.channel,
                 o.status,
                 o.notes,
                 o.observations
             ];
+
+            const isML = (o.source && o.source.startsWith('MERCADOLIBRE')) || 
+                         o.channel === 'MERCADOLIBRE' || 
+                         (o.paymentMethod && o.paymentMethod.startsWith('MERCADOLIBRE')) || 
+                         String(o.id).startsWith('ML-') || 
+                         String(o.id).startsWith('ML2-') || 
+                         String(o.id).startsWith('ML3-') || 
+                         Boolean(o.mlOrderId);
+            const mlStore = getOrderMLStore(o);
+            if (mlStore !== null) {
+                parts.push('mercadolibre meli');
+                const customName = mlStoreNames[mlStore] || `Tienda ${mlStore}`;
+                parts.push(customName);
+                if (mlStore === 2) {
+                    parts.push('meli2 tienda2 meli 2 tienda 2');
+                } else if (mlStore === 3) {
+                    parts.push('meli3 tienda3 meli 3 tienda 3');
+                } else {
+                    parts.push('meli1 tienda1 meli 1 tienda 1 principal');
+                }
+            }
 
             const docDigits = String(o.buyerInfo?.document || o.clientDoc || o.billingInfo?.document || '').replace(/\D/g, '');
             if (docDigits && docDigits.length >= 5) parts.push(docDigits);
@@ -729,6 +896,7 @@
 
         async function loadInitialData() {
             try {
+                initMLStoresTracking();
                 const configSnap = await getDoc(doc(db, "config", "shipping"));
                 if (configSnap.exists()) globalConfig = configSnap.data();
 
@@ -1120,6 +1288,10 @@
                 baseList = baseList.filter(o => matchesDateFilter(o, currentDateFilter));
             }
 
+            if (currentChannelFilter !== 'ALL') {
+                baseList = baseList.filter(o => matchesChannelFilter(o, currentChannelFilter));
+            }
+
             filteredOrdersMemory = baseList;
         }
 
@@ -1405,6 +1577,10 @@
                     finalDocs = finalDocs.filter(o => matchesDateFilter(o, currentDateFilter));
                 }
 
+                if (currentChannelFilter !== 'ALL') {
+                    finalDocs = finalDocs.filter(o => matchesChannelFilter(o, currentChannelFilter));
+                }
+
                 if (finalDocs.length > 0) {
                     finalDocs.sort(compareOrdersDescending);
                     let serverHtml = `<tr class="bg-gray-800 text-white"><td colspan="8" class="py-3 px-4 md:px-6"><div class="flex items-center justify-between w-full text-[10px] font-black uppercase tracking-widest"><span><i class="fa-solid fa-cloud text-brand-cyan mr-2"></i> ${finalDocs.length} Resultado(s) Encontrado(s)</span><span class="text-[9px] text-gray-400 font-bold lowercase">Orden cronológico de remisión garantizado</span></div></td></tr>`;
@@ -1464,6 +1640,10 @@
 
             if (currentDateFilter !== 'ALL') {
                 results = results.filter(o => matchesDateFilter(o, currentDateFilter));
+            }
+
+            if (currentChannelFilter !== 'ALL') {
+                results = results.filter(o => matchesChannelFilter(o, currentChannelFilter));
             }
 
             if (results.length > 0) {
@@ -1571,7 +1751,13 @@
                 `;
             }
 
-            const isML = (o.source && o.source.startsWith('MERCADOLIBRE')) || o.channel === 'MERCADOLIBRE' || (o.paymentMethod && o.paymentMethod.startsWith('MERCADOLIBRE')) || String(o.id).startsWith('ML');
+            const isML = (o.source && o.source.startsWith('MERCADOLIBRE')) || 
+                         o.channel === 'MERCADOLIBRE' || 
+                         (o.paymentMethod && o.paymentMethod.startsWith('MERCADOLIBRE')) || 
+                         String(o.id).startsWith('ML-') || 
+                         String(o.id).startsWith('ML2-') || 
+                         String(o.id).startsWith('ML3-') || 
+                         Boolean(o.mlOrderId);
             const gross = Number(o.grossTotal) || 0;
 
             const netTotal = total - refunded;
@@ -1672,11 +1858,11 @@
 
             // Distintivo de canal inteligente (MercadoLibre, Tienda Web o Manual)
             let channelBadge = '';
-            if (isML) {
-                let mlLabel = 'MELI 1';
-                if (o.source === 'MERCADOLIBRE_STORE2' || o.source === 'MERCADOLIBRE_2' || o.mlStore === 2 || String(o.id).startsWith('ML2-')) mlLabel = 'MELI 2';
-                else if (o.source === 'MERCADOLIBRE_STORE3' || o.source === 'MERCADOLIBRE_3' || o.mlStore === 3 || String(o.id).startsWith('ML3-')) mlLabel = 'MELI 3';
-                channelBadge = `<span class="inline-flex items-center gap-1 text-[8px] font-black px-2 py-0.5 rounded shadow-2xs bg-[#FFE600] text-black border border-yellow-400 whitespace-nowrap tracking-tight" title="MercadoLibre (${mlLabel})"><i class="fa-solid fa-handshake text-[9px]"></i> ${mlLabel}</span>`;
+            const mlStore = getOrderMLStore(o);
+            if (mlStore !== null) {
+                const storeName = mlStoreNames[mlStore] || `MELI ${mlStore}`;
+                const shortLabel = storeName.length > 20 ? (storeName.substring(0, 18) + '…') : storeName;
+                channelBadge = `<span class="inline-flex items-center gap-1 text-[8px] font-black px-2 py-0.5 rounded shadow-2xs bg-[#FFE600] text-black border border-yellow-400 whitespace-nowrap tracking-tight" title="MercadoLibre - ${storeName} (Tienda ${mlStore})"><i class="fa-solid fa-handshake text-[9px]"></i> ${shortLabel}</span>`;
             } else if (isTienda) {
                 channelBadge = `<span class="text-[8px] font-black px-2 py-0.5 rounded shadow-2xs bg-cyan-50 text-cyan-800 border border-cyan-200">WEB</span>`;
             } else {
@@ -1816,13 +2002,72 @@
 
         window.printSelectedLabels = function() {
             const checkboxes = document.querySelectorAll('.order-cb:checked');
-            if(checkboxes.length === 0) {
+            if (checkboxes.length === 0) {
                 alert("⚠️ Por favor, selecciona al menos un pedido marcando las casillas de la tabla.");
                 return;
             }
             const selectedIds = Array.from(checkboxes).map(cb => cb.value);
             const cache = window.adminOrdersCache || adminOrdersCache || [];
             const selectedOrders = cache.filter(o => selectedIds.includes(o.id));
+
+            // Detectar si hay órdenes de MercadoLibre seleccionadas
+            const mlOrders = selectedOrders.filter(o => {
+                const isML = (o.source && o.source.startsWith('MERCADOLIBRE')) || 
+                             o.channel === 'MERCADOLIBRE' || 
+                             (o.paymentMethod && o.paymentMethod.startsWith('MERCADOLIBRE')) || 
+                             String(o.id).startsWith('ML-') || 
+                             String(o.id).startsWith('ML2-') || 
+                             String(o.id).startsWith('ML3-') || 
+                             Boolean(o.mlOrderId);
+                const sId = o.shippingId || o.shippingData?.shipmentId;
+                return isML && (sId || o.id);
+            });
+
+            if (mlOrders.length > 0) {
+                const choice = confirm(`📦 Se detectaron ${mlOrders.length} pedido(s) de MercadoLibre seleccionados.\n\n¿Deseas descargar el PDF con todos los Rótulos Oficiales de MercadoLibre (Mercado Envíos / Flex) unificados?\n\n• Haz clic en [Aceptar] para descargar los Rótulos Oficiales de MercadoLibre (Multipágina con códigos de barra de Mercado Envíos).\n• Haz clic en [Cancelar] para imprimir los rótulos internos estándar de la tienda.`);
+                if (choice) {
+                    let functionsUrl = "https://us-central1-pixeltechcol.cloudfunctions.net/getMercadoLibreLabel";
+                    if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
+                        functionsUrl = "http://localhost:5001/pixeltechcol/us-central1/getMercadoLibreLabel";
+                    }
+
+                    const storesMap = {};
+                    mlOrders.forEach(o => {
+                        let st = "1";
+                        if (o.mlStore) st = String(o.mlStore);
+                        else if (o.source === 'MERCADOLIBRE_STORE2' || o.source === 'MERCADOLIBRE_2' || String(o.id).startsWith('ML2-')) st = "2";
+                        else if (o.source === 'MERCADOLIBRE_STORE3' || o.source === 'MERCADOLIBRE_3' || String(o.id).startsWith('ML3-')) st = "3";
+
+                        const sId = o.shippingId || o.shippingData?.shipmentId;
+                        if (!storesMap[st]) storesMap[st] = [];
+                        if (sId && !storesMap[st].includes(sId)) {
+                            storesMap[st].push(sId);
+                        } else if (!sId && !storesMap[st].includes(o.id)) {
+                            storesMap[st].push(o.id);
+                        }
+                    });
+
+                    Object.keys(storesMap).forEach(st => {
+                        const joinedIds = storesMap[st].join(',');
+                        const labelUrl = `${functionsUrl}?shipmentId=${encodeURIComponent(joinedIds)}&store=${st}`;
+                        window.open(labelUrl, '_blank');
+                    });
+
+                    // Si también hay pedidos que no son de MercadoLibre seleccionados, preguntar si generar sus rótulos internos
+                    const nonMlOrders = selectedOrders.filter(o => !mlOrders.some(m => m.id === o.id));
+                    if (nonMlOrders.length > 0) {
+                        setTimeout(() => {
+                            if (confirm(`ℹ️ También hay ${nonMlOrders.length} pedido(s) convencionales seleccionados (no MercadoLibre). ¿Deseas imprimir sus rótulos internos de la tienda ahora?`)) {
+                                if (typeof window.generateLabels === 'function') {
+                                    window.generateLabels(nonMlOrders);
+                                }
+                            }
+                        }, 600);
+                    }
+                    return;
+                }
+            }
+
             if (typeof window.generateLabels === 'function') {
                 window.generateLabels(selectedOrders);
             } else {

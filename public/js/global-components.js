@@ -5,8 +5,61 @@ import { updateQuantity } from "./cart.js";
  * Inyecta Header, Footer, Menús y Herramientas Flotantes (Y EL MINI CARRITO)
  */
 export function loadGlobalHeader() {
+    checkMaintenanceMode();
     initHeaderLogic();
     initSearchLogic();
+}
+
+/**
+ * Valida el estado de mantenimiento en tiempo real y protege la tienda pública
+ */
+export function checkMaintenanceMode() {
+    const path = window.location.pathname.toLowerCase();
+    // Excluir rutas del admin, autenticación y la propia pantalla de mantenimiento
+    if (path.startsWith('/admin') || path.startsWith('/auth') || path.includes('maintenance.html')) {
+        return;
+    }
+
+    const staffRoles = ['admin', 'developer', 'ventas', 'contabilidad', 'logistica'];
+
+    const handleMaintenanceRedirect = (isActive) => {
+        if (!isActive) return;
+
+        // 1. Revisar si ya está verificado en sesión como Staff
+        const cachedRole = (sessionStorage.getItem('pixeltech_user_role') || '').toLowerCase().trim();
+        if (staffRoles.includes(cachedRole)) {
+            return;
+        }
+
+        // 2. Verificar estado con Auth antes de redirigir para no bloquear al personal
+        let unsubscribeAuth = null;
+        unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
+            if (unsubscribeAuth) unsubscribeAuth();
+            if (user) {
+                try {
+                    const snap = await getDoc(doc(db, "users", user.uid));
+                    const liveRole = (snap.exists() && snap.data().role) ? snap.data().role.toLowerCase().trim() : 'customer';
+                    sessionStorage.setItem('pixeltech_user_role', liveRole);
+                    if (!staffRoles.includes(liveRole)) {
+                        window.location.replace('/maintenance.html');
+                    }
+                } catch (e) {
+                    window.location.replace('/maintenance.html');
+                }
+            } else {
+                window.location.replace('/maintenance.html');
+            }
+        });
+    };
+
+    onSnapshot(doc(db, "config", "system"), (snap) => {
+        if (snap.exists()) {
+            const data = snap.data();
+            handleMaintenanceRedirect(!!data.maintenanceMode);
+        }
+    }, (err) => {
+        console.warn("No se pudo verificar el modo mantenimiento:", err);
+    });
 }
 
 window.showToast = (msg, type = 'success') => {
@@ -439,7 +492,7 @@ async function initHeaderLogic() {
     }
 
     function renderUserLink(role, container, mobileProfile) {
-        const staffRoles = ['admin', 'contabilidad', 'ventas', 'logistica'];
+        const staffRoles = ['admin', 'developer', 'contabilidad', 'ventas', 'logistica'];
         const isStaff = staffRoles.includes(String(role || '').toLowerCase().trim());
         const label = isStaff ? 'Admin' : 'Cuenta';
         const link = isStaff ? '/admin/index.html' : '/profile.html';

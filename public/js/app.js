@@ -122,7 +122,7 @@ onAuthStateChanged(auth, async (user) => {
     const userInfo = document.getElementById("user-info-global");
     if (!userInfo) return;
 
-    const staffRoles = ['admin', 'contabilidad', 'ventas', 'logistica'];
+    const staffRoles = ['admin', 'developer', 'contabilidad', 'ventas', 'logistica'];
 
     if (user) {
         let role = sessionStorage.getItem(`role_${user.uid}`) || sessionStorage.getItem('pixeltech_user_role');

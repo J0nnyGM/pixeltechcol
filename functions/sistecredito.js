@@ -4,17 +4,33 @@ const axios = require("axios");
 const cors = require('cors')({ origin: true });
 
 // ==========================================
-// CONFIGURACIÓN SISTECRÉDITO
+// CONFIGURACIÓN DINÁMICA SISTECRÉDITO
 // ==========================================
 const IS_SC_SANDBOX = false; 
-
-const SC_API_KEY = process.env.SC_API_KEY; 
-const SC_APP_KEY = process.env.SC_APP_KEY; 
-const SC_APP_TOKEN = process.env.SC_APP_TOKEN; 
-
 const SC_BASE_URL = "https://api.credinet.co/pay";
 const SC_ORIGEN = IS_SC_SANDBOX ? "Staging" : "Production";
 const SC_WEBHOOK_URL = "https://sistecreditowebhook-muiondpggq-uc.a.run.app";
+
+async function getSistecreditoConfig(db) {
+    let apiKey = process.env.SC_API_KEY;
+    let appKey = process.env.SC_APP_KEY;
+    let appToken = process.env.SC_APP_TOKEN;
+
+    try {
+        if (!db) db = admin.firestore();
+        const devDoc = await db.collection('config').doc('developer').get();
+        if (devDoc.exists) {
+            const data = devDoc.data();
+            if (data.SC_API_KEY && data.SC_API_KEY.trim()) apiKey = data.SC_API_KEY.trim();
+            if (data.SC_APP_KEY && data.SC_APP_KEY.trim()) appKey = data.SC_APP_KEY.trim();
+            if (data.SC_APP_TOKEN && data.SC_APP_TOKEN.trim()) appToken = data.SC_APP_TOKEN.trim();
+        }
+    } catch (e) {
+        console.error("Error al obtener credenciales de Sistecrédito de Firestore:", e.message);
+    }
+
+    return { apiKey, appKey, appToken };
+}
 
 // ==========================================
 // 1. CREAR CHECKOUT SISTECRÉDITO
@@ -157,15 +173,20 @@ exports.createSistecreditoCheckout = async (data, context) => {
     };
 
     try {
+        const scConfig = await getSistecreditoConfig(db);
+        if (!scConfig.apiKey || !scConfig.appKey || !scConfig.appToken) {
+            throw new Error("Credenciales de Sistecrédito no configuradas.");
+        }
+
         console.log("📤 Enviando a Sistecrédito...", JSON.stringify(payload));
         const response = await axios.post(`${SC_BASE_URL}/create`, payload, { 
             headers: {
                 'SCLocation': '0,0', 
                 'SCOrigen': SC_ORIGEN, 
                 'country': 'CO', 
-                'Ocp-Apim-Subscription-Key': SC_API_KEY, 
-                'ApplicationKey': SC_APP_KEY, 
-                'ApplicationToken': SC_APP_TOKEN, 
+                'Ocp-Apim-Subscription-Key': scConfig.apiKey, 
+                'ApplicationKey': scConfig.appKey, 
+                'ApplicationToken': scConfig.appToken, 
                 'Content-Type': 'application/json'
             }
         });
