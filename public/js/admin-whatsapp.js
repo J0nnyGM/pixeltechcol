@@ -91,7 +91,7 @@ const QUICK_REPLIES = [
     { title: "🚚 Envío Nacional", text: "Realizamos envíos a toda Colombia 🇨🇴. Si confirmas antes de las 3:00 PM sale hoy mismo.\n\n📸 Te enviamos foto del paquete y la guía de rastreo.\n💰 Costo promedio: $18.000 (varía según ubicación)." },
     { title: "📍 Pasar a Recoger", text: "Estamos en el Centro internacional, Bogotá (a media cuadra de la 34).\n\n🏢 *Calle 31 # 13A-51*\nEdificio Panorama, Oficina 223." },
     { title: "⏰ Horarios", text: "Nuestros horarios de atención son:\n\n📅 Lunes a Viernes: 9:00 AM - 5:30 PM\n📅 Sábados: 10:00 AM - 3:00 PM" },
-    { title: "🟣 Cuentas Cobro", text: "Puedes realizar el pago a:\n\n🏦 *Bancolombia Ahorros* \n*PixelTech Col SAS* \n*NIT:* 901.561.037 \n*Cuenta:* 237-000046-12 \n\n📱 *Nequi / Daviplata*\n3003729020\nLina Gil\n\n🗝️ *Llave / Bre-B:*\n0041243528 \nPixelTech Col" },
+    { title: "🟣 Cuentas Cobro", text: "Puedes realizar el pago a:\n\n🏦 *Bancolombia Ahorros* \n*PixelTech Col SAS* \n*NIT:* 901.561.037 \n*Cuenta:* 237-000046-12 \n\n📱 *Nequi / Daviplata*\n3003729020\nLina Gil\n\n🗝️ *Llave / Bre-B:*\n@pixeltechcol \nPixelTech Col" },
     { title: "📝 Pedir Datos", text: "Para procesar tu pedido, regálame por favor estos datos:\n\n🧑🏻 Nombre:\n🎫 C.C:\n📲 Cel:\n🏠 Dirección:\n🏭 Barrio:\n🌆 Ciudad:\n📩 Email:" },
 ];
 

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'pixeltech-shell-v11.00'; // 🔥 Versión Oficial 10.18: Ver recibo desacoplado, auto-guardado local de seriales y optimizaciones ML
+const CACHE_NAME = 'pixeltech-shell-v11.01'; // 🔥 Versión Oficial 10.18: Ver recibo desacoplado, auto-guardado local de seriales y optimizaciones ML
 
 // Archivos vitales para que la app arranque sin internet
 const urlsToCache = [
