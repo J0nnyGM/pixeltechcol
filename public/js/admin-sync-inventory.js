@@ -201,15 +201,19 @@ function getAuditStatusDetails(p) {
 async function loadAuditedProductsFromLogs() {
     try {
         const logsRef = collection(db, "inventory_audit_logs");
-        const snap = await getDocs(query(logsRef, limit(1000)));
+        const q = query(logsRef, where("type", "==", "SYNC_AUDIT"), limit(2000));
+        const snap = await getDocs(q);
         snap.forEach(d => {
             const data = d.data();
             // REGLA ESTRICTA: Solo contar auditorías físicas de inventario (type === 'SYNC_AUDIT')
             // Ignora compras, ventas, cambios de stock automáticos y ediciones regulares del catálogo
             if (data.productId && data.type === 'SYNC_AUDIT') {
-                const ts = data.timestamp || data.createdAtISO;
-                if (ts && (!auditedProductIdsMap[data.productId] || ts > auditedProductIdsMap[data.productId])) {
-                    auditedProductIdsMap[data.productId] = ts;
+                const ts = parseAuditDate(data.timestamp || data.createdAtISO);
+                if (ts) {
+                    const currentTs = parseAuditDate(auditedProductIdsMap[data.productId]);
+                    if (!currentTs || ts.getTime() > currentTs.getTime()) {
+                        auditedProductIdsMap[data.productId] = ts;
+                    }
                 }
             }
         });
@@ -263,6 +267,17 @@ async function initApp() {
 
     AdminStore.subscribeToProducts((products) => {
         allProducts = products || [];
+        allProducts.forEach(p => {
+            if (p.lastInventoryAudit) {
+                const d = parseAuditDate(p.lastInventoryAudit);
+                if (d) {
+                    const existing = parseAuditDate(auditedProductIdsMap[p.id]);
+                    if (!existing || d.getTime() > existing.getTime()) {
+                        auditedProductIdsMap[p.id] = d;
+                    }
+                }
+            }
+        });
         applyFilters();
     });
 }
@@ -1467,6 +1482,13 @@ async function handleSubmitSync() {
             lastInventoryAuditAdmin: currentUser?.email || 'admin@pixeltechcol.com'
         };
 
+        if (currentProduct.branchStock || typeof currentProduct.branchStock === 'object') {
+            productUpdateData.branchStock = {
+                ...(currentProduct.branchStock || {}),
+                bodega: finalPhysicalStock
+            };
+        }
+
         let variantChangesForLog = [];
         let updatedCombinations = null;
 
@@ -1485,10 +1507,19 @@ async function handleSubmitSync() {
                     delta: newVarStock - (Number(comb.stock) || 0)
                 });
 
-                return {
+                const updatedComb = {
                     ...comb,
                     stock: newVarStock
                 };
+
+                if (comb.branchStock || typeof comb.branchStock === 'object') {
+                    updatedComb.branchStock = {
+                        ...(comb.branchStock || {}),
+                        bodega: newVarStock
+                    };
+                }
+
+                return updatedComb;
             });
 
             productUpdateData.combinations = updatedCombinations;
@@ -1561,12 +1592,19 @@ async function handleSubmitSync() {
         if (currentProduct) {
             currentProduct.lastInventoryAudit = new Date();
             currentProduct.lastInventoryAuditWeek = weekKey;
+            currentProduct.stock = finalPhysicalStock;
+            if (currentProduct.branchStock) {
+                currentProduct.branchStock.bodega = finalPhysicalStock;
+            }
             auditedProductIdsMap[currentProduct.id] = new Date();
             const prodInAll = allProducts.find(p => p.id === currentProduct.id);
             if (prodInAll) {
                 prodInAll.lastInventoryAudit = new Date();
                 prodInAll.lastInventoryAuditWeek = weekKey;
                 prodInAll.stock = finalPhysicalStock;
+                if (prodInAll.branchStock) {
+                    prodInAll.branchStock.bodega = finalPhysicalStock;
+                }
                 if (hasVariants && updatedCombinations) {
                     prodInAll.combinations = updatedCombinations;
                 }
@@ -1585,3 +1623,26 @@ async function handleSubmitSync() {
         btnSubmit.innerHTML = originalBtnHtml;
     }
 }
+
+
+window.forceSyncInventory = async () => {
+    const btn = document.getElementById('btn-sync-refresh');
+    let oldHtml = '';
+    if (btn) {
+        oldHtml = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa-solid fa-arrows-rotate fa-spin text-xs"></i> <span>Actualizando...</span>';
+    }
+    try {
+        await AdminStore.forceSyncProducts();
+        await loadAuditedProductsFromLogs();
+        applyFilters();
+    } catch (err) {
+        console.error("Error forzando sincronizacion:", err);
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = oldHtml;
+        }
+    }
+};

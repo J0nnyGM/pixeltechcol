@@ -4,7 +4,7 @@ import { db, collection, query, where, onSnapshot, clearAllAppDataAndReload } fr
 const normalizeText = (str) => str ? str.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "") : "";
 
 // ==========================================================================
-// 🗄️ HELPER INDEXEDDB NATIVO (Capacidad ilimitada > 500MB)
+// HELPER INDEXEDDB NATIVO (Capacidad ilimitada > 500MB)
 // ==========================================================================
 class IDBStorage {
     constructor(dbName = 'PixelTechAdminDB', storeName = 'store_cache') {
@@ -56,7 +56,7 @@ class IDBStorage {
                 req.onerror = (e) => reject(e.target.error);
             });
         } catch (e) {
-            console.warn(`⚠️ [IndexedDB] Error al guardar ${key}:`, e);
+            console.warn(` [IndexedDB] Error al guardar ${key}:`, e);
             return false;
         }
     }
@@ -80,13 +80,13 @@ class IDBStorage {
 const idb = new IDBStorage();
 
 // ==========================================================================
-// 🧬 CLASE MAESTRA: Delta Sync 3.0 Con Motor IndexedDB (Zero Index Required)
+// CLASE MAESTRA: Delta Sync 3.0 Con Motor IndexedDB (Zero Index Required)
 // ==========================================================================
 class StoreModule {
     constructor(config) {
         this.name = config.name;
         this.collectionName = config.collection;
-        this.storageKey = (config.name === 'products') ? `pixeltech_core_products_v2` : `pixeltech_core_${config.name}`;
+        this.storageKey = (config.name === 'products') ? `pixeltech_core_products_v3` : `pixeltech_core_${config.name}`;
         this.dateField = config.dateField || 'createdAt';
         this.queryConstraints = config.queryConstraints || [];
         this.clientSideFilter = config.clientSideFilter || null;
@@ -115,7 +115,7 @@ class StoreModule {
                         cached = JSON.parse(legacy);
                         await idb.set(this.storageKey, cached);
                         localStorage.removeItem(this.storageKey); // Liberar los 5MB de localStorage
-                        console.log(`📦 [Store: ${this.name}] Migrado con éxito de localStorage a IndexedDB.`);
+                        console.log(` [Store: ${this.name}] Migrado con éxito de localStorage a IndexedDB.`);
                     }
                 } catch (err) {}
             }
@@ -138,7 +138,7 @@ class StoreModule {
                 this.lastSyncTime = cached.lastSync || 0;
             }
         } catch (e) {
-            console.warn(`⚠️ Error cargando caché de ${this.name}:`, e);
+            console.warn(` Error cargando caché de ${this.name}:`, e);
         } finally {
             this.isCacheLoaded = true;
             if (Object.keys(this.runtimeMap).length > 0 || this.lastSyncTime > 0) {
@@ -179,13 +179,13 @@ class StoreModule {
             // para evitar descargar miles de datos que no nos interesan.
             if (forceFullSync) this.runtimeMap = {}; 
             q = query(colRef, ...this.queryConstraints);
-            console.log(`☁️ [Store: ${this.name}] Descarga inicial limpia.`);
+            console.log(` [Store: ${this.name}] Descarga inicial limpia.`);
         } else {
             // DELTA SYNC: Le pedimos a Firebase CUALQUIER cosa que haya cambiado.
             // No usamos queryConstraints aquí para no romper Firebase con falta de índices compuestos.
             const serverDate = new Date(this.lastSyncTime);
             q = query(colRef, where("updatedAt", ">", serverDate));
-            console.log(`🔄 [Store: ${this.name}] Buscando deltas desde:`, serverDate.toLocaleString());
+            console.log(` [Store: ${this.name}] Buscando deltas desde:`, serverDate.toLocaleString());
         }
 
         this.unsubscribeFirebase = onSnapshot(q, (snapshot) => {
@@ -220,7 +220,7 @@ class StoreModule {
                 }
 
                 if (change.type === 'added' || change.type === 'modified') {
-                    // 🔥 MAGIA DE RAM: Si un pedido pasó de PENDIENTE a PAGADO, el filtro
+                    // LOGICA DE RAM: Si un pedido pasó de PENDIENTE a PAGADO, el filtro
                     // local detectará que ya no pertenece aquí y lo borrará sin consultar a la BD.
                     if (this.clientSideFilter && !this.clientSideFilter(data)) {
                         if (this.runtimeMap[id]) {
@@ -270,7 +270,7 @@ class StoreModule {
             // Guardar en IndexedDB asíncronamente (sin bloquear la UI y sin límites de 5MB)
             await idb.set(this.storageKey, { map: lightMap, lastSync: this.lastSyncTime });
         } catch (error) {
-            console.warn(`⚠️ [Store: ${this.name}] Fallo al guardar en IndexedDB:`, error);
+            console.warn(` [Store: ${this.name}] Fallo al guardar en IndexedDB:`, error);
         }
     }
 
@@ -296,7 +296,7 @@ class StoreModule {
 }
 
 // ==========================================================================
-// 🏭 INSTANCIACIÓN DE MÓDULOS (Configuración Inteligente)
+// INSTANCIACIÓN DE MÓDULOS (Configuración Inteligente)
 // ==========================================================================
 
 const modules = {
@@ -305,7 +305,7 @@ const modules = {
         collection: 'products',
         dateField: 'createdAt',
         searchFields: ['name', 'brand', 'sku', 'category'],
-        lightweight: (p) => ({ id: p.id, name: p.name, price: p.price, originalPrice: p.originalPrice || 0, stock: p.stock || 0, status: p.status, sku: p.sku || '', category: p.category || '', subcategory: p.subcategory || '', brand: p.brand || '', mainImage: p.mainImage || p.image || (p.images ? p.images[0] : ''), combinations: p.combinations || [], capacities: p.capacities || [], definedColors: p.definedColors || [], definedCapacities: p.definedCapacities || [], lastPurchaseCost: p.lastPurchaseCost || 0, promoEndsAt: p.promoEndsAt || null, searchStr: p.searchStr, createdAt: p.createdAt, updatedAt: p.updatedAt })
+        lightweight: (p) => ({ id: p.id, name: p.name, price: p.price, originalPrice: p.originalPrice || 0, stock: p.stock || 0, branchStock: p.branchStock || null, lastInventoryAudit: p.lastInventoryAudit || null, lastInventoryAuditWeek: p.lastInventoryAuditWeek || null, lastInventoryAuditAdmin: p.lastInventoryAuditAdmin || null, status: p.status, sku: p.sku || '', category: p.category || '', subcategory: p.subcategory || '', brand: p.brand || '', mainImage: p.mainImage || p.image || (p.images ? p.images[0] : ''), combinations: p.combinations || [], capacities: p.capacities || [], definedColors: p.definedColors || [], definedCapacities: p.definedCapacities || [], lastPurchaseCost: p.lastPurchaseCost || 0, promoEndsAt: p.promoEndsAt || null, searchStr: p.searchStr, createdAt: p.createdAt, updatedAt: p.updatedAt })
     }),
     
     clients: new StoreModule({
@@ -438,7 +438,7 @@ const modules = {
 };
 
 // ==========================================================================
-// 🚀 EXPORTACIÓN FINAL (API PÚBLICA)
+// EXPORTACIÓN FINAL (API PÚBLICA)
 // ==========================================================================
 
 export const AdminStore = {
@@ -452,6 +452,10 @@ export const AdminStore = {
     subscribeToRma: (cb) => modules.rma.subscribe(cb),
     subscribeToInvoices: (cb) => modules.invoices.subscribe(cb),
     subscribeToAccounts: (cb) => modules.accounts.subscribe(cb),
+
+    async forceSyncProducts() {
+        if (modules.products) await modules.products.forceSync();
+    },
 
     async forceSyncReceivables() {
         if (modules.receivables) await modules.receivables.forceSync();

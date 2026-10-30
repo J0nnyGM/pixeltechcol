@@ -469,6 +469,7 @@ export async function viewOrderDetail(orderId) {
         const o = snap.data();
         currentOrderData = { id: snap.id, ...o };
         window.currentOrderData = currentOrderData;
+        const isFull = Boolean(o.isFull || o.isMlFull || o.logisticType === 'fulfillment' || o.shippingType === 'FULL');
 
         const isWeb = o.source === 'TIENDA' || o.source === 'TIENDA_WEB';
         const iconContainer = getEl('modal-source-icon');
@@ -627,7 +628,6 @@ export async function viewOrderDetail(orderId) {
             }
 
             let fullBannerHtml = '';
-            const isFull = Boolean(o.isFull || o.isMlFull || o.logisticType === 'fulfillment');
             if (isFull) {
                 fullBannerHtml = `
                     <div class="mb-4 p-4 rounded-2xl bg-emerald-50 border border-emerald-300 text-emerald-950 shadow-sm flex items-center justify-between">
