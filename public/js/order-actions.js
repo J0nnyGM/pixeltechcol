@@ -626,7 +626,30 @@ export async function viewOrderDetail(orderId) {
                 `;
             }
 
-            paymentSection.innerHTML = `${cancelBannerHtml}<div class="flex justify-between items-start"><div class="flex items-center gap-3"><div class="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center ${mInfo.color} text-lg"><i class="${mInfo.icon}"></i></div><div><p class="text-[10px] font-black uppercase text-gray-400 leading-none mb-1">Método de Pago</p><p class="text-xs font-black text-brand-black uppercase">${mInfo.label}</p></div></div>${statusHtml}</div>${o.paymentId ? `<div class="mt-2 pt-2 border-t border-gray-100 text-[9px] text-gray-400 font-mono">Ref: ${o.paymentId}</div>` : ''}${mlBreakdownHtml}`;
+            let fullBannerHtml = '';
+            const isFull = Boolean(o.isFull || o.isMlFull || o.logisticType === 'fulfillment');
+            if (isFull) {
+                fullBannerHtml = `
+                    <div class="mb-4 p-4 rounded-2xl bg-emerald-50 border border-emerald-300 text-emerald-950 shadow-sm flex items-center justify-between">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center text-lg font-black shrink-0">
+                                <i class="fa-solid fa-truck-ramp-box"></i>
+                            </div>
+                            <div>
+                                <div class="flex items-center gap-2">
+                                    <span class="bg-emerald-600 text-white text-[9px] font-black px-2 py-0.5 rounded shadow-2xs uppercase tracking-wider">FULL</span>
+                                    <span class="font-black text-xs uppercase text-emerald-900 tracking-wider">Mercado Envíos Full</span>
+                                </div>
+                                <p class="text-[11px] text-emerald-800 font-medium mt-0.5">
+                                    Despachado directamente desde el centro de distribución de MercadoLibre. Alistamiento y seriales no requeridos.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            paymentSection.innerHTML = `${cancelBannerHtml}${fullBannerHtml}<div class="flex justify-between items-start"><div class="flex items-center gap-3"><div class="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center ${mInfo.color} text-lg"><i class="${mInfo.icon}"></i></div><div><p class="text-[10px] font-black uppercase text-gray-400 leading-none mb-1">Método de Pago</p><p class="text-xs font-black text-brand-black uppercase">${mInfo.label}</p></div></div>${statusHtml}</div>${o.paymentId ? `<div class="mt-2 pt-2 border-t border-gray-100 text-[9px] text-gray-400 font-mono">Ref: ${o.paymentId}</div>` : ''}${mlBreakdownHtml}`;
             paymentSection.classList.remove('hidden');
         }
 
@@ -952,7 +975,14 @@ export async function viewOrderDetail(orderId) {
 
         const isFinished = ['CANCELADO', 'RECHAZADO', 'DEVUELTO'].includes(o.status);
 
-        if (o.status === 'PENDIENTE_PAGO') {
+        if (isFull) {
+            if (footerMsg) { 
+                footerMsg.innerHTML = '<span class="text-emerald-700 font-bold flex items-center gap-2"><i class="fa-solid fa-circle-check"></i> Alistamiento y despacho gestionado por MercadoLibre Full</span>'; 
+                footerMsg.classList.remove('hidden'); 
+            }
+            if (btnAlistar) btnAlistar.classList.add('hidden');
+            if (btnDespachar) btnDespachar.classList.add('hidden');
+        } else if (o.status === 'PENDIENTE_PAGO') {
             if (footerMsg) { footerMsg.innerHTML = '<span class="text-orange-500 font-bold flex items-center gap-2"><i class="fa-solid fa-clock"></i> Esperando pago...</span>'; footerMsg.classList.remove('hidden'); }
         } else if (isLocked && !['DESPACHADO', 'ENTREGADO', 'DEVOLUCION_PARCIAL'].includes(o.status)) {
             if (footerMsg) { footerMsg.innerHTML = `<span class="text-red-500 font-bold flex items-center gap-2"><i class="fa-solid fa-ban"></i> Pedido ${o.status}</span>`; footerMsg.classList.remove('hidden'); }
@@ -3207,7 +3237,8 @@ export async function openBulkPackingModal(presetOrders, isMLFlow = false) {
 
     for (const o of candidateOrders) {
         if (!o) continue;
-        if (['ALISTADO', 'DESPACHADO', 'EN_RUTA', 'ENTREGADO', 'CANCELADO', 'CANCELACION_PENDIENTE', 'RECHAZADO', 'DEVUELTO', 'DEVOLUCION_PARCIAL'].includes(o.status) || o.cancellationPendingConfirm) {
+        const isFull = Boolean(o.isFull || o.isMlFull || o.logisticType === 'fulfillment');
+        if (['ALISTADO', 'DESPACHADO', 'EN_RUTA', 'ENTREGADO', 'CANCELADO', 'CANCELACION_PENDIENTE', 'RECHAZADO', 'DEVUELTO', 'DEVOLUCION_PARCIAL'].includes(o.status) || o.cancellationPendingConfirm || isFull) {
             omittedCount++;
             continue;
         }

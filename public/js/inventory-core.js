@@ -8,8 +8,9 @@ import { db, doc, runTransaction } from "./firebase-init.js";
  * @param {string|null} variantColor - (Opcional) Color específico
  * @param {string|null} variantCapacity - (Opcional) Capacidad específica
  */
-export async function adjustStock(productId, quantityChange, variantColor = null, variantCapacity = null, changeReason = null, changeDetails = null) {
+export async function adjustStock(productId, quantityChange, variantColor = null, variantCapacity = null, changeReason = null, changeDetails = null, targetBranch = 'bodega') {
     const productRef = doc(db, "products", productId);
+    const branchKey = targetBranch || 'bodega';
 
     try {
         await runTransaction(db, async (transaction) => {
@@ -50,10 +51,10 @@ export async function adjustStock(productId, quantityChange, variantColor = null
                     combo.stock = newVariantStock;
 
                     if (combo.branchStock) {
-                        let curBodega = combo.branchStock['bodega'] !== undefined
-                            ? (Number(combo.branchStock['bodega']) || 0)
-                            : Math.max(0, currentVariantStock - Object.entries(combo.branchStock).filter(([k]) => k !== 'bodega').reduce((s, [, v]) => s + (Number(v) || 0), 0));
-                        combo.branchStock['bodega'] = Math.max(0, curBodega + quantityChange);
+                        let curBranchStock = combo.branchStock[branchKey] !== undefined
+                            ? (Number(combo.branchStock[branchKey]) || 0)
+                            : Math.max(0, currentVariantStock - Object.entries(combo.branchStock).filter(([k]) => k !== branchKey).reduce((s, [, v]) => s + (Number(v) || 0), 0));
+                        combo.branchStock[branchKey] = Math.max(0, curBranchStock + quantityChange);
                     }
 
                     newStock = newCombinations.reduce((sum, item) => sum + (Number(item.stock) || 0), 0);
@@ -80,10 +81,10 @@ export async function adjustStock(productId, quantityChange, variantColor = null
             }
 
             if (rootBranchStock && (!newCombinations || !newCombinations.some(c => c.branchStock))) {
-                let curBodega = rootBranchStock['bodega'] !== undefined
-                    ? (Number(rootBranchStock['bodega']) || 0)
-                    : Math.max(0, (Number(pData.stock) || 0) - Object.entries(rootBranchStock).filter(([k]) => k !== 'bodega').reduce((s, [, v]) => s + (Number(v) || 0), 0));
-                rootBranchStock['bodega'] = Math.max(0, curBodega + quantityChange);
+                let curBranchStock = rootBranchStock[branchKey] !== undefined
+                    ? (Number(rootBranchStock[branchKey]) || 0)
+                    : Math.max(0, (Number(pData.stock) || 0) - Object.entries(rootBranchStock).filter(([k]) => k !== branchKey).reduce((s, [, v]) => s + (Number(v) || 0), 0));
+                rootBranchStock[branchKey] = Math.max(0, curBranchStock + quantityChange);
             }
 
             const updatePayload = { 

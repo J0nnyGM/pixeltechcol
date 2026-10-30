@@ -946,6 +946,13 @@ function createWebhookHandler({
                     } catch (err) {}
                 }
 
+                const isFullOrder = Boolean(
+                    (rawShipment && rawShipment.logistic_type === 'fulfillment') ||
+                    (orderData.shipping && orderData.shipping.logistic_type === 'fulfillment') ||
+                    (Array.isArray(orderData.tags) && orderData.tags.includes('fulfillment'))
+                );
+                const orderIsFull = isFullOrder || Boolean(existingOrder.isFull || existingOrder.isMlFull || existingOrder.logisticType === 'fulfillment');
+
                 let billingInfo = null;
                 try {
                     billingInfo = await fetchML(`/orders/${orderData.id}/billing_info`, ML_TOKEN, db, storeDocName);
@@ -1017,8 +1024,9 @@ function createWebhookHandler({
                 const hasDocDiff = (buyerInfo.doc && existingOrder.clientDoc !== buyerInfo.doc);
                 const hasTrackingDiff = (rawShipment?.tracking_number && existingOrder.trackingNumber !== rawShipment.tracking_number);
                 const hasShippingStatusDiff = (rawShipment?.status && existingOrder.shippingStatus !== rawShipment.status);
+                const hasFullDiff = orderIsFull && (!existingOrder.isFull || !existingOrder.isMlFull);
 
-                if (hasFinancialDiff || hasDocDiff || hasTrackingDiff || hasShippingStatusDiff) {
+                if (hasFinancialDiff || hasDocDiff || hasTrackingDiff || hasShippingStatusDiff || hasFullDiff) {
                     const netDiff = netAmount - oldNet;
                     const priceRatio = grossTotal > 0 ? (netAmount / grossTotal) : 1;
 
@@ -1035,6 +1043,24 @@ function createWebhookHandler({
                         totalDeductions: totalDeductions,
                         updatedAt: admin.firestore.FieldValue.serverTimestamp()
                     };
+
+                    if (orderIsFull) {
+                        updates.isFull = true;
+                        updates.isMlFull = true;
+                        updates.logisticType = 'fulfillment';
+                        updates.shippingType = 'FULL';
+
+                        if (rawShipment?.status === 'delivered' && existingOrder.status !== 'ENTREGADO' && existingOrder.status !== 'CANCELADO') {
+                            updates.status = 'ENTREGADO';
+                            updates.statusDetail = 'ENTREGADO_FULFILLMENT';
+                        } else if ((rawShipment?.status === 'shipped' || rawShipment?.status === 'in_transit') && existingOrder.status !== 'DESPACHADO' && existingOrder.status !== 'ENTREGADO' && existingOrder.status !== 'CANCELADO') {
+                            updates.status = 'DESPACHADO';
+                            updates.statusDetail = 'DESPACHADO_FULFILLMENT';
+                        } else if (existingOrder.status === 'PENDIENTE') {
+                            updates.status = 'ALISTADO';
+                            updates.statusDetail = 'FULFILLMENT_ML';
+                        }
+                    }
 
                     if (Array.isArray(existingOrder.items)) {
                         updates.items = existingOrder.items.map(it => {
@@ -1117,6 +1143,12 @@ function createWebhookHandler({
                     console.log("No se pudo obtener el envío de ML detallado.");
                 }
             }
+
+            const isFullOrder = Boolean(
+                (rawShipment && rawShipment.logistic_type === 'fulfillment') ||
+                (orderData.shipping && orderData.shipping.logistic_type === 'fulfillment') ||
+                (Array.isArray(orderData.tags) && orderData.tags.includes('fulfillment'))
+            );
 
             let billingInfo = null;
             try {
@@ -1228,7 +1260,7 @@ function createWebhookHandler({
                 let itemImage = (foundProduct && foundProduct.image) ? foundProduct.image : (item.item.thumbnail || item.item.picture_url || "");
                 let itemSku = (foundProduct && foundProduct.sku) ? foundProduct.sku : (mlEAN ? String(mlEAN) : "");
 
-                dbItems.push({
+                const dbItemObj = {
                     id: foundProduct ? foundProduct.docId : `${orderPrefix}UNKNOWN-${mlEAN || item.item.id || 'NO_SKU'}`,
                     name: (foundProduct && foundProduct.name) ? foundProduct.name : (item.item.title || `Producto ${storeTitle}`),
                     price: netItemPrice,
@@ -1239,7 +1271,14 @@ function createWebhookHandler({
                     image: itemImage,
                     mainImage: itemImage,
                     thumbnail: itemImage
-                });
+                };
+
+                if (isFullOrder) {
+                    dbItemObj.isFull = true;
+                    dbItemObj.sns = Array(qty).fill('SIN-SERIAL');
+                }
+
+                dbItems.push(dbItemObj);
             }
 
             let existingPackDocSnap = null;
@@ -1331,11 +1370,13 @@ function createWebhookHandler({
                                 let combo = newCombinations[p.variantIndex];
                                 if (!combo.branchStock) combo.branchStock = {};
 
-                                let currentBodega = combo.branchStock['bodega'] !== undefined
-                                    ? (Number(combo.branchStock['bodega']) || 0)
-                                    : Math.max(0, (Number(combo.stock) || 0) - Object.entries(combo.branchStock).filter(([k]) => k !== 'bodega').reduce((s, [, v]) => s + (Number(v) || 0), 0));
+                                const branchToDeduct = (isFullOrder && combo.branchStock['full'] !== undefined && Number(combo.branchStock['full']) > 0) ? 'full' : 'bodega';
 
-                                combo.branchStock['bodega'] = Math.max(0, currentBodega - qty);
+                                let currentBranchStock = combo.branchStock[branchToDeduct] !== undefined
+                                    ? (Number(combo.branchStock[branchToDeduct]) || 0)
+                                    : Math.max(0, (Number(combo.stock) || 0) - Object.entries(combo.branchStock).filter(([k]) => k !== branchToDeduct).reduce((s, [, v]) => s + (Number(v) || 0), 0));
+
+                                combo.branchStock[branchToDeduct] = Math.max(0, currentBranchStock - qty);
                                 combo.stock = Object.values(combo.branchStock).reduce((s, v) => s + (Number(v) || 0), 0);
 
                                 rootBranchStock = {};
@@ -1350,9 +1391,11 @@ function createWebhookHandler({
                                 let bestComboIdx = 0;
                                 let maxComboStock = -1;
                                 for (let cI = 0; cI < newCombinations.length; cI++) {
+                                    const cFullStk = isFullOrder ? (Number(newCombinations[cI].branchStock?.['full']) || 0) : 0;
                                     const cStk = Number(newCombinations[cI].stock) || 0;
-                                    if (cStk > maxComboStock) {
-                                        maxComboStock = cStk;
+                                    const score = cFullStk > 0 ? (cFullStk + 100000) : cStk;
+                                    if (score > maxComboStock) {
+                                        maxComboStock = score;
                                         bestComboIdx = cI;
                                     }
                                 }
@@ -1360,11 +1403,13 @@ function createWebhookHandler({
                                 let combo = newCombinations[bestComboIdx];
                                 if (!combo.branchStock) combo.branchStock = {};
 
-                                let currentBodega = combo.branchStock['bodega'] !== undefined
-                                    ? (Number(combo.branchStock['bodega']) || 0)
-                                    : Math.max(0, (Number(combo.stock) || 0) - Object.entries(combo.branchStock).filter(([k]) => k !== 'bodega').reduce((s, [, v]) => s + (Number(v) || 0), 0));
+                                const branchToDeduct = (isFullOrder && combo.branchStock['full'] !== undefined && Number(combo.branchStock['full']) > 0) ? 'full' : 'bodega';
 
-                                combo.branchStock['bodega'] = Math.max(0, currentBodega - qty);
+                                let currentBranchStock = combo.branchStock[branchToDeduct] !== undefined
+                                    ? (Number(combo.branchStock[branchToDeduct]) || 0)
+                                    : Math.max(0, (Number(combo.stock) || 0) - Object.entries(combo.branchStock).filter(([k]) => k !== branchToDeduct).reduce((s, [, v]) => s + (Number(v) || 0), 0));
+
+                                combo.branchStock[branchToDeduct] = Math.max(0, currentBranchStock - qty);
                                 combo.stock = Object.values(combo.branchStock).reduce((s, v) => s + (Number(v) || 0), 0);
 
                                 rootBranchStock = {};
@@ -1376,11 +1421,13 @@ function createWebhookHandler({
                                     }
                                 });
                             } else {
-                                let currentBodega = rootBranchStock['bodega'] !== undefined
-                                    ? (Number(rootBranchStock['bodega']) || 0)
-                                    : Math.max(0, (Number(pData.stock) || 0) - Object.entries(rootBranchStock).filter(([k]) => k !== 'bodega').reduce((s, [, v]) => s + (Number(v) || 0), 0));
+                                const branchToDeduct = (isFullOrder && rootBranchStock['full'] !== undefined && Number(rootBranchStock['full']) > 0) ? 'full' : 'bodega';
 
-                                rootBranchStock['bodega'] = Math.max(0, currentBodega - qty);
+                                let currentBranchStock = rootBranchStock[branchToDeduct] !== undefined
+                                    ? (Number(rootBranchStock[branchToDeduct]) || 0)
+                                    : Math.max(0, (Number(pData.stock) || 0) - Object.entries(rootBranchStock).filter(([k]) => k !== branchToDeduct).reduce((s, [, v]) => s + (Number(v) || 0), 0));
+
+                                rootBranchStock[branchToDeduct] = Math.max(0, currentBranchStock - qty);
                             }
 
                             let calculatedGlobalStock = Object.values(rootBranchStock).reduce((s, v) => s + (Number(v) || 0), 0);
@@ -1393,7 +1440,9 @@ function createWebhookHandler({
                                 branchStock: rootBranchStock,
                                 combinations: newCombinations,
                                 lastStockChangeReason: 'VENTA_PEDIDO',
-                                lastStockChangeDetails: `Venta ${storeTitle} pedido #${orderId}`,
+                                lastStockChangeDetails: isFullOrder 
+                                    ? `Venta Mercado Envios Full ${storeTitle} pedido #${orderId}`
+                                    : `Venta ${storeTitle} pedido #${orderId}`,
                                 updatedAt: admin.firestore.FieldValue.serverTimestamp()
                             });
                         }
@@ -1424,6 +1473,10 @@ function createWebhookHandler({
                         amountPaid: combinedNetAmount,
                         totalDeductions: combinedDeductions,
                         isStockDeducted: shouldDeductStock,
+                        isFull: Boolean(isFullOrder || epData.isFull || epData.isMlFull),
+                        isMlFull: Boolean(isFullOrder || epData.isFull || epData.isMlFull),
+                        logisticType: isFullOrder ? 'fulfillment' : (epData.logisticType || 'default'),
+                        shippingType: isFullOrder ? 'FULL' : (epData.shippingType || 'STANDARD'),
                         pack_id: orderData.pack_id ? String(orderData.pack_id) : (epData.pack_id || ""),
                         packOrderIds: admin.firestore.FieldValue.arrayUnion(String(orderData.id)),
                         mlValidationCount: 1,
@@ -1458,6 +1511,20 @@ function createWebhookHandler({
                             createdAt: admin.firestore.FieldValue.serverTimestamp()
                         }, { merge: true });
                     }
+
+                    const orderInitialStatus = orderData.status === 'cancelled'
+                        ? 'CANCELACION_PENDIENTE'
+                        : (isFullOrder
+                            ? (rawShipment?.status === 'delivered'
+                                ? 'ENTREGADO'
+                                : (rawShipment?.status === 'shipped' || rawShipment?.status === 'in_transit' ? 'DESPACHADO' : 'ALISTADO'))
+                            : 'PENDIENTE');
+
+                    const orderStatusDetail = isFullOrder
+                        ? (rawShipment?.status === 'delivered'
+                            ? 'ENTREGADO_FULFILLMENT'
+                            : (rawShipment?.status === 'shipped' || rawShipment?.status === 'in_transit' ? 'DESPACHADO_FULFILLMENT' : 'FULFILLMENT_ML'))
+                        : (orderData.status === 'cancelled' ? 'CANCELADO_ML' : 'PENDIENTE_ALISTAMIENTO');
 
                     const orderRef = db.collection('orders').doc(orderId);
                     t.set(orderRef, {
@@ -1511,7 +1578,12 @@ function createWebhookHandler({
                         mlShipping: sellerShippingCost,
                         mlShippingBonus: mlShippingBonus,
                         mlTaxes: mlTaxes,
-                        status: orderData.status === 'cancelled' ? 'CANCELACION_PENDIENTE' : 'PENDIENTE',
+                        status: orderInitialStatus,
+                        statusDetail: orderStatusDetail,
+                        isFull: isFullOrder,
+                        isMlFull: isFullOrder,
+                        logisticType: isFullOrder ? 'fulfillment' : (rawShipment?.logistic_type || orderData.shipping?.logistic_type || 'default'),
+                        shippingType: isFullOrder ? 'FULL' : (rawShipment?.logistic_type === 'self_service' ? 'FLEX' : 'STANDARD'),
                         cancellationPendingConfirm: orderData.status === 'cancelled' ? true : false,
                         mlCancelled: orderData.status === 'cancelled' ? true : false,
                         paymentMethod: paymentMethod,
@@ -2076,6 +2148,7 @@ async function syncAndValidateMLOrder(orderId, db, isSecondValidation = false, m
     let rawShipment = null;
     let isCancelledInML = false;
     let cancelDetail = null;
+    let mlOrderData = null;
 
     if (manualValues && manualValues.grossTotal !== undefined) {
         gross = Number(manualValues.grossTotal) || gross;
@@ -2088,7 +2161,7 @@ async function syncAndValidateMLOrder(orderId, db, isSecondValidation = false, m
         if (token) {
             try {
                 const rawMLId = ord.mlOrderId || ord.id.replace(/^ML3?-/, '').replace(/^ML2?-/, '');
-                const mlOrderData = await fetchML(`/orders/${rawMLId}`, token, db, storeDoc);
+                mlOrderData = await fetchML(`/orders/${rawMLId}`, token, db, storeDoc);
                 if (mlOrderData) {
                     if (mlOrderData.status === 'cancelled') {
                         isCancelledInML = true;
@@ -2206,6 +2279,31 @@ async function syncAndValidateMLOrder(orderId, db, isSecondValidation = false, m
     if (rawShipment) {
         if (rawShipment.tracking_number) orderUpdates.shippingTracking = rawShipment.tracking_number;
         if (rawShipment.status) orderUpdates.shippingStatus = rawShipment.status;
+    }
+
+    const isFullOrder = Boolean(
+        ord.isFull || ord.isMlFull || ord.logisticType === 'fulfillment' ||
+        (rawShipment && rawShipment.logistic_type === 'fulfillment') ||
+        (mlOrderData?.shipping && mlOrderData.shipping.logistic_type === 'fulfillment') ||
+        (Array.isArray(mlOrderData?.tags) && mlOrderData.tags.includes('fulfillment'))
+    );
+
+    if (isFullOrder) {
+        orderUpdates.isFull = true;
+        orderUpdates.isMlFull = true;
+        orderUpdates.logisticType = 'fulfillment';
+        orderUpdates.shippingType = 'FULL';
+
+        if (rawShipment?.status === 'delivered' && ord.status !== 'ENTREGADO' && ord.status !== 'CANCELADO') {
+            orderUpdates.status = 'ENTREGADO';
+            orderUpdates.statusDetail = 'ENTREGADO_FULFILLMENT';
+        } else if ((rawShipment?.status === 'shipped' || rawShipment?.status === 'in_transit') && ord.status !== 'DESPACHADO' && ord.status !== 'ENTREGADO' && ord.status !== 'CANCELADO') {
+            orderUpdates.status = 'DESPACHADO';
+            orderUpdates.statusDetail = 'DESPACHADO_FULFILLMENT';
+        } else if (ord.status === 'PENDIENTE') {
+            orderUpdates.status = 'ALISTADO';
+            orderUpdates.statusDetail = 'FULFILLMENT_ML';
+        }
     }
 
     await db.collection('orders').doc(currentOrderId).update(orderUpdates);

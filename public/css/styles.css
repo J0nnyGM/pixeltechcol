@@ -2131,6 +2131,9 @@
       border-color: color-mix(in oklab, var(--color-amber-500) 50%, transparent);
     }
   }
+  .border-amber-600 {
+    border-color: var(--color-amber-600);
+  }
   .border-black {
     border-color: var(--color-black);
   }
@@ -4379,6 +4382,9 @@
   .text-emerald-900 {
     color: var(--color-emerald-900);
   }
+  .text-emerald-950 {
+    color: var(--color-emerald-950);
+  }
   .text-gray-100 {
     color: var(--color-gray-100);
   }
@@ -4745,6 +4751,9 @@
   .opacity-70 {
     opacity: 70%;
   }
+  .opacity-75 {
+    opacity: 75%;
+  }
   .opacity-80 {
     opacity: 80%;
   }
@@ -5099,6 +5108,9 @@
       --tw-ring-color: color-mix(in oklab, var(--color-brand-cyan) 50%, transparent);
     }
   }
+  .ring-cyan-500 {
+    --tw-ring-color: var(--color-cyan-500);
+  }
   .ring-cyan-500\/30 {
     --tw-ring-color: color-mix(in srgb, oklch(71.5% 0.143 215.221) 30%, transparent);
     @supports (color: color-mix(in lab, red, red)) {
@@ -5141,11 +5153,17 @@
       --tw-ring-color: color-mix(in oklab, var(--color-red-500) 40%, transparent);
     }
   }
+  .ring-slate-700 {
+    --tw-ring-color: var(--color-slate-700);
+  }
   .ring-slate-700\/30 {
     --tw-ring-color: color-mix(in srgb, oklch(37.2% 0.044 257.287) 30%, transparent);
     @supports (color: color-mix(in lab, red, red)) {
       --tw-ring-color: color-mix(in oklab, var(--color-slate-700) 30%, transparent);
     }
+  }
+  .ring-yellow-400 {
+    --tw-ring-color: var(--color-yellow-400);
   }
   .ring-yellow-400\/30 {
     --tw-ring-color: color-mix(in srgb, oklch(85.2% 0.199 91.936) 30%, transparent);
@@ -6298,6 +6316,13 @@
       }
     }
   }
+  .hover\:border-amber-300 {
+    &:hover {
+      @media (hover: hover) {
+        border-color: var(--color-amber-300);
+      }
+    }
+  }
   .hover\:border-amber-400 {
     &:hover {
       @media (hover: hover) {
@@ -6620,10 +6645,24 @@
       }
     }
   }
+  .hover\:bg-amber-200 {
+    &:hover {
+      @media (hover: hover) {
+        background-color: var(--color-amber-200);
+      }
+    }
+  }
   .hover\:bg-amber-300 {
     &:hover {
       @media (hover: hover) {
         background-color: var(--color-amber-300);
+      }
+    }
+  }
+  .hover\:bg-amber-500 {
+    &:hover {
+      @media (hover: hover) {
+        background-color: var(--color-amber-500);
       }
     }
   }
@@ -6634,6 +6673,13 @@
         @supports (color: color-mix(in lab, red, red)) {
           background-color: color-mix(in oklab, var(--color-amber-500) 20%, transparent);
         }
+      }
+    }
+  }
+  .hover\:bg-amber-600 {
+    &:hover {
+      @media (hover: hover) {
+        background-color: var(--color-amber-600);
       }
     }
   }
@@ -7766,6 +7812,11 @@
   .focus\:ring-amber-200 {
     &:focus {
       --tw-ring-color: var(--color-amber-200);
+    }
+  }
+  .focus\:ring-amber-500 {
+    &:focus {
+      --tw-ring-color: var(--color-amber-500);
     }
   }
   .focus\:ring-brand-cyan {

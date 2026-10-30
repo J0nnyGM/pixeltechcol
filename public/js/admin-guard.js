@@ -41,7 +41,7 @@ onAuthStateChanged(auth, async (user) => {
                 'admin': ['all'], // Todo permitido
                 'developer': ['all'], // Todo permitido para desarrolladores
                 'contabilidad': ['index.html', 'invoices.html', 'cartera.html', 'treasury.html', 'expenses.html', 'profitability.html'],
-                'ventas': ['index.html', 'whatsapp.html', 'orders.html', 'clients.html', 'warranties.html', 'products.html', 'create-product.html', 'categories.html', 'promotions.html', 'product-serials.html'],
+                'ventas': ['index.html', 'whatsapp.html', 'orders.html', 'clients.html', 'warranties.html', 'products.html', 'create-product.html', 'categories.html', 'promotions.html', 'product-serials.html', 'sync-inventory.html'],
                 'logistica': ['index.html', 'orders.html', 'products.html', 'inventory-entry.html', 'warranty-inventory.html', 'shipping-config.html', 'product-serials.html']
             };
 

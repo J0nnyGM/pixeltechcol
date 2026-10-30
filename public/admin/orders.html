@@ -2045,22 +2045,29 @@
             // Distintivo de canal inteligente (MercadoLibre, Tienda Web o Manual)
             let channelBadge = '';
             const mlStore = getOrderMLStore(o);
+            const isFull = Boolean(o.isFull || o.isMlFull || o.logisticType === 'fulfillment');
+
             if (mlStore !== null) {
                 const storeName = mlStoreNames[mlStore] || `MELI ${mlStore}`;
                 const shortLabel = storeName.length > 20 ? (storeName.substring(0, 18) + '…') : storeName;
-                channelBadge = `<span class="inline-flex items-center gap-1 text-[8px] font-black px-2 py-0.5 rounded shadow-2xs bg-[#FFE600] text-black border border-yellow-400 whitespace-nowrap tracking-tight" title="MercadoLibre - ${storeName} (Tienda ${mlStore})"><i class="fa-solid fa-handshake text-[9px]"></i> ${shortLabel}</span>`;
+                const fullBadge = isFull ? '<span class="text-[8px] font-black px-1.5 py-0.5 rounded shadow-2xs bg-emerald-600 text-white ml-1 tracking-wider inline-block">FULL</span>' : '';
+                channelBadge = `<div class="inline-flex items-center gap-1"><span class="inline-flex items-center gap-1 text-[8px] font-black px-2 py-0.5 rounded shadow-2xs bg-[#FFE600] text-black border border-yellow-400 whitespace-nowrap tracking-tight" title="MercadoLibre - ${storeName} (Tienda ${mlStore})"><i class="fa-solid fa-handshake text-[9px]"></i> ${shortLabel}</span>${fullBadge}</div>`;
             } else if (isTienda) {
                 channelBadge = `<span class="text-[8px] font-black px-2 py-0.5 rounded shadow-2xs bg-cyan-50 text-cyan-800 border border-cyan-200">WEB</span>`;
             } else {
                 channelBadge = `<span class="text-[8px] font-black px-2 py-0.5 rounded shadow-2xs bg-slate-900 text-white">MANUAL</span>`;
             }
 
-            // Botón rápido de Rótulo MercadoLibre
-            const mlLabelBtn = (isML && !isCancelPending) ? `
+            // Botón rápido de Rótulo MercadoLibre (No aplica a Full porque ML gestiona el embalaje y despacho)
+            const mlLabelBtn = (isML && !isCancelPending && !isFull) ? `
                 <button onclick="window.openMercadoLibreLabel('${o.id}')" title="Imprimir Rótulo MercadoLibre" class="w-8 h-8 rounded-lg bg-[#FFE600] border border-yellow-400 text-black hover:bg-yellow-400/80 transition shadow-2xs flex items-center justify-center active:scale-95">
                     <i class="fa-solid fa-tag text-xs"></i>
                 </button>
-            ` : '';
+            ` : (isFull ? `
+                <span title="Mercado Envíos Full (Despachado por MercadoLibre)" class="w-8 h-8 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 flex items-center justify-center shadow-2xs text-xs">
+                    <i class="fa-solid fa-truck-ramp-box"></i>
+                </span>
+            ` : '');
 
             // Botón de confirmación directa de cancelación en bodega
             const cancelConfirmBtn = isCancelPending ? `
@@ -2251,10 +2258,11 @@
                         window.open(labelUrl, '_blank');
                     });
 
-                    // Alistar rápidamente en bodega con seriales para MercadoLibre tras abrir rótulos
+                    // Alistar rápidamente en bodega con seriales para MercadoLibre tras abrir rótulos (excluyendo Full)
                     const mlOrdersToPack = mlOrders.filter(o => 
                         !['ALISTADO', 'DESPACHADO', 'EN_RUTA', 'ENTREGADO', 'CANCELADO', 'CANCELACION_PENDIENTE', 'RECHAZADO', 'DEVUELTO', 'DEVOLUCION_PARCIAL'].includes(o.status) &&
-                        !o.cancellationPendingConfirm
+                        !o.cancellationPendingConfirm &&
+                        !(o.isFull || o.isMlFull || o.logisticType === 'fulfillment')
                     );
                     if (mlOrdersToPack.length > 0 && typeof window.openBulkPackingModal === 'function') {
                         setTimeout(() => {

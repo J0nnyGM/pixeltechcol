@@ -15,9 +15,10 @@ import {
 } from './firebase-init.js';
 import { loadAdminSidebar } from './admin-ui.js';
 import { AdminStore } from './admin-store.js';
+import { isAuthorizedForTransfer, openTransferFullModal } from './inventory-transfer.js';
 
 // =========================================================================
-// 1. SEGURIDAD: CONTROL DE ACCESO EXCLUSIVO PARA ADMINISTRADORES
+// 1. SEGURIDAD: CONTROL DE ACCESO (ADMIN, DEVELOPER, VENTAS)
 // =========================================================================
 let currentUser = null;
 
@@ -32,15 +33,20 @@ onAuthStateChanged(auth, async (user) => {
         if (userDoc.exists()) {
             const role = userDoc.data().role || 'customer';
             
-            // Acceso exclusivo a admin o developer
-            if (role !== 'admin' && role !== 'developer') {
-                alert("Acceso denegado: Esta ventana de sincronización de inventario es exclusiva para el rol Administrador.");
+            // Acceso exclusivo a admin, developer y ventas
+            if (role !== 'admin' && role !== 'developer' && role !== 'ventas') {
+                alert("Acceso denegado: Esta ventana de inventario está restringida a Administrador, Desarrollador y Ventas.");
                 window.location.replace("/admin/index.html");
                 return;
             }
 
             currentUser = user;
             loadAdminSidebar(role);
+
+            const btnTransferHeader = document.getElementById('btn-sync-transfer-full');
+            if (btnTransferHeader && isAuthorizedForTransfer()) {
+                btnTransferHeader.classList.remove('hidden');
+            }
 
             const emailDisplay = document.getElementById('sync-admin-email');
             if (emailDisplay) {
@@ -477,11 +483,32 @@ function renderCatalogGrid() {
     if (btnPrev) btnPrev.disabled = (currentPage <= 1);
     if (btnNext) btnNext.disabled = (currentPage >= totalPages);
 
+    const canTransfer = isAuthorizedForTransfer();
+
     grid.innerHTML = pageProducts.map(prod => {
         const hasVariants = Array.isArray(prod.combinations) && prod.combinations.length > 0;
         const totalStock = hasVariants 
             ? prod.combinations.reduce((sum, c) => sum + (Number(c.stock) || 0), 0)
             : (Number(prod.stock) || 0);
+
+        let bodegaStock = 0;
+        let fullStock = 0;
+        if (hasVariants) {
+            prod.combinations.forEach(c => {
+                if (c.branchStock) {
+                    bodegaStock += Number(c.branchStock.bodega) || 0;
+                    fullStock += Number(c.branchStock.full) || 0;
+                } else {
+                    bodegaStock += Number(c.stock) || 0;
+                }
+            });
+        } else if (prod.branchStock) {
+            bodegaStock = Number(prod.branchStock.bodega) || 0;
+            fullStock = Number(prod.branchStock.full) || 0;
+        } else {
+            bodegaStock = totalStock;
+            fullStock = 0;
+        }
 
         const audit = getAuditStatusDetails(prod);
 
@@ -527,18 +554,50 @@ function renderCatalogGrid() {
                         <span class="px-2.5 py-1 rounded-xl text-xs font-mono font-black border ${stockBadgeClass} inline-block">
                             ${totalStock} ud(s)
                         </span>
+                        <div class="flex items-center gap-1.5 mt-1 text-[9px] font-bold text-gray-400">
+                            <span>Bodega: <strong class="text-brand-black">${bodegaStock}</strong></span>
+                            ${fullStock > 0 ? `<span class="text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded font-black border border-amber-200">Full: ${fullStock}</span>` : ''}
+                        </div>
                     </div>
 
-                    <button type="button" onclick="window.selectProductForSync('${prod.id}')"
-                        class="px-4 py-2 ${audit.buttonClass} text-white font-black text-xs uppercase tracking-wider rounded-xl transition shadow-xs flex items-center gap-1.5 cursor-pointer">
-                        <i class="fa-solid ${audit.buttonIcon} text-[11px]"></i> 
-                        ${audit.buttonText}
-                    </button>
+                    <div class="flex items-center gap-1.5">
+                        ${canTransfer ? `
+                        <button type="button" onclick="window.openTransferFullModal('${prod.id}')"
+                            class="px-2.5 py-2 bg-amber-500 hover:bg-amber-600 text-white font-black text-xs uppercase tracking-wider rounded-xl transition shadow-xs flex items-center gap-1 cursor-pointer" title="Trasladar a Full o Bodega">
+                            <i class="fa-solid fa-truck-ramp-box text-[11px]"></i>
+                            <span class="hidden sm:inline">Trasladar</span>
+                        </button>
+                        ` : ''}
+                        <button type="button" onclick="window.selectProductForSync('${prod.id}')"
+                            class="px-4 py-2 ${audit.buttonClass} text-white font-black text-xs uppercase tracking-wider rounded-xl transition shadow-xs flex items-center gap-1.5 cursor-pointer">
+                            <i class="fa-solid ${audit.buttonIcon} text-[11px]"></i> 
+                            ${audit.buttonText}
+                        </button>
+                    </div>
                 </div>
             </div>
         `;
     }).join('');
 }
+
+window.addEventListener('inventoryTransferCompleted', async (e) => {
+    const { productId } = e.detail || {};
+    if (productId) {
+        try {
+            const snap = await getDoc(doc(db, "products", productId));
+            if (snap.exists()) {
+                const updatedProd = { id: snap.id, ...snap.data() };
+                const idx = allProducts.findIndex(p => p.id === productId);
+                if (idx >= 0) {
+                    allProducts[idx] = updatedProd;
+                }
+                applyFilters();
+            }
+        } catch (err) {
+            console.error("Error al actualizar producto tras traslado:", err);
+        }
+    }
+});
 
 window.selectProductForSync = (productId) => {
     const prod = allProducts.find(p => p.id === productId);

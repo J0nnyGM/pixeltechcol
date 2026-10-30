@@ -1,6 +1,7 @@
-import { db, doc, updateDoc, collection, onSnapshot } from './firebase-init.js';
+import { db, doc, getDoc, updateDoc, collection, onSnapshot } from './firebase-init.js';
 import { loadAdminSidebar } from './admin-ui.js';
-import { AdminStore } from './admin-store.js'; // 🔥 IMPORTAMOS EL CEREBRO CENTRAL
+import { AdminStore } from './admin-store.js';
+import { isAuthorizedForTransfer, openTransferFullModal } from './inventory-transfer.js';
 
 loadAdminSidebar();
 
@@ -81,7 +82,7 @@ if (dNewPriceInput) {
 }
 
 // =============================================================================
-// 🔥 INICIALIZACIÓN CON EL STORE CENTRALIZADO
+// INICIALIZACION CON EL STORE CENTRALIZADO
 // =============================================================================
 
 // Nos suscribimos al cerebro central. Cada vez que haya un cambio, nos enviará el array actualizado.
@@ -121,7 +122,7 @@ function loadCategoriesDefinitions() {
             }
         });
     } catch (err) {
-        console.warn("⚠️ Error suscribiendo a categorías:", err);
+        console.warn("[WARN] Error suscribiendo a categorias:", err);
     }
 }
 
@@ -732,7 +733,7 @@ if (searchForm) {
 }
 
 // =============================================================================
-// 🔥 RENDERIZADO VISUAL
+// RENDERIZADO VISUAL
 // =============================================================================
 
 function renderRowHTML(product, index) {
@@ -740,13 +741,33 @@ function renderRowHTML(product, index) {
     row.className = "hover:bg-slate-50 transition-colors group fade-in border-b border-gray-50 last:border-0";
     row.style.animationDelay = `${index * 15}ms`;
 
-    const role = sessionStorage.getItem('pixeltech_user_role') || 'customer';
-    const canEdit = (role === 'admin');
+    const role = sessionStorage.getItem('pixeltech_user_role') || window.currentUserRole || 'customer';
+    const canEdit = (role === 'admin' || role === 'developer');
+    const canTransfer = isAuthorizedForTransfer();
 
     const hasCombinations = product.combinations && Array.isArray(product.combinations) && product.combinations.length > 0;
     const realStock = hasCombinations 
         ? product.combinations.reduce((sum, c) => sum + (Number(c.stock) || 0), 0)
         : (Number(product.stock) || 0);
+
+    let bodegaStock = 0;
+    let fullStock = 0;
+    if (hasCombinations) {
+        product.combinations.forEach(c => {
+            if (c.branchStock) {
+                bodegaStock += Number(c.branchStock.bodega) || 0;
+                fullStock += Number(c.branchStock.full) || 0;
+            } else {
+                bodegaStock += Number(c.stock) || 0;
+            }
+        });
+    } else if (product.branchStock) {
+        bodegaStock = Number(product.branchStock.bodega) || 0;
+        fullStock = Number(product.branchStock.full) || 0;
+    } else {
+        bodegaStock = realStock;
+        fullStock = 0;
+    }
 
     const img = product.mainImage || product.image || (product.images ? product.images[0] : 'https://placehold.co/100?text=Sin+Foto');
     const isActive = product.status === 'active';
@@ -774,6 +795,11 @@ function renderRowHTML(product, index) {
             <a href="product-serials.html?productId=${product.id}" title="Control de Seriales (SN)" class="w-10 h-10 rounded-xl bg-white border border-gray-200 text-gray-400 hover:text-brand-cyan hover:border-brand-cyan transition shadow-sm flex items-center justify-center hover:-translate-y-1">
                 <i class="fa-solid fa-barcode"></i>
             </a>
+            ${canTransfer ? `
+                <button type="button" onclick="window.openTransferFullModal('${product.id}')" title="Trasladar a Full o Bodega" class="w-10 h-10 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 hover:bg-amber-500 hover:text-white transition shadow-sm flex items-center justify-center hover:-translate-y-1 cursor-pointer">
+                    <i class="fa-solid fa-truck-ramp-box"></i>
+                </button>
+            ` : ''}
             ${canEdit ? `
                 <button onclick="openDiscountModal('${product.id}')" title="Descuentos" class="w-10 h-10 rounded-xl bg-white border border-gray-200 text-gray-400 hover:text-purple-600 hover:border-purple-500 transition shadow-sm flex items-center justify-center hover:-translate-y-1"><i class="fa-solid fa-tags"></i></button>
                 <button onclick="window.location.href='edit-product.html?id=${product.id}'" title="Editar Producto" class="w-10 h-10 rounded-xl bg-white border border-gray-200 text-gray-400 hover:text-brand-cyan hover:border-brand-cyan transition shadow-sm flex items-center justify-center hover:-translate-y-1"><i class="fa-solid fa-pen"></i></button>
@@ -815,6 +841,10 @@ function renderRowHTML(product, index) {
                 <p class="text-[10px] font-bold uppercase ${ realStock < 5 ? 'text-red-400' : 'text-emerald-500' } flex items-center gap-1">
                     <i class="fa-solid fa-layer-group"></i> ${realStock} unid.
                 </p>
+                <div class="flex items-center gap-1.5 mt-0.5 text-[9px] font-bold text-gray-400">
+                    <span>Bodega: <strong class="text-brand-black">${bodegaStock}</strong></span>
+                    ${fullStock > 0 ? `<span class="text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded font-black border border-amber-200">Full: ${fullStock}</span>` : ''}
+                </div>
             </div>
         </td>
         <td class="p-6 text-center align-middle whitespace-nowrap">
@@ -827,8 +857,39 @@ function renderRowHTML(product, index) {
     tableBody.appendChild(row);
 }
 
+function checkTransferHeaderButton() {
+    const btn = document.getElementById('btn-transfer-full-header');
+    if (btn && isAuthorizedForTransfer()) {
+        btn.classList.remove('hidden');
+    }
+}
+checkTransferHeaderButton();
+window.addEventListener('adminRoleResolved', () => {
+    checkTransferHeaderButton();
+    renderTable();
+});
+
+window.addEventListener('inventoryTransferCompleted', async (e) => {
+    const { productId } = e.detail || {};
+    if (productId) {
+        try {
+            const snap = await getDoc(doc(db, "products", productId));
+            if (snap.exists()) {
+                const updatedProd = { id: snap.id, ...snap.data() };
+                const idx = adminProductsCache.findIndex(p => p.id === productId);
+                if (idx >= 0) {
+                    adminProductsCache[idx] = updatedProd;
+                }
+                applyFilters();
+            }
+        } catch (err) {
+            console.error("Error al actualizar producto tras traslado:", err);
+        }
+    }
+});
+
 // =============================================================================
-// 🔥 ACCIONES (OCULTAR Y DESCUENTOS)
+// ACCIONES (OCULTAR Y DESCUENTOS)
 // =============================================================================
 
 window.toggleProductStatus = async (id, currentStatus) => {
@@ -955,7 +1016,7 @@ if(discountForm) {
             }
 
             await updateDoc(doc(db, "products", currentEditingId), { originalPrice: rootOriginalPrice, price: minPrice, promoEndsAt: endDate, updatedAt: new Date(), combinations: updatedCombinations, capacities: updatedCapacities });
-            alert("✅ Oferta aplicada."); closeDiscountModal();
+            alert("Oferta aplicada con exito."); closeDiscountModal();
         } catch (e) { alert("Error: " + e.message); } finally { btn.disabled = false; btn.innerHTML = originalText; }
     });
 }
@@ -970,16 +1031,16 @@ window.removeDiscount = async () => {
         let updatedCapacities = (product.capacities || []).map(c => ({ ...c, price: c.originalPrice || c.price, originalPrice: 0 }));
 
         await updateDoc(doc(db, "products", currentEditingId), { price: product.originalPrice, originalPrice: 0, promoEndsAt: null, updatedAt: new Date(), combinations: updatedCombinations, capacities: updatedCapacities });
-        alert("✅ Oferta removida."); closeDiscountModal();
+        alert("Oferta removida con exito."); closeDiscountModal();
     } catch (e) { console.error(e); }
 };
 
 // =============================================================================
-// 📊 EXPORTAR INVENTARIO COMPLETO A XLSX NATIVO (HOJA DE EXCEL BINARIA)
+// EXPORTAR INVENTARIO COMPLETO A XLSX NATIVO (HOJA DE EXCEL BINARIA)
 // =============================================================================
 window.exportInventoryToExcel = () => {
     if (!adminProductsCache || adminProductsCache.length === 0) {
-        alert("⚠️ No hay productos cargados en el inventario para exportar.");
+        alert("No hay productos cargados en el inventario para exportar.");
         return;
     }
 
@@ -990,7 +1051,7 @@ window.exportInventoryToExcel = () => {
     }
 
     // Si no está cargada, inyectamos la biblioteca SheetJS dinámicamente (Lazy Loading)
-    console.log("📦 Cargando SheetJS bajo demanda para exportar XLSX...");
+    console.log("Cargando SheetJS bajo demanda para exportar XLSX...");
     const btn = document.querySelector('button[onclick="exportInventoryToExcel()"]');
     const originalText = btn ? btn.innerHTML : "";
     if (btn) {
@@ -1012,7 +1073,7 @@ window.exportInventoryToExcel = () => {
             btn.disabled = false;
             btn.innerHTML = originalText;
         }
-        alert("⚠️ No se pudo cargar el motor de exportación. Verifica tu conexión a internet.");
+        alert("No se pudo cargar el motor de exportacion. Verifica tu conexion a internet.");
     };
     document.head.appendChild(script);
 };

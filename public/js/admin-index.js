@@ -804,13 +804,16 @@ function subscribeDashboardData(role) {
 
                 const oDate = o.createdAt?.toDate ? o.createdAt.toDate() : (o.createdAt?.seconds ? new Date(o.createdAt.seconds * 1000) : new Date(o.createdAt || Date.now()));
                 const isCreatedToday = oDate.toDateString() === now.toDateString();
+                const isFull = Boolean(o.isFull || o.isMlFull || o.logisticType === 'fulfillment');
 
                 if (o.status === 'ALISTADO') {
                     alistadoCount++;
-                } else if (isCreatedToday && oDate > cutoffToday) {
-                    tomorrowCount++;
-                } else {
-                    urgentTodayCount++;
+                } else if (!isFull) {
+                    if (isCreatedToday && oDate > cutoffToday) {
+                        tomorrowCount++;
+                    } else {
+                        urgentTodayCount++;
+                    }
                 }
             });
 
@@ -888,11 +891,14 @@ function filterAndRenderOrders() {
         // Filtro por pestana
         const oDate = o.createdAt?.toDate ? o.createdAt.toDate() : (o.createdAt?.seconds ? new Date(o.createdAt.seconds * 1000) : new Date(o.createdAt || Date.now()));
         const isCreatedToday = oDate.toDateString() === now.toDateString();
+        const isFull = Boolean(o.isFull || o.isMlFull || o.logisticType === 'fulfillment');
 
         if (activeOrderFilter === 'TODAY_URGENT') {
+            if (isFull) return false;
             return o.status !== 'ALISTADO' && (!isCreatedToday || oDate <= cutoffToday);
         }
         if (activeOrderFilter === 'TOMORROW') {
+            if (isFull) return false;
             return o.status !== 'ALISTADO' && isCreatedToday && oDate > cutoffToday;
         }
         if (activeOrderFilter === 'ALISTADO') {
@@ -1010,9 +1016,12 @@ function renderOrderRow(o, role) {
                  String(o.id).startsWith('ML2-') ||
                  String(o.id).startsWith('ML3-');
 
+    const isFull = Boolean(o.isFull || o.isMlFull || o.logisticType === 'fulfillment');
+
     let channelBadgeHtml = '<span class="text-[8px] font-black px-2.5 py-1 rounded-md shadow-2xs whitespace-nowrap inline-block bg-slate-900 text-white">MOSTRADOR</span>';
     if (isML) {
-        channelBadgeHtml = '<span class="text-[8px] font-black px-2.5 py-1 rounded-md shadow-2xs whitespace-nowrap inline-block bg-[#FFE600] text-black border border-yellow-400">MERCADOLIBRE</span>';
+        const fullBadge = isFull ? '<span class="text-[8px] font-black px-1.5 py-0.5 rounded shadow-2xs whitespace-nowrap bg-emerald-600 text-white ml-1 tracking-wider inline-block">FULL</span>' : '';
+        channelBadgeHtml = `<div class="inline-flex items-center gap-1"><span class="text-[8px] font-black px-2.5 py-1 rounded-md shadow-2xs whitespace-nowrap inline-block bg-[#FFE600] text-black border border-yellow-400">MERCADOLIBRE</span>${fullBadge}</div>`;
     } else if (isWeb) {
         channelBadgeHtml = '<span class="text-[8px] font-black px-2.5 py-1 rounded-md shadow-2xs whitespace-nowrap inline-block bg-cyan-50 text-cyan-800 border border-cyan-200">TIENDA WEB</span>';
     }
@@ -1026,20 +1035,34 @@ function renderOrderRow(o, role) {
     // Botones de accion segun rol
     let actionsHtml = '';
     if (role === 'logistica') {
-        const isReadyToDispatch = o.status === 'ALISTADO';
-        actionsHtml = `
-            <div class="flex items-center justify-center gap-1.5 whitespace-nowrap">
-                ${cancelConfirmBtn}
-                <button onclick="window.viewOrderDetail('${o.id}')" title="Alistar / Registrar Seriales" class="h-9 px-3 rounded-xl bg-brand-black text-white hover:bg-brand-cyan hover:text-brand-black transition shadow-sm flex items-center gap-1.5 text-[9px] font-black uppercase shrink-0">
-                    <i class="fa-solid fa-boxes-packing text-xs"></i> <span>Alistar</span>
-                </button>
-                ${isReadyToDispatch && !isCancelPending ? `
-                    <button onclick="window.openDispatchModal('${o.id}')" title="Despachar / Asignar Guia" class="h-9 px-3 rounded-xl bg-emerald-500 text-white hover:bg-emerald-600 transition shadow-sm flex items-center gap-1 text-[9px] font-black uppercase shrink-0">
-                        <i class="fa-solid fa-truck-fast text-xs"></i> <span>Despachar</span>
+        if (isFull) {
+            actionsHtml = `
+                <div class="flex items-center justify-center gap-1.5 whitespace-nowrap">
+                    ${cancelConfirmBtn}
+                    <span class="h-9 px-2.5 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-1 text-[9px] font-black uppercase shrink-0">
+                        <i class="fa-solid fa-truck-ramp-box text-xs"></i> <span>Bodega ML</span>
+                    </span>
+                    <button onclick="window.viewOrderDetail('${o.id}')" title="Ver Detalle" class="w-9 h-9 rounded-xl bg-white border border-gray-200 text-brand-black hover:bg-brand-black hover:text-white transition shadow-sm flex items-center justify-center shrink-0">
+                        <i class="fa-solid fa-eye text-xs"></i>
                     </button>
-                ` : ''}
-            </div>
-        `;
+                </div>
+            `;
+        } else {
+            const isReadyToDispatch = o.status === 'ALISTADO';
+            actionsHtml = `
+                <div class="flex items-center justify-center gap-1.5 whitespace-nowrap">
+                    ${cancelConfirmBtn}
+                    <button onclick="window.viewOrderDetail('${o.id}')" title="Alistar / Registrar Seriales" class="h-9 px-3 rounded-xl bg-brand-black text-white hover:bg-brand-cyan hover:text-brand-black transition shadow-sm flex items-center gap-1.5 text-[9px] font-black uppercase shrink-0">
+                        <i class="fa-solid fa-boxes-packing text-xs"></i> <span>Alistar</span>
+                    </button>
+                    ${isReadyToDispatch && !isCancelPending ? `
+                        <button onclick="window.openDispatchModal('${o.id}')" title="Despachar / Asignar Guia" class="h-9 px-3 rounded-xl bg-emerald-500 text-white hover:bg-emerald-600 transition shadow-sm flex items-center gap-1 text-[9px] font-black uppercase shrink-0">
+                            <i class="fa-solid fa-truck-fast text-xs"></i> <span>Despachar</span>
+                        </button>
+                    ` : ''}
+                </div>
+            `;
+        }
     } else {
         const canPay = pendingBalance > 0 && !isFullyPaid;
         actionsHtml = `
@@ -1135,9 +1158,12 @@ function renderOrderMobileCard(o, role) {
                  String(o.id).startsWith('ML2-') ||
                  String(o.id).startsWith('ML3-');
 
+    const isFull = Boolean(o.isFull || o.isMlFull || o.logisticType === 'fulfillment');
+
     let mobileChannelBadgeHtml = '<span class="text-[8px] font-black px-2 py-0.5 rounded shadow-2xs whitespace-nowrap bg-slate-900 text-white">MOSTRADOR</span>';
     if (isML) {
-        mobileChannelBadgeHtml = '<span class="text-[8px] font-black px-2 py-0.5 rounded shadow-2xs whitespace-nowrap bg-[#FFE600] text-black border border-yellow-400">MERCADOLIBRE</span>';
+        const fullBadge = isFull ? '<span class="text-[8px] font-black px-1.5 py-0.5 rounded shadow-2xs whitespace-nowrap bg-emerald-600 text-white ml-1 tracking-wider inline-block">FULL</span>' : '';
+        mobileChannelBadgeHtml = `<div class="inline-flex items-center gap-1"><span class="text-[8px] font-black px-2 py-0.5 rounded shadow-2xs whitespace-nowrap bg-[#FFE600] text-black border border-yellow-400">MERCADOLIBRE</span>${fullBadge}</div>`;
     } else if (isWeb) {
         mobileChannelBadgeHtml = '<span class="text-[8px] font-black px-2 py-0.5 rounded shadow-2xs whitespace-nowrap bg-cyan-50 text-cyan-800 border border-cyan-200">TIENDA WEB</span>';
     }
@@ -1150,20 +1176,34 @@ function renderOrderMobileCard(o, role) {
 
     let actionsHtml = '';
     if (role === 'logistica') {
-        const isReadyToDispatch = o.status === 'ALISTADO';
-        actionsHtml = `
-            <div class="flex items-center gap-2 pt-2 border-t border-gray-100 flex-wrap">
-                ${cancelConfirmBtn}
-                <button onclick="window.viewOrderDetail('${o.id}')" class="flex-1 py-2 px-3 rounded-xl bg-brand-black text-white hover:bg-brand-cyan hover:text-brand-black transition text-xs font-black uppercase flex items-center justify-center gap-1.5 shadow-2xs">
-                    <i class="fa-solid fa-boxes-packing text-xs"></i> <span>Alistar</span>
-                </button>
-                ${isReadyToDispatch && !isCancelPending ? `
-                    <button onclick="window.openDispatchModal('${o.id}')" class="flex-1 py-2 px-3 rounded-xl bg-emerald-500 text-white hover:bg-emerald-600 transition text-xs font-black uppercase flex items-center justify-center gap-1.5 shadow-2xs">
-                        <i class="fa-solid fa-truck-fast text-xs"></i> <span>Despachar</span>
+        if (isFull) {
+            actionsHtml = `
+                <div class="flex items-center gap-2 pt-2 border-t border-gray-100 flex-wrap">
+                    ${cancelConfirmBtn}
+                    <span class="flex-1 py-2 px-3 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-black uppercase flex items-center justify-center gap-1.5">
+                        <i class="fa-solid fa-truck-ramp-box text-xs"></i> <span>Bodega ML</span>
+                    </span>
+                    <button onclick="window.viewOrderDetail('${o.id}')" class="flex-1 py-2 px-3 rounded-xl bg-slate-100 text-brand-black hover:bg-brand-black hover:text-white transition text-xs font-black uppercase flex items-center justify-center gap-1.5">
+                        <i class="fa-solid fa-eye text-xs"></i> <span>Detalle</span>
                     </button>
-                ` : ''}
-            </div>
-        `;
+                </div>
+            `;
+        } else {
+            const isReadyToDispatch = o.status === 'ALISTADO';
+            actionsHtml = `
+                <div class="flex items-center gap-2 pt-2 border-t border-gray-100 flex-wrap">
+                    ${cancelConfirmBtn}
+                    <button onclick="window.viewOrderDetail('${o.id}')" class="flex-1 py-2 px-3 rounded-xl bg-brand-black text-white hover:bg-brand-cyan hover:text-brand-black transition text-xs font-black uppercase flex items-center justify-center gap-1.5 shadow-2xs">
+                        <i class="fa-solid fa-boxes-packing text-xs"></i> <span>Alistar</span>
+                    </button>
+                    ${isReadyToDispatch && !isCancelPending ? `
+                        <button onclick="window.openDispatchModal('${o.id}')" class="flex-1 py-2 px-3 rounded-xl bg-emerald-500 text-white hover:bg-emerald-600 transition text-xs font-black uppercase flex items-center justify-center gap-1.5 shadow-2xs">
+                            <i class="fa-solid fa-truck-fast text-xs"></i> <span>Despachar</span>
+                        </button>
+                    ` : ''}
+                </div>
+            `;
+        }
     } else {
         const canPay = pendingBalance > 0 && !isFullyPaid;
         actionsHtml = `

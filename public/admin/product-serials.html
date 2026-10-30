@@ -363,6 +363,9 @@
                             <button type="button" onclick="window.setFilterTab('dispatched')" id="tab-dispatched" class="tab-btn shrink-0 px-3.5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider bg-white text-gray-500 border border-gray-200 hover:text-blue-700 hover:border-blue-300 transition-all hover:-translate-y-0.5 shadow-2xs">
                                 <i class="fa-solid fa-truck-fast text-[9px] text-blue-500 mr-1"></i> Despachados (<span id="count-tab-dispatched">0</span>)
                             </button>
+                            <button type="button" onclick="window.setFilterTab('full')" id="tab-full" class="tab-btn shrink-0 px-3.5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider bg-white text-gray-500 border border-gray-200 hover:text-amber-700 hover:border-amber-300 transition-all hover:-translate-y-0.5 shadow-2xs">
+                                <i class="fa-solid fa-truck-ramp-box text-[9px] text-amber-500 mr-1"></i> En Full (<span id="count-tab-full">0</span>)
+                            </button>
                             <button type="button" onclick="window.setFilterTab('removed')" id="tab-removed" class="tab-btn shrink-0 px-3.5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider bg-white text-gray-500 border border-gray-200 hover:text-rose-700 hover:border-rose-300 transition-all hover:-translate-y-0.5 shadow-2xs">
                                 <i class="fa-solid fa-ban text-[9px] text-rose-500 mr-1"></i> Retirados (<span id="count-tab-removed">0</span>)
                             </button>
@@ -870,7 +873,7 @@
                 if (snap.exists()) {
                     selectProduct({ id: snap.id, ...snap.data() }, false);
                 } else {
-                    alert("⚠️ El producto especificado no fue encontrado.");
+                    alert("El producto especificado no fue encontrado.");
                     window.backToSelector();
                 }
             } catch (e) {
@@ -1184,7 +1187,7 @@
             if (sortSel) sortSel.value = 'recent';
 
             // Resetear pestañas de estado rápido
-            ['all', 'available', 'dispatched', 'removed'].forEach(tab => {
+            ['all', 'available', 'dispatched', 'full', 'removed'].forEach(tab => {
                 const btn = document.getElementById(`tab-${tab}`);
                 if (!btn) return;
                 if (tab === 'all') {
@@ -1251,6 +1254,7 @@
                 const total = allSerialsCache.length;
                 const available = allSerialsCache.filter(s => s.status === 'AVAILABLE').length;
                 const dispatched = allSerialsCache.filter(s => s.status === 'DISPATCHED').length;
+                const inFull = allSerialsCache.filter(s => s.status === 'IN_FULL_ML').length;
                 const removed = allSerialsCache.filter(s => s.status === 'AUDIT_REMOVED' || s.status === 'REMOVED').length;
 
                 document.getElementById('metric-total-serials').textContent = total;
@@ -1260,6 +1264,8 @@
                 document.getElementById('count-tab-all').textContent = total;
                 document.getElementById('count-tab-available').textContent = available;
                 document.getElementById('count-tab-dispatched').textContent = dispatched;
+                const tabFullCount = document.getElementById('count-tab-full');
+                if (tabFullCount) tabFullCount.textContent = inFull;
                 const tabRemovedCount = document.getElementById('count-tab-removed');
                 if (tabRemovedCount) tabRemovedCount.textContent = removed;
 
@@ -1342,6 +1348,7 @@
                 // Filtro de estado
                 if (currentFilterStatus === 'available' && s.status !== 'AVAILABLE') return false;
                 if (currentFilterStatus === 'dispatched' && s.status !== 'DISPATCHED') return false;
+                if (currentFilterStatus === 'full' && s.status !== 'IN_FULL_ML') return false;
                 if (currentFilterStatus === 'removed' && s.status !== 'AUDIT_REMOVED' && s.status !== 'REMOVED') return false;
 
                 // Filtro de variante
@@ -1450,12 +1457,15 @@
                 const globalIdx = startIndex + idx + 1;
                 const isDispatched = s.status === 'DISPATCHED';
                 const isRemoved = s.status === 'AUDIT_REMOVED' || s.status === 'REMOVED';
+                const isFull = s.status === 'IN_FULL_ML';
 
                 let statusBadge = '';
                 if (isDispatched) {
                     statusBadge = `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-blue-50 text-blue-700 border border-blue-200"><i class="fa-solid fa-truck-fast"></i> Despachado</span>`;
                 } else if (isRemoved) {
                     statusBadge = `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-rose-50 text-rose-700 border border-rose-200"><i class="fa-solid fa-ban"></i> Retirado / Auditoría</span>`;
+                } else if (isFull) {
+                    statusBadge = `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-50 text-amber-700 border border-amber-200"><i class="fa-solid fa-truck-ramp-box"></i> En Full (ML)</span>`;
                 } else {
                     statusBadge = `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200"><i class="fa-solid fa-check"></i> Disponible</span>`;
                 }
@@ -1583,6 +1593,7 @@
                 { id: 'all', activeClass: 'bg-brand-black text-white border-transparent' },
                 { id: 'available', activeClass: 'bg-emerald-600 text-white border-transparent' },
                 { id: 'dispatched', activeClass: 'bg-blue-600 text-white border-transparent' },
+                { id: 'full', activeClass: 'bg-amber-600 text-white border-transparent' },
                 { id: 'removed', activeClass: 'bg-rose-600 text-white border-transparent' }
             ];
 
@@ -1692,7 +1703,7 @@
         // =========================================================================
         window.exportSerialsToExcel = () => {
             if (!allSerialsCache || allSerialsCache.length === 0) {
-                alert("⚠️ No hay seriales para exportar.");
+                alert("No hay seriales para exportar.");
                 return;
             }
 
@@ -1846,7 +1857,7 @@
                 });
 
                 if (serialsToFix.length === 0) {
-                    alert("✅ Todo en orden:\nNo se encontraron seriales bloqueados ni seriales regularizados huérfanos.");
+                    alert("Todo en orden:\nNo se encontraron seriales bloqueados ni seriales regularizados huerfanos.");
                     return;
                 }
 
@@ -1854,7 +1865,7 @@
                 const toDelete = serialsToFix.filter(s => s.action === 'DELETE');
 
                 // Mostrar reporte previo al usuario
-                let summaryDetails = `⚠️ SE ENCONTRARON ${serialsToFix.length} SERIALES A PROCESAR:\n\n`;
+                let summaryDetails = `SE ENCONTRARON ${serialsToFix.length} SERIALES A PROCESAR:\n\n`;
                 if (toRelease.length > 0) {
                     summaryDetails += `• ${toRelease.length} seriales legítimos de compras pasarán a estado 'DISPONIBLE'.\n`;
                 }
@@ -1862,7 +1873,7 @@
                     summaryDetails += `• ${toDelete.length} seriales REGULARIZADOS serán ELIMINADOS (para evitar que bloqueen el producto correcto si pertenecían a otro equipo).\n`;
                 }
 
-                const previewList = serialsToFix.slice(0, 10).map(s => `• [${s.sn}] (${s.product}) → ${s.action === 'DELETE' ? '🗑️ ELIMINAR' : '🔄 LIBERAR'} (${s.reason})`).join('\n');
+                const previewList = serialsToFix.slice(0, 10).map(s => `• [${s.sn}] (${s.product}) → ${s.action === 'DELETE' ? '[ELIMINAR]' : '[LIBERAR]'} (${s.reason})`).join('\n');
                 const moreCount = serialsToFix.length > 10 ? `\n... y ${serialsToFix.length - 10} más` : '';
                 const confirmMsg = `${summaryDetails}\nDetalle (primeros ${Math.min(10, serialsToFix.length)}):\n${previewList}${moreCount}\n\n¿Deseas aplicar estos cambios en la base de datos?`;
 
@@ -1896,7 +1907,7 @@
                     await batch.commit();
                 }
 
-                alert(`🎉 Éxito:\nSe procesaron ${serialsToFix.length} seriales correctamente.\n\n- ${toRelease.length} seriales liberados a 'DISPONIBLE'.\n- ${toDelete.length} seriales regularizados eliminados.`);
+                alert(`Exito:\nSe procesaron ${serialsToFix.length} seriales correctamente.\n\n- ${toRelease.length} seriales liberados a 'DISPONIBLE'.\n- ${toDelete.length} seriales regularizados eliminados.`);
 
                 // 3. Recargar estadísticas y vista activa
                 await loadGlobalSerialStats();
@@ -1906,7 +1917,7 @@
 
             } catch (err) {
                 console.error("Error auditando y procesando seriales:", err);
-                alert("❌ Error al procesar: " + (err.message || err));
+                alert("Error al procesar: " + (err.message || err));
             } finally {
                 if (btn) {
                     btn.disabled = false;
