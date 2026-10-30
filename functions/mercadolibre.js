@@ -1,5 +1,6 @@
 // functions/mercadolibre.js
 const functions = require("firebase-functions");
+const { onSchedule } = require("firebase-functions/v2/scheduler");
 const admin = require("firebase-admin");
 
 async function getMLConfig(db, storeDocName = 'mercadolibre') {
@@ -94,7 +95,7 @@ async function refreshMLAccessToken(db, storeDocName = 'mercadolibre') {
 
     if (!refreshToken) throw new Error(`No hay refreshToken guardado para ${storeDocName}`);
 
-    console.log(`🔄 Renovando token de acceso vencido para ${storeDocName}...`);
+    console.log(` Renovando token de acceso vencido para ${storeDocName}...`);
 
     const res = await fetch("https://api.mercadolibre.com/oauth/token", {
         method: "POST",
@@ -109,7 +110,7 @@ async function refreshMLAccessToken(db, storeDocName = 'mercadolibre') {
 
     const tokenData = await res.json();
     if (res.ok && tokenData.access_token) {
-        console.log(`✅ Token de ${storeDocName} renovado exitosamente.`);
+        console.log(` Token de ${storeDocName} renovado exitosamente.`);
         const tokenPayload = {
             accessToken: tokenData.access_token,
             refreshToken: tokenData.refresh_token || refreshToken,
@@ -139,7 +140,7 @@ async function refreshMLAccessToken(db, storeDocName = 'mercadolibre') {
         }
         return tokenData.access_token;
     } else {
-        console.error(`❌ Error al renovar token de ${storeDocName}:`, tokenData);
+        console.error(` Error al renovar token de ${storeDocName}:`, tokenData);
         throw new Error(`Error renovando token ML (${storeDocName}): ${JSON.stringify(tokenData)}`);
     }
 }
@@ -152,7 +153,7 @@ async function fetchML(endpoint, token, db = null, storeDocName = 'mercadolibre'
         });
 
         if ((response.status === 401 || response.statusText === 'Unauthorized') && db) {
-            console.log(`⚠️ Token 401 Unauthorized detectado en ${endpoint}. Renovando token automáticamente...`);
+            console.log(` Token 401 Unauthorized detectado en ${endpoint}. Renovando token automáticamente...`);
             const newToken = await refreshMLAccessToken(db, storeDocName);
             const retryRes = await fetch(`https://api.mercadolibre.com${endpoint}`, {
                 headers: { Authorization: `Bearer ${newToken}` }
@@ -165,7 +166,7 @@ async function fetchML(endpoint, token, db = null, storeDocName = 'mercadolibre'
         return await response.json();
     } catch (err) {
         if (err.message && err.message.includes('Unauthorized') && db) {
-            console.log(`⚠️ Capturado error Unauthorized en catch. Intentando renovar token...`);
+            console.log(` Capturado error Unauthorized en catch. Intentando renovar token...`);
             const newToken = await refreshMLAccessToken(db, storeDocName);
             const retryRes = await fetch(`https://api.mercadolibre.com${endpoint}`, {
                 headers: { Authorization: `Bearer ${newToken}` }
@@ -228,10 +229,53 @@ async function findProductInStore(db, item) {
         for (const field of ['sku', 'ean', 'barcode', 'ref', 'code', 'mlItemId']) {
             const q = await db.collection('products').where(field, '==', upperCode).limit(1).get();
             if (!q.empty) {
-                const pData = q.docs[0].data();
+                const pDoc = q.docs[0];
+                const pData = pDoc.data();
                 const img = pData.mainImage || pData.image || (Array.isArray(pData.images) && pData.images[0]) || "";
+
+                if (Array.isArray(pData.combinations) && pData.combinations.length > 0) {
+                    let matchedVarIdx = -1;
+                    for (let cIdx = 0; cIdx < pData.combinations.length; cIdx++) {
+                        const comb = pData.combinations[cIdx];
+                        const combCodes = [comb.sku, comb.ean, comb.barcode, comb.ref, comb.code, comb.mlVariationId].filter(Boolean).map(normalizeCode);
+                        if (normCandidateCodes.some(nc => combCodes.includes(nc))) {
+                            matchedVarIdx = cIdx;
+                            break;
+                        }
+                    }
+                    if (matchedVarIdx < 0 && (varColor || varCapacity)) {
+                        for (let cIdx = 0; cIdx < pData.combinations.length; cIdx++) {
+                            const comb = pData.combinations[cIdx];
+                            const cColor = normalizeText(comb.color || '');
+                            const cCap = normalizeText(comb.capacity || '');
+                            if ((!varColor || cColor === varColor) && (!varCapacity || cCap === varCapacity)) {
+                                matchedVarIdx = cIdx;
+                                break;
+                            }
+                        }
+                    }
+                    if (matchedVarIdx < 0 && pData.combinations.length === 1) {
+                        matchedVarIdx = 0;
+                    }
+
+                    if (matchedVarIdx >= 0) {
+                        const comb = pData.combinations[matchedVarIdx];
+                        return {
+                            docId: pDoc.id,
+                            isVariant: true,
+                            variantIndex: matchedVarIdx,
+                            name: pData.name || pData.title || item.item.title,
+                            sku: comb.sku || pData.sku || rawCode,
+                            color: comb.color || "",
+                            capacity: comb.capacity || "",
+                            image: comb.image || img,
+                            productData: pData
+                        };
+                    }
+                }
+
                 return { 
-                    docId: q.docs[0].id, 
+                    docId: pDoc.id, 
                     isVariant: false, 
                     name: pData.name || pData.title || item.item.title,
                     sku: pData.sku || rawCode,
@@ -365,12 +409,12 @@ async function getMLShipmentCost(shippingId, token, db = null, storeDocName = 'm
                 if (Array.isArray(costsData.senders) && costsData.senders.length > 0) {
                     const sender = costsData.senders[0];
                     if (typeof sender.cost === 'number') {
-                        console.log(`📦 [${storeDocName}] Costo oficial Vendedor ML desde /costs (${shippingId}): $${sender.cost}`);
+                        console.log(` [${storeDocName}] Costo oficial Vendedor ML desde /costs (${shippingId}): $${sender.cost}`);
                         return Math.max(0, Math.round(sender.cost));
                     }
                 }
                 if (costsData.receiver && typeof costsData.receiver.cost === 'number' && costsData.receiver.cost > 0 && (!costsData.senders || costsData.senders.length === 0)) {
-                    console.log(`📦 [${storeDocName}] Envío asumido totalmente por el comprador (${shippingId}): Costo Vendedor = $0`);
+                    console.log(` [${storeDocName}] Envío asumido totalmente por el comprador (${shippingId}): Costo Vendedor = $0`);
                     return 0;
                 }
             }
@@ -382,7 +426,7 @@ async function getMLShipmentCost(shippingId, token, db = null, storeDocName = 'm
         const sData = await fetchML(`/shipments/${shippingId}`, token, db, storeDocName);
         if (sData) {
             if (sData.logistic_type === 'self_service') {
-                console.log(`🛵 Envío Flex detectado (${shippingId}): Costo Vendedor ML = $0`);
+                console.log(` Envío Flex detectado (${shippingId}): Costo Vendedor ML = $0`);
                 return 0;
             }
 
@@ -390,7 +434,7 @@ async function getMLShipmentCost(shippingId, token, db = null, storeDocName = 'm
             if (sData.shipping_option) {
                 const isFreeForBuyer = sData.shipping_option.free_shipping || false;
                 if (!isFreeForBuyer && (!sData.cost_components || sData.cost_components.length === 0)) {
-                    console.log(`📦 Envío a cargo del comprador (${shippingId}): Costo Vendedor ML = $0`);
+                    console.log(` Envío a cargo del comprador (${shippingId}): Costo Vendedor ML = $0`);
                     return 0;
                 }
             }
@@ -410,7 +454,7 @@ async function getMLShipmentCost(shippingId, token, db = null, storeDocName = 'm
             if (!cost && sData.snapshot && typeof sData.snapshot.cost === 'number' && sData.snapshot.cost > 0) cost = sData.snapshot.cost;
             if (!cost && typeof sData.cost === 'number' && sData.cost > 0) cost = sData.cost;
 
-            console.log(`📦 Costo de Envío Vendedor ML (${shippingId}): $${cost}`);
+            console.log(` Costo de Envío Vendedor ML (${shippingId}): $${cost}`);
             return Number(cost) || 0;
         }
     } catch (err) {
@@ -721,7 +765,7 @@ async function enrichBuyerDocumentFromUsers(db, buyerInfo, rawBuyerId, storeTitl
                         const foundDoc = String(uQuery.docs[0].data().document).trim();
                         if (foundDoc) {
                             buyerInfo.doc = foundDoc;
-                            console.log(`🔍 [${storeTitle}] Cédula real recuperada por teléfono para ${orderId}: ${foundDoc}`);
+                            console.log(` [${storeTitle}] Cédula real recuperada por teléfono para ${orderId}: ${foundDoc}`);
                             return;
                         }
                     }
@@ -735,7 +779,7 @@ async function enrichBuyerDocumentFromUsers(db, buyerInfo, rawBuyerId, storeTitl
                     const foundDoc = String(uQuery.docs[0].data().document).trim();
                     if (foundDoc) {
                         buyerInfo.doc = foundDoc;
-                        console.log(`🔍 [${storeTitle}] Cédula real recuperada por email para ${orderId}: ${foundDoc}`);
+                        console.log(` [${storeTitle}] Cédula real recuperada por email para ${orderId}: ${foundDoc}`);
                     }
                 }
             } catch (ueErr) {}
@@ -761,7 +805,7 @@ function createWebhookHandler({
             // --- AUTO-VINCULACIÓN OAUTH POR CÓDIGO DE AUTORIZACIÓN (?code=...) ---
             const authCode = req.query.code;
             if (authCode) {
-                console.log(`🔑 Código de autorización ${storeTitle} recibido:`, authCode);
+                console.log(` Código de autorización ${storeTitle} recibido:`, authCode);
                 const mlConfig = await getMLConfig(db, storeDocName);
                 const rawHost = req.get('host') || '';
                 const protocol = rawHost.includes('localhost') ? 'http' : 'https';
@@ -769,7 +813,7 @@ function createWebhookHandler({
                 let cleanPath = (req.path || '').replace(/\/+$/, '');
                 let redirectUri = req.query.redirect_uri || mlConfig.redirectUri || `${protocol}://${rawHost}${cleanPath}`;
 
-                console.log(`🔗 Usando redirect_uri para canje de token (${storeTitle}): ${redirectUri}`);
+                console.log(` Usando redirect_uri para canje de token (${storeTitle}): ${redirectUri}`);
 
                 const tokenRes = await fetch("https://api.mercadolibre.com/oauth/token", {
                     method: "POST",
@@ -814,7 +858,7 @@ function createWebhookHandler({
                     return res.status(200).send(`
                         <div style="font-family:sans-serif; text-align:center; padding:60px 20px; background:#f9fafb; min-height:100vh; display:flex; flex-direction:column; justify-content:center; align-items:center;">
                             <div style="background:white; padding:40px; border-radius:24px; box-shadow:0 20px 25px -5px rgba(0,0,0,0.1); max-width:480px; border:1px solid #e5e7eb;">
-                                <div style="font-size:48px; margin-bottom:16px;">🎉</div>
+                                <div style="font-size:48px; margin-bottom:16px;"></div>
                                 <h1 style="color:#10B981; margin:0 0 12px 0; font-size:24px; font-weight:800;">¡${storeTitle} Vinculado Exitosamente!</h1>
                                 <p style="color:#4b5563; font-size:14px; line-height:1.6; margin-bottom:24px;">La aplicación ha guardado los tokens de acceso y la sincronización de inventario por SKU y pedidos en tiempo real para <strong>${storeTitle}</strong> está activa.</p>
                                 <span style="background:#ecfdf5; color:#047857; padding:8px 16px; border-radius:12px; font-weight:700; font-size:12px; display:inline-block;">ID Usuario ML: ${tokenData.user_id}</span>
@@ -822,7 +866,7 @@ function createWebhookHandler({
                         </div>
                     `);
                 } else {
-                    console.error(`❌ Error al canjear código ${storeTitle}:`, tokenData);
+                    console.error(` Error al canjear código ${storeTitle}:`, tokenData);
                     return res.status(400).send(`Error al canjear código de ${storeTitle}: ${JSON.stringify(tokenData)}`);
                 }
             }
@@ -833,7 +877,7 @@ function createWebhookHandler({
             if (topic !== 'orders_v2' && topic !== 'orders') return res.status(200).send("OK: Ignored topic");
             if (!resource) return res.status(200).send("OK: Missing resource");
 
-            console.log(`📦 Nueva orden de ${storeTitle} detectada: ${resource}`);
+            console.log(` Nueva orden de ${storeTitle} detectada: ${resource}`);
 
             const mlConfigDoc = await db.collection('config').doc(storeDocName).get();
             if (!mlConfigDoc.exists) throw new Error(`Falta configuración de ${storeDocName} en DB`);
@@ -843,14 +887,14 @@ function createWebhookHandler({
             const rawOrderId = String(orderData.id);
             const orderId = `${orderPrefix}${rawOrderId}`;
 
-            console.log(`📥 RAW ML ORDER JSON (${orderId}):`, JSON.stringify(orderData));
+            console.log(` RAW ML ORDER JSON (${orderId}):`, JSON.stringify(orderData));
 
             try {
                 let debugShipment = null;
                 if (orderData.shipping && orderData.shipping.id) {
                     try {
                         debugShipment = await fetchML(`/shipments/${orderData.shipping.id}`, ML_TOKEN, db, storeDocName);
-                        console.log(`🚚 RAW ML SHIPMENT JSON (${orderId}):`, JSON.stringify(debugShipment));
+                        console.log(` RAW ML SHIPMENT JSON (${orderId}):`, JSON.stringify(debugShipment));
                     } catch (e) {
                         console.error(`Error obteniendo debug shipment para ${orderId}:`, e);
                     }
@@ -873,116 +917,25 @@ function createWebhookHandler({
                 const newMLStatus = orderData.status;
 
                 if (newMLStatus === 'cancelled' && existingOrder.status !== 'CANCELADO') {
-                    console.log(`⚠️ Orden de ${storeTitle} ${orderId} fue CANCELADA. Revirtiendo stock y estado.`);
-                    await db.runTransaction(async (t) => {
-                        const pDocsMap = new Map();
-                        for (const item of existingOrder.items || []) {
-                            if (item.id && !item.id.includes('UNKNOWN') && !pDocsMap.has(item.id)) {
-                                const pRef = db.collection('products').doc(item.id);
-                                const pDoc = await t.get(pRef);
-                                if (pDoc.exists) pDocsMap.set(item.id, pDoc);
-                            }
-                        }
-
-                        let accDoc = null;
-                        if (existingOrder.paymentAccountId) {
-                            const accRef = db.collection('accounts').doc(existingOrder.paymentAccountId);
-                            const aDoc = await t.get(accRef);
-                            if (aDoc.exists) accDoc = aDoc;
-                        }
-
-                        if (!accDoc) {
-                            const accountCandidates = [
-                                paymentMethod,
-                                `MercadoLibre ${storeNumber}`,
-                                `Mercado Libre ${storeNumber}`,
-                                `MercadoLibre Tienda ${storeNumber}`,
-                                `Cuenta MercadoLibre ${storeNumber}`,
-                                'MercadoLibre',
-                                'Mercado Libre',
-                                'Cuenta MercadoLibre'
-                            ];
-                            const accQ = await t.get(db.collection('accounts').where('name', 'in', accountCandidates).limit(1));
-                            if (!accQ.empty) accDoc = accQ.docs[0];
-                        }
-
-                        for (const item of existingOrder.items || []) {
-                            if (item.id && pDocsMap.has(item.id)) {
-                                const pDoc = pDocsMap.get(item.id);
-                                const pData = pDoc.data();
-                                const qty = Number(item.quantity) || 1;
-
-                                let rootBranchStock = { ...(pData.branchStock || {}) };
-                                let newCombos = Array.isArray(pData.combinations) ? JSON.parse(JSON.stringify(pData.combinations)) : [];
-
-                                if (item.color || item.capacity) {
-                                    const idx = newCombos.findIndex(c => 
-                                        (c.color === item.color || (!c.color && !item.color)) &&
-                                        (c.capacity === item.capacity || (!c.capacity && !item.capacity))
-                                    );
-                                    if (idx >= 0) {
-                                        let combo = newCombos[idx];
-                                        if (!combo.branchStock) combo.branchStock = {};
-                                        combo.branchStock['bodega'] = (Number(combo.branchStock['bodega']) || 0) + qty;
-                                        combo.stock = Object.values(combo.branchStock).reduce((s, v) => s + (Number(v) || 0), 0);
-
-                                        rootBranchStock = {};
-                                        newCombos.forEach(c => {
-                                            if (c.branchStock) {
-                                                Object.keys(c.branchStock).forEach(bId => {
-                                                    rootBranchStock[bId] = (rootBranchStock[bId] || 0) + (Number(c.branchStock[bId]) || 0);
-                                                });
-                                            }
-                                        });
-                                    }
-                                } else {
-                                    rootBranchStock['bodega'] = (Number(rootBranchStock['bodega']) || 0) + qty;
-                                }
-
-                                let calculatedGlobalStock = Object.values(rootBranchStock).reduce((s, v) => s + (Number(v) || 0), 0);
-                                if (newCombos.length > 0) {
-                                    calculatedGlobalStock = newCombos.reduce((s, c) => s + (Number(c.stock) || 0), 0);
-                                }
-
-                                t.update(pDoc.ref, {
-                                    stock: calculatedGlobalStock,
-                                    branchStock: rootBranchStock,
-                                    combinations: newCombos,
-                                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
-                                });
-                            }
-                        }
-
-                        if (accDoc) {
-                            const currentBalance = Number(accDoc.data().balance) || 0;
-                            const refundAmount = Number(existingOrder.netAmount) || Number(existingOrder.total) || 0;
-                            t.update(accDoc.ref, { balance: Math.max(0, currentBalance - refundAmount) });
-
-                            const expenseRef = db.collection('expenses').doc();
-                            t.set(expenseRef, {
-                                amount: refundAmount,
-                                category: "Cancelaciones / Anulaciones",
-                                description: `Reverso por cancelación de Orden ${storeTitle} #${orderData.id}`,
-                                paymentMethod: accDoc.data().name || paymentMethod,
-                                supplierName: existingOrder.userName || `Cliente ${storeTitle}`,
-                                date: admin.firestore.FieldValue.serverTimestamp(),
-                                createdAt: admin.firestore.FieldValue.serverTimestamp(),
-                                type: 'EXPENSE',
-                                orderId: orderId
-                            });
-                        }
-
-                        const orderRef = db.collection('orders').doc(orderId);
-                        t.update(orderRef, {
-                            status: 'CANCELADO',
-                            paymentStatus: 'REFUNDED',
-                            isStockDeducted: false,
-                            updatedAt: admin.firestore.FieldValue.serverTimestamp()
-                        });
+                    if (existingOrder.cancellationConfirmed) {
+                        return res.status(200).send("OK: Cancellation already confirmed");
+                    }
+                    console.log(`[ML] Orden de ${storeTitle} ${orderId} fue cancelada en MercadoLibre. Marcando CANCELACION_PENDIENTE para confirmar retencion en bodega.`);
+                    
+                    await db.collection('orders').doc(orderId).update({
+                        status: 'CANCELACION_PENDIENTE',
+                        cancellationPendingConfirm: true,
+                        mlCancelled: true,
+                        mlStatus: 'cancelled',
+                        cancellationRequestedAt: admin.firestore.FieldValue.serverTimestamp(),
+                        cancellationReason: orderData.cancel_detail?.requested_by 
+                            ? `Cancelado por ${orderData.cancel_detail.requested_by} en MercadoLibre` 
+                            : 'Cancelado por el comprador o plataforma en MercadoLibre',
+                        cancellationPreviousStatus: existingOrder.status || 'PENDIENTE',
+                        updatedAt: admin.firestore.FieldValue.serverTimestamp()
                     });
 
-                    console.log(`✅ Orden ${orderId} cancelada y stock devuelto exitosamente.`);
-                    return res.status(200).send("OK: Cancelled & Stock Reverted");
+                    return res.status(200).send("OK: Marked for cancellation confirmation");
                 }
 
                 // Actualización automática con datos nuevos
@@ -1142,17 +1095,17 @@ function createWebhookHandler({
                         }
                     }
 
-                    console.log(`🔄 Orden ${orderId} (${storeTitle}) actualizada automáticamente con nuevos datos de ML (Neto: $${oldNet} -> $${netAmount}, Comisión: $${mlFee}).`);
+                    console.log(` Orden ${orderId} (${storeTitle}) actualizada automáticamente con nuevos datos de ML (Neto: $${oldNet} -> $${netAmount}, Comisión: $${mlFee}).`);
                     return res.status(200).send(`OK: Orden ${orderId} actualizada con nueva información.`);
                 }
 
-                console.log(`ℹ️ La orden ${orderId} (${storeTitle}) ya existe en la base de datos y está al día.`);
+                console.log(`ℹ La orden ${orderId} (${storeTitle}) ya existe en la base de datos y está al día.`);
                 return res.status(200).send(`OK: La orden ${orderId} ya existe en el sistema y está al día.`);
             }
 
             const packMembershipCheck = await db.collection('orders').where('packOrderIds', 'array-contains', String(orderData.id)).limit(1).get();
             if (!packMembershipCheck.empty) {
-                console.log(`ℹ️ La orden ML #${orderData.id} ya fue consolidada en el paquete ${packMembershipCheck.docs[0].id}.`);
+                console.log(`ℹ La orden ML #${orderData.id} ya fue consolidada en el paquete ${packMembershipCheck.docs[0].id}.`);
                 return res.status(200).send(`OK: La orden ML #${orderData.id} ya fue consolidada previamente.`);
             }
 
@@ -1168,7 +1121,7 @@ function createWebhookHandler({
             let billingInfo = null;
             try {
                 billingInfo = await fetchML(`/orders/${orderData.id}/billing_info`, ML_TOKEN, db, storeDocName);
-                console.log(`🧾 RAW ML BILLING INFO (${orderId}):`, JSON.stringify(billingInfo));
+                console.log(` RAW ML BILLING INFO (${orderId}):`, JSON.stringify(billingInfo));
             } catch (bErr) {
                 console.log(`Info: No se pudo consultar billing_info de la orden ${orderData.id}:`, bErr.message);
             }
@@ -1239,7 +1192,7 @@ function createWebhookHandler({
                                 } catch (vErr) {}
                             }
                             if (deepPayment) {
-                                console.log(`💳 DEEP PAYMENT JSON (${p.id}):`, JSON.stringify(deepPayment));
+                                console.log(` DEEP PAYMENT JSON (${p.id}):`, JSON.stringify(deepPayment));
                                 const deepTax = Math.round(getMLTaxesAmount(deepPayment));
                                 if (deepTax > mlTaxes) mlTaxes = deepTax;
                                 
@@ -1312,7 +1265,7 @@ function createWebhookHandler({
                 if (currentOrderDoc.exists) {
                     const cod = currentOrderDoc.data();
                     if (cod.isStockDeducted === true && cod.status !== 'CANCELADO') {
-                        console.log(`🔒 Orden ${orderId} ya procesada concurrentemente. Evitando descuento duplicado.`);
+                        console.log(` Orden ${orderId} ya procesada concurrentemente. Evitando descuento duplicado.`);
                         return;
                     }
                 }
@@ -1323,7 +1276,7 @@ function createWebhookHandler({
                     if (freshPackDoc.exists) {
                         const fpd = freshPackDoc.data();
                         if (Array.isArray(fpd.packOrderIds) && fpd.packOrderIds.includes(String(orderData.id))) {
-                            console.log(`🔒 Orden ML #${orderData.id} ya existe en paquete ${existingPackDocSnap.id}. Evitando duplicación.`);
+                            console.log(` Orden ML #${orderData.id} ya existe en paquete ${existingPackDocSnap.id}. Evitando duplicación.`);
                             return;
                         }
                     }
@@ -1358,57 +1311,92 @@ function createWebhookHandler({
                     }
                 }
 
-                if (accDoc) {
-                    t.update(accDoc.ref, { balance: (Number(accDoc.data().balance) || 0) + netAmount });
-                }
+                const shouldDeductStock = orderData.status !== 'cancelled';
 
-                for (const p of itemsToDeduct) {
-                    const pDoc = pDocsMap.get(p.docId);
-                    if (pDoc) {
-                        const pData = pDoc.data();
-                        const qty = Number(p.qty) || 1;
+                if (shouldDeductStock) {
+                    if (accDoc) {
+                        t.update(accDoc.ref, { balance: (Number(accDoc.data().balance) || 0) + netAmount });
+                    }
 
-                        let rootBranchStock = { ...(pData.branchStock || {}) };
-                        let newCombinations = Array.isArray(pData.combinations) ? JSON.parse(JSON.stringify(pData.combinations)) : [];
+                    for (const p of itemsToDeduct) {
+                        const pDoc = pDocsMap.get(p.docId);
+                        if (pDoc) {
+                            const pData = pDoc.data();
+                            const qty = Number(p.qty) || 1;
 
-                        if (p.isVariant && newCombinations.length > 0 && newCombinations[p.variantIndex]) {
-                            let combo = newCombinations[p.variantIndex];
-                            if (!combo.branchStock) combo.branchStock = {};
+                            let rootBranchStock = { ...(pData.branchStock || {}) };
+                            let newCombinations = Array.isArray(pData.combinations) ? JSON.parse(JSON.stringify(pData.combinations)) : [];
 
-                            let currentBodega = combo.branchStock['bodega'] !== undefined
-                                ? (Number(combo.branchStock['bodega']) || 0)
-                                : Math.max(0, (Number(combo.stock) || 0) - Object.entries(combo.branchStock).filter(([k]) => k !== 'bodega').reduce((s, [, v]) => s + (Number(v) || 0), 0));
+                            if (p.isVariant && newCombinations.length > 0 && newCombinations[p.variantIndex]) {
+                                let combo = newCombinations[p.variantIndex];
+                                if (!combo.branchStock) combo.branchStock = {};
 
-                            combo.branchStock['bodega'] = Math.max(0, currentBodega - qty);
-                            combo.stock = Object.values(combo.branchStock).reduce((s, v) => s + (Number(v) || 0), 0);
+                                let currentBodega = combo.branchStock['bodega'] !== undefined
+                                    ? (Number(combo.branchStock['bodega']) || 0)
+                                    : Math.max(0, (Number(combo.stock) || 0) - Object.entries(combo.branchStock).filter(([k]) => k !== 'bodega').reduce((s, [, v]) => s + (Number(v) || 0), 0));
 
-                            rootBranchStock = {};
-                            newCombinations.forEach(c => {
-                                if (c.branchStock) {
-                                    Object.keys(c.branchStock).forEach(bId => {
-                                        rootBranchStock[bId] = (rootBranchStock[bId] || 0) + (Number(c.branchStock[bId]) || 0);
-                                    });
+                                combo.branchStock['bodega'] = Math.max(0, currentBodega - qty);
+                                combo.stock = Object.values(combo.branchStock).reduce((s, v) => s + (Number(v) || 0), 0);
+
+                                rootBranchStock = {};
+                                newCombinations.forEach(c => {
+                                    if (c.branchStock) {
+                                        Object.keys(c.branchStock).forEach(bId => {
+                                            rootBranchStock[bId] = (rootBranchStock[bId] || 0) + (Number(c.branchStock[bId]) || 0);
+                                        });
+                                    }
+                                });
+                            } else if (newCombinations.length > 0) {
+                                let bestComboIdx = 0;
+                                let maxComboStock = -1;
+                                for (let cI = 0; cI < newCombinations.length; cI++) {
+                                    const cStk = Number(newCombinations[cI].stock) || 0;
+                                    if (cStk > maxComboStock) {
+                                        maxComboStock = cStk;
+                                        bestComboIdx = cI;
+                                    }
                                 }
+
+                                let combo = newCombinations[bestComboIdx];
+                                if (!combo.branchStock) combo.branchStock = {};
+
+                                let currentBodega = combo.branchStock['bodega'] !== undefined
+                                    ? (Number(combo.branchStock['bodega']) || 0)
+                                    : Math.max(0, (Number(combo.stock) || 0) - Object.entries(combo.branchStock).filter(([k]) => k !== 'bodega').reduce((s, [, v]) => s + (Number(v) || 0), 0));
+
+                                combo.branchStock['bodega'] = Math.max(0, currentBodega - qty);
+                                combo.stock = Object.values(combo.branchStock).reduce((s, v) => s + (Number(v) || 0), 0);
+
+                                rootBranchStock = {};
+                                newCombinations.forEach(c => {
+                                    if (c.branchStock) {
+                                        Object.keys(c.branchStock).forEach(bId => {
+                                            rootBranchStock[bId] = (rootBranchStock[bId] || 0) + (Number(c.branchStock[bId]) || 0);
+                                        });
+                                    }
+                                });
+                            } else {
+                                let currentBodega = rootBranchStock['bodega'] !== undefined
+                                    ? (Number(rootBranchStock['bodega']) || 0)
+                                    : Math.max(0, (Number(pData.stock) || 0) - Object.entries(rootBranchStock).filter(([k]) => k !== 'bodega').reduce((s, [, v]) => s + (Number(v) || 0), 0));
+
+                                rootBranchStock['bodega'] = Math.max(0, currentBodega - qty);
+                            }
+
+                            let calculatedGlobalStock = Object.values(rootBranchStock).reduce((s, v) => s + (Number(v) || 0), 0);
+                            if (newCombinations.length > 0) {
+                                calculatedGlobalStock = newCombinations.reduce((s, c) => s + (Number(c.stock) || 0), 0);
+                            }
+
+                            t.update(pDoc.ref, {
+                                stock: calculatedGlobalStock,
+                                branchStock: rootBranchStock,
+                                combinations: newCombinations,
+                                lastStockChangeReason: 'VENTA_PEDIDO',
+                                lastStockChangeDetails: `Venta ${storeTitle} pedido #${orderId}`,
+                                updatedAt: admin.firestore.FieldValue.serverTimestamp()
                             });
-                        } else {
-                            let currentBodega = rootBranchStock['bodega'] !== undefined
-                                ? (Number(rootBranchStock['bodega']) || 0)
-                                : Math.max(0, (Number(pData.stock) || 0) - Object.entries(rootBranchStock).filter(([k]) => k !== 'bodega').reduce((s, [, v]) => s + (Number(v) || 0), 0));
-
-                            rootBranchStock['bodega'] = Math.max(0, currentBodega - qty);
                         }
-
-                        let calculatedGlobalStock = Object.values(rootBranchStock).reduce((s, v) => s + (Number(v) || 0), 0);
-                        if (newCombinations.length > 0) {
-                            calculatedGlobalStock = newCombinations.reduce((s, c) => s + (Number(c.stock) || 0), 0);
-                        }
-
-                        t.update(pDoc.ref, {
-                            stock: calculatedGlobalStock,
-                            branchStock: rootBranchStock,
-                            combinations: newCombinations,
-                            updatedAt: admin.firestore.FieldValue.serverTimestamp()
-                        });
                     }
                 }
 
@@ -1435,9 +1423,14 @@ function createWebhookHandler({
                         subtotal: combinedNetAmount,
                         amountPaid: combinedNetAmount,
                         totalDeductions: combinedDeductions,
-                        isStockDeducted: true,
+                        isStockDeducted: shouldDeductStock,
                         pack_id: orderData.pack_id ? String(orderData.pack_id) : (epData.pack_id || ""),
                         packOrderIds: admin.firestore.FieldValue.arrayUnion(String(orderData.id)),
+                        mlValidationCount: 1,
+                        mlNeedsSecondValidation: true,
+                        mlInitialValidatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                        mlSecondValidationScheduledAt: admin.firestore.Timestamp.fromMillis(Date.now() + 5 * 60 * 1000),
+                        mlValidationStatus: 'PENDING_SECOND_VALIDATION',
                         updatedAt: admin.firestore.FieldValue.serverTimestamp()
                     });
 
@@ -1518,21 +1511,43 @@ function createWebhookHandler({
                         mlShipping: sellerShippingCost,
                         mlShippingBonus: mlShippingBonus,
                         mlTaxes: mlTaxes,
-                        totalDeductions: totalDeductions,
-                        status: 'PENDIENTE',
+                        status: orderData.status === 'cancelled' ? 'CANCELACION_PENDIENTE' : 'PENDIENTE',
+                        cancellationPendingConfirm: orderData.status === 'cancelled' ? true : false,
+                        mlCancelled: orderData.status === 'cancelled' ? true : false,
                         paymentMethod: paymentMethod,
-                        paymentStatus: 'PAID',
-                        isStockDeducted: true,
-                        paymentAccountId: accId
+                        paymentStatus: orderData.status === 'cancelled' ? 'REFUNDED' : 'PAID',
+                        isStockDeducted: shouldDeductStock,
+                        paymentAccountId: accId,
+                        mlValidationCount: 1,
+                        mlNeedsSecondValidation: true,
+                        mlInitialValidatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                        mlSecondValidationScheduledAt: admin.firestore.Timestamp.fromMillis(Date.now() + 5 * 60 * 1000),
+                        mlValidationStatus: 'PENDING_SECOND_VALIDATION'
                     });
                 }
             });
 
-            console.log(`✅ Orden ${orderId} (${storeTitle}) procesada y guardada correctamente.`);
-            return res.status(200).send(`OK: Orden ${orderId} procesada con éxito.`);
+            // Registrar orden en la cola de validacion secundaria a los 5 minutos
+            try {
+                await db.collection('ml_pending_revalidations').doc(orderId).set({
+                    orderId: orderId,
+                    rawOrderId: rawOrderId,
+                    storeNumber: storeNumber,
+                    storeDocName: storeDocName,
+                    scheduledAt: admin.firestore.Timestamp.fromMillis(Date.now() + 5 * 60 * 1000),
+                    status: 'PENDING',
+                    attempts: 0,
+                    createdAt: admin.firestore.FieldValue.serverTimestamp()
+                }, { merge: true });
+            } catch (qErr) {
+                console.error(`[ML] Error registrando revalidacion secundaria para ${orderId}:`, qErr);
+            }
+
+            console.log(`[ML] Orden ${orderId} (${storeTitle}) procesada y guardada correctamente.`);
+            return res.status(200).send(`OK: Orden ${orderId} procesada con exito.`);
 
         } catch (error) {
-            console.error(`❌ Error en Webhook de ${storeTitle}:`, error);
+            console.error(` Error en Webhook de ${storeTitle}:`, error);
             return res.status(500).send(`Error procesando webhook: ${error.message}`);
         }
     };
@@ -1589,7 +1604,7 @@ async function autoRenewToken(db, configDocName = 'mercadolibre') {
                 userId: result.user_id || data.userId || null,
                 updatedAt: admin.firestore.FieldValue.serverTimestamp()
             }, { merge: true });
-            console.log(`✅ Token renovado exitosamente para ${configDocName}`);
+            console.log(` Token renovado exitosamente para ${configDocName}`);
             return result.access_token;
         }
     } catch (err) {
@@ -1614,7 +1629,7 @@ function createRenewTokenTask({
         try {
             const docSnap = await docRef.get();
             if (!docSnap.exists) {
-                console.error(`❌ Error: No existe el documento config/${storeDocName} en Firestore.`);
+                console.error(` Error: No existe el documento config/${storeDocName} en Firestore.`);
                 return;
             }
 
@@ -1632,11 +1647,11 @@ function createRenewTokenTask({
             }
 
             if (!currentRefreshToken) {
-                console.error(`❌ Error: No hay refreshToken para ${storeTitle} en la base de datos.`);
+                console.error(` Error: No hay refreshToken para ${storeTitle} en la base de datos.`);
                 return;
             }
 
-            console.log(`🔄 Solicitando nuevo token a ${storeTitle}...`);
+            console.log(` Solicitando nuevo token a ${storeTitle}...`);
 
             const response = await fetch("https://api.mercadolibre.com/oauth/token", {
                 method: "POST",
@@ -1682,10 +1697,10 @@ function createRenewTokenTask({
                 }, { merge: true });
             }
 
-            console.log(`✅ Token de ${storeTitle} renovado y guardado con éxito.`);
+            console.log(` Token de ${storeTitle} renovado y guardado con éxito.`);
 
         } catch (error) {
-            console.error(`❌ Error Crítico renovando token de ${storeTitle}:`, error);
+            console.error(` Error Crítico renovando token de ${storeTitle}:`, error);
         }
     };
 }
@@ -1775,7 +1790,7 @@ exports.getLabel = async (req, res) => {
         }
 
         if (!ML_TOKEN && refreshToken) {
-            console.log(`🔄 Intentando auto-renovar token en vivo para tienda ${store}...`);
+            console.log(` Intentando auto-renovar token en vivo para tienda ${store}...`);
             ML_TOKEN = await autoRenewToken(db, configDocName);
         }
 
@@ -1783,7 +1798,7 @@ exports.getLabel = async (req, res) => {
             return res.status(500).send(`Error: Falta el token de acceso para la tienda ${store}. Por favor abre la URL de autorización de MercadoLibre para vinculación.`);
         }
 
-        console.log(`☁️ Descargando etiqueta ML para envío: ${shipmentId} (Tienda ${store})`);
+        console.log(` Descargando etiqueta ML para envío: ${shipmentId} (Tienda ${store})`);
 
         const mlUrl = `https://api.mercadolibre.com/shipment_labels?shipment_ids=${shipmentId}&savePdf=Y`;
         let mlResponse = await fetch(mlUrl, {
@@ -1793,7 +1808,7 @@ exports.getLabel = async (req, res) => {
         });
 
         if (mlResponse.status === 401 && refreshToken) {
-            console.log(`⚠️ Token expirado (401), intentando renovar token en vivo para tienda ${store}...`);
+            console.log(` Token expirado (401), intentando renovar token en vivo para tienda ${store}...`);
             const newToken = await autoRenewToken(db, configDocName);
             if (newToken) {
                 mlResponse = await fetch(mlUrl, {
@@ -1804,7 +1819,7 @@ exports.getLabel = async (req, res) => {
 
         if (!mlResponse.ok) {
             const errText = await mlResponse.text();
-            console.error("❌ Error de MercadoLibre al descargar etiqueta:", errText);
+            console.error(" Error de MercadoLibre al descargar etiqueta:", errText);
             return res.status(mlResponse.status).send(`Error de MercadoLibre: ${mlResponse.statusText}`);
         }
 
@@ -1816,7 +1831,7 @@ exports.getLabel = async (req, res) => {
         return res.status(200).send(buffer);
 
     } catch (error) {
-        console.error("❌ Error en getLabel:", error);
+        console.error(" Error en getLabel:", error);
         return res.status(500).send("Error interno del servidor al obtener el rótulo.");
     }
 };
@@ -1902,10 +1917,10 @@ async function updateMLStockBySKU(db, storeDocName, sku, newStock) {
 
                             if (putRes.ok) {
                                 updatedCount++;
-                                console.log(`✅ [${storeDocName}] Stock actualizado a ${qty} en item ${itemId} var ${v.id} (SKU: ${cleanSKU})`);
+                                console.log(` [${storeDocName}] Stock actualizado a ${qty} en item ${itemId} var ${v.id} (SKU: ${cleanSKU})`);
                             } else {
                                 const errBody = await putRes.text();
-                                console.error(`❌ [${storeDocName}] Error actualizando variación ML ${itemId}/${v.id}:`, errBody);
+                                console.error(` [${storeDocName}] Error actualizando variación ML ${itemId}/${v.id}:`, errBody);
                             }
                         }
                     }
@@ -1936,10 +1951,10 @@ async function updateMLStockBySKU(db, storeDocName, sku, newStock) {
 
                         if (putRes.ok) {
                             updatedCount++;
-                            console.log(`✅ [${storeDocName}] Stock actualizado a ${qty} en item ${itemId} (SKU: ${cleanSKU})`);
+                            console.log(` [${storeDocName}] Stock actualizado a ${qty} en item ${itemId} (SKU: ${cleanSKU})`);
                         } else {
                             const errBody = await putRes.text();
-                            console.error(`❌ [${storeDocName}] Error actualizando item simple ML ${itemId}:`, errBody);
+                            console.error(` [${storeDocName}] Error actualizando item simple ML ${itemId}:`, errBody);
                         }
                     }
                 }
@@ -2034,6 +2049,273 @@ exports.syncAllStockToML = functions.https.onCall(async (data, context) => {
     }
 });
 
+/**
+ * VALIDADOR Y SINCRONIZADOR CENTRAL DE ÓRDENES DE MERCADOLIBRE
+ * (Soporta validación inicial 1/2, segunda validación 2/2 a los 5 minutos y recalculo bajo demanda)
+ */
+async function syncAndValidateMLOrder(orderId, db, isSecondValidation = false, manualValues = null) {
+    if (!orderId) throw new Error("Falta orderId para validar");
+    const snap = await db.collection('orders').doc(orderId).get();
+    if (!snap.exists) throw new Error(`Orden ${orderId} no encontrada`);
+    const ord = { id: snap.id, ...snap.data() };
+
+    const currentOrderId = ord.id;
+    const storeDoc = (ord.source === 'MERCADOLIBRE_STORE2' || ord.source === 'MERCADOLIBRE_2' || ord.mlStore === 2 || String(currentOrderId).startsWith('ML2-')) 
+        ? 'mercadolibre_store2' 
+        : ((ord.source === 'MERCADOLIBRE_STORE3' || ord.source === 'MERCADOLIBRE_3' || ord.mlStore === 3 || String(currentOrderId).startsWith('ML3-')) 
+            ? 'mercadolibre_store3' 
+            : 'mercadolibre');
+    const storeLabel = (storeDoc === 'mercadolibre_store2') ? 'MERCADOLIBRE TIENDA 2' : ((storeDoc === 'mercadolibre_store3') ? 'MERCADOLIBRE TIENDA 3' : 'MERCADOLIBRE');
+
+    let buyerInfo = null;
+    let gross = Number(ord.grossTotal) || Number(ord.total) || 0;
+    let fee = Number(ord.mlFee) || 0;
+    let shipping = Number(ord.mlShipping) || 0;
+    let taxes = Number(ord.mlTaxes) || 0;
+    let bonus = Number(ord.mlShippingBonus) || 0;
+    let rawShipment = null;
+    let isCancelledInML = false;
+    let cancelDetail = null;
+
+    if (manualValues && manualValues.grossTotal !== undefined) {
+        gross = Number(manualValues.grossTotal) || gross;
+        fee = Number(manualValues.mlFee) || 0;
+        shipping = Number(manualValues.mlShipping) || 0;
+        taxes = Number(manualValues.mlTaxes) || 0;
+        bonus = Number(manualValues.mlShippingBonus) || 0;
+    } else {
+        const token = await getMLToken(db, storeDoc);
+        if (token) {
+            try {
+                const rawMLId = ord.mlOrderId || ord.id.replace(/^ML3?-/, '').replace(/^ML2?-/, '');
+                const mlOrderData = await fetchML(`/orders/${rawMLId}`, token, db, storeDoc);
+                if (mlOrderData) {
+                    if (mlOrderData.status === 'cancelled') {
+                        isCancelledInML = true;
+                        cancelDetail = mlOrderData.cancel_detail;
+                    }
+                    gross = Number(mlOrderData.total_amount) || gross;
+                    fee = getMLFeeAmount(mlOrderData);
+                    taxes = getMLTaxesAmount(mlOrderData);
+
+                    if (mlOrderData.shipping && mlOrderData.shipping.id) {
+                        shipping = await getMLShipmentCost(mlOrderData.shipping.id, token, db, storeDoc);
+                    }
+
+                    if (Array.isArray(mlOrderData.payments)) {
+                        for (const p of mlOrderData.payments) {
+                            if (p.status === 'approved' && p.id) {
+                                try {
+                                    const deepPayment = await fetchML(`/v1/payments/${p.id}`, token, db, storeDoc);
+                                    if (deepPayment) {
+                                        const deepTax = getMLTaxesAmount(deepPayment);
+                                        if (deepTax > taxes) taxes = deepTax;
+                                        const deepFee = getMLFeeAmount(deepPayment);
+                                        if (deepFee > fee) fee = deepFee;
+                                    }
+                                } catch (dpErr) {}
+                            }
+                        }
+                    }
+
+                    let billingInfo = null;
+                    try {
+                        billingInfo = await fetchML(`/orders/${rawMLId}/billing_info`, token, db, storeDoc);
+                    } catch (bErr) {}
+
+                    if (mlOrderData.shipping && mlOrderData.shipping.id) {
+                        try {
+                            rawShipment = await fetchML(`/shipments/${mlOrderData.shipping.id}`, token, db, storeDoc);
+                        } catch (sErr) {}
+                    }
+
+                    bonus = extractMLShippingBonus(mlOrderData, rawShipment);
+
+                    const extractedBuyer = extractMLBuyerInfo(mlOrderData, rawShipment, billingInfo);
+                    if (extractedBuyer) {
+                        await enrichBuyerDocumentFromUsers(db, extractedBuyer, mlOrderData.buyer?.id, storeLabel, currentOrderId);
+                        if (extractedBuyer.doc) buyerInfo = extractedBuyer;
+                    }
+                }
+            } catch (mlErr) {
+                console.warn(`No se pudo consultar API ML para orden ${currentOrderId}:`, mlErr.message);
+            }
+        }
+    }
+
+    const netAmount = Math.max(0, Math.round(gross - fee - shipping + bonus - taxes));
+    const totalDeductions = Math.max(0, Math.round(gross - netAmount));
+    const oldNet = Math.round(Number(ord.netAmount) || Number(ord.total) || 0);
+    const netDiff = netAmount - oldNet;
+
+    const priceRatio = gross > 0 ? (netAmount / gross) : 1;
+    const updatedItems = (ord.items || []).map(item => {
+        let originalPrice = Number(item.grossPrice);
+        if (!originalPrice || originalPrice <= 0 || ((ord.items || []).length === 1 && originalPrice !== gross)) {
+            originalPrice = ((ord.items || []).length === 1 && gross > 0) ? gross : (Number(item.price) || 0);
+        }
+        const itemNet = ((ord.items || []).length === 1 && netAmount > 0) ? Math.round(netAmount / (Number(item.quantity) || 1)) : Math.round(originalPrice * priceRatio);
+        return {
+            ...item,
+            grossPrice: originalPrice,
+            price: itemNet
+        };
+    });
+
+    let orderUpdates = {
+        grossTotal: Math.round(gross),
+        mlFee: Math.round(fee),
+        mlShipping: Math.round(shipping),
+        mlTaxes: Math.round(taxes),
+        mlShippingBonus: Math.round(bonus),
+        netAmount: netAmount,
+        total: netAmount,
+        subtotal: netAmount,
+        amountPaid: netAmount,
+        totalDeductions: totalDeductions,
+        items: updatedItems,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    };
+
+    if (isSecondValidation) {
+        orderUpdates.mlValidationCount = 2;
+        orderUpdates.mlNeedsSecondValidation = false;
+        orderUpdates.mlValidationStatus = 'FULLY_VALIDATED';
+        orderUpdates.mlSecondValidatedAt = admin.firestore.FieldValue.serverTimestamp();
+        orderUpdates.mlValidationDiff = netDiff;
+    }
+
+    if (isCancelledInML && ord.status !== 'CANCELADO' && !ord.cancellationConfirmed) {
+        orderUpdates.cancellationPendingConfirm = true;
+        orderUpdates.mlCancelled = true;
+        orderUpdates.mlStatus = 'cancelled';
+        orderUpdates.cancellationRequestedAt = admin.firestore.FieldValue.serverTimestamp();
+        orderUpdates.cancellationReason = cancelDetail?.requested_by 
+            ? `Cancelado por ${cancelDetail.requested_by} en MercadoLibre` 
+            : 'Cancelado por el comprador o plataforma en MercadoLibre';
+        orderUpdates.cancellationPreviousStatus = ord.status || 'PENDIENTE';
+        orderUpdates.status = 'CANCELACION_PENDIENTE';
+    }
+
+    if (buyerInfo) {
+        if (buyerInfo.doc) orderUpdates.clientDoc = buyerInfo.doc;
+        if (buyerInfo.name) orderUpdates.clientName = buyerInfo.name;
+        orderUpdates.buyerInfo = buyerInfo;
+    }
+
+    if (rawShipment) {
+        if (rawShipment.tracking_number) orderUpdates.shippingTracking = rawShipment.tracking_number;
+        if (rawShipment.status) orderUpdates.shippingStatus = rawShipment.status;
+    }
+
+    await db.collection('orders').doc(currentOrderId).update(orderUpdates);
+
+    // Actualizar documento de ingreso INC-
+    const incRef = db.collection('expenses').doc(`INC-${currentOrderId}`);
+    const incSnap = await incRef.get();
+    if (incSnap.exists) {
+        await incRef.update({
+            amount: netAmount,
+            grossAmount: Math.round(gross),
+            deductions: totalDeductions,
+            description: `VENTA ${storeLabel} #${currentOrderId}` + (totalDeductions > 0 ? ` (NETO: $${netAmount.toLocaleString('es-CO')})` : ""),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+    }
+
+    // Ajustar diferencia contable en accounts
+    if (netDiff !== 0) {
+        const accName = ord.paymentMethod || (storeDoc === 'mercadolibre_store2' ? 'MercadoLibre 2' : ((storeDoc === 'mercadolibre_store3' ? 'MercadoLibre 3' : 'MercadoLibre')));
+        const accountCandidates = [
+            accName,
+            ord.paymentMethod,
+            storeDoc === 'mercadolibre_store2' ? 'MercadoLibre 2' : (storeDoc === 'mercadolibre_store3' ? 'MercadoLibre 3' : 'MercadoLibre'),
+            'MercadoLibre',
+            'Mercado Libre'
+        ].filter(Boolean);
+        const accSnap = await db.collection('accounts').where('name', 'in', accountCandidates).limit(1).get();
+        if (!accSnap.empty) {
+            const accDoc = accSnap.docs[0];
+            const curBal = Number(accDoc.data().balance) || 0;
+            await accDoc.ref.update({
+                balance: curBal + netDiff
+            });
+        }
+    }
+
+    return {
+        orderId: currentOrderId,
+        grossTotal: Math.round(gross),
+        mlFee: Math.round(fee),
+        mlShipping: Math.round(shipping),
+        mlTaxes: Math.round(taxes),
+        mlShippingBonus: Math.round(bonus),
+        netAmount: netAmount,
+        netDiff: netDiff,
+        isSecondValidation,
+        clientDoc: buyerInfo?.doc || ord.clientDoc,
+        clientName: buyerInfo?.name || ord.clientName
+    };
+}
+
+/**
+ * TAREA PROGRAMADA: REVALIDACIÓN AUTOMÁTICA DE MERCADOLIBRE TRAS 5 MINUTOS (CADA 2 MINUTOS)
+ */
+exports.revalidatePendingMLOrders = onSchedule({
+    schedule: "every 2 minutes",
+    timeZone: "America/Bogota"
+}, async (event) => {
+    const db = admin.firestore();
+    const now = admin.firestore.Timestamp.now();
+
+    try {
+        const pendingSnap = await db.collection('ml_pending_revalidations')
+            .where('status', '==', 'PENDING')
+            .where('scheduledAt', '<=', now)
+            .limit(10)
+            .get();
+
+        if (pendingSnap.empty) {
+            return;
+        }
+
+        console.log(`[ML] Revalidando ${pendingSnap.size} ordenes de MercadoLibre tras 5 minutos...`);
+
+        for (const docSnap of pendingSnap.docs) {
+            const item = docSnap.data();
+            try {
+                const res = await syncAndValidateMLOrder(item.orderId, db, true);
+                console.log(`[ML] Segunda validacion (5 min) exitosa para ${item.orderId}. Dif: $${res.netDiff}`);
+                await docSnap.ref.update({
+                    status: 'COMPLETED',
+                    completedAt: admin.firestore.FieldValue.serverTimestamp(),
+                    netDiff: res.netDiff || 0
+                });
+            } catch (err) {
+                console.error(`[ML] Error en segunda validacion para ${item.orderId}:`, err);
+                const currentAttempts = Number(item.attempts) || 0;
+                if (currentAttempts >= 3) {
+                    await docSnap.ref.update({
+                        status: 'FAILED',
+                        error: err.message,
+                        failedAt: admin.firestore.FieldValue.serverTimestamp()
+                    });
+                } else {
+                    await docSnap.ref.update({
+                        attempts: currentAttempts + 1,
+                        lastError: err.message,
+                        scheduledAt: admin.firestore.Timestamp.fromMillis(Date.now() + 2 * 60 * 1000)
+                    });
+                }
+            }
+        }
+    } catch (e) {
+        console.error("[ML] Error en revalidatePendingMLOrders:", e);
+    }
+});
+
+exports.syncAndValidateMLOrder = syncAndValidateMLOrder;
+
 exports.recalcMLOrderFinances = functions.https.onCall(async (data, context) => {
     const db = admin.firestore();
     const orderId = data && data.orderId;
@@ -2049,7 +2331,7 @@ exports.recalcMLOrderFinances = functions.https.onCall(async (data, context) => 
             const snap = await db.collection('orders').where('source', 'in', ['MERCADOLIBRE', 'MERCADOLIBRE_STORE2', 'MERCADOLIBRE_2', 'MERCADOLIBRE_STORE3', 'MERCADOLIBRE_3']).get();
             snap.forEach(d => {
                 const od = d.data();
-                if (!od.mlFee || od.mlFee === 0) {
+                if (!od.mlFee || od.mlFee === 0 || od.mlNeedsSecondValidation) {
                     ordersToProcess.push({ id: d.id, ...od });
                 }
             });
@@ -2058,170 +2340,12 @@ exports.recalcMLOrderFinances = functions.https.onCall(async (data, context) => 
         let updatedOrders = [];
 
         for (const ord of ordersToProcess) {
-            const currentOrderId = ord.id;
-            const storeDoc = (ord.source === 'MERCADOLIBRE_STORE2' || ord.source === 'MERCADOLIBRE_2' || ord.mlStore === 2 || String(currentOrderId).startsWith('ML2-')) 
-                ? 'mercadolibre_store2' 
-                : ((ord.source === 'MERCADOLIBRE_STORE3' || ord.source === 'MERCADOLIBRE_3' || ord.mlStore === 3 || String(currentOrderId).startsWith('ML3-')) 
-                    ? 'mercadolibre_store3' 
-                    : 'mercadolibre');
-            const storeLabel = (storeDoc === 'mercadolibre_store2') ? 'MERCADOLIBRE TIENDA 2' : ((storeDoc === 'mercadolibre_store3') ? 'MERCADOLIBRE TIENDA 3' : 'MERCADOLIBRE');
-
-            let buyerInfo = null;
-            let gross = Number(ord.grossTotal) || Number(ord.total) || 0;
-            let fee = Number(ord.mlFee) || 0;
-            let shipping = Number(ord.mlShipping) || 0;
-            let taxes = Number(ord.mlTaxes) || 0;
-            let bonus = Number(ord.mlShippingBonus) || 0;
-
-            if (manualValues && manualValues.grossTotal !== undefined) {
-                gross = Number(manualValues.grossTotal) || gross;
-                fee = Number(manualValues.mlFee) || 0;
-                shipping = Number(manualValues.mlShipping) || 0;
-                taxes = Number(manualValues.mlTaxes) || 0;
-                bonus = Number(manualValues.mlShippingBonus) || 0;
-            } else {
-                const token = await getMLToken(db, storeDoc);
-
-                if (token) {
-                    try {
-                        const rawMLId = ord.mlOrderId || ord.id.replace(/^ML3?-/, '').replace(/^ML2?-/, '');
-                        const mlOrderData = await fetchML(`/orders/${rawMLId}`, token, db, storeDoc);
-                        if (mlOrderData) {
-                            gross = Number(mlOrderData.total_amount) || gross;
-                            fee = getMLFeeAmount(mlOrderData);
-                            taxes = getMLTaxesAmount(mlOrderData);
-
-                            if (mlOrderData.shipping && mlOrderData.shipping.id) {
-                                shipping = await getMLShipmentCost(mlOrderData.shipping.id, token, db, storeDoc);
-                            }
-
-                            if (Array.isArray(mlOrderData.payments)) {
-                                for (const p of mlOrderData.payments) {
-                                    if (p.status === 'approved' && p.id) {
-                                        try {
-                                            const deepPayment = await fetchML(`/v1/payments/${p.id}`, token, db, storeDoc);
-                                            if (deepPayment) {
-                                                const deepTax = getMLTaxesAmount(deepPayment);
-                                                if (deepTax > taxes) taxes = deepTax;
-                                                const deepFee = getMLFeeAmount(deepPayment);
-                                                if (deepFee > fee) fee = deepFee;
-                                            }
-                                        } catch (dpErr) {}
-                                    }
-                                }
-                            }
-
-                            let billingInfo = null;
-                            try {
-                                billingInfo = await fetchML(`/orders/${rawMLId}/billing_info`, token, db, storeDoc);
-                            } catch (bErr) {}
-
-                            let rawShipment = null;
-                            if (mlOrderData.shipping && mlOrderData.shipping.id) {
-                                try {
-                                    rawShipment = await fetchML(`/shipments/${mlOrderData.shipping.id}`, token, db, storeDoc);
-                                } catch (sErr) {}
-                            }
-
-                            bonus = extractMLShippingBonus(mlOrderData, rawShipment);
-
-                            const extractedBuyer = extractMLBuyerInfo(mlOrderData, rawShipment, billingInfo);
-                            if (extractedBuyer) {
-                                await enrichBuyerDocumentFromUsers(db, extractedBuyer, mlOrderData.buyer?.id, storeLabel, currentOrderId);
-                                if (extractedBuyer.doc) buyerInfo = extractedBuyer;
-                            }
-                        }
-                    } catch (mlErr) {
-                        console.warn(`No se pudo consultar API ML para orden ${currentOrderId}:`, mlErr.message);
-                    }
-                }
+            try {
+                const res = await syncAndValidateMLOrder(ord.id, db, true, manualValues);
+                updatedOrders.push(res);
+            } catch (itemErr) {
+                console.warn(`Error al recalcular orden ${ord.id}:`, itemErr.message);
             }
-
-            const netAmount = Math.max(0, Math.round(gross - fee - shipping + bonus - taxes));
-            const totalDeductions = Math.max(0, Math.round(gross - netAmount));
-            const oldNet = Math.round(Number(ord.netAmount) || Number(ord.total) || 0);
-            const netDiff = netAmount - oldNet;
-
-            const priceRatio = gross > 0 ? (netAmount / gross) : 1;
-            const updatedItems = (ord.items || []).map(item => {
-                let originalPrice = Number(item.grossPrice);
-                if (!originalPrice || originalPrice <= 0 || ((ord.items || []).length === 1 && originalPrice !== gross)) {
-                    originalPrice = ((ord.items || []).length === 1 && gross > 0) ? gross : (Number(item.price) || 0);
-                }
-                const itemNet = ((ord.items || []).length === 1 && netAmount > 0) ? Math.round(netAmount / (Number(item.quantity) || 1)) : Math.round(originalPrice * priceRatio);
-                return {
-                    ...item,
-                    grossPrice: originalPrice,
-                    price: itemNet
-                };
-            });
-
-            let orderUpdates = {
-                grossTotal: Math.round(gross),
-                mlFee: Math.round(fee),
-                mlShipping: Math.round(shipping),
-                mlTaxes: Math.round(taxes),
-                mlShippingBonus: Math.round(bonus),
-                netAmount: netAmount,
-                total: netAmount,
-                subtotal: netAmount,
-                amountPaid: netAmount,
-                totalDeductions: totalDeductions,
-                items: updatedItems,
-                updatedAt: admin.firestore.FieldValue.serverTimestamp()
-            };
-
-            if (buyerInfo) {
-                if (buyerInfo.doc) orderUpdates.clientDoc = buyerInfo.doc;
-                if (buyerInfo.name) orderUpdates.clientName = buyerInfo.name;
-                orderUpdates.buyerInfo = buyerInfo;
-            }
-
-            await db.collection('orders').doc(currentOrderId).update(orderUpdates);
-
-            const incRef = db.collection('expenses').doc(`INC-${currentOrderId}`);
-            const incSnap = await incRef.get();
-            if (incSnap.exists) {
-                const storeLabel = (storeDoc === 'mercadolibre_store2') ? 'MERCADOLIBRE TIENDA 2' : ((storeDoc === 'mercadolibre_store3') ? 'MERCADOLIBRE TIENDA 3' : 'MERCADOLIBRE');
-                await incRef.update({
-                    amount: netAmount,
-                    grossAmount: Math.round(gross),
-                    deductions: totalDeductions,
-                    description: `VENTA ${storeLabel} #${currentOrderId}` + (totalDeductions > 0 ? ` (NETO: $${netAmount.toLocaleString('es-CO')})` : ""),
-                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
-                });
-            }
-
-            if (netDiff !== 0) {
-                const accName = ord.paymentMethod || (storeDoc === 'mercadolibre_store2' ? 'MercadoLibre 2' : ((storeDoc === 'mercadolibre_store3') ? 'MercadoLibre 3' : 'MercadoLibre'));
-                const accountCandidates = [
-                    accName,
-                    ord.paymentMethod,
-                    storeDoc === 'mercadolibre_store2' ? 'MercadoLibre 2' : (storeDoc === 'mercadolibre_store3' ? 'MercadoLibre 3' : 'MercadoLibre'),
-                    'MercadoLibre',
-                    'Mercado Libre'
-                ].filter(Boolean);
-                const accSnap = await db.collection('accounts').where('name', 'in', accountCandidates).limit(1).get();
-                if (!accSnap.empty) {
-                    const accDoc = accSnap.docs[0];
-                    const curBal = Number(accDoc.data().balance) || 0;
-                    await accDoc.ref.update({
-                        balance: curBal + netDiff
-                    });
-                }
-            }
-
-            updatedOrders.push({
-                orderId: currentOrderId,
-                grossTotal: Math.round(gross),
-                mlFee: Math.round(fee),
-                mlShipping: Math.round(shipping),
-                mlTaxes: Math.round(taxes),
-                mlShippingBonus: Math.round(bonus),
-                netAmount: netAmount,
-                clientDoc: buyerInfo?.doc || ord.clientDoc,
-                clientName: buyerInfo?.name || ord.clientName
-            });
         }
 
         return { success: true, processedCount: updatedOrders.length, updatedOrders };

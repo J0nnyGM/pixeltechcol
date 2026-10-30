@@ -16,7 +16,7 @@ exports.processScheduledTransfers = onSchedule({
     const db = admin.firestore();
     const now = admin.firestore.Timestamp.now();
 
-    console.log("⚙️ Iniciando procesador de transferencias automáticas...");
+    console.log(" Iniciando procesador de transferencias automáticas...");
 
     try {
         const snapshot = await db.collection('scheduled_transfers')
@@ -25,11 +25,11 @@ exports.processScheduledTransfers = onSchedule({
             .get();
 
         if (snapshot.empty) {
-            console.log("✅ No hay transferencias pendientes para hoy.");
+            console.log(" No hay transferencias pendientes para hoy.");
             return;
         }
 
-        console.log(`🔄 Procesando ${snapshot.size} transferencias...`);
+        console.log(` Procesando ${snapshot.size} transferencias...`);
 
         const promises = snapshot.docs.map(async (docSnap) => {
             const transfer = docSnap.data();
@@ -82,7 +82,7 @@ exports.processScheduledTransfers = onSchedule({
                 return { success: true, id: transferId };
 
             } catch (err) {
-                console.error(`❌ Error procesando transferencia ${transferId}:`, err);
+                console.error(` Error procesando transferencia ${transferId}:`, err);
                 await db.collection('scheduled_transfers').doc(transferId).update({
                     status: 'FAILED',
                     error: err.message
@@ -92,10 +92,10 @@ exports.processScheduledTransfers = onSchedule({
         });
 
         await Promise.all(promises);
-        console.log("🏁 Procesamiento de transferencias finalizado.");
+        console.log(" Procesamiento de transferencias finalizado.");
 
     } catch (error) {
-        console.error("❌ Error General Scheduler:", error);
+        console.error(" Error General Scheduler:", error);
     }
 });
 
@@ -104,7 +104,7 @@ exports.processScheduledTransfers = onSchedule({
  * Función desactivada a petición del usuario. Los pedidos cancelados ya NO se borran.
  */
 exports.cleanupOldOrders = async (event) => {
-    console.log("🛑 Limpieza de órdenes desactivada. Los pedidos cancelados se mantendrán en el historial.");
+    console.log(" Limpieza de órdenes desactivada. Los pedidos cancelados se mantendrán en el historial.");
     return;
 };
 
@@ -202,26 +202,56 @@ exports.cancelAbandonedPayments = onSchedule({
                             const pDoc = await t.get(pRef);
                             if (pDoc.exists) {
                                 const pData = pDoc.data();
-                                let newStock = (pData.stock || 0) + (item.quantity || 1);
+                                const qty = Number(item.quantity) || 1;
+                                let newStock = (Number(pData.stock) || 0) + qty;
+                                let newCombos = Array.isArray(pData.combinations) ? JSON.parse(JSON.stringify(pData.combinations)) : [];
+                                let rootBranchStock = pData.branchStock ? { ...pData.branchStock } : null;
+
+                                if (newCombos.length > 0) {
+                                    let idx = -1;
+                                    if (item.color || item.capacity) {
+                                        const normColor = String(item.color || '').trim().toLowerCase();
+                                        const normCap = String(item.capacity || '').trim().toLowerCase();
+                                        idx = newCombos.findIndex(c => 
+                                            (String(c.color || '').trim().toLowerCase() === normColor || (!c.color && !item.color)) &&
+                                            (String(c.capacity || '').trim().toLowerCase() === normCap || (!c.capacity && !item.capacity))
+                                        );
+                                    }
+                                    if (idx < 0 && newCombos.length === 1) idx = 0;
+
+                                    if (idx >= 0) {
+                                        newCombos[idx].stock = (Number(newCombos[idx].stock) || 0) + qty;
+                                        if (newCombos[idx].branchStock) {
+                                            let curBodega = Number(newCombos[idx].branchStock['bodega']) || 0;
+                                            newCombos[idx].branchStock['bodega'] = curBodega + qty;
+                                        }
+                                    }
+
+                                    newStock = newCombos.reduce((s, c) => s + (Number(c.stock) || 0), 0);
+
+                                    if (newCombos.some(c => c.branchStock)) {
+                                        rootBranchStock = {};
+                                        newCombos.forEach(c => {
+                                            if (c.branchStock) {
+                                                Object.keys(c.branchStock).forEach(bId => {
+                                                    rootBranchStock[bId] = (rootBranchStock[bId] || 0) + (Number(c.branchStock[bId]) || 0);
+                                                });
+                                            }
+                                        });
+                                    }
+                                } else if (rootBranchStock) {
+                                    let curBodega = Number(rootBranchStock['bodega']) || 0;
+                                    rootBranchStock['bodega'] = curBodega + qty;
+                                }
+
                                 let updatePayload = { 
                                     stock: newStock,
+                                    combinations: newCombos,
                                     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
                                     lastStockChangeReason: 'DEVOLUCION_CANCELACION',
                                     lastStockChangeDetails: `Devolución por cancelación automática del pedido #${orderId.slice(0, 8)}`
                                 };
-
-                                // Si tiene matriz de variantes, devolver a la variante específica
-                                if (pData.combinations && pData.combinations.length > 0) {
-                                    let newCombos = [...pData.combinations];
-                                    const idx = newCombos.findIndex(c => 
-                                        (c.color === item.color || (!c.color && !item.color)) &&
-                                        (c.capacity === item.capacity || (!c.capacity && !item.capacity))
-                                    );
-                                    if (idx >= 0) {
-                                        newCombos[idx].stock = (newCombos[idx].stock || 0) + (item.quantity || 1);
-                                    }
-                                    updatePayload.combinations = newCombos;
-                                }
+                                if (rootBranchStock) updatePayload.branchStock = rootBranchStock;
 
                                 t.update(pRef, updatePayload);
                             }
@@ -244,25 +274,25 @@ exports.cancelAbandonedPayments = onSchedule({
                 });
                 countCanceledManual++;
             } catch (err) {
-                console.error(`❌ Error al expirar y devolver stock de la orden manual ${orderId}:`, err);
+                console.error(` Error al expirar y devolver stock de la orden manual ${orderId}:`, err);
             }
         }
 
         // --- EJECUTAR CANCELACIONES RESTANTES (Pasarelas Online en batch) ---
         if (countCanceledOnline > 0) {
             await batch.commit();
-            console.log(`🗑️ Se cancelaron automáticamente ${countCanceledOnline} órdenes online abandonadas.`);
+            console.log(` Se cancelaron automáticamente ${countCanceledOnline} órdenes online abandonadas.`);
         }
 
         const totalCanceled = countCanceledOnline + countCanceledManual;
         if (totalCanceled > 0) {
-            console.log(`✅ Revisiones completadas. Total órdenes canceladas por inactividad: ${totalCanceled} (Online: ${countCanceledOnline}, Manual: ${countCanceledManual}).`);
+            console.log(` Revisiones completadas. Total órdenes canceladas por inactividad: ${totalCanceled} (Online: ${countCanceledOnline}, Manual: ${countCanceledManual}).`);
         } else {
-            console.log(`✅ Revisiones completadas. No hubo órdenes vencidas para cancelar en este ciclo.`);
+            console.log(` Revisiones completadas. No hubo órdenes vencidas para cancelar en este ciclo.`);
         }
 
     } catch (error) {
-        console.error("❌ Error en cancelAbandonedPayments:", error);
+        console.error(" Error en cancelAbandonedPayments:", error);
     }
 });
 
@@ -286,7 +316,7 @@ exports.checkExpiredPromotions = onSchedule({
             .get();
 
         if (snapshot.empty) {
-            console.log("✅ No hay promociones vencidas por desactivar.");
+            console.log(" No hay promociones vencidas por desactivar.");
             return;
         }
 
@@ -308,10 +338,10 @@ exports.checkExpiredPromotions = onSchedule({
 
         if (count > 0) {
             await batch.commit();
-            console.log(`🏷️ Se desactivaron ${count} ofertas vencidas y se restauraron sus precios.`);
+            console.log(` Se desactivaron ${count} ofertas vencidas y se restauraron sus precios.`);
         }
 
     } catch (error) {
-        console.error("❌ Error verificando promociones:", error);
+        console.error(" Error verificando promociones:", error);
     }
 });

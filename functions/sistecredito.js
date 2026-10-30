@@ -39,7 +39,7 @@ exports.createSistecreditoCheckout = async (data, context) => {
     const db = admin.firestore();
     const auth = admin.auth();
 
-    console.log(`🚀 Iniciando Checkout Sistecrédito (${SC_ORIGEN})...`);
+    console.log(` Iniciando Checkout Sistecrédito (${SC_ORIGEN})...`);
 
     // 1. Validar Usuario
     const userToken = data.userToken || (data.data && data.data.userToken);
@@ -133,7 +133,7 @@ exports.createSistecreditoCheckout = async (data, context) => {
     let cellNumber = rawPhone.startsWith('57') ? rawPhone.substring(2) : rawPhone;
     if (!cellNumber) cellNumber = "3000000000"; 
 
-    // 🚨 ESTA ES LA CORRECCIÓN CLAVE:
+    //  ESTA ES LA CORRECCIÓN CLAVE:
     let cleanCity = removeAccents(shippingData.city || "Bogota").trim();
     if (cleanCity.toLowerCase().includes("bogota")) {
         cleanCity = "Bogota"; // Forzamos a que sea solo "Bogota" sin D.C.
@@ -178,7 +178,7 @@ exports.createSistecreditoCheckout = async (data, context) => {
             throw new Error("Credenciales de Sistecrédito no configuradas.");
         }
 
-        console.log("📤 Enviando a Sistecrédito...", JSON.stringify(payload));
+        console.log(" Enviando a Sistecrédito...", JSON.stringify(payload));
         const response = await axios.post(`${SC_BASE_URL}/create`, payload, { 
             headers: {
                 'SCLocation': '0,0', 
@@ -197,7 +197,7 @@ exports.createSistecreditoCheckout = async (data, context) => {
         return { initPoint: redirectUrl };
 
     } catch (error) {
-        console.error("❌ Error Sistecrédito:", error.response?.data || error.message);
+        console.error(" Error Sistecrédito:", error.response?.data || error.message);
         throw new functions.https.HttpsError('internal', "Error iniciando pago con Sistecrédito.");
     }
 };
@@ -210,18 +210,18 @@ exports.webhook = async (req, res) => {
         const db = admin.firestore();
         try {
             const body = req.body;
-            console.log("🔔 Webhook Sistecrédito:", JSON.stringify(body));
+            console.log(" Webhook Sistecrédito:", JSON.stringify(body));
 
             const txData = body.data || body; 
             
-            // 🔥 CORRECCIÓN CRÍTICA: Extraer soportando Mayúsculas y Minúsculas
+            //  CORRECCIÓN CRÍTICA: Extraer soportando Mayúsculas y Minúsculas
             const orderId = txData.Invoice || txData.invoice; 
             const rawStatus = txData.TransactionStatus || txData.transactionStatus || ""; 
             const status = rawStatus.toUpperCase(); // Estandarizamos a MAYÚSCULAS
             const paymentId = txData._id || txData.id || 'SISTECREDITO';
 
             if (!orderId) {
-                console.error("❌ Faltan datos: Invoice ID");
+                console.error(" Faltan datos: Invoice ID");
                 return res.status(400).send("Missing Invoice ID");
             }
 
@@ -240,7 +240,7 @@ exports.webhook = async (req, res) => {
                     const oData = docSnap.data();
                     
                     if (oData.paymentStatus === 'PAID' || oData.status === 'PAGADO') {
-                        console.log(`⚠️ Webhook duplicado ignorado. Orden ${orderId} ya pagada.`);
+                        console.log(` Webhook duplicado ignorado. Orden ${orderId} ya pagada.`);
                         return;
                     }
 
@@ -251,19 +251,61 @@ exports.webhook = async (req, res) => {
                             const pDoc = await t.get(pRef);
                             if (pDoc.exists) {
                                 const pData = pDoc.data();
-                                let newS = (pData.stock || 0) - (i.quantity || 1);
-                                let newC = pData.combinations || [];
-                                
-                                if (i.color || i.capacity) {
-                                    if (newC.length > 0) {
-                                        const idx = newC.findIndex(c =>
-                                            (c.color === i.color || (!c.color && !i.color)) &&
-                                            (c.capacity === i.capacity || (!c.capacity && !i.capacity))
+                                const qty = parseInt(i.quantity) || 1;
+                                let newS = Math.max(0, (Number(pData.stock) || 0) - qty);
+                                let newC = Array.isArray(pData.combinations) ? JSON.parse(JSON.stringify(pData.combinations)) : [];
+                                let rootBranchStock = pData.branchStock ? { ...pData.branchStock } : null;
+
+                                if (newC.length > 0) {
+                                    let idx = -1;
+                                    if (i.color || i.capacity) {
+                                        const normColor = String(i.color || '').trim().toLowerCase();
+                                        const normCap = String(i.capacity || '').trim().toLowerCase();
+                                        idx = newC.findIndex(c =>
+                                            (String(c.color || '').trim().toLowerCase() === normColor || (!c.color && !i.color)) &&
+                                            (String(c.capacity || '').trim().toLowerCase() === normCap || (!c.capacity && !i.capacity))
                                         );
-                                        if (idx >= 0) newC[idx].stock = Math.max(0, newC[idx].stock - i.quantity);
                                     }
+                                    if (idx < 0 && newC.length === 1) idx = 0;
+
+                                    if (idx >= 0) {
+                                        newC[idx].stock = Math.max(0, (Number(newC[idx].stock) || 0) - qty);
+                                        if (newC[idx].branchStock) {
+                                            let curBodega = newC[idx].branchStock['bodega'] !== undefined
+                                                ? (Number(newC[idx].branchStock['bodega']) || 0)
+                                                : Math.max(0, (Number(newC[idx].stock) || 0) + qty - Object.entries(newC[idx].branchStock).filter(([k]) => k !== 'bodega').reduce((s, [, v]) => s + (Number(v) || 0), 0));
+                                            newC[idx].branchStock['bodega'] = Math.max(0, curBodega - qty);
+                                        }
+                                    }
+
+                                    newS = newC.reduce((sum, c) => sum + (Number(c.stock) || 0), 0);
+
+                                    if (newC.some(c => c.branchStock)) {
+                                        rootBranchStock = {};
+                                        newC.forEach(c => {
+                                            if (c.branchStock) {
+                                                Object.keys(c.branchStock).forEach(bId => {
+                                                    rootBranchStock[bId] = (rootBranchStock[bId] || 0) + (Number(c.branchStock[bId]) || 0);
+                                                });
+                                            }
+                                        });
+                                    }
+                                } else if (rootBranchStock) {
+                                    let curBodega = rootBranchStock['bodega'] !== undefined
+                                        ? (Number(rootBranchStock['bodega']) || 0)
+                                        : Math.max(0, (Number(pData.stock) || 0) - Object.entries(rootBranchStock).filter(([k]) => k !== 'bodega').reduce((s, [, v]) => s + (Number(v) || 0), 0));
+                                    rootBranchStock['bodega'] = Math.max(0, curBodega - qty);
                                 }
-                                prodReads.push({ ref: pRef, stock: Math.max(0, newS), combos: newC });
+
+                                const stockPayload = { 
+                                    stock: newS, 
+                                    combinations: newC,
+                                    lastStockChangeReason: 'VENTA_PEDIDO',
+                                    lastStockChangeDetails: `Venta web Sistecredito pedido #${orderId.slice(0, 8)}`,
+                                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                                };
+                                if (rootBranchStock) stockPayload.branchStock = rootBranchStock;
+                                prodReads.push({ ref: pRef, payload: stockPayload });
                             }
                         }
                     }
@@ -299,7 +341,7 @@ exports.webhook = async (req, res) => {
                         });
                     }
 
-                    for (const p of prodReads) t.update(p.ref, { stock: p.stock, combinations: p.combos });
+                    for (const p of prodReads) t.update(p.ref, p.payload);
 
                     if (!remSnap.exists) {
                         t.set(remRef, {
@@ -314,12 +356,12 @@ exports.webhook = async (req, res) => {
                     t.update(orderRef, {
                         status: 'PAGADO', 
                         paymentStatus: 'PAID', 
-                        paymentId: paymentId, // Usamos la variable limpia que creamos arriba
+                        paymentId: paymentId,
                         updatedAt: admin.firestore.FieldValue.serverTimestamp(), 
                         isStockDeducted: true
                     });
                 });
-                console.log(`✅ Sistecrédito: Orden ${orderId} procesada idéntico a ADDI.`);
+                console.log(`[Sistecredito] Orden ${orderId} procesada idéntico a ADDI.`);
 
             // Evaluamos rechazos también en mayúsculas
             } else if (status === 'REJECTED' || status === 'CANCELLED' || status === 'FAILED') { 
@@ -335,12 +377,12 @@ exports.webhook = async (req, res) => {
                         updateObj.billingStatus = 'CANCELLED';
                     }
                     await orderRef.update(updateObj);
-                    console.log(`❌ Orden ${orderId} Rechazada/Cancelada por Sistecrédito`);
+                    console.log(` Orden ${orderId} Rechazada/Cancelada por Sistecrédito`);
                 }
             }
             res.status(200).send("OK");
         } catch (e) {
-            console.error("❌ Webhook SC Error:", e);
+            console.error(" Webhook SC Error:", e);
             res.status(500).send("Error");
         }
     });

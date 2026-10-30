@@ -1,6 +1,7 @@
 import { db, collection, query, where, onSnapshot } from "./firebase-init.js";
 import { addToCart, updateCartCount, getProductQtyInCart, removeOneUnit } from "./cart.js";
 import { renderBrandCarousel } from "./global-components.js";
+import { scoreProduct, normalizeText } from "./search-engine.js";
 
 // --- ESTADO GLOBAL ---
 let allProducts = [];
@@ -38,9 +39,11 @@ export function initSearch() {
     const params = new URLSearchParams(window.location.search);
     const q = params.get('q');
     if (q) {
-        searchQuery = q.toLowerCase().trim();
+        searchQuery = q.trim();
         searchTitle.textContent = `"${q}"`;
         searchSubtitle.textContent = "Resultados para";
+        currentSort = 'relevance';
+        if (sortLabel) sortLabel.textContent = "Mayor Relevancia";
     }
     const cat = params.get('category');
     if (cat) {
@@ -91,7 +94,7 @@ function setupPromoView() {
 }
 
 // ==========================================================================
-// 🧠 SMART REAL-TIME CACHE (Máxima Eficiencia para el Catálogo)
+// SMART REAL-TIME CACHE (Maxima Eficiencia para el Catalogo)
 // ==========================================================================
 const SmartCatalogSync = {
     STORAGE_KEY: 'pixeltech_master_catalog',
@@ -112,11 +115,11 @@ const SmartCatalogSync = {
                 this.updateGlobalState();
                 
                 if (allProducts.length > 0) {
-                    console.log(`📂 [Catálogo] Cargados ${allProducts.length} productos de caché local.`);
+                    console.log(`[Catalogo] Cargados ${allProducts.length} productos de cache local.`);
                     this.renderAll();
                 }
             } catch (e) {
-                console.warn("Error leyendo caché local, reiniciando...");
+                console.warn("Error leyendo cache local, reiniciando...");
             }
         }
 
@@ -151,16 +154,16 @@ const SmartCatalogSync = {
         let q;
 
         if (lastSyncTime === 0 || Object.keys(this.runtimeMap).length === 0) {
-            console.log("⬇️ [Catálogo] Descargando inventario completo y activando tiempo real...");
+            console.log("[Catalogo] Descargando inventario completo y activando tiempo real...");
             q = query(collectionRef, where("status", "==", "active"));
         } else {
-            console.log("🔄 [Catálogo] Escuchando actualizaciones en la nube desde:", new Date(lastSyncTime).toLocaleString());
+            console.log("[Catalogo] Escuchando actualizaciones en la nube desde:", new Date(lastSyncTime).toLocaleString());
             q = query(collectionRef, where("updatedAt", ">", new Date(lastSyncTime)));
         }
 
         onSnapshot(q, (snapshot) => {
             if (snapshot.empty) {
-                if (lastSyncTime !== 0) console.log("✅ [Catálogo] Todo está al día.");
+                if (lastSyncTime !== 0) console.log("[Catalogo] Todo esta al dia.");
                 return;
             }
 
@@ -189,7 +192,7 @@ const SmartCatalogSync = {
             });
 
             if (hasChanges) {
-                console.log(`🔥 [Catálogo] Inventario actualizado en vivo: ${snapshot.docChanges().length} modificaciones.`);
+                console.log(`[Catalogo] Inventario actualizado en vivo: ${snapshot.docChanges().length} modificaciones.`);
                 
                 this.updateGlobalState();
                 this.saveState();
@@ -211,7 +214,7 @@ const SmartCatalogSync = {
             };
             localStorage.setItem(this.STORAGE_KEY, JSON.stringify(state));
         } catch (e) {
-            console.warn("⚠️ Quota de LocalStorage excedida. La caché no persistirá al cerrar.");
+            console.warn("Quota de LocalStorage excedida. La cache no persistira al cerrar.");
         }
     }
 };
@@ -392,11 +395,11 @@ window.confirmAdd = (uniqueId) => {
     const selCap = container.dataset.selCap || null;
 
     if (p.hasVariants && !selColor) {
-        alert("🚨 Por favor, selecciona un Color.");
+        alert("Por favor, selecciona un Color.");
         return;
     }
     if (p.hasCapacities && !selCap) {
-        alert("🚨 Por favor, selecciona una Capacidad.");
+        alert("Por favor, selecciona una Capacidad.");
         return;
     }
 
@@ -535,10 +538,9 @@ function renderGrid() {
 function renderFiltersUI() {
     const getPoolForCounting = (excludeKey) => {
         return allProducts.filter(p => {
-            const norm = (str) => str ? str.toLowerCase() : '';
+            const norm = (str) => normalizeText(str);
             if (searchQuery) {
-                const textMatch = norm(p.name).includes(searchQuery) || norm(p.description).includes(searchQuery) || norm(p.category).includes(searchQuery) || norm(p.subcategory).includes(searchQuery) || (p.tags && p.tags.some(t => norm(t).includes(searchQuery)));
-                if (!textMatch) return false;
+                if (!p._searchScore || p._searchScore < 12) return false;
             }
             if (excludeKey !== 'category' && activeFilters.category.length > 0) { if (!activeFilters.category.some(f => norm(p.category) === norm(f))) return false; }
             if (excludeKey !== 'subcategory' && activeFilters.subcategory.length > 0) { if (!activeFilters.subcategory.some(f => norm(p.subcategory) === norm(f))) return false; }
@@ -605,9 +607,23 @@ if (sortTrigger) sortTrigger.addEventListener('click', (e) => { e.stopPropagatio
 document.addEventListener('click', (e) => { if (sortTrigger && !sortTrigger.contains(e.target) && !sortDropdown.contains(e.target)) { sortDropdown.classList.add('hidden'); sortIcon.classList.remove('rotate-180'); } });
 
 function applySortAndFilter() {
+    let hasExactMatches = false;
+
+    if (searchQuery) {
+        allProducts.forEach(p => {
+            const meta = scoreProduct(p, searchQuery);
+            p._searchScore = meta.score;
+            p._searchMeta = meta;
+        });
+        hasExactMatches = allProducts.some(p => p._searchMeta && (p._searchMeta.isExactMatch || p._searchMeta.score >= 45));
+    }
+
     filteredProducts = allProducts.filter(p => {
-        const norm = (str) => str ? str.toLowerCase() : '';
-        if (searchQuery) { const textMatch = norm(p.name).includes(searchQuery) || norm(p.description).includes(searchQuery) || norm(p.category).includes(searchQuery) || norm(p.subcategory).includes(searchQuery) || (p.tags && p.tags.some(t => norm(t).includes(searchQuery))); if (!textMatch) return false; }
+        if (searchQuery) {
+            // Umbral de aproximación matemática: score mínimo de 12 puntos
+            if (!p._searchScore || p._searchScore < 12) return false;
+        }
+        const norm = (str) => normalizeText(str);
         const matchCat = activeFilters.category.length === 0 || activeFilters.category.some(f => norm(p.category) === norm(f));
         const matchSub = activeFilters.subcategory.length === 0 || activeFilters.subcategory.some(f => norm(p.subcategory) === norm(f));
         const matchBrand = activeFilters.brand.length === 0 || activeFilters.brand.some(f => norm(p.brand) === norm(f));
@@ -617,14 +633,36 @@ function applySortAndFilter() {
         const matchCap = activeFilters.capacity.length === 0 || activeFilters.capacity.some(f => productCaps.has(norm(f)));
         return matchCat && matchSub && matchBrand && matchColor && matchCap;
     });
+
     filteredProducts.sort((a, b) => {
+        if (currentSort === 'relevance' && searchQuery) {
+            return (b._searchScore || 0) - (a._searchScore || 0);
+        }
         if (currentSort === 'price-asc') return a.price - b.price;
         if (currentSort === 'price-desc') return b.price - a.price;
         if (currentSort === 'alpha-asc') return a.name.localeCompare(b.name);
+        if (currentSort === 'discount') {
+            const discA = a.originalPrice ? ((a.originalPrice - a.price) / a.originalPrice) : 0;
+            const discB = b.originalPrice ? ((b.originalPrice - b.price) / b.originalPrice) : 0;
+            return discB - discA;
+        }
         const dateA = a.updatedAt ? (a.updatedAt.seconds || new Date(a.updatedAt).getTime()) : 0;
         const dateB = b.updatedAt ? (b.updatedAt.seconds || new Date(b.updatedAt).getTime()) : 0;
         return dateB - dateA;
     });
+
+    // Control del Banner de Resultados Aproximados
+    const approxBanner = document.getElementById('search-approximation-banner');
+    if (approxBanner) {
+        if (searchQuery && filteredProducts.length > 0 && !hasExactMatches) {
+            approxBanner.classList.remove('hidden');
+            if (searchSubtitle) searchSubtitle.textContent = "Resultados similares para";
+        } else {
+            approxBanner.classList.add('hidden');
+            if (searchQuery && searchSubtitle) searchSubtitle.textContent = "Resultados para";
+        }
+    }
+
     currentPage = 1;
     if(countLabel) countLabel.textContent = filteredProducts.length;
     const hasActiveFilters = Object.values(activeFilters).some(arr => arr.length > 0) || searchQuery !== "";

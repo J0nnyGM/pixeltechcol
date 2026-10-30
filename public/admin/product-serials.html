@@ -363,6 +363,9 @@
                             <button type="button" onclick="window.setFilterTab('dispatched')" id="tab-dispatched" class="tab-btn shrink-0 px-3.5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider bg-white text-gray-500 border border-gray-200 hover:text-blue-700 hover:border-blue-300 transition-all hover:-translate-y-0.5 shadow-2xs">
                                 <i class="fa-solid fa-truck-fast text-[9px] text-blue-500 mr-1"></i> Despachados (<span id="count-tab-dispatched">0</span>)
                             </button>
+                            <button type="button" onclick="window.setFilterTab('removed')" id="tab-removed" class="tab-btn shrink-0 px-3.5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider bg-white text-gray-500 border border-gray-200 hover:text-rose-700 hover:border-rose-300 transition-all hover:-translate-y-0.5 shadow-2xs">
+                                <i class="fa-solid fa-ban text-[9px] text-rose-500 mr-1"></i> Retirados (<span id="count-tab-removed">0</span>)
+                            </button>
                         </div>
                     </div>
 
@@ -1181,7 +1184,7 @@
             if (sortSel) sortSel.value = 'recent';
 
             // Resetear pestañas de estado rápido
-            ['all', 'available', 'dispatched'].forEach(tab => {
+            ['all', 'available', 'dispatched', 'removed'].forEach(tab => {
                 const btn = document.getElementById(`tab-${tab}`);
                 if (!btn) return;
                 if (tab === 'all') {
@@ -1248,6 +1251,7 @@
                 const total = allSerialsCache.length;
                 const available = allSerialsCache.filter(s => s.status === 'AVAILABLE').length;
                 const dispatched = allSerialsCache.filter(s => s.status === 'DISPATCHED').length;
+                const removed = allSerialsCache.filter(s => s.status === 'AUDIT_REMOVED' || s.status === 'REMOVED').length;
 
                 document.getElementById('metric-total-serials').textContent = total;
                 document.getElementById('metric-available-serials').textContent = available;
@@ -1256,6 +1260,8 @@
                 document.getElementById('count-tab-all').textContent = total;
                 document.getElementById('count-tab-available').textContent = available;
                 document.getElementById('count-tab-dispatched').textContent = dispatched;
+                const tabRemovedCount = document.getElementById('count-tab-removed');
+                if (tabRemovedCount) tabRemovedCount.textContent = removed;
 
                 renderSerialsTable();
 
@@ -1336,6 +1342,7 @@
                 // Filtro de estado
                 if (currentFilterStatus === 'available' && s.status !== 'AVAILABLE') return false;
                 if (currentFilterStatus === 'dispatched' && s.status !== 'DISPATCHED') return false;
+                if (currentFilterStatus === 'removed' && s.status !== 'AUDIT_REMOVED' && s.status !== 'REMOVED') return false;
 
                 // Filtro de variante
                 if (currentVariantFilter) {
@@ -1442,9 +1449,16 @@
             tbody.innerHTML = pageItems.map((s, idx) => {
                 const globalIdx = startIndex + idx + 1;
                 const isDispatched = s.status === 'DISPATCHED';
-                const statusBadge = isDispatched
-                    ? `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-blue-50 text-blue-700 border border-blue-200"><i class="fa-solid fa-truck-fast"></i> Despachado</span>`
-                    : `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200"><i class="fa-solid fa-check"></i> Disponible</span>`;
+                const isRemoved = s.status === 'AUDIT_REMOVED' || s.status === 'REMOVED';
+
+                let statusBadge = '';
+                if (isDispatched) {
+                    statusBadge = `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-blue-50 text-blue-700 border border-blue-200"><i class="fa-solid fa-truck-fast"></i> Despachado</span>`;
+                } else if (isRemoved) {
+                    statusBadge = `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-rose-50 text-rose-700 border border-rose-200"><i class="fa-solid fa-ban"></i> Retirado / Auditoría</span>`;
+                } else {
+                    statusBadge = `<span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200"><i class="fa-solid fa-check"></i> Disponible</span>`;
+                }
 
                 const variantBadge = (s.color || s.capacity)
                     ? `<div class="flex flex-wrap gap-1.5">
@@ -1459,8 +1473,9 @@
                         <p class="text-[10px] text-gray-400 font-bold uppercase">${formatDate(s.purchaseDate || s.createdAt)}</p>
                     </div>`;
 
-                const saleInfo = isDispatched
-                    ? `<div>
+                let saleInfo = '';
+                if (isDispatched) {
+                    saleInfo = `<div>
                         <div class="flex items-center gap-2 mb-0.5">
                             <a href="/admin/orders.html?openOrder=${s.orderId || ''}" target="_blank" title="Abrir Pedido #${s.orderInternalNumber || ''}"
                                 class="font-black text-xs text-brand-cyan hover:underline inline-flex items-center gap-1">
@@ -1470,8 +1485,18 @@
                         </div>
                         <p class="text-xs font-bold text-brand-black">${s.clientName || 'Cliente'}</p>
                         ${s.clientPhone ? `<p class="text-[9px] font-medium text-gray-400"><i class="fa-brands fa-whatsapp text-emerald-500 mr-1"></i>${s.clientPhone}</p>` : ''}
-                       </div>`
-                    : `<span class="inline-flex items-center gap-1.5 text-xs text-gray-400 font-medium italic"><i class="fa-solid fa-warehouse text-gray-300"></i> En inventario (Sin asignar)</span>`;
+                       </div>`;
+                } else if (isRemoved) {
+                    saleInfo = `<div>
+                        <span class="text-rose-600 font-bold text-xs flex items-center gap-1">
+                            <i class="fa-solid fa-circle-exclamation text-[10px]"></i> Baja en toma física
+                        </span>
+                        <p class="text-[10px] text-gray-400 font-bold">${s.removalReason || 'No hallado en inventario'}</p>
+                        ${s.removalNotes ? `<p class="text-[9px] text-gray-400 italic">"${s.removalNotes}"</p>` : ''}
+                    </div>`;
+                } else {
+                    saleInfo = `<span class="inline-flex items-center gap-1.5 text-xs text-gray-400 font-medium italic"><i class="fa-solid fa-warehouse text-gray-300"></i> En inventario (Sin asignar)</span>`;
+                }
 
                 return `
                     <tr class="hover:bg-slate-50/70 transition-colors">
@@ -1557,7 +1582,8 @@
             const tabs = [
                 { id: 'all', activeClass: 'bg-brand-black text-white border-transparent' },
                 { id: 'available', activeClass: 'bg-emerald-600 text-white border-transparent' },
-                { id: 'dispatched', activeClass: 'bg-blue-600 text-white border-transparent' }
+                { id: 'dispatched', activeClass: 'bg-blue-600 text-white border-transparent' },
+                { id: 'removed', activeClass: 'bg-rose-600 text-white border-transparent' }
             ];
 
             tabs.forEach(t => {
@@ -1694,7 +1720,7 @@
                 s.sku || '',
                 s.color || '',
                 s.capacity || '',
-                s.status === 'AVAILABLE' ? 'DISPONIBLE' : 'DESPACHADO',
+                s.status === 'AVAILABLE' ? 'DISPONIBLE' : (s.status === 'AUDIT_REMOVED' || s.status === 'REMOVED' ? 'RETIRADO_AUDITORIA' : 'DESPACHADO'),
                 s.supplierName || '',
                 formatDate(s.purchaseDate || s.createdAt),
                 s.orderInternalNumber || s.orderId || '',

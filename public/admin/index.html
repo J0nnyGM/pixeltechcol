@@ -10,12 +10,39 @@
     <title>Dashboard Admin - PixelTech</title>
     <link rel="stylesheet" href="../css/styles.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-        <style>
-        .hidden { display: none !important; }
-        .custom-scroll::-webkit-scrollbar { width: 6px; }
+    <style>
+        .hidden { display: none; }
+        [id$="-modal"].hidden,
+        .modal-container.hidden { display: none !important; }
+
+        @media (max-width: 767px) {
+            .orders-desktop-table, .recs-desktop-table { display: none !important; }
+            .orders-mobile-cards, .recs-mobile-cards { display: block !important; }
+        }
+        @media (min-width: 768px) {
+            .orders-desktop-table, .recs-desktop-table { display: block !important; }
+            .orders-mobile-cards, .recs-mobile-cards { display: none !important; }
+        }
+
+        @media (min-width: 640px) {
+            .sm\:inline { display: inline !important; }
+            .sm\:flex { display: flex !important; }
+        }
+        @media (min-width: 768px) {
+            .md\:block { display: block !important; }
+            .md\:flex { display: flex !important; }
+        }
+        @media (min-width: 1024px) {
+            .lg\:inline { display: inline !important; }
+            .lg\:block { display: block !important; }
+        }
+
+        .custom-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
         .custom-scroll::-webkit-scrollbar-track { background: transparent; }
         .custom-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
         .custom-scroll::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
         .fade-in { animation: fadeIn 0.4s ease-out forwards; opacity: 0; transform: translateY(10px); }
         @keyframes fadeIn { to { opacity: 1; transform: translateY(0); } }
     </style>
@@ -39,11 +66,11 @@
     <div id="admin-sidebar"></div>
 
     <main class="flex-grow overflow-y-auto relative custom-scroll">
-        <header class="bg-white border-b border-gray-100 px-8 py-5 flex justify-between items-center sticky top-0 z-20 shadow-sm">
-            <h2 class="font-black text-brand-black text-[9px] uppercase tracking-[0.3em]">Resumen de Operaciones</h2>
+        <header class="bg-white border-b border-gray-100 px-6 md:px-8 py-5 flex justify-between items-center sticky top-0 z-20 shadow-sm">
+            <h2 class="font-black text-brand-black text-[9px] uppercase tracking-[0.3em]">Centro de Operaciones</h2>
             <div class="flex items-center gap-4">
-                <button id="btn-open-manual" class="bg-brand-black text-white px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-brand-cyan hover:text-brand-black hover:shadow-lg transition-all flex items-center gap-2 transform active:scale-95">
-                    <i class="fa-solid fa-plus"></i> Nueva Venta
+                <button id="btn-open-manual" class="bg-brand-black text-white px-5 md:px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-brand-cyan hover:text-brand-black hover:shadow-lg transition-all flex items-center gap-2 transform active:scale-95">
+                    <i class="fa-solid fa-plus"></i> <span class="hidden sm:inline">Nueva Venta</span>
                 </button>
                 
                 <div class="flex items-center gap-3 border-l border-gray-100 pl-4">
@@ -55,139 +82,191 @@
             </div>
         </header>
 
-        <div class="p-8 max-w-[1800px] mx-auto pb-20">
-            <div class="mb-8">
-                <h1 class="text-4xl font-black text-brand-black tracking-tighter uppercase leading-none mb-2">Panel de <span class="text-brand-cyan" id="header-role-name">Control</span></h1>
-                <div class="flex items-center gap-3">
-                    <p class="text-sm text-gray-400 font-bold tracking-wide" id="header-role-desc">Cargando métricas de tu área...</p>
-                    <span id="app-version-badge" class="bg-brand-cyan/10 text-brand-cyan border border-brand-cyan/20 text-[9px] font-black px-2 py-0.5 rounded uppercase tracking-widest" title="Versión instalada">v--</span>
+        <div class="p-6 md:p-8 max-w-[1800px] mx-auto pb-24">
+            
+            <!-- Encabezado contextual por rol -->
+            <div class="mb-8 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                <div>
+                    <div class="flex items-center gap-3 mb-2 flex-wrap">
+                        <span id="role-pill-badge" class="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-slate-100 text-brand-black border border-gray-200 shadow-2xs">Cargando rol...</span>
+                        <span id="header-today-date" class="text-xs font-bold text-gray-400">...</span>
+                        <span id="app-version-badge" class="bg-brand-cyan/10 text-brand-cyan border border-brand-cyan/20 text-[9px] font-black px-2 py-0.5 rounded uppercase tracking-widest" title="Versión instalada">v--</span>
+                    </div>
+                    <h1 class="text-3xl md:text-4xl font-black text-brand-black tracking-tighter uppercase leading-none" id="header-role-name">Panel de Control</h1>
+                    <p class="text-xs text-gray-400 font-bold tracking-wide mt-1" id="header-role-desc">Cargando métricas de tu área...</p>
+                </div>
+
+                <div id="role-quick-actions" class="flex items-center gap-2.5 flex-wrap">
+                    <!-- Botones de accion dinamicos segun rol -->
                 </div>
             </div>
 
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6 mb-10 fade-in" id="cards-container">
-                
-                <div id="card-sales" onclick="window.location.href='orders.html'" class="hidden bg-white p-6 rounded-[2rem] shadow-sm border border-gray-100 hover:shadow-xl hover:-translate-y-1 transition-all cursor-pointer group relative overflow-hidden">
-                    <div class="absolute -right-6 -top-6 w-24 h-24 rounded-full bg-green-50 z-0 group-hover:scale-150 transition-transform duration-500"></div>
-                    <div class="relative z-10">
-                        <div class="flex justify-between items-start mb-4">
-                            <div class="w-10 h-10 rounded-xl bg-green-100 text-green-600 flex items-center justify-center text-lg"><i class="fa-solid fa-chart-line"></i></div>
-                            <span class="bg-green-50 text-green-700 text-[8px] font-black px-2 py-1 rounded uppercase">Ingresos</span>
-                        </div>
-                        <p class="text-[9px] text-gray-400 uppercase font-black tracking-widest mb-1">Ventas Totales</p>
-                        <h3 id="stat-sales" class="text-2xl font-black text-brand-black tracking-tight"><i class="fa-solid fa-spinner fa-spin text-sm"></i></h3>
-                    </div>
-                </div>
-
-                <div id="card-treasury" onclick="window.location.href='treasury.html'" class="hidden bg-white p-6 rounded-[2rem] shadow-sm border border-gray-100 hover:shadow-xl hover:-translate-y-1 transition-all cursor-pointer group relative overflow-hidden">
-                    <div class="absolute -right-6 -top-6 w-24 h-24 rounded-full bg-blue-50 z-0 group-hover:scale-150 transition-transform duration-500"></div>
-                    <div class="relative z-10">
-                        <div class="flex justify-between items-start mb-4">
-                            <div class="w-10 h-10 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center text-lg"><i class="fa-solid fa-building-columns"></i></div>
-                        </div>
-                        <p class="text-[9px] text-gray-400 uppercase font-black tracking-widest mb-1">Saldo en Cuentas</p>
-                        <h3 id="stat-treasury" class="text-2xl font-black text-brand-black tracking-tight"><i class="fa-solid fa-spinner fa-spin text-sm"></i></h3>
-                    </div>
-                </div>
-
-                <div id="card-receivable" onclick="window.location.href='cartera.html'" class="hidden bg-white p-6 rounded-[2rem] shadow-sm border border-gray-100 hover:shadow-xl hover:-translate-y-1 transition-all cursor-pointer group relative overflow-hidden">
-                    <div class="absolute -right-6 -top-6 w-24 h-24 rounded-full bg-orange-50 z-0 group-hover:scale-150 transition-transform duration-500"></div>
-                    <div class="relative z-10">
-                        <div class="flex justify-between items-start mb-4">
-                            <div class="w-10 h-10 rounded-xl bg-orange-100 text-orange-600 flex items-center justify-center text-lg"><i class="fa-solid fa-hand-holding-dollar"></i></div>
-                        </div>
-                        <p class="text-[9px] text-gray-400 uppercase font-black tracking-widest mb-1">Por Cobrar</p>
-                        <h3 id="stat-receivable" class="text-2xl font-black text-brand-black tracking-tight"><i class="fa-solid fa-spinner fa-spin text-sm"></i></h3>
-                    </div>
-                </div>
-
-                <div id="card-payable" onclick="window.location.href='cartera.html'" class="hidden bg-white p-6 rounded-[2rem] shadow-sm border border-gray-100 hover:shadow-xl hover:-translate-y-1 transition-all cursor-pointer group relative overflow-hidden">
-                    <div class="absolute -right-6 -top-6 w-24 h-24 rounded-full bg-red-50 z-0 group-hover:scale-150 transition-transform duration-500"></div>
-                    <div class="relative z-10">
-                        <div class="flex justify-between items-start mb-4">
-                            <div class="w-10 h-10 rounded-xl bg-red-100 text-red-600 flex items-center justify-center text-lg"><i class="fa-solid fa-file-invoice-dollar"></i></div>
-                        </div>
-                        <p class="text-[9px] text-gray-400 uppercase font-black tracking-widest mb-1">Por Pagar</p>
-                        <h3 id="stat-payable" class="text-2xl font-black text-brand-black tracking-tight"><i class="fa-solid fa-spinner fa-spin text-sm"></i></h3>
-                    </div>
-                </div>
-
-                <div id="card-packing" onclick="window.location.href='orders.html'" class="hidden bg-brand-black p-6 rounded-[2rem] shadow-lg shadow-gray-200 hover:shadow-2xl hover:-translate-y-1 transition-all cursor-pointer group relative overflow-hidden">
-                    <div class="absolute -right-6 -top-6 w-24 h-24 rounded-full bg-gray-800 z-0 group-hover:scale-150 transition-transform duration-500"></div>
-                    <div class="relative z-10">
-                        <div class="flex justify-between items-start mb-4">
-                            <div class="w-10 h-10 rounded-xl bg-gray-800 text-brand-cyan flex items-center justify-center text-lg border border-gray-700"><i class="fa-solid fa-box-open"></i></div>
-                            <span class="bg-brand-cyan text-brand-black text-[8px] font-black px-2 py-1 rounded uppercase">Prioridad</span>
-                        </div>
-                        <p class="text-[9px] text-gray-400 uppercase font-black tracking-widest mb-1">Por Alistar</p>
-                        <h3 id="stat-packing" class="text-2xl font-black text-white tracking-tight">0</h3>
-                    </div>
-                </div>
-
-                <div id="card-dispatch" onclick="window.location.href='orders.html'" class="hidden bg-white p-6 rounded-[2rem] shadow-sm border border-gray-100 hover:shadow-xl hover:-translate-y-1 transition-all cursor-pointer group relative overflow-hidden">
-                    <div class="absolute -right-6 -top-6 w-24 h-24 rounded-full bg-indigo-50 z-0 group-hover:scale-150 transition-transform duration-500"></div>
-                    <div class="relative z-10">
-                        <div class="flex justify-between items-start mb-4">
-                            <div class="w-10 h-10 rounded-xl bg-indigo-100 text-indigo-600 flex items-center justify-center text-lg"><i class="fa-solid fa-truck-fast"></i></div>
-                        </div>
-                        <p class="text-[9px] text-gray-400 uppercase font-black tracking-widest mb-1">Por Despachar</p>
-                        <h3 id="stat-dispatch" class="text-2xl font-black text-brand-black tracking-tight">0</h3>
-                    </div>
-                </div>
-
-                <div id="card-warranties" onclick="window.location.href='warranties.html'" class="hidden bg-white p-6 rounded-[2rem] shadow-sm border border-gray-100 hover:shadow-xl hover:-translate-y-1 transition-all cursor-pointer group relative overflow-hidden">
-                    <div class="absolute -right-6 -top-6 w-24 h-24 rounded-full bg-red-50 z-0 group-hover:scale-150 transition-transform duration-500"></div>
-                    <div class="relative z-10">
-                        <div class="flex justify-between items-start mb-4">
-                            <div class="w-10 h-10 rounded-xl bg-red-100 text-red-600 flex items-center justify-center text-lg"><i class="fa-solid fa-shield-cat"></i></div>
-                        </div>
-                        <p class="text-[9px] text-gray-400 uppercase font-black tracking-widest mb-1">Garantías Activas</p>
-                        <h3 id="stat-warranties" class="text-2xl font-black text-brand-black tracking-tight"><i class="fa-solid fa-spinner fa-spin text-sm"></i></h3>
-                    </div>
-                </div>
-
-                <div id="card-chats" onclick="window.location.href='whatsapp.html'" class="hidden bg-white p-6 rounded-[2rem] shadow-sm border border-gray-100 hover:shadow-xl hover:-translate-y-1 transition-all cursor-pointer group relative overflow-hidden">
-                    <div class="absolute -right-6 -top-6 w-24 h-24 rounded-full bg-emerald-50 z-0 group-hover:scale-150 transition-transform duration-500"></div>
-                    <div class="relative z-10">
-                        <div class="flex justify-between items-start mb-4">
-                            <div class="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center text-lg"><i class="fa-brands fa-whatsapp"></i></div>
-                            <span class="bg-emerald-50 text-emerald-700 text-[8px] font-black px-2 py-1 rounded border border-emerald-100 uppercase">En Vivo</span>
-                        </div>
-                        <p class="text-[9px] text-gray-400 uppercase font-black tracking-widest mb-1">Chats Sin Atender</p>
-                        <h3 id="stat-chats" class="text-2xl font-black text-brand-black tracking-tight">0</h3>
-                    </div>
-                </div>
-
+            <!-- Tarjetas KPIs adaptativas -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6 mb-8 fade-in" id="cards-container">
+                <!-- Se inyecta dinamicamente segun el rol -->
             </div>
 
-            <div id="table-section" class="hidden bg-white rounded-[2.5rem] shadow-xl border border-gray-100 overflow-hidden fade-in" style="animation-delay: 100ms;">
-                <div class="p-8 border-b border-gray-50 flex justify-between items-center bg-slate-50/50">
-                    <h3 id="table-title" class="font-black text-brand-black uppercase text-xs tracking-widest flex items-center gap-2">
-                        <i class="fa-solid fa-list-check text-brand-cyan"></i> Pendientes por Atender
-                    </h3>
-                    <a href="orders.html" class="text-[10px] font-black uppercase text-gray-400 hover:text-brand-cyan transition">Ver Historial Completo</a>
+            <!-- Contenedor de Widgets Dinamicos (Cuentas, Horarios de corte, Canales) -->
+            <div id="widgets-container">
+                <!-- Se inyecta dinamicamente segun el rol -->
+            </div>
+
+            <!-- TABLA 1: Pedidos & Operaciones en Vivo (Admin, Ventas, Logistica) -->
+            <div id="table-orders-section" class="bg-white rounded-[2.5rem] shadow-xl border border-gray-100 overflow-hidden fade-in mb-10 hidden">
+                <div class="p-5 md:p-8 border-b border-gray-100 bg-slate-50/50 space-y-4">
+                    <!-- Fila Superior: Titulo, Contador y Buscador -->
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div class="flex items-center gap-3">
+                            <h3 id="table-title" class="font-black text-brand-black uppercase text-xs md:text-sm tracking-widest flex items-center gap-2">
+                                <i class="fa-solid fa-list-check text-brand-cyan"></i> Pedidos en Gestión
+                            </h3>
+                            <span id="orders-count-badge" class="bg-brand-cyan/10 text-brand-cyan text-[10px] font-black px-2.5 py-0.5 rounded-full border border-brand-cyan/20">0</span>
+                        </div>
+                        
+                        <div class="flex items-center gap-2 w-full sm:w-auto">
+                            <div class="relative flex-grow sm:w-72">
+                                <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs"></i>
+                                <input type="text" id="orders-search-input" placeholder="Buscar cliente, orden, ciudad..." class="w-full bg-white border border-gray-200 rounded-xl pl-9 pr-3 py-2 text-xs font-bold text-brand-black outline-none focus:border-brand-cyan transition shadow-2xs">
+                            </div>
+                            <a href="orders.html" class="text-[10px] font-black uppercase text-gray-400 hover:text-brand-cyan transition whitespace-nowrap hidden lg:inline">Historial Completo</a>
+                        </div>
+                    </div>
+                    
+                    <!-- Fila Inferior: Pestanas de filtro con scroll horizontal touch suave -->
+                    <div id="orders-filter-tabs" class="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar sm:flex-wrap">
+                        <!-- Pestanas dinamicas -->
+                    </div>
                 </div>
-                <div class="overflow-x-auto">
-                    <table class="w-full text-left text-sm min-w-[900px]">
+
+                <!-- Vista Desktop: Tabla completa y estilizada con columnas fijas y custom-scroll -->
+                <div class="orders-desktop-table overflow-x-auto custom-scroll">
+                    <table class="w-full text-left text-sm min-w-[980px]">
                         <thead class="bg-slate-50 text-[9px] uppercase font-black text-brand-black tracking-widest border-b border-gray-100">
                             <tr>
-                                <th class="px-8 py-6 w-32">ID / Fecha</th>
-                                <th class="px-8 py-6">Cliente</th>
-                                <th class="px-8 py-6 text-center">Canal</th>
-                                <th class="px-8 py-6 text-center">Estado Pago</th>
-                                <th class="px-8 py-6 text-center">Logística</th>
-                                <th class="px-8 py-6 text-right">Total</th>
-                                <th class="px-8 py-6 text-center w-40">Acciones</th>
+                                <th class="px-6 py-4 w-36 whitespace-nowrap">ID / Fecha</th>
+                                <th class="px-6 py-4">Cliente & Destino</th>
+                                <th class="px-6 py-4 text-center whitespace-nowrap">Canal</th>
+                                <th class="px-6 py-4 text-center whitespace-nowrap">Pago</th>
+                                <th class="px-6 py-4 text-center whitespace-nowrap">Estado Logístico</th>
+                                <th class="px-6 py-4 text-right whitespace-nowrap">Total</th>
+                                <th class="px-6 py-4 text-center w-36 whitespace-nowrap">Acciones</th>
                             </tr>
                         </thead>
                         <tbody id="orders-table-body" class="divide-y divide-gray-50">
-                            <tr><td colspan="7" class="p-10 text-center"><i class="fa-solid fa-circle-notch fa-spin text-brand-cyan"></i> Buscando pedidos...</td></tr>
+                            <tr><td colspan="7" class="p-12 text-center text-xs text-gray-400 font-bold"><i class="fa-solid fa-circle-notch fa-spin text-brand-cyan mr-2"></i> Cargando pedidos...</td></tr>
                         </tbody>
                     </table>
                 </div>
+
+                <!-- Vista Movil (< md): Lista de tarjetas compactas y operativas -->
+                <div id="orders-mobile-list" class="orders-mobile-cards divide-y divide-gray-100 bg-white">
+                    <div class="p-8 text-center text-xs text-gray-400 font-bold"><i class="fa-solid fa-circle-notch fa-spin text-brand-cyan mr-2"></i> Cargando pedidos...</div>
+                </div>
+
+                <!-- Paginacion de Pedidos en Gestion -->
+                <div id="orders-pagination-container" class="p-4 md:p-6 flex flex-col sm:flex-row justify-between items-center gap-4 border-t border-gray-100 bg-slate-50/50">
+                    <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                        Mostrando <span id="orders-pagination-range" class="text-brand-black font-black">0-0</span> de <span id="orders-pagination-total" class="text-brand-black font-black">0</span> pedidos
+                    </p>
+                    <div class="flex items-center gap-3">
+                        <div class="flex items-center gap-1.5 text-xs text-gray-500 font-bold">
+                            <span class="text-[9px] uppercase tracking-wider text-gray-400 font-black">Filas:</span>
+                            <select id="orders-page-size-select" onchange="window.handleOrdersPageSizeChange(this.value)" class="bg-white border border-gray-200 rounded-lg px-2 py-1 text-xs font-bold text-brand-black outline-none focus:border-brand-cyan shadow-2xs">
+                                <option value="15">15</option>
+                                <option value="30">30</option>
+                                <option value="50">50</option>
+                            </select>
+                        </div>
+                        <div class="flex gap-2">
+                            <button id="orders-btn-prev" onclick="window.changeOrdersPage(-1)" disabled 
+                                class="px-3.5 py-1.5 bg-white border border-gray-200 rounded-xl text-gray-500 text-xs font-bold uppercase disabled:opacity-40 disabled:cursor-not-allowed hover:border-brand-cyan hover:text-brand-cyan transition shadow-2xs flex items-center gap-1">
+                                <i class="fa-solid fa-chevron-left text-[9px]"></i> Anterior
+                            </button>
+                            <button id="orders-btn-next" onclick="window.changeOrdersPage(1)" disabled
+                                class="px-3.5 py-1.5 bg-white border border-gray-200 rounded-xl text-gray-500 text-xs font-bold uppercase disabled:opacity-40 disabled:cursor-not-allowed hover:border-brand-cyan hover:text-brand-cyan transition shadow-2xs flex items-center gap-1">
+                                Siguiente <i class="fa-solid fa-chevron-right text-[9px]"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
             </div>
+
+            <!-- TABLA 2: Cartera Pendiente por Cobrar (Contabilidad) -->
+            <div id="table-receivables-section" class="bg-white rounded-[2.5rem] shadow-xl border border-gray-100 overflow-hidden fade-in mb-10 hidden">
+                <div class="p-5 md:p-8 border-b border-gray-100 bg-slate-50/50 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div>
+                        <h3 class="font-black text-brand-black uppercase text-xs md:text-sm tracking-widest flex items-center gap-2">
+                            <i class="fa-solid fa-hand-holding-dollar text-emerald-600"></i> Cuentas por Cobrar Pendientes
+                        </h3>
+                        <p class="text-[10px] text-gray-400 font-bold mt-0.5">Clientes con facturas o pedidos pendientes de pago</p>
+                    </div>
+
+                    <div class="flex items-center gap-3 w-full sm:w-auto">
+                        <div class="relative flex-grow sm:w-64">
+                            <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs"></i>
+                            <input type="text" id="receivables-search-input" placeholder="Buscar cliente o factura..." class="w-full bg-white border border-gray-200 rounded-xl pl-9 pr-3 py-2 text-xs font-bold text-brand-black outline-none focus:border-brand-cyan transition shadow-2xs">
+                        </div>
+                        <a href="cartera.html" class="text-[10px] font-black uppercase text-emerald-700 hover:underline transition whitespace-nowrap">Gestionar en Cartera</a>
+                    </div>
+                </div>
+
+                <!-- Vista Desktop: Tabla -->
+                <div class="recs-desktop-table overflow-x-auto custom-scroll">
+                    <table class="w-full text-left text-sm min-w-[900px]">
+                        <thead class="bg-slate-50 text-[9px] uppercase font-black text-brand-black tracking-widest border-b border-gray-100">
+                            <tr>
+                                <th class="px-6 py-4 w-36 whitespace-nowrap">Factura / Fecha</th>
+                                <th class="px-6 py-4">Cliente</th>
+                                <th class="px-6 py-4 text-right whitespace-nowrap">Total</th>
+                                <th class="px-6 py-4 text-right whitespace-nowrap">Abonado</th>
+                                <th class="px-6 py-4 text-right whitespace-nowrap">Saldo Pendiente</th>
+                                <th class="px-6 py-4 text-center whitespace-nowrap">Estado</th>
+                                <th class="px-6 py-4 text-center w-36 whitespace-nowrap">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="receivables-table-body" class="divide-y divide-gray-50">
+                            <tr><td colspan="7" class="p-12 text-center text-xs text-gray-400 font-bold"><i class="fa-solid fa-circle-notch fa-spin text-emerald-600 mr-2"></i> Consultando cartera...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Vista Movil (< md): Tarjetas de cartera -->
+                <div id="receivables-mobile-list" class="recs-mobile-cards divide-y divide-gray-100 bg-white">
+                    <div class="p-8 text-center text-xs text-gray-400 font-bold"><i class="fa-solid fa-circle-notch fa-spin text-emerald-600 mr-2"></i> Consultando cartera...</div>
+                </div>
+
+                <!-- Paginacion de Cartera (Contabilidad) -->
+                <div id="receivables-pagination-container" class="p-4 md:p-6 flex flex-col sm:flex-row justify-between items-center gap-4 border-t border-gray-100 bg-slate-50/50">
+                    <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
+                        Mostrando <span id="recs-pagination-range" class="text-brand-black font-black">0-0</span> de <span id="recs-pagination-total" class="text-brand-black font-black">0</span> pedidos con saldo
+                    </p>
+                    <div class="flex items-center gap-3">
+                        <div class="flex items-center gap-1.5 text-xs text-gray-500 font-bold">
+                            <span class="text-[9px] uppercase tracking-wider text-gray-400 font-black">Filas:</span>
+                            <select id="recs-page-size-select" onchange="window.handleRecsPageSizeChange(this.value)" class="bg-white border border-gray-200 rounded-lg px-2 py-1 text-xs font-bold text-brand-black outline-none focus:border-brand-cyan shadow-2xs">
+                                <option value="15">15</option>
+                                <option value="30">30</option>
+                                <option value="50">50</option>
+                            </select>
+                        </div>
+                        <div class="flex gap-2">
+                            <button id="recs-btn-prev" onclick="window.changeRecsPage(-1)" disabled 
+                                class="px-3.5 py-1.5 bg-white border border-gray-200 rounded-xl text-gray-500 text-xs font-bold uppercase disabled:opacity-40 disabled:cursor-not-allowed hover:border-brand-cyan hover:text-brand-cyan transition shadow-2xs flex items-center gap-1">
+                                <i class="fa-solid fa-chevron-left text-[9px]"></i> Anterior
+                            </button>
+                            <button id="recs-btn-next" onclick="window.changeRecsPage(1)" disabled
+                                class="px-3.5 py-1.5 bg-white border border-gray-200 rounded-xl text-gray-500 text-xs font-bold uppercase disabled:opacity-40 disabled:cursor-not-allowed hover:border-brand-cyan hover:text-brand-cyan transition shadow-2xs flex items-center gap-1">
+                                Siguiente <i class="fa-solid fa-chevron-right text-[9px]"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
         </div>
     </main>
 
+    <!-- Modal de Detalle de Orden -->
     <div id="order-modal" class="fixed inset-0 z-[70] hidden flex items-center justify-center p-4">
         <div class="absolute inset-0 bg-slate-900/80 transition-opacity" onclick="window.closeOrderModal()"></div>
         <div class="relative bg-white w-full max-w-6xl rounded-[2.5rem] shadow-2xl flex flex-col max-h-[92vh] overflow-hidden animate-fadeIn">
@@ -282,6 +361,7 @@
         </div>
     </div>
 
+    <!-- Modal de Despacho -->
     <div id="dispatch-modal" class="fixed inset-0 z-[80] hidden flex items-center justify-center p-4">
         <div class="absolute inset-0 bg-slate-900/80" onclick="document.getElementById('dispatch-modal').classList.add('hidden')"></div>
         <div class="relative bg-white w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl text-center">
@@ -294,6 +374,7 @@
         </div>
     </div>
 
+    <!-- Modal de Registro de Pago -->
     <div id="payment-modal" class="fixed inset-0 z-[80] hidden flex items-center justify-center p-4">
         <div class="absolute inset-0 bg-slate-900/80" onclick="document.getElementById('payment-modal').classList.add('hidden')"></div>
         <div class="relative bg-white w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl text-center animate-in zoom-in duration-200">
@@ -320,283 +401,6 @@
         </div>
     </div>
 
-    <script type="module">
-        import '../js/admin-guard.js';
-        import { db, collection, getDocs, orderBy, query, limit, auth, doc, getDoc, where, getAggregateFromServer, sum, onSnapshot } from '../js/firebase-init.js';
-        import { loadAdminSidebar } from '../js/admin-ui.js?v=2.0.0';
-        import { initManualSale, openManualSaleModal } from '../js/manual-sale.js?v=1.0.6';
-        import { AdminStore } from '../js/admin-store.js'; // 🔥 EL CEREBRO
-        import '../js/order-actions.js?v=1.1.4';
-
-        loadAdminSidebar();
-        initManualSale();
-
-        document.getElementById('btn-open-manual').onclick = openManualSaleModal;
-        
-        // Listeners Globales
-        let unsubscribeOrdersTable = null;
-        let unsubscribeChats = null;
-
-        auth.onAuthStateChanged(async user => {
-            if (user) {
-                const userDoc = await getDoc(doc(db, "users", user.uid));
-                const role = userDoc.exists() ? userDoc.data().role : 'customer';
-                const name = userDoc.exists() ? (userDoc.data().name || user.displayName || 'Admin') : 'Admin';
-                
-                document.getElementById('admin-name').textContent = name;
-                
-                setupDashboardVisibility(role);
-                loadDashboardData(role);
-            }
-        });
-
-        // ==========================================================================
-        // 1. VISIBILIDAD POR ROL
-        // ==========================================================================
-        function setupDashboardVisibility(role) {
-            const els = {
-                sales: document.getElementById('card-sales'),
-                treasury: document.getElementById('card-treasury'),
-                receivable: document.getElementById('card-receivable'),
-                payable: document.getElementById('card-payable'),
-                packing: document.getElementById('card-packing'),
-                dispatch: document.getElementById('card-dispatch'),
-                warranties: document.getElementById('card-warranties'),
-                chats: document.getElementById('card-chats'),
-                tableSection: document.getElementById('table-section')
-            };
-
-            const headerName = document.getElementById('header-role-name');
-            const headerDesc = document.getElementById('header-role-desc');
-
-            if (role === 'admin') {
-                headerName.textContent = "Control Maestro";
-                headerDesc.textContent = "Visión general financiera y operativa.";
-                [els.sales, els.treasury, els.packing, els.receivable, els.payable, els.tableSection].forEach(e => e.classList.remove('hidden'));
-            } 
-            else if (role === 'contabilidad') {
-                headerName.textContent = "Contabilidad";
-                headerDesc.textContent = "Resumen financiero y flujo de caja.";
-                [els.sales, els.treasury, els.receivable, els.payable].forEach(e => e.classList.remove('hidden'));
-            } 
-            else if (role === 'ventas') {
-                headerName.textContent = "Comercial";
-                headerDesc.textContent = "Gestión de pedidos, soporte y clientes.";
-                [els.packing, els.dispatch, els.warranties, els.chats, els.tableSection].forEach(e => e.classList.remove('hidden'));
-                document.getElementById('table-title').innerHTML = `<i class="fa-solid fa-box-open text-brand-cyan"></i> Pedidos Activos`;
-            } 
-            else if (role === 'logistica') {
-                headerName.textContent = "Logística";
-                headerDesc.textContent = "Despachos y control de inventario.";
-                [els.packing, els.dispatch, els.warranties, els.tableSection].forEach(e => e.classList.remove('hidden'));
-                document.getElementById('table-title').innerHTML = `<i class="fa-solid fa-truck-fast text-brand-cyan"></i> Operaciones Logísticas`;
-            }
-        }
-
-        // ==========================================================================
-        // 2. CARGAR DATOS (MEZCLA DE RAM Y MÓDULOS EN VIVO)
-        // ==========================================================================
-        function loadDashboardData(role) {
-            
-            // --- A. MÉTRICAS FINANCIERAS (Admin, Contabilidad) ---
-            if (role === 'admin' || role === 'contabilidad') {
-                
-                // 1. Ingresos (Esto SÍ va al servidor porque son miles de datos históricos y tumbaría la RAM)
-                const qIncome = query(collection(db, "orders"), where("status", "in", ["PAGADO", "DESPACHADO", "ENTREGADO"]));
-                getAggregateFromServer(qIncome, { totalRevenue: sum('total') }).then(snap => {
-                    document.getElementById('stat-sales').textContent = `$${(snap.data().totalRevenue || 0).toLocaleString('es-CO')}`;
-                });
-
-                // 2. Tesorería, Cuentas por Cobrar y Pagar (Desde el Cerebro Central en RAM = 0 Lecturas Extra)
-                AdminStore.subscribeToAccounts(accs => {
-                    const total = accs.reduce((sum, a) => sum + (a.balance || 0), 0);
-                    document.getElementById('stat-treasury').textContent = `$${total.toLocaleString('es-CO')}`;
-                });
-
-                AdminStore.subscribeToReceivables(recs => {
-                    let total = 0;
-                    recs.forEach(r => {
-                        if (r.status !== 'CANCELADO' && r.status !== 'RECHAZADO') {
-                            total += (Number(r.total) || 0) - (Number(r.amountPaid) || 0) - (Number(r.refundedAmount) || 0);
-                        }
-                    });
-                    document.getElementById('stat-receivable').textContent = `$${total.toLocaleString('es-CO')}`;
-                });
-
-                AdminStore.subscribeToPayables(pays => {
-                    let total = 0;
-                    pays.forEach(p => { total += (Number(p.total) || 0) - (Number(p.amountPaid) || 0); });
-                    document.getElementById('stat-payable').textContent = `$${total.toLocaleString('es-CO')}`;
-                });
-            }
-
-            // --- B. OPERATIVAS Y GARANTÍAS (Ventas, Logística, Admin) ---
-            if (role === 'ventas' || role === 'logistica' || role === 'admin') {
-                
-                // Garantías desde la RAM
-                if (role === 'ventas' || role === 'logistica') {
-                    AdminStore.subscribeToWarranties(warranties => {
-                        const activeW = warranties.filter(w => w.status === 'PENDIENTE' || w.status === 'PENDIENTE_REVISION');
-                        document.getElementById('stat-warranties').textContent = activeW.length;
-                    });
-                }
-
-                // Pedidos (Tabla Central en Vivo)
-                if (unsubscribeOrdersTable) unsubscribeOrdersTable();
-                const qOrders = query(collection(db, "orders"), where("status", "in", ["PAGADO", "PENDIENTE", "ALISTADO"]), orderBy("createdAt", "desc"));
-                
-                unsubscribeOrdersTable = onSnapshot(qOrders, (snap) => {
-                    let packingCount = 0;
-                    let dispatchCount = 0;
-                    
-                    const tableBody = document.getElementById('orders-table-body');
-                    const todayOrders = [];
-                    const tomorrowOrders = [];
-                    const now = new Date();
-                    
-                    const cutoffDateToday = new Date(now);
-                    cutoffDateToday.setHours(14, 0, 0, 0); // Corte a las 2:00 PM (Ajustable)
-
-                    if (snap.empty) {
-                        if(tableBody) tableBody.innerHTML = `<tr><td colspan="7" class="p-10 text-center text-xs text-brand-black font-bold uppercase">¡Todo al día! No hay pedidos pendientes.</td></tr>`;
-                        document.getElementById('stat-packing').textContent = "0";
-                        if (document.getElementById('stat-dispatch')) document.getElementById('stat-dispatch').textContent = "0";
-                        return;
-                    }
-
-                    snap.forEach(d => {
-                        const o = { id: d.id, ...d.data() };
-                        
-                        if (o.status === 'PENDIENTE' || o.status === 'PAGADO') packingCount++;
-                        if (o.status === 'ALISTADO') dispatchCount++;
-
-                        if (tableBody) {
-                            const orderDate = o.createdAt?.toDate ? o.createdAt.toDate() : new Date();
-                            const isToday = orderDate.toDateString() === now.toDateString();
-                            if (isToday && orderDate > cutoffDateToday) tomorrowOrders.push(o);
-                            else todayOrders.push(o);
-                        }
-                    });
-
-                    document.getElementById('stat-packing').textContent = packingCount;
-                    if (document.getElementById('stat-dispatch')) document.getElementById('stat-dispatch').textContent = dispatchCount;
-
-                    if (tableBody) {
-                        let htmlBuffer = '';
-                        if (todayOrders.length > 0) {
-                            htmlBuffer += `<tr class="bg-green-50/50 border-b border-green-100 fade-in"><td colspan="7" class="py-4 px-8"><div class="flex items-center gap-3 text-green-700"><div class="p-1.5 bg-green-100 rounded-lg"><i class="fa-solid fa-truck-fast text-xs"></i></div><span class="text-[10px] font-black uppercase tracking-widest">Prioridad: Despachar Hoy</span></div></td></tr>`;
-                            todayOrders.forEach(o => { htmlBuffer += renderRow(o); });
-                        }
-
-                        if (tomorrowOrders.length > 0) {
-                            htmlBuffer += `<tr class="bg-blue-50/50 border-b border-blue-100 fade-in"><td colspan="7" class="py-4 px-8"><div class="flex items-center gap-3 text-blue-700"><div class="p-1.5 bg-blue-100 rounded-lg"><i class="fa-solid fa-clock text-xs"></i></div><span class="text-[10px] font-black uppercase tracking-widest">Despachar Mañana</span></div></td></tr>`;
-                            tomorrowOrders.forEach(o => { htmlBuffer += renderRow(o); });
-                        }
-                        tableBody.innerHTML = htmlBuffer;
-                    }
-                });
-            }
-
-            // --- C. WHATSAPP (Solo Ventas) ---
-            if (role === 'ventas') {
-                if (unsubscribeChats) unsubscribeChats();
-                const qChats = query(collection(db, "chats"), where("status", "==", "open"));
-                unsubscribeChats = onSnapshot(qChats, (snap) => {
-                    let pendingChats = 0;
-                    snap.forEach(d => {
-                        const c = d.data();
-                        if (!c.assignedTo || c.unread) pendingChats++;
-                    });
-                    document.getElementById('stat-chats').textContent = pendingChats;
-                });
-            }
-        }
-
-        // ==========================================================================
-        // 3. RENDERIZADOR DE FILAS DE LA TABLA (COMPARTIDO)
-        // ==========================================================================
-        function renderRow(o) {
-            const tableBody = document.getElementById('orders-table-body');
-            const isTienda = o.source === 'TIENDA' || o.source === 'TIENDA_WEB';
-            let sClass = 'bg-gray-100 text-gray-500 border-gray-200', sText = o.status;
-            
-            if (o.status === 'PENDIENTE') { sClass = 'bg-yellow-100 text-yellow-700 border-yellow-200'; sText = 'Por Atender'; }
-            else if (o.status === 'ALISTADO') { sClass = 'bg-blue-100 text-blue-700 border-blue-200'; sText = 'Alistado'; }
-            else if (o.status === 'PAGADO') { sClass = 'bg-red-100 text-red-600 border-red-200 animate-pulse'; sText = 'PAGADO (URGENTE)'; }
-
-            const total = Number(o.total) || 0;
-            const paid = Number(o.amountPaid) || 0;
-            const refunded = Number(o.refundedAmount) || 0;
-            
-            let pendingBalance = total - paid - refunded;
-            if (pendingBalance < 0) pendingBalance = 0; 
-
-            const isFullyPaid = o.paymentStatus === 'PAID' || o.status === 'PAGADO' || pendingBalance === 0;
-
-            let pBadge = `<span class="text-[9px] font-black uppercase text-red-500 bg-red-50 px-2 py-1 rounded border border-red-100">Cartera</span>`;
-            if (isFullyPaid) {
-                pBadge = `<span class="text-[9px] font-black uppercase text-green-600 bg-green-50 px-2 py-1 rounded border border-green-100"><i class="fa-solid fa-check"></i> Pagado</span>`;
-            }
-
-            const orderDate = (typeof window.parseOrderDate === 'function') 
-                ? window.parseOrderDate(o, false) 
-                : (o.createdAt?.toDate ? o.createdAt.toDate() : (o.createdAt?.seconds ? new Date(o.createdAt.seconds * 1000) : new Date(o.createdAt)));
-            const dateStr = (orderDate && !isNaN(orderDate.getTime())) ? orderDate.toLocaleDateString('es-CO', {day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit'}) : '--';
-            
-            let payActionBtn = '';
-            if (pendingBalance > 0 && !isFullyPaid) {
-                payActionBtn = `
-                    <button onclick="window.openPaymentModal('${o.id}', ${pendingBalance})" title="Registrar Pago Manual" class="w-9 h-9 rounded-xl bg-green-50 border border-green-200 text-green-600 hover:bg-green-500 hover:text-white transition shadow-sm flex items-center justify-center">
-                        <i class="fa-solid fa-hand-holding-dollar text-xs"></i>
-                    </button>
-                `;
-            }
-
-            const netTotal = total - refunded;
-            let priceHtml = `<span class="font-black text-brand-black text-sm">$${total.toLocaleString('es-CO')}</span>`;
-
-            return `
-                <tr class="hover:bg-slate-50 transition border-b border-gray-50 group fade-in">
-                    <td class="px-8 py-6">
-                        <div class="font-mono text-[10px] text-brand-black uppercase font-bold">#${(o.internalOrderNumber || o.id.slice(0, 8)).toString().toUpperCase()}</div>
-                        <div class="text-[9px] font-bold text-gray-400 mt-1 flex items-center gap-1 flex-wrap">
-                            <span>${dateStr}</span>
-                            ${(window.hasDraftSerials && window.hasDraftSerials(o.id) && !['DESPACHADO', 'ENTREGADO', 'CANCELADO', 'RECHAZADO', 'DEVUELTO'].includes(o.status)) ? `<span class="text-slate-300">•</span><span class="text-cyan-800 bg-cyan-50 border border-cyan-200 px-1.5 py-0.2 rounded text-[8px] font-black uppercase inline-flex items-center gap-1" title="Tienes seriales guardados localmente para este pedido"><i class="fa-solid fa-floppy-disk text-[7px] text-brand-cyan"></i> Borrador</span>` : ''}
-                        </div>
-                    </td>
-                    <td class="px-8 py-6">
-                        <div class="font-black text-brand-black uppercase text-xs">${o.buyerInfo?.name || o.userName || 'Cliente'}</div>
-                        <div class="text-[9px] text-gray-500 font-bold">${o.buyerInfo?.phone || o.phone || ''}</div>
-                    </td>
-                    <td class="px-8 py-6 text-center">
-                        <span class="text-[8px] font-black px-2 py-0.5 rounded shadow-sm ${isTienda ? 'bg-brand-cyan text-brand-black' : 'bg-brand-black text-white'}">${isTienda ? 'WEB' : 'MANUAL'}</span>
-                    </td>
-                    <td class="px-8 py-6 text-center">${pBadge}</td>
-                    <td class="px-8 py-6 text-center">
-                        <span class="${sClass} px-3 py-1 rounded-full text-[9px] font-black uppercase border shadow-sm block w-fit mx-auto whitespace-nowrap">${sText}</span>
-                    </td>
-                    <td class="px-8 py-6 text-right align-middle">${priceHtml}</td>
-                    <td class="px-8 py-6 text-center">
-                        <div class="flex items-center justify-center gap-2">
-                            <button onclick="window.viewOrderDetail('${o.id}')" title="Ver/Gestionar" class="w-9 h-9 rounded-xl bg-white border border-gray-200 text-brand-black hover:bg-brand-black hover:text-white transition shadow-sm flex items-center justify-center"><i class="fa-solid fa-eye text-xs"></i></button>
-                            <button onclick="window.viewReceipt('${o.id}')" title="Ver Recibo" class="w-9 h-9 rounded-xl bg-white border border-rose-200 text-rose-500 hover:bg-rose-500 hover:text-white transition shadow-sm flex items-center justify-center"><i class="fa-solid fa-receipt text-xs"></i></button>
-                            ${payActionBtn}
-                        </div>
-                    </td>
-                </tr>`;
-        }
-
-        // Mostrar Versión de Caché PWA
-        if ('caches' in window) {
-            caches.keys().then(keys => {
-                const cacheName = keys.find(k => k.startsWith('pixeltech-shell-v'));
-                if (cacheName) {
-                    const version = cacheName.replace('pixeltech-shell-', '');
-                    const badge = document.getElementById('app-version-badge');
-                    if (badge) badge.textContent = version;
-                }
-            });
-        }
-    </script>
+    <script type="module" src="../js/admin-index.js?v=2.0.6"></script>
 </body>
 </html>

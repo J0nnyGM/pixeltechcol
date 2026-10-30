@@ -1,5 +1,6 @@
 import { auth, db, onAuthStateChanged, doc, getDoc, collection, getDocs, query, orderBy, where, limit, onSnapshot } from "./firebase-init.js";
 import { updateQuantity } from "./cart.js";
+import { searchCatalog, normalizeText } from "./search-engine.js";
 
 /**
  * Inyecta Header, Footer, Menús y Herramientas Flotantes (Y EL MINI CARRITO)
@@ -75,7 +76,7 @@ window.showToast = (msg, type = 'success') => {
     setTimeout(() => { toast.classList.remove('show'); setTimeout(() => toast.remove(), 400); }, 3000);
 };
 
-// --- LÓGICA DE BÚSQUEDA ---
+// --- LÓGICA DE BÚSQUEDA INTELIGENTE ---
 function initSearchLogic() {
     const setupSearch = (inputId, resultsId) => {
         const input = document.getElementById(inputId);
@@ -91,10 +92,10 @@ function initSearchLogic() {
         });
 
         input.addEventListener('input', (e) => {
-            const term = e.target.value.trim().toLowerCase();
+            const rawTerm = e.target.value.trim();
             clearTimeout(debounceTimer);
 
-            if (term.length < 2) {
+            if (rawTerm.length < 2) {
                 results.innerHTML = '';
                 results.classList.remove('active');
                 return;
@@ -112,37 +113,25 @@ function initSearchLogic() {
                         } catch (e) { }
                     }
 
-                    let resultsArray = [];
+                    let productsSource = localProducts.filter(p => p.status === 'active');
 
-                    if (localProducts.length > 0) {
-                        resultsArray = localProducts.filter(p => {
-                            const name = (p.name || "").toLowerCase();
-                            const cat = (p.category || "").toLowerCase();
-                            return (name.includes(term) || cat.includes(term)) && p.status === 'active';
-                        });
-                    } else {
+                    if (productsSource.length === 0) {
                         const q = query(
                             collection(db, "products"),
                             where("status", "==", "active"),
-                            limit(20)
+                            limit(80)
                         );
                         const snap = await getDocs(q);
-                        const products = [];
-                        snap.forEach(d => products.push({ id: d.id, ...d.data() }));
-
-                        resultsArray = products.filter(p => {
-                            const name = (p.name || "").toLowerCase();
-                            const cat = (p.category || "").toLowerCase();
-                            return name.includes(term) || cat.includes(term);
-                        });
+                        snap.forEach(d => productsSource.push({ id: d.id, ...d.data() }));
                     }
 
-                    renderResults(resultsArray.slice(0, 5), term);
+                    const searchResult = searchCatalog(productsSource, rawTerm, { limit: 6, minScore: 12 });
+                    renderResults(searchResult, rawTerm);
 
                 } catch (err) {
                     console.error("Search error", err);
                 }
-            }, 300);
+            }, 200);
         });
 
         input.addEventListener('keypress', (e) => {
@@ -152,36 +141,57 @@ function initSearchLogic() {
             }
         });
 
-        function renderResults(products, term) {
+        function renderResults(searchResult, term) {
             results.innerHTML = '';
+            const products = searchResult.results || [];
 
             if (products.length === 0) {
                 results.innerHTML = `
-                    <div class="p-4 text-center">
-                        <p class="text-[10px] font-bold text-gray-400 uppercase">No hay resultados directos</p>
-                        <button onclick="window.location.href='/shop/search.html?q=${encodeURIComponent(term)}'" class="text-brand-cyan text-xs font-black mt-1 hover:underline">Buscar "${term}" en todo el catálogo</button>
+                    <div class="p-5 text-center">
+                        <i class="fa-solid fa-magnifying-glass text-gray-300 text-lg mb-2 block"></i>
+                        <p class="text-[10px] font-bold text-gray-400 uppercase tracking-wide">No hay coincidencias directas</p>
+                        <button onclick="window.location.href='/shop/search.html?q=${encodeURIComponent(term)}'" class="text-brand-cyan text-xs font-black mt-2 hover:underline inline-flex items-center gap-1.5">
+                            <span>Buscar "${term}" con aproximación en el catálogo</span>
+                            <i class="fa-solid fa-arrow-right text-[10px]"></i>
+                        </button>
                     </div>`;
             } else {
+                // Si no hubo coincidencia 100% exacta pero sí resultados similares, mostramos un encabezado sutil
+                if (!searchResult.hasExact && searchResult.similarMatches.length > 0) {
+                    results.innerHTML += `
+                        <div class="px-4 py-2 bg-cyan-50/70 border-b border-cyan-100 flex items-center justify-between">
+                            <span class="text-[9px] font-black uppercase text-brand-cyan tracking-wider flex items-center gap-1.5">
+                                <i class="fa-solid fa-wand-magic-sparkles text-[10px]"></i> Resultados Similares
+                            </span>
+                            <span class="text-[9px] font-bold text-gray-400">${products.length} encontrados</span>
+                        </div>
+                    `;
+                }
+
                 products.forEach(p => {
                     const img = p.mainImage || p.image || 'https://placehold.co/50';
-                    const price = p.price.toLocaleString('es-CO');
+                    const price = (p.price || 0).toLocaleString('es-CO');
+                    const sub = p.subcategory || p.category || (p.brand ? p.brand : 'Tecnología');
 
                     results.innerHTML += `
-                        <div onclick="window.location.href='/shop/product.html?id=${p.id}'" class="search-result-item">
-                            <img src="${img}" class="w-10 h-10 object-contain rounded-lg bg-gray-50 border border-gray-100">
+                        <div onclick="window.location.href='/shop/product.html?id=${p.id}'" class="search-result-item hover:bg-slate-50 transition">
+                            <img src="${img}" class="w-10 h-10 object-contain rounded-lg bg-gray-50 border border-gray-100 p-0.5" alt="${p.name}">
                             <div class="flex-grow min-w-0">
                                 <p class="text-[10px] font-black text-brand-black uppercase truncate">${p.name}</p>
-                                <p class="text-[9px] font-bold text-gray-400">${p.category || 'Producto'}</p>
+                                <p class="text-[9px] font-bold text-gray-400 truncate">${sub}${p.brand ? ' | ' + p.brand : ''}</p>
                             </div>
-                            <span class="text-xs font-black text-brand-cyan">$${price}</span>
+                            <span class="text-xs font-black text-brand-cyan shrink-0">$${price}</span>
                         </div>
                     `;
                 });
 
-                if (products.length >= 5) {
+                if (products.length >= 5 || searchResult.totalFound > 5) {
                     results.innerHTML += `
-                        <div onclick="window.location.href='/shop/search.html?q=${encodeURIComponent(term)}'" class="p-3 text-center bg-gray-50 cursor-pointer hover:bg-gray-100 transition">
-                            <span class="text-[9px] font-black text-brand-black uppercase tracking-widest">Ver todos los resultados</span>
+                        <div onclick="window.location.href='/shop/search.html?q=${encodeURIComponent(term)}'" class="p-3 text-center bg-gray-50 cursor-pointer hover:bg-gray-100 transition border-t border-gray-100">
+                            <span class="text-[9px] font-black text-brand-black uppercase tracking-widest flex items-center justify-center gap-1.5">
+                                <span>Ver todos los resultados (${searchResult.totalFound})</span>
+                                <i class="fa-solid fa-chevron-right text-[8px] text-brand-cyan"></i>
+                            </span>
                         </div>
                     `;
                 }
@@ -214,7 +224,7 @@ async function initHeaderLogic() {
             renderBanner(JSON.parse(currentCacheStr));
         } else {
             // Placeholder mientras carga
-            topBanner.innerHTML = `<div class="flex items-center justify-center font-black uppercase tracking-[0.3em] h-full"><span class="mx-8">ENVÍOS A TODO EL PAÍS 🚚</span></div>`;
+            topBanner.innerHTML = `<div class="flex items-center justify-center font-black uppercase tracking-[0.3em] h-full"><span class="mx-8">ENVÍOS A TODO EL PAÍS</span></div>`;
         }
 
         // 2. CONEXIÓN DIFERIDA (Petición Única, no en tiempo real)
@@ -457,7 +467,7 @@ async function initHeaderLogic() {
         };
     });
 
-    // 🔥 NUEVO TRUCO SEO: Ejecutar cuando el navegador esté libre (Idle)
+    // OPTIMIZACION SEO: Ejecutar cuando el navegador este libre (Idle)
     const initDelayedTasks = () => {
         syncAllCategories();
         onAuthStateChanged(auth, async (user) => {
@@ -569,7 +579,7 @@ async function syncAllCategories() {
 }
 
 
-// 🔥 CORRECCIÓN APLICADA AQUÍ 🔥
+// RENDERIZADO DE MENU MOVIL
 function renderMobileMenuHTML(container, categories) {
     container.innerHTML = `
         <a href="/shop/catalog.html" class="group flex items-center gap-3 p-3 mb-2 rounded-xl hover:bg-gray-50 transition-all border border-transparent hover:border-gray-100">

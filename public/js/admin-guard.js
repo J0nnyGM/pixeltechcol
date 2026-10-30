@@ -55,11 +55,13 @@ onAuthStateChanged(auth, async (user) => {
                 }
             }
 
-            console.log(`✅ Acceso concedido [Rol: ${role.toUpperCase()}]:`, user.email);
+            console.log(`[OK] Acceso concedido [Rol: ${role.toUpperCase()}]:`, user.email);
             
             // Le pasamos el rol al UI para que construya el menú dinámico
             loadAdminSidebar(role);
             sessionStorage.setItem('pixeltech_user_role', role);
+            window.currentUserRole = role;
+            window.dispatchEvent(new CustomEvent('adminRoleResolved', { detail: { role } }));
             
             document.body.style.display = 'flex'; 
             

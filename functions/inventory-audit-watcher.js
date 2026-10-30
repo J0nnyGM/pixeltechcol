@@ -3,7 +3,7 @@ const { onDocumentWritten } = require("firebase-functions/v2/firestore");
 const admin = require("firebase-admin");
 
 /**
- * 🔥 VIGILANTE DE INVENTARIO (Centinela de Auditoría)
+ * VIGILANTE DE INVENTARIO (Centinela de Auditoria)
  * Registra automáticamente si el stock cambió manualmente en edición,
  * por una Entrada de Inventario (compra), por una Venta (pedido) o por una Devolución.
  */
@@ -172,9 +172,9 @@ exports.watchInventoryChanges = onDocumentWritten("products/{productId}", async 
     if (!changeDetails) {
         if (changeType === "AJUSTE_MANUAL") {
             const variantText = variantChanges.length > 0 
-                ? ` (Variantes: ${variantChanges.map(v => `${v.color || ''} ${v.capacity || ''}`.trim() + `: ${v.before} ➔ ${v.after}`).join(', ')})`
+                ? ` (Variantes: ${variantChanges.map(v => `${v.color || ''} ${v.capacity || ''}`.trim() + `: ${v.before} -> ${v.after}`).join(', ')})`
                 : '';
-            changeDetails = `Modificación manual directa en edición de producto (${beforeStock} ➔ ${afterStock})${variantText}`;
+            changeDetails = `Modificación manual directa en edición de producto (${beforeStock} -> ${afterStock})${variantText}`;
         } else if (changeType === "ENTRADA_COMPRA") {
             changeDetails = `Entrada de inventario realizada (${deltaStock > 0 ? '+' : ''}${deltaStock} ud(s))`;
         } else if (changeType === "VENTA_PEDIDO") {
@@ -204,9 +204,19 @@ exports.watchInventoryChanges = onDocumentWritten("products/{productId}", async 
             createdAtISO: new Date().toISOString()
         });
 
-        console.log(`👁️ [Vigilante Inventario] Registrado cambio en ${productId} (${changeType}): ${deltaStock > 0 ? '+' : ''}${deltaStock}`);
+        console.log(`[Vigilante Inventario] Registrado cambio en ${productId} (${changeType}): ${deltaStock > 0 ? '+' : ''}${deltaStock}`);
     } catch (auditErr) {
         console.error("Error guardando registro de auditoría de inventario:", auditErr);
+    }
+
+    // 7. Sincronización automática de stock en tiempo real hacia MercadoLibre (Tiendas 1, 2 y 3)
+    try {
+        const { syncProductStockToML } = require('./mercadolibre');
+        if (typeof syncProductStockToML === 'function') {
+            await syncProductStockToML(db, beforeData, afterData);
+        }
+    } catch (syncErr) {
+        console.error("[Vigilante Inventario] Error sincronizando stock a MercadoLibre:", syncErr.message);
     }
 
     return null;

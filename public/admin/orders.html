@@ -123,7 +123,7 @@
                         <i class="fa-regular fa-calendar absolute left-3.5 top-1/2 -translate-y-1/2 text-brand-black text-xs pointer-events-none"></i>
                         <select id="date-filter-select" onchange="window.setDateFilter(this.value)" 
                             class="w-full sm:w-auto pl-9 pr-8 py-3 rounded-xl border border-gray-200 text-xs font-bold outline-none focus:border-brand-cyan transition bg-white shadow-sm text-brand-black cursor-pointer appearance-none">
-                            <option value="ALL">📅 Todas las Fechas</option>
+                            <option value="ALL">Todas las Fechas</option>
                             <option value="TODAY">Hoy</option>
                             <option value="YESTERDAY">Ayer</option>
                             <option value="WEEK">Últimos 7 días</option>
@@ -135,12 +135,12 @@
                         <i class="fa-solid fa-store absolute left-3.5 top-1/2 -translate-y-1/2 text-brand-black text-xs pointer-events-none"></i>
                         <select id="channel-filter-select" onchange="window.setChannelFilter(this.value)" 
                             class="w-full sm:w-auto pl-9 pr-8 py-3 rounded-xl border border-gray-200 text-xs font-bold outline-none focus:border-brand-cyan transition bg-white shadow-sm text-brand-black cursor-pointer appearance-none">
-                            <option value="ALL">🛒 Todos los Canales</option>
-                            <option value="WEB">🌐 Tienda Web / Directa</option>
-                            <option value="ML_ALL" id="opt-filter-ml-all" class="hidden">🤝 Todo MercadoLibre</option>
-                            <option value="ML_1" id="opt-filter-ml1" class="hidden">🤝 MercadoLibre 1</option>
-                            <option value="ML_2" id="opt-filter-ml2" class="hidden">🤝 MercadoLibre 2</option>
-                            <option value="ML_3" id="opt-filter-ml3" class="hidden">🤝 MercadoLibre 3</option>
+                            <option value="ALL">Todos los Canales</option>
+                            <option value="WEB">Tienda Web / Directa</option>
+                            <option value="ML_ALL" id="opt-filter-ml-all" class="hidden">Todo MercadoLibre</option>
+                            <option value="ML_1" id="opt-filter-ml1" class="hidden">MercadoLibre 1</option>
+                            <option value="ML_2" id="opt-filter-ml2" class="hidden">MercadoLibre 2</option>
+                            <option value="ML_3" id="opt-filter-ml3" class="hidden">MercadoLibre 3</option>
                         </select>
                         <i class="fa-solid fa-chevron-down absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-[10px] pointer-events-none"></i>
                     </div>
@@ -183,6 +183,16 @@
                     <i class="fa-solid fa-list"></i> Todo
                     <span id="badge-tab-all" class="tab-badge px-2 py-0.5 rounded-full text-[9px] font-black">0</span>
                 </button>
+            </div>
+
+            <!-- --- BARRA DE FILTRO RAPIDO POR TIENDAS ACTIVAS (MERCADOLIBRE Y WEB) --- -->
+            <div id="channel-quick-filter-bar" class="flex items-center gap-2 mb-4 overflow-x-auto pb-1.5 custom-scroll">
+                <span class="text-[9px] font-black uppercase text-slate-400 tracking-wider flex items-center gap-1.5 shrink-0 mr-1">
+                    <i class="fa-solid fa-store text-[10px]"></i> Filtro de Tiendas:
+                </span>
+                <div id="channel-filter-pills" class="flex items-center gap-2 flex-nowrap">
+                    <!-- Pills generadas dinámicamente -->
+                </div>
             </div>
 
             <div class="bg-white rounded-[2.5rem] shadow-xl border border-gray-100 overflow-hidden fade-in">
@@ -434,15 +444,60 @@
         </div>
     </div>
 
-    <div id="bulk-packing-modal" class="fixed inset-0 z-[85] hidden flex items-center justify-center p-4">
-        <div class="absolute inset-0 bg-slate-900/80" onclick="document.getElementById('bulk-packing-modal').classList.add('hidden')"></div>
-        <div class="relative bg-white w-full max-w-md rounded-[2.5rem] p-8 shadow-2xl flex flex-col text-center">
-            <div class="w-16 h-16 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center text-3xl mx-auto mb-4"><i class="fa-solid fa-box-open"></i></div>
-            <h3 class="text-xl font-black text-brand-black uppercase">Alistamiento <span class="text-purple-500">Masivo</span></h3>
-            <p class="text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-1 mb-6"><span id="bulk-pack-valid" class="text-brand-black font-black text-base">0</span> Pedidos Válidos para procesar</p>
-            <div id="bulk-pack-warning" class="hidden bg-yellow-50 text-yellow-700 text-[9px] font-black uppercase tracking-widest p-3 rounded-xl border border-yellow-200 mb-6"></div>
-            <button id="btn-confirm-bulk-pack" onclick="window.processBulkPacking()" class="w-full bg-brand-black text-white font-black py-4 rounded-xl shadow-lg uppercase text-[10px] tracking-[0.2em] hover:bg-purple-600 transition flex items-center justify-center gap-2">Confirmar Alistamiento Masivo</button>
-            <button onclick="document.getElementById('bulk-packing-modal').classList.add('hidden')" class="w-full mt-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest hover:text-brand-black transition">Cancelar</button>
+    <div id="bulk-packing-modal" class="fixed inset-0 z-[85] hidden flex items-center justify-center p-3 sm:p-4">
+        <div class="absolute inset-0 bg-slate-950/80 backdrop-blur-sm" onclick="window.closeBulkPackingModal ? window.closeBulkPackingModal() : document.getElementById('bulk-packing-modal').classList.add('hidden')"></div>
+        <div class="relative bg-white w-full max-w-4xl rounded-[2.5rem] p-6 sm:p-8 shadow-2xl flex flex-col max-h-[92vh] border border-gray-100 fade-in">
+            <!-- Header -->
+            <div class="flex items-start justify-between pb-4 border-b border-gray-100 shrink-0">
+                <div>
+                    <div class="flex items-center gap-2 flex-wrap mb-1">
+                        <span id="bulk-pack-channel-badge" class="px-2.5 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider bg-purple-100 text-purple-800 border border-purple-200">Alistamiento Rápido</span>
+                        <span id="bulk-pack-store-badge" class="hidden px-2.5 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider bg-[#FFE600] text-black border border-yellow-400">MercadoLibre</span>
+                    </div>
+                    <h3 class="text-xl sm:text-2xl font-black text-brand-black uppercase tracking-tight">
+                        Alistamiento <span class="text-purple-600">con Seriales</span>
+                    </h3>
+                    <p class="text-xs text-slate-500 font-medium mt-0.5">
+                        Escanea con pistola de código de barras o digita el serial (SN) de cada unidad para alistar los pedidos seleccionados.
+                    </p>
+                </div>
+                <button onclick="window.closeBulkPackingModal ? window.closeBulkPackingModal() : document.getElementById('bulk-packing-modal').classList.add('hidden')" class="w-9 h-9 rounded-xl bg-slate-100 hover:bg-rose-100 text-slate-400 hover:text-rose-600 transition flex items-center justify-center shrink-0 active:scale-95">
+                    <i class="fa-solid fa-xmark text-sm"></i>
+                </button>
+            </div>
+
+            <!-- Toolbar & Counters -->
+            <div class="py-3 px-4 bg-slate-50 border border-gray-100 flex items-center justify-between flex-wrap gap-2 shrink-0 rounded-2xl my-3">
+                <div class="flex items-center gap-3 text-xs font-bold text-slate-600 flex-wrap">
+                    <span>Pedidos: <strong id="bulk-pack-orders-count" class="text-brand-black font-black">0</strong></span>
+                    <span class="text-slate-300">•</span>
+                    <span>Unidades: <strong id="bulk-pack-units-count" class="text-brand-black font-black">0</strong></span>
+                    <span class="text-slate-300">•</span>
+                    <span>Seriales Listos: <strong id="bulk-pack-entered-count" class="text-purple-600 font-black">0</strong> / <span id="bulk-pack-total-sns">0</span></span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button type="button" onclick="window.bulkMarkAllNoSerial && window.bulkMarkAllNoSerial()" class="text-[10px] font-bold text-slate-600 hover:text-brand-black bg-white hover:bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200 transition flex items-center gap-1.5 shadow-2xs active:scale-95">
+                        <i class="fa-solid fa-ban text-amber-500 text-xs"></i>
+                        <span>Marcar Todo Sin Serial (N/A)</span>
+                    </button>
+                </div>
+            </div>
+
+            <div id="bulk-pack-warning" class="hidden mb-3 p-3 bg-amber-50 text-amber-800 text-[10px] font-bold uppercase rounded-xl border border-amber-200"></div>
+
+            <!-- Scrollable list of orders & item serial fields -->
+            <div id="bulk-pack-list" class="flex-grow overflow-y-auto custom-scroll pr-1.5 space-y-4 my-2 max-h-[58vh]"></div>
+
+            <!-- Footer actions -->
+            <div class="pt-4 border-t border-gray-100 flex items-center justify-between gap-3 shrink-0 flex-wrap">
+                <button onclick="window.closeBulkPackingModal ? window.closeBulkPackingModal() : document.getElementById('bulk-packing-modal').classList.add('hidden')" class="px-5 py-3 rounded-xl border border-gray-200 text-slate-500 hover:bg-slate-100 text-xs font-black uppercase tracking-wider transition">
+                    Cancelar
+                </button>
+                <button id="btn-confirm-bulk-pack" onclick="window.processBulkPacking()" class="px-6 py-3.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-black text-xs uppercase tracking-widest transition flex items-center gap-2 shadow-lg shadow-purple-600/20 active:scale-95 disabled:opacity-50 disabled:pointer-events-none">
+                    <i class="fa-solid fa-box-open text-sm"></i>
+                    <span id="btn-confirm-bulk-pack-text">Confirmar y Alistar Pedidos</span>
+                </button>
+            </div>
         </div>
     </div>
 
@@ -507,7 +562,7 @@
         import { db, collection, getDocs, orderBy, query, limit, auth, doc, getDoc, where, onSnapshot, startAfter } from '../js/firebase-init.js';
         import { loadAdminSidebar } from '../js/admin-ui.js?v=2.0.0';
         import { initManualSale, openManualSaleModal } from '../js/manual-sale.js?v=1.0.6';
-        import '../js/order-actions.js?v=1.1.4';
+        import '../js/order-actions.js?v=1.1.7';
 
         loadAdminSidebar();
 
@@ -560,65 +615,151 @@
             const opt2 = document.getElementById('opt-filter-ml2');
             const opt3 = document.getElementById('opt-filter-ml3');
             const selectEl = document.getElementById('channel-filter-select');
+            const pillsContainer = document.getElementById('channel-filter-pills');
 
-            const hasAnyML = mlStoreStatus[1] || mlStoreStatus[2] || mlStoreStatus[3];
+            // Detectar presencia de pedidos de tiendas MercadoLibre en el cache local
+            const orders = window.adminOrdersCache || adminOrdersCache || [];
+            const hasOrdersML1 = orders.some(o => getOrderMLStore(o) === 1);
+            const hasOrdersML2 = orders.some(o => getOrderMLStore(o) === 2);
+            const hasOrdersML3 = orders.some(o => getOrderMLStore(o) === 3);
+
+            const isStore1Active = mlStoreStatus[1] || hasOrdersML1 || (mlStoreNames[1] && mlStoreNames[1] !== 'MercadoLibre 1');
+            const isStore2Active = mlStoreStatus[2] || hasOrdersML2 || (mlStoreNames[2] && mlStoreNames[2] !== 'MercadoLibre 2');
+            const isStore3Active = mlStoreStatus[3] || hasOrdersML3 || (mlStoreNames[3] && mlStoreNames[3] !== 'MercadoLibre 3');
+            const hasAnyML = isStore1Active || isStore2Active || isStore3Active;
+
             if (optAll) {
                 if (hasAnyML) optAll.classList.remove('hidden');
                 else optAll.classList.add('hidden');
             }
 
             if (opt1) {
-                if (mlStoreStatus[1]) {
+                if (isStore1Active) {
                     opt1.classList.remove('hidden');
-                    opt1.textContent = `🤝 ${mlStoreNames[1] || 'MercadoLibre 1'}`;
+                    opt1.textContent = mlStoreNames[1] || 'MercadoLibre 1';
                 } else {
                     opt1.classList.add('hidden');
                 }
             }
 
             if (opt2) {
-                if (mlStoreStatus[2]) {
+                if (isStore2Active) {
                     opt2.classList.remove('hidden');
-                    opt2.textContent = `🤝 ${mlStoreNames[2] || 'MercadoLibre 2'}`;
+                    opt2.textContent = mlStoreNames[2] || 'MercadoLibre 2';
                 } else {
                     opt2.classList.add('hidden');
                 }
             }
 
             if (opt3) {
-                if (mlStoreStatus[3]) {
+                if (isStore3Active) {
                     opt3.classList.remove('hidden');
-                    opt3.textContent = `🤝 ${mlStoreNames[3] || 'MercadoLibre 3'}`;
+                    opt3.textContent = mlStoreNames[3] || 'MercadoLibre 3';
                 } else {
                     opt3.classList.add('hidden');
                 }
             }
 
-            // Si el filtro activo pertenecía a una tienda que ya no está activa, resetear a ALL
-            if (currentChannelFilter === 'ML_1' && !mlStoreStatus[1]) currentChannelFilter = 'ALL';
-            if (currentChannelFilter === 'ML_2' && !mlStoreStatus[2]) currentChannelFilter = 'ALL';
-            if (currentChannelFilter === 'ML_3' && !mlStoreStatus[3]) currentChannelFilter = 'ALL';
+            // Si el filtro activo pertenecia a una tienda que ya no esta activa, resetear a ALL
+            if (currentChannelFilter === 'ML_1' && !isStore1Active) currentChannelFilter = 'ALL';
+            if (currentChannelFilter === 'ML_2' && !isStore2Active) currentChannelFilter = 'ALL';
+            if (currentChannelFilter === 'ML_3' && !isStore3Active) currentChannelFilter = 'ALL';
             if (currentChannelFilter === 'ML_ALL' && !hasAnyML) currentChannelFilter = 'ALL';
 
             if (selectEl && selectEl.value !== currentChannelFilter) {
                 selectEl.value = currentChannelFilter;
+            }
+
+            // Renderizar pills de tiendas activas
+            if (pillsContainer) {
+                let currentTabOrders = orders;
+                if (currentFilter === 'ACTIONABLE') {
+                    currentTabOrders = orders.filter(o => ["PAGADO", "PENDIENTE", "ALISTADO", "CANCELACION_PENDIENTE"].includes(o.status) || o.cancellationPendingConfirm);
+                } else if (currentFilter === 'WAITING') {
+                    currentTabOrders = orders.filter(o => o.status === "PENDIENTE_PAGO");
+                } else if (currentFilter === 'DISPATCHED') {
+                    currentTabOrders = orders.filter(o => ["DESPACHADO", "ENTREGADO"].includes(o.status));
+                } else if (currentFilter === 'REFUNDS') {
+                    currentTabOrders = orders.filter(o => ["DEVUELTO", "DEVOLUCION_PARCIAL"].includes(o.status));
+                } else if (currentFilter === 'FAILED') {
+                    currentTabOrders = orders.filter(o => ["CANCELADO", "RECHAZADO", "CANCELACION_PENDIENTE"].includes(o.status) || o.cancellationPendingConfirm);
+                }
+
+                if (currentDateFilter !== 'ALL') {
+                    currentTabOrders = currentTabOrders.filter(o => matchesDateFilter(o, currentDateFilter));
+                }
+
+                const countAll = currentTabOrders.length;
+                const countWeb = currentTabOrders.filter(o => getOrderMLStore(o) === null).length;
+                const countMLAll = currentTabOrders.filter(o => getOrderMLStore(o) !== null).length;
+                const countML1 = currentTabOrders.filter(o => getOrderMLStore(o) === 1).length;
+                const countML2 = currentTabOrders.filter(o => getOrderMLStore(o) === 2).length;
+                const countML3 = currentTabOrders.filter(o => getOrderMLStore(o) === 3).length;
+
+                const makePill = (key, label, count, icon, isMeli = false) => {
+                    const isSelected = currentChannelFilter === key;
+                    let styleClass = '';
+                    if (isSelected) {
+                        if (isMeli) {
+                            styleClass = 'bg-[#FFE600] text-black border-yellow-400 font-black shadow-sm ring-2 ring-yellow-400/30';
+                        } else if (key === 'WEB') {
+                            styleClass = 'bg-cyan-600 text-white border-cyan-700 font-black shadow-sm ring-2 ring-cyan-500/30';
+                        } else {
+                            styleClass = 'bg-slate-900 text-white border-slate-950 font-black shadow-sm ring-2 ring-slate-700/30';
+                        }
+                    } else {
+                        styleClass = 'bg-white text-slate-600 hover:bg-slate-100 hover:text-brand-black border-slate-200 shadow-2xs font-bold';
+                    }
+                    return `
+                        <button type="button" onclick="window.setChannelFilter('${key}')"
+                            class="px-3 py-1.5 rounded-xl text-[9px] uppercase tracking-wider transition-all flex items-center gap-1.5 shrink-0 border cursor-pointer active:scale-95 ${styleClass}">
+                            <i class="${icon} text-[10px]"></i>
+                            <span>${label}</span>
+                            <span class="px-1.5 py-0.2 rounded-full text-[8px] font-black ${isSelected ? (isMeli ? 'bg-black/15 text-black' : 'bg-white/20 text-white') : 'bg-slate-100 text-slate-500'}">${count}</span>
+                        </button>
+                    `;
+                };
+
+                let pillsHtml = makePill('ALL', 'Todos', countAll, 'fa-solid fa-layer-group', false);
+                pillsHtml += makePill('WEB', 'Web / Convencional', countWeb, 'fa-solid fa-globe', false);
+
+                if (hasAnyML) {
+                    pillsHtml += makePill('ML_ALL', 'Todo MercadoLibre', countMLAll, 'fa-solid fa-handshake', true);
+                }
+
+                if (isStore1Active) {
+                    const name1 = mlStoreNames[1] || 'MercadoLibre 1';
+                    pillsHtml += makePill('ML_1', name1, countML1, 'fa-solid fa-store', true);
+                }
+
+                if (isStore2Active) {
+                    const name2 = mlStoreNames[2] || 'MercadoLibre 2';
+                    pillsHtml += makePill('ML_2', name2, countML2, 'fa-solid fa-store', true);
+                }
+
+                if (isStore3Active) {
+                    const name3 = mlStoreNames[3] || 'MercadoLibre 3';
+                    pillsHtml += makePill('ML_3', name3, countML3, 'fa-solid fa-store', true);
+                }
+
+                pillsContainer.innerHTML = pillsHtml;
             }
         }
 
         window.setChannelFilter = function(val) {
             currentChannelFilter = val || 'ALL';
             currentOrdersPage = 1;
+            updateChannelFilterUI();
             const searchVal = document.getElementById('search-input')?.value.trim() || '';
             if (searchVal.length > 0) {
                 document.getElementById('search-input').dispatchEvent(new Event('input'));
             } else {
-                reCalcularFiltroLocal();
-                renderPage();
+                renderOrdersFromMemory();
             }
         };
 
         function initMLStoresTracking() {
-            // 1. Escuchar nombres de tiendas en config/system (accesible para Admin y Dev)
+            // 1. Escuchar nombres de tiendas en config/system (accesible para todo el personal)
             onSnapshot(doc(db, "config", "system"), (snap) => {
                 if (snap.exists()) {
                     const data = snap.data();
@@ -630,23 +771,31 @@
                     renderOrdersFromMemory();
                 }
             }, (err) => {
-                console.warn("No se pudieron cargar nombres de tiendas ML desde config/system:", err);
+                console.warn("Aviso al cargar config/system:", err);
             });
 
-            // 2. Escuchar estado activo de tiendas en config/developer (lectura permitida a Admin y Dev)
-            onSnapshot(doc(db, "config", "developer"), (snap) => {
-                if (snap.exists()) {
-                    const data = snap.data();
-                    mlStoreStatus[1] = !!(data.ML_ACCESS_TOKEN || data.ML_REFRESH_TOKEN);
-                    mlStoreStatus[2] = !!(data.ML_ACCESS_TOKEN_2 || data.ML_REFRESH_TOKEN_2);
-                    mlStoreStatus[3] = !!(data.ML_ACCESS_TOKEN_3 || data.ML_REFRESH_TOKEN_3);
-                    updateChannelFilterUI();
-                    reCalcularFiltroLocal();
-                    renderPage();
+            // 2. Escuchar estado activo de tiendas en config/developer (EXCLUSIVO para Admin y Developer)
+            let devUnsubscribe = null;
+            const tryAttachDeveloperListener = () => {
+                if (devUnsubscribe) return;
+                const userRole = (window.currentUserRole || sessionStorage.getItem('pixeltech_user_role') || '').toLowerCase();
+                const canReadDev = ['admin', 'administrador', 'developer'].includes(userRole);
+                if (canReadDev) {
+                    devUnsubscribe = onSnapshot(doc(db, "config", "developer"), (snap) => {
+                        if (snap.exists()) {
+                            const data = snap.data();
+                            mlStoreStatus[1] = !!(data.ML_ACCESS_TOKEN || data.ML_REFRESH_TOKEN);
+                            mlStoreStatus[2] = !!(data.ML_ACCESS_TOKEN_2 || data.ML_REFRESH_TOKEN_2);
+                            mlStoreStatus[3] = !!(data.ML_ACCESS_TOKEN_3 || data.ML_REFRESH_TOKEN_3);
+                            updateChannelFilterUI();
+                            renderOrdersFromMemory();
+                        }
+                    }, () => {});
                 }
-            }, (err) => {
-                console.warn("No se pudo cargar estado activo de tiendas ML:", err);
-            });
+            };
+
+            tryAttachDeveloperListener();
+            window.addEventListener('adminRoleResolved', tryAttachDeveloperListener);
         }
 
         // VARIABLES DE PAGINACIÓN INTEGRADAS
@@ -731,7 +880,7 @@
             return String(b.id || '').localeCompare(String(a.id || ''));
         }
 
-        // --- 🗄️ INDEXEDDB NATIVO PARA ÓRDENES (CAPACIDAD ILIMITADA Y PERSISTENCIA REAL) ---
+        // --- INDEXEDDB NATIVO PARA ORDENES (CAPACIDAD ILIMITADA Y PERSISTENCIA REAL) ---
         class IDBOrdersStorage {
             constructor(dbName = 'PixelTechAdminOrdersDB', storeName = 'orders_cache') {
                 this.dbName = dbName;
@@ -932,7 +1081,7 @@
         };
 
         // ==========================================================================
-        // 🧠 SMART REAL-TIME CACHE: MOTOR CENTRAL DE ÓRDENES (DUAL STREAM + INDEXEDDB)
+        // SMART REAL-TIME CACHE: MOTOR CENTRAL DE ORDENES (DUAL STREAM + INDEXEDDB)
         // ==========================================================================
         const SmartAdminOrdersSync = {
             STORAGE_KEY: 'pixeltech_orders_v2',
@@ -970,7 +1119,7 @@
                     this.lastSyncTime = cached.lastSync || 0;
                     this.updateGlobalArray();
                     if (adminOrdersCache.length > 0) {
-                        console.log(`⚡ [Orders] Cargados ${adminOrdersCache.length} pedidos de base local.`);
+                        console.log(`[Orders] Cargados ${adminOrdersCache.length} pedidos de base local.`);
                         renderOrdersFromMemory();
                     }
                 }
@@ -1027,12 +1176,12 @@
                 if (this.unsubRecent) { this.unsubRecent(); this.unsubRecent = null; }
 
                 const ordersRef = collection(db, "orders");
-                console.log("☁️ [Orders] Conectando flujos duales en vivo (Por Atender garantizadas + Historial)...");
+                console.log("[Orders] Conectando flujos duales en vivo (Por Atender garantizadas + Historial)...");
                 
                 // 1. FLUJO VITAL: Todas las órdenes Por Atender (Sin límite de 100, así sean de hace 1000 órdenes)
                 const qActionable = query(
                     ordersRef, 
-                    where("status", "in", ["PAGADO", "PENDIENTE", "ALISTADO"]), 
+                    where("status", "in", ["PAGADO", "PENDIENTE", "ALISTADO", "CANCELACION_PENDIENTE"]), 
                     orderBy("createdAt", "desc")
                 );
 
@@ -1050,13 +1199,13 @@
                     // Limpieza en olderMap de pedidos que antes estaban 'por atender' pero ya cambiaron de estado en el servidor
                     Object.keys(this.olderMap).forEach(id => {
                         const o = this.olderMap[id];
-                        if (o && ["PAGADO", "PENDIENTE", "ALISTADO"].includes(o.status) && !freshActionable[id]) {
+                        if (o && ["PAGADO", "PENDIENTE", "ALISTADO", "CANCELACION_PENDIENTE"].includes(o.status) && !freshActionable[id]) {
                             delete this.olderMap[id];
                         }
                     });
 
                     this.actionableMap = freshActionable;
-                    console.log(`🔔 [Orders] Órdenes por atender en vivo garantizadas: ${Object.keys(freshActionable).length}`);
+                    console.log(`[Orders] Ordenes por atender en vivo garantizadas: ${Object.keys(freshActionable).length}`);
                     this.syncAndRender();
                 }, (error) => {
                     console.error("Error Live Actionable Orders:", error);
@@ -1176,16 +1325,25 @@
                 const cutoffDateToday = new Date(now);
                 cutoffDateToday.setHours(hours, minutes, 0, 0);
 
+                const cancelPendingOrders = [];
                 const todayOrders = [];
                 const tomorrowOrders = [];
 
                 pageItems.forEach(o => {
+                    if (o.cancellationPendingConfirm || o.status === 'CANCELACION_PENDIENTE') {
+                        cancelPendingOrders.push(o);
+                        return;
+                    }
                     const orderDate = getOrderDate(o) || new Date();
                     const isToday = orderDate.toDateString() === now.toDateString();
                     if (isToday && orderDate > cutoffDateToday) tomorrowOrders.push(o);
                     else todayOrders.push(o);
                 });
 
+                if (cancelPendingOrders.length > 0) {
+                    htmlBuffer += `<tr class="bg-rose-100/90 border-b-2 border-rose-300"><td colspan="8" class="py-2.5 px-4 md:px-6"><div class="flex items-center gap-2.5 text-rose-900"><div class="p-1 bg-rose-200 rounded-lg text-rose-700 animate-pulse"><i class="fa-solid fa-triangle-exclamation text-xs"></i></div><span class="text-[10px] font-black uppercase tracking-widest">Atencion Urgente: Cancelados en MercadoLibre (Confirmar Retencion para liberar seriales)</span></div></td></tr>`;
+                    cancelPendingOrders.forEach(o => { htmlBuffer += renderRow(o); });
+                }
                 if (todayOrders.length > 0) {
                     htmlBuffer += `<tr class="bg-emerald-50/70 border-b border-emerald-100 fade-in"><td colspan="8" class="py-2.5 px-4 md:px-6"><div class="flex items-center gap-2.5 text-emerald-800"><div class="p-1 bg-emerald-100 rounded-lg"><i class="fa-solid fa-truck-fast text-xs"></i></div><span class="text-[10px] font-black uppercase tracking-widest">Prioridad: Despachar Hoy (Antes de ${cutoffTimeStr})</span></div></td></tr>`;
                     todayOrders.forEach(o => { htmlBuffer += renderRow(o); });
@@ -1271,7 +1429,10 @@
         function reCalcularFiltroLocal() {
             let baseList = [];
             if (currentFilter === 'ACTIONABLE') {
-                baseList = adminOrdersCache.filter(o => ["PAGADO", "PENDIENTE", "ALISTADO"].includes(o.status));
+                baseList = adminOrdersCache.filter(o => 
+                    ["PAGADO", "PENDIENTE", "ALISTADO", "CANCELACION_PENDIENTE"].includes(o.status) || 
+                    o.cancellationPendingConfirm === true
+                );
             } else if (currentFilter === 'WAITING') {
                 baseList = adminOrdersCache.filter(o => o.status === "PENDIENTE_PAGO");
             } else if (currentFilter === 'DISPATCHED') {
@@ -1279,7 +1440,10 @@
             } else if (currentFilter === 'REFUNDS') {
                 baseList = adminOrdersCache.filter(o => ["DEVUELTO", "DEVOLUCION_PARCIAL"].includes(o.status));
             } else if (currentFilter === 'FAILED') {
-                baseList = adminOrdersCache.filter(o => ["CANCELADO", "RECHAZADO"].includes(o.status));
+                baseList = adminOrdersCache.filter(o => 
+                    ["CANCELADO", "RECHAZADO", "CANCELACION_PENDIENTE"].includes(o.status) || 
+                    o.cancellationPendingConfirm === true
+                );
             } else {
                 baseList = [...adminOrdersCache];
             }
@@ -1290,6 +1454,15 @@
 
             if (currentChannelFilter !== 'ALL') {
                 baseList = baseList.filter(o => matchesChannelFilter(o, currentChannelFilter));
+            }
+
+            if (currentFilter === 'ACTIONABLE') {
+                baseList.sort((a, b) => {
+                    const aPending = (a.cancellationPendingConfirm || a.status === 'CANCELACION_PENDIENTE') ? 1 : 0;
+                    const bPending = (b.cancellationPendingConfirm || b.status === 'CANCELACION_PENDIENTE') ? 1 : 0;
+                    if (aPending !== bPending) return bPending - aPending;
+                    return (getOrderTimestamp(b) || 0) - (getOrderTimestamp(a) || 0);
+                });
             }
 
             filteredOrdersMemory = baseList;
@@ -1691,10 +1864,13 @@
         // --- RENDER DE FILA VISUAL OPTIMIZADA Y COMPACTA ---
         function renderRow(o) {
             const isTienda = o.source === 'TIENDA' || o.source === 'TIENDA_WEB';
+            const isCancelPending = o.cancellationPendingConfirm || o.status === 'CANCELACION_PENDIENTE';
             
             // Estado Logístico Separado y Preciso
             let logPill = '';
-            if (o.status === 'PAGADO') {
+            if (isCancelPending) {
+                logPill = `<span class="inline-flex items-center gap-1.5 bg-rose-600 text-white border border-rose-700 text-[9px] font-black uppercase px-2.5 py-1 rounded-full shadow-md animate-pulse whitespace-nowrap"><i class="fa-solid fa-triangle-exclamation text-[10px]"></i> Cancelado ML (Confirmar Retención)</span>`;
+            } else if (o.status === 'PAGADO') {
                 logPill = `<span class="inline-flex items-center gap-1.5 bg-rose-50 text-rose-700 border border-rose-200 text-[9px] font-black uppercase px-2.5 py-1 rounded-full shadow-2xs animate-pulse whitespace-nowrap"><span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span> Por Alistar (Urgente)</span>`;
             } else if (o.status === 'PENDIENTE') {
                 logPill = `<span class="inline-flex items-center gap-1.5 bg-amber-50 text-amber-800 border border-amber-200 text-[9px] font-black uppercase px-2.5 py-1 rounded-full shadow-2xs whitespace-nowrap"><span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span> Por Atender</span>`;
@@ -1846,7 +2022,7 @@
                 const guideLabel = carrier ? `${carrier}: ${tracking}` : `Guía: ${tracking}`;
                 trackingBadge = `
                     <div class="mt-1 flex items-center justify-center">
-                        <button onclick="event.stopPropagation(); navigator.clipboard.writeText('${tracking}'); if(window.showActionToast) window.showActionToast('📋 Guía copiada: ${tracking}', 'success', 2000);" 
+                        <button onclick="event.stopPropagation(); navigator.clipboard.writeText('${tracking}'); if(window.showActionToast) window.showActionToast('Guía copiada: ${tracking}', 'success', 2000);" 
                             class="inline-flex items-center gap-1 text-[9px] font-mono font-bold text-slate-600 bg-slate-100 hover:bg-brand-cyan/10 hover:text-brand-cyan hover:border-brand-cyan/30 px-2 py-0.5 rounded-md border border-slate-200 transition cursor-pointer active:scale-95 group/trk" 
                             title="Clic para copiar número de guía (${tracking})">
                             <i class="fa-solid fa-barcode text-[9px] text-slate-400 group-hover/trk:text-brand-cyan"></i>
@@ -1854,6 +2030,16 @@
                             <i class="fa-regular fa-copy text-[8px] text-slate-400 opacity-60 group-hover/trk:opacity-100"></i>
                         </button>
                     </div>`;
+            }
+
+            // Distintivo de validación ML (1/2 vs 2/2)
+            let mlValidationBadge = '';
+            if (isML) {
+                if (o.mlNeedsSecondValidation || o.mlValidationCount === 1) {
+                    mlValidationBadge = `<span class="inline-flex items-center gap-1 text-[8px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 shadow-2xs whitespace-nowrap" title="Validación 1/2 recibida. Revalidando automáticamente a los 5 minutos"><i class="fa-solid fa-hourglass-half text-[7px] text-amber-700"></i> 1/2 Val</span>`;
+                } else if (o.mlValidationCount >= 2) {
+                    mlValidationBadge = `<span class="inline-flex items-center gap-1 text-[8px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-900 border border-emerald-300 shadow-2xs whitespace-nowrap" title="Validado dos veces con MercadoLibre (Costos y comisiones exactas)"><i class="fa-solid fa-shield-check text-[7px] text-emerald-700"></i> 2/2 ML</span>`;
+                }
             }
 
             // Distintivo de canal inteligente (MercadoLibre, Tienda Web o Manual)
@@ -1870,21 +2056,28 @@
             }
 
             // Botón rápido de Rótulo MercadoLibre
-            const mlLabelBtn = isML ? `
+            const mlLabelBtn = (isML && !isCancelPending) ? `
                 <button onclick="window.openMercadoLibreLabel('${o.id}')" title="Imprimir Rótulo MercadoLibre" class="w-8 h-8 rounded-lg bg-[#FFE600] border border-yellow-400 text-black hover:bg-yellow-400/80 transition shadow-2xs flex items-center justify-center active:scale-95">
                     <i class="fa-solid fa-tag text-xs"></i>
                 </button>
             ` : '';
 
+            // Botón de confirmación directa de cancelación en bodega
+            const cancelConfirmBtn = isCancelPending ? `
+                <button onclick="window.confirmOrderCancellation('${o.id}')" title="Confirmar Retención en Bodega y Liberar Seriales" class="h-8 px-2.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-black text-[9px] uppercase tracking-wider shadow-sm flex items-center gap-1 active:scale-95 transition">
+                    <i class="fa-solid fa-hand text-xs"></i> Confirmar Retención
+                </button>
+            ` : '';
+
             return `
-                <tr class="hover:bg-slate-50/80 transition border-b border-gray-50 group fade-in">
+                <tr class="${isCancelPending ? 'bg-rose-50/90 border-l-4 border-rose-600 hover:bg-rose-100/90' : 'hover:bg-slate-50/80'} transition border-b border-gray-100 group fade-in">
                     <td class="px-4 py-3.5 text-center">
                         <input type="checkbox" class="order-cb cursor-pointer w-4 h-4 rounded text-brand-cyan focus:ring-brand-cyan border-gray-300" value="${o.id}">
                     </td>
                     <td class="px-4 md:px-6 py-3.5">
                         <div class="flex items-center gap-2 mb-0.5">
                             <button onclick="window.viewOrderDetail('${o.id}')" class="font-black text-base text-brand-cyan hover:text-brand-black uppercase tracking-tighter hover:underline text-left transition cursor-pointer" title="Ver detalle de pedido">${internalNumDisplay}</button>
-                            <button onclick="navigator.clipboard.writeText('${o.id}'); if(window.showActionToast) window.showActionToast('📋 ID copiado: ${shortId}', 'success', 2000);" class="font-mono text-[8px] text-gray-500 hover:text-brand-black hover:bg-gray-200 uppercase bg-gray-100 px-1.5 py-0.5 rounded transition cursor-pointer flex items-center gap-1 active:scale-95" title="Copiar ID Firebase (${o.id})">${shortId} <i class="fa-regular fa-copy text-[7px] text-gray-400"></i></button>
+                            <button onclick="navigator.clipboard.writeText('${o.id}'); if(window.showActionToast) window.showActionToast('ID copiado: ${shortId}', 'success', 2000);" class="font-mono text-[8px] text-gray-500 hover:text-brand-black hover:bg-gray-200 uppercase bg-gray-100 px-1.5 py-0.5 rounded transition cursor-pointer flex items-center gap-1 active:scale-95" title="Copiar ID Firebase (${o.id})">${shortId} <i class="fa-regular fa-copy text-[7px] text-gray-400"></i></button>
                         </div>
                         <div class="text-[9px] font-bold text-gray-400 flex items-center gap-1 flex-wrap">
                             <i class="fa-regular fa-clock text-[8px]"></i> ${dateStr}
@@ -1903,7 +2096,10 @@
                         ${itemsSummaryHtml}
                     </td>
                     <td class="px-4 md:px-6 py-3.5 text-center">
-                        ${channelBadge}
+                        <div class="flex flex-col items-center justify-center gap-1">
+                            ${channelBadge}
+                            ${mlValidationBadge}
+                        </div>
                     </td>
                     <td class="px-4 md:px-6 py-3.5 text-center">${pBadge}</td>
                     <td class="px-4 md:px-6 py-3.5 text-center">
@@ -1913,6 +2109,7 @@
                     <td class="px-4 md:px-6 py-3.5 text-right align-middle">${priceHtml}</td>
                     <td class="px-4 md:px-6 py-3.5 text-center">
                         <div class="flex items-center justify-center gap-1.5">
+                            ${cancelConfirmBtn}
                             <button onclick="window.viewOrderDetail('${o.id}')" title="Ver Detalle" class="w-8 h-8 rounded-lg bg-white border border-gray-200 text-brand-black hover:bg-brand-black hover:text-white transition shadow-2xs flex items-center justify-center active:scale-95"><i class="fa-solid fa-eye text-xs"></i></button>
                             <button onclick="window.viewReceipt('${o.id}')" title="Ver Recibo" class="w-8 h-8 rounded-lg bg-white border border-rose-200 text-rose-500 hover:bg-rose-500 hover:text-white transition shadow-2xs flex items-center justify-center active:scale-95"><i class="fa-solid fa-receipt text-xs"></i></button>
                             ${mlLabelBtn}
@@ -1928,11 +2125,11 @@
             const allOrders = window.adminOrdersCache || adminOrdersCache || [];
             
             // Conteos por estado
-            const actionable = allOrders.filter(o => ["PAGADO", "PENDIENTE", "ALISTADO"].includes(o.status));
+            const actionable = allOrders.filter(o => ["PAGADO", "PENDIENTE", "ALISTADO", "CANCELACION_PENDIENTE"].includes(o.status) || o.cancellationPendingConfirm);
             const waiting = allOrders.filter(o => o.status === "PENDIENTE_PAGO");
             const dispatched = allOrders.filter(o => ["DESPACHADO", "ENTREGADO"].includes(o.status));
             const refunds = allOrders.filter(o => ["DEVUELTO", "DEVOLUCION_PARCIAL"].includes(o.status));
-            const failed = allOrders.filter(o => ["CANCELADO", "RECHAZADO"].includes(o.status));
+            const failed = allOrders.filter(o => ["CANCELADO", "RECHAZADO", "CANCELACION_PENDIENTE"].includes(o.status) || o.cancellationPendingConfirm);
             
             // Badges en pestañas
             const setBadge = (id, count) => {
@@ -1945,6 +2142,7 @@
             setBadge('badge-tab-refunds', refunds.length);
             setBadge('badge-tab-failed', failed.length);
             setBadge('badge-tab-all', allOrders.length);
+            updateChannelFilterUI();
         }
 
         // --- GESTOR DE BARRA FLOTANTE Y SELECCIÓN MASIVA ---
@@ -2003,7 +2201,7 @@
         window.printSelectedLabels = function() {
             const checkboxes = document.querySelectorAll('.order-cb:checked');
             if (checkboxes.length === 0) {
-                alert("⚠️ Por favor, selecciona al menos un pedido marcando las casillas de la tabla.");
+                alert("Por favor, selecciona al menos un pedido marcando las casillas de la tabla.");
                 return;
             }
             const selectedIds = Array.from(checkboxes).map(cb => cb.value);
@@ -2024,7 +2222,7 @@
             });
 
             if (mlOrders.length > 0) {
-                const choice = confirm(`📦 Se detectaron ${mlOrders.length} pedido(s) de MercadoLibre seleccionados.\n\n¿Deseas descargar el PDF con todos los Rótulos Oficiales de MercadoLibre (Mercado Envíos / Flex) unificados?\n\n• Haz clic en [Aceptar] para descargar los Rótulos Oficiales de MercadoLibre (Multipágina con códigos de barra de Mercado Envíos).\n• Haz clic en [Cancelar] para imprimir los rótulos internos estándar de la tienda.`);
+                const choice = confirm(`Se detectaron ${mlOrders.length} pedido(s) de MercadoLibre seleccionados.\n\n¿Deseas descargar el PDF con todos los Rótulos Oficiales de MercadoLibre (Mercado Envíos / Flex) unificados?\n\n• Haz clic en [Aceptar] para descargar los Rótulos Oficiales de MercadoLibre (Multipágina con códigos de barra de Mercado Envíos).\n• Haz clic en [Cancelar] para imprimir los rótulos internos estándar de la tienda.`);
                 if (choice) {
                     let functionsUrl = "https://us-central1-pixeltechcol.cloudfunctions.net/getMercadoLibreLabel";
                     if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
@@ -2053,11 +2251,22 @@
                         window.open(labelUrl, '_blank');
                     });
 
+                    // Alistar rápidamente en bodega con seriales para MercadoLibre tras abrir rótulos
+                    const mlOrdersToPack = mlOrders.filter(o => 
+                        !['ALISTADO', 'DESPACHADO', 'EN_RUTA', 'ENTREGADO', 'CANCELADO', 'CANCELACION_PENDIENTE', 'RECHAZADO', 'DEVUELTO', 'DEVOLUCION_PARCIAL'].includes(o.status) &&
+                        !o.cancellationPendingConfirm
+                    );
+                    if (mlOrdersToPack.length > 0 && typeof window.openBulkPackingModal === 'function') {
+                        setTimeout(() => {
+                            window.openBulkPackingModal(mlOrdersToPack, true);
+                        }, 500);
+                    }
+
                     // Si también hay pedidos que no son de MercadoLibre seleccionados, preguntar si generar sus rótulos internos
                     const nonMlOrders = selectedOrders.filter(o => !mlOrders.some(m => m.id === o.id));
                     if (nonMlOrders.length > 0) {
                         setTimeout(() => {
-                            if (confirm(`ℹ️ También hay ${nonMlOrders.length} pedido(s) convencionales seleccionados (no MercadoLibre). ¿Deseas imprimir sus rótulos internos de la tienda ahora?`)) {
+                            if (confirm(`También hay ${nonMlOrders.length} pedido(s) convencionales seleccionados (no MercadoLibre). ¿Deseas imprimir sus rótulos internos de la tienda ahora?`)) {
                                 if (typeof window.generateLabels === 'function') {
                                     window.generateLabels(nonMlOrders);
                                 }
@@ -2071,7 +2280,7 @@
             if (typeof window.generateLabels === 'function') {
                 window.generateLabels(selectedOrders);
             } else {
-                alert("⚠️ La función para generar rótulos aún no se ha cargado. Por favor, reintenta en un segundo.");
+                alert("La función para generar rótulos aún no se ha cargado. Por favor, reintenta en un segundo.");
             }
         };
 
@@ -2081,6 +2290,16 @@
                 functionsUrl = "http://localhost:5001/pixeltechcol/us-central1/getMercadoLibreLabel";
             }
             window.open(`${functionsUrl}?orderId=${orderId}`, '_blank');
+
+            const cache = window.adminOrdersCache || adminOrdersCache || [];
+            const targetOrder = cache.find(o => o.id === orderId);
+            if (targetOrder && !['ALISTADO', 'DESPACHADO', 'EN_RUTA', 'ENTREGADO', 'CANCELADO', 'CANCELACION_PENDIENTE', 'RECHAZADO', 'DEVUELTO', 'DEVOLUCION_PARCIAL'].includes(targetOrder.status) && !targetOrder.cancellationPendingConfirm) {
+                setTimeout(() => {
+                    if (typeof window.openBulkPackingModal === 'function') {
+                        window.openBulkPackingModal([targetOrder], true);
+                    }
+                }, 500);
+            }
         };
 
         const urlParams = new URLSearchParams(window.location.search);

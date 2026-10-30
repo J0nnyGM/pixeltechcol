@@ -221,6 +221,16 @@
                             </tbody>
                         </table>
                     </div>
+
+                    <!-- CONTROL DE CARGA GENERAL (LOTES DE 200 BAJO SOLICITUD) -->
+                    <div id="general-logs-pagination" class="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-gray-800 text-xs">
+                        <span id="general-logs-info" class="text-gray-400 font-bold uppercase tracking-wider text-[11px]">
+                            Mostrando los 200 logs más recientes (Para no agotar cuota de lecturas)
+                        </span>
+                        <button id="btn-load-more-general" class="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-brand-cyan border border-gray-700 font-bold rounded-xl transition flex items-center gap-2">
+                            <i class="fa-solid fa-cloud-arrow-down"></i> Cargar 200 anteriores (Bajo solicitud)
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -291,7 +301,12 @@
                         <span id="modal-stock-current" class="text-xl font-black text-brand-cyan font-mono">0 ud(s)</span>
                     </div>
 
-                    <p class="text-xs font-bold text-gray-400 uppercase tracking-widest">Desglose de Origen del Valor:</p>
+                    <div class="flex items-center justify-between">
+                        <p class="text-xs font-bold text-gray-400 uppercase tracking-widest">Desglose de Origen del Valor:</p>
+                        <span id="modal-breakdown-variant-label" class="text-[10px] text-brand-cyan font-bold uppercase tracking-wider hidden">
+                            <i class="fa-solid fa-filter mr-1"></i> Filtrado por Variante
+                        </span>
+                    </div>
                     <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs">
                         <div class="bg-gray-800/40 p-3 rounded-xl border border-gray-700/50">
                             <span class="text-[9px] font-bold uppercase tracking-wider text-amber-400 block mb-1">🏁 Stock Inicial</span>
@@ -318,17 +333,52 @@
 
                 <!-- VARIANTES / COMBINACIONES DE ESTE PRODUCTO -->
                 <div id="modal-variants-section" class="dark-box-sub rounded-2xl p-5 space-y-3 hidden">
-                    <span class="text-xs font-black uppercase tracking-wider text-gray-400 block"><i class="fa-solid fa-palette text-amber-400 mr-1.5"></i> Desglose de Stock por Variantes (Color / Capacidad)</span>
+                    <div class="flex items-center justify-between">
+                        <span class="text-xs font-black uppercase tracking-wider text-gray-400 block"><i class="fa-solid fa-palette text-amber-400 mr-1.5"></i> Desglose de Stock por Variantes (Color / Capacidad)</span>
+                        <span class="text-[10px] text-gray-500 font-bold uppercase tracking-wider hidden sm:inline">Haz clic en una variante para filtrar</span>
+                    </div>
                     <div id="modal-variants-grid" class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs"></div>
                 </div>
 
                 <!-- LÍNEA DE TIEMPO DE EVENTOS DE ESTE PRODUCTO -->
                 <div>
-                    <h4 class="text-xs font-black uppercase tracking-widest text-gray-400 mb-4 flex items-center gap-2">
-                        <i class="fa-solid fa-clock-rotate-left text-brand-cyan"></i> Historial Cronológico de Cambios
-                    </h4>
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+                        <h4 class="text-xs font-black uppercase tracking-widest text-gray-400 flex items-center gap-2">
+                            <i class="fa-solid fa-clock-rotate-left text-brand-cyan"></i> Historial Cronológico de Cambios
+                        </h4>
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <!-- SELECTOR FILTRO DE VARIANTE -->
+                            <div id="modal-variant-filter-container" class="relative hidden">
+                                <select id="modal-variant-filter" class="dark-input text-gray-200 text-xs font-bold rounded-xl px-3 py-1.5 focus:outline-none transition border border-gray-700 bg-gray-900 cursor-pointer">
+                                    <option value="ALL">✨ Todas las Variantes</option>
+                                </select>
+                            </div>
+                            <span id="modal-logs-badge-count" class="text-[10px] font-mono font-bold text-gray-400 bg-gray-800/80 px-2.5 py-1 rounded-lg border border-gray-700">0 logs</span>
+                        </div>
+                    </div>
+
                     <div id="modal-timeline-container" class="space-y-3">
                         <p class="text-xs text-gray-500 py-4 text-center">Cargando historial...</p>
+                    </div>
+
+                    <!-- CONTROLES DE PAGINACIÓN DE LOGS DEL PRODUCTO (200 POR PÁGINA / BAJO SOLICITUD) -->
+                    <div id="modal-logs-pagination" class="mt-5 pt-4 border-t border-gray-800/80 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs hidden">
+                        <div class="text-[11px] text-gray-400 font-bold">
+                            <span id="modal-logs-pagination-info">Mostrando 0 de 0 logs</span>
+                            <span class="text-gray-500 text-[10px] block sm:inline sm:ml-1 font-normal">(Cargando lotes de 200 bajo solicitud)</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <button id="btn-modal-prev-page" disabled class="px-3.5 py-1.5 bg-gray-800 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed text-white font-bold rounded-xl transition flex items-center gap-1.5 text-xs">
+                                <i class="fa-solid fa-chevron-left text-[10px]"></i> Anterior
+                            </button>
+                            <span id="modal-logs-page-indicator" class="dark-input px-3.5 py-1.5 text-brand-cyan font-mono font-bold rounded-xl text-xs">Pág. 1 / 1</span>
+                            <button id="btn-modal-next-page" disabled class="px-3.5 py-1.5 bg-gray-800 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed text-white font-bold rounded-xl transition flex items-center gap-1.5 text-xs">
+                                Siguiente <i class="fa-solid fa-chevron-right text-[10px]"></i>
+                            </button>
+                            <button id="btn-modal-load-more" class="px-3.5 py-1.5 bg-brand-cyan/10 hover:bg-brand-cyan/20 text-brand-cyan border border-brand-cyan/30 font-black uppercase text-[10px] tracking-wider rounded-xl transition flex items-center gap-1.5">
+                                <i class="fa-solid fa-cloud-arrow-down"></i> Cargar 200 más
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>

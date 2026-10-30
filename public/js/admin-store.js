@@ -122,6 +122,19 @@ class StoreModule {
 
             if (cached) {
                 this.runtimeMap = cached.map || {};
+                Object.values(this.runtimeMap).forEach(item => {
+                    if (!item.dateObj) {
+                        const rawDate = item[this.dateField] || item.createdAt || item.date;
+                        if (rawDate?.toDate) item.dateObj = rawDate.toDate();
+                        else if (rawDate?.seconds) item.dateObj = new Date(rawDate.seconds * 1000);
+                        else if (rawDate) {
+                            const d = new Date(rawDate);
+                            item.dateObj = isNaN(d) ? new Date() : d;
+                        } else {
+                            item.dateObj = new Date();
+                        }
+                    }
+                });
                 this.lastSyncTime = cached.lastSync || 0;
             }
         } catch (e) {
@@ -263,9 +276,9 @@ class StoreModule {
 
     getSortedArray() {
         return Object.values(this.runtimeMap).sort((a, b) => {
-            const dateA = a[this.dateField]?.seconds || (a.dateObj ? a.dateObj.getTime() : 0);
-            const dateB = b[this.dateField]?.seconds || (b.dateObj ? b.dateObj.getTime() : 0);
-            return dateB - dateA;
+            const timeA = (a.dateObj && a.dateObj.getTime) ? a.dateObj.getTime() : (a[this.dateField]?.seconds ? a[this.dateField].seconds * 1000 : 0);
+            const timeB = (b.dateObj && b.dateObj.getTime) ? b.dateObj.getTime() : (b[this.dateField]?.seconds ? b[this.dateField].seconds * 1000 : 0);
+            return timeB - timeA;
         });
     }
 
@@ -308,8 +321,35 @@ const modules = {
         collection: 'orders',
         dateField: 'createdAt',
         queryConstraints: [where("paymentStatus", "in", ["PENDING", "PARTIAL"])],
-        clientSideFilter: (o) => ['PENDING', 'PARTIAL'].includes(o.paymentStatus) && !['CANCELADO', 'RECHAZADO'].includes(o.status),
-        lightweight: (o) => ({ id: o.id, userId: o.userId, userName: o.userName, billingInfo: o.billingInfo, shippingData: o.shippingData, total: o.total, amountPaid: o.amountPaid, paymentStatus: o.paymentStatus, status: o.status, createdAt: o.createdAt, updatedAt: o.updatedAt })
+        clientSideFilter: (o) => {
+            if (['CANCELADO', 'RECHAZADO'].includes(o.status)) return false;
+            if (o.paymentStatus === 'PAID' || o.status === 'PAGADO') return false;
+            const total = Number(o.total) || 0;
+            const paid = Number(o.amountPaid) || 0;
+            const refunded = Number(o.refundedAmount) || 0;
+            if (total - paid - refunded <= 0) return false;
+            return ['PENDING', 'PARTIAL'].includes(o.paymentStatus) || ['PENDIENTE', 'PENDIENTE_PAGO'].includes(o.status);
+        },
+        lightweight: (o) => ({
+            id: o.id,
+            userId: o.userId || null,
+            userName: o.userName || null,
+            billingInfo: o.billingInfo || null,
+            shippingData: o.shippingData || null,
+            buyerInfo: o.buyerInfo || null,
+            clientDoc: o.clientDoc || null,
+            phone: o.phone || null,
+            internalOrderNumber: o.internalOrderNumber || null,
+            orderNumber: o.orderNumber || null,
+            paymentMethod: o.paymentMethod || o.paymentMethodName || null,
+            total: Number(o.total) || 0,
+            amountPaid: Number(o.amountPaid) || 0,
+            refundedAmount: Number(o.refundedAmount) || 0,
+            paymentStatus: o.paymentStatus || 'PENDING',
+            status: o.status || 'PENDIENTE',
+            createdAt: o.createdAt || null,
+            updatedAt: o.updatedAt || null
+        })
     }),
 
     payables: new StoreModule({
@@ -317,8 +357,21 @@ const modules = {
         collection: 'payables',
         dateField: 'createdAt',
         queryConstraints: [where("status", "==", "PENDING")],
-        clientSideFilter: (p) => p.status === 'PENDING',
-        lightweight: (p) => ({ id: p.id, provider: p.provider, description: p.description, total: p.total, amountPaid: p.amountPaid, balance: p.balance, dueDate: p.dueDate, status: p.status, createdAt: p.createdAt, updatedAt: p.updatedAt })
+        clientSideFilter: (p) => p.status === 'PENDING' && (Number(p.balance) > 0 || (Number(p.total) - Number(p.amountPaid || 0) > 0)),
+        lightweight: (p) => ({
+            id: p.id,
+            provider: p.provider,
+            supplierId: p.supplierId || null,
+            description: p.description,
+            total: Number(p.total) || 0,
+            amountPaid: Number(p.amountPaid) || 0,
+            balance: p.balance !== undefined ? Number(p.balance) : (Number(p.total) - Number(p.amountPaid || 0)),
+            dueDate: p.dueDate || null,
+            purchaseId: p.purchaseId || null,
+            status: p.status,
+            createdAt: p.createdAt || null,
+            updatedAt: p.updatedAt || null
+        })
     }),
 
     expenses: new StoreModule({
@@ -327,14 +380,30 @@ const modules = {
         dateField: 'date', 
         queryConstraints: [where("type", "==", "EXPENSE")],
         clientSideFilter: (e) => e.type === 'EXPENSE',
-        lightweight: (e) => ({ id: e.id, description: e.description, amount: e.amount, type: e.type, category: e.category, paymentMethod: e.paymentMethod, date: e.date, createdAt: e.createdAt, supplierName: e.supplierName, updatedAt: e.updatedAt })
+        lightweight: (e) => ({
+            id: e.id,
+            description: e.description,
+            amount: Number(e.amount) || 0,
+            type: e.type,
+            category: e.category || 'Otros',
+            paymentMethod: e.paymentMethod || null,
+            accountId: e.accountId || null,
+            supplierName: e.supplierName || 'General',
+            supplierId: e.supplierId || null,
+            payableId: e.payableId || null,
+            purchaseId: e.purchaseId || null,
+            orderId: e.orderId || null,
+            date: e.date,
+            createdAt: e.createdAt,
+            updatedAt: e.updatedAt || null
+        })
     }),
 
     purchases: new StoreModule({
         name: 'purchases',
         collection: 'purchases',
         dateField: 'createdAt',
-        lightweight: (p) => ({ id: p.id, supplierId: p.supplierId, supplierName: p.supplierName, totalCost: p.totalCost, createdBy: p.createdBy, createdAt: p.createdAt, items: p.items, hasIVA: p.hasIVA, updatedAt: p.updatedAt })
+        lightweight: (p) => ({ id: p.id, supplierId: p.supplierId, supplierName: p.supplierName, totalCost: p.totalCost, amountPaid: p.amountPaid || 0, paymentStatus: p.paymentStatus || (p.amountPaid >= p.totalCost ? 'PAID' : (p.amountPaid > 0 ? 'PARTIAL' : 'PENDING')), paymentMethod: p.paymentMethod || 'CREDITO', dueDate: p.dueDate || null, accountId: p.accountId || null, accountName: p.accountName || null, createdBy: p.createdBy, createdAt: p.createdAt, items: p.items, hasIVA: p.hasIVA, updatedAt: p.updatedAt })
     }),
 
     warranties: new StoreModule({
@@ -383,6 +452,18 @@ export const AdminStore = {
     subscribeToRma: (cb) => modules.rma.subscribe(cb),
     subscribeToInvoices: (cb) => modules.invoices.subscribe(cb),
     subscribeToAccounts: (cb) => modules.accounts.subscribe(cb),
+
+    async forceSyncReceivables() {
+        if (modules.receivables) await modules.receivables.forceSync();
+    },
+
+    async forceSyncPayables() {
+        if (modules.payables) await modules.payables.forceSync();
+    },
+
+    async forceSyncExpenses() {
+        if (modules.expenses) await modules.expenses.forceSync();
+    },
 
     async forceSyncAll() {
         await clearAllAppDataAndReload(true);

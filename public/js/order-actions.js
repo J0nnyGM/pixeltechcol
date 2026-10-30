@@ -1,6 +1,7 @@
 import { db, doc, getDoc, updateDoc, Timestamp, collection, getDocs, runTransaction, serverTimestamp, writeBatch, auth, query, where, limit, functions, httpsCallable } from './firebase-init.js';
 import { adjustStock } from './inventory-core.js'; 
 import { AdminStore } from './admin-store.js';
+import { PIXELTECH_LOGO_DATA_URI } from './logo-data.js';
 
 // --- CACHÉ DE OPTIMIZACIÓN ---
 let currentOrderData = null; 
@@ -220,7 +221,7 @@ export function discardDraftSerials(orderId) {
     if (!orderId) return;
     if (!confirm("¿Deseas descartar los seriales guardados localmente para este pedido y empezar de nuevo?")) return;
     clearDraftSerials(orderId);
-    showActionToast("🗑️ Borrador local de seriales descartado.", "info");
+    showActionToast("Borrador local de seriales descartado.", "info");
     if (typeof window.viewOrderDetail === 'function') {
         window.viewOrderDetail(orderId);
     }
@@ -252,31 +253,131 @@ function updateDraftUI(orderId, hasDraft, count = 0) {
 // Ejecutar limpieza preventiva de borradores antiguos al cargar módulo
 pruneOldDraftSerials();
 
-window.toggleItemNoSerial = (idx) => {
-    const inputs = document.querySelectorAll(`.sn-input[data-item-index="${idx}"]`);
+export async function getAvailableSerialsForItem(item) {
+    if (!item?.id) return [];
+    try {
+        const q = query(
+            collection(db, "product_serials"),
+            where("productId", "==", item.id),
+            where("status", "==", "AVAILABLE")
+        );
+        const snap = await getDocs(q);
+        let docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        if (item.color) {
+            docs = docs.filter(d => !d.color || d.color.toUpperCase() === item.color.toUpperCase());
+        }
+        if (item.capacity) {
+            docs = docs.filter(d => !d.capacity || d.capacity.toUpperCase() === item.capacity.toUpperCase());
+        }
+        return docs;
+    } catch (e) {
+        console.warn("Error consultando seriales disponibles:", e);
+        return [];
+    }
+}
+window.getAvailableSerialsForItem = getAvailableSerialsForItem;
+
+window.toggleItemNoSerial = async (idx) => {
+    const inputs = Array.from(document.querySelectorAll(`.sn-input[data-item-index="${idx}"]`));
     if (!inputs || inputs.length === 0) return;
 
-    const allCurrentlyNoSerial = Array.from(inputs).every(inp => isNoSerial(inp.value));
+    const allCurrentlyNoSerial = inputs.every(inp => isNoSerial(inp.value));
 
-    inputs.forEach(inp => {
-        if (allCurrentlyNoSerial) {
+    // Si ya estaban marcados como SIN-SERIAL, simplemente los quitamos y limpiamos
+    if (allCurrentlyNoSerial) {
+        inputs.forEach(inp => {
             inp.value = '';
             inp.classList.remove('bg-amber-50', 'text-amber-800', 'border-amber-300');
             inp.classList.add('bg-white', 'text-brand-black', 'border-gray-200');
-        } else {
-            inp.value = 'SIN-SERIAL';
-            inp.classList.remove('bg-white', 'text-brand-black', 'border-gray-200');
-            inp.classList.add('bg-amber-50', 'text-amber-800', 'border-amber-300');
-        }
-    });
-
-    const lbl = document.getElementById(`label-noserial-${idx}`);
-    if (lbl) {
-        lbl.textContent = allCurrentlyNoSerial ? 'Marcar Sin Serial (N/A)' : 'Quitar Sin Serial';
+        });
+        const lbl = document.getElementById(`label-noserial-${idx}`);
+        if (lbl) lbl.textContent = 'Marcar Sin Serial (N/A)';
+        if (currentOrderId) saveDraftSerials(currentOrderId);
+        return;
     }
 
-    if (currentOrderId) {
-        saveDraftSerials(currentOrderId);
+    // Obtener ítem de la orden
+    const item = (currentOrderData?.items || [])[idx];
+    if (!item) return;
+    const totalUnits = item.quantity || inputs.length || 1;
+
+    const btn = document.getElementById(`btn-toggle-noserial-${idx}`);
+    const originalBtnHtml = btn ? btn.innerHTML : '';
+    if (btn) btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin text-[8px]"></i> Consultando...';
+
+    try {
+        const availableDocs = await getAvailableSerialsForItem(item);
+        const availableCount = availableDocs.length;
+
+        // REGLA: Si el sistema SÍ tiene seriales registrados, NO se permite sacar sin código
+        if (availableCount >= totalUnits) {
+            alert(
+                `BLOQUEO DE DESPACHO:\n\n` +
+                `El producto "${item.name}" tiene ${availableCount} serial(es) disponible(s) en el sistema.\n\n` +
+                `Todo producto debe salir con código. Solo se permite despachar sin serial si el sistema NO lo tiene.`
+            );
+            return;
+        }
+
+        // Si el sistema no tiene ningún serial disponible
+        if (availableCount === 0) {
+            const ans = prompt(
+                `Este producto NO tiene seriales registrados en el sistema.\n\n` +
+                `¿Cuántas unidades (de las ${totalUnits}) deseas marcar SIN SERIAL? (1 a ${totalUnits}):`,
+                totalUnits
+            );
+            if (ans === null) return;
+            let count = parseInt(ans, 10);
+            if (isNaN(count) || count < 1) count = 1;
+            if (count > totalUnits) count = totalUnits;
+
+            inputs.forEach((inp, i) => {
+                if (i < count) {
+                    inp.value = 'SIN-SERIAL';
+                    inp.classList.remove('bg-white', 'text-brand-black', 'border-gray-200');
+                    inp.classList.add('bg-amber-50', 'text-amber-800', 'border-amber-300');
+                } else {
+                    inp.value = '';
+                    inp.classList.remove('bg-amber-50', 'text-amber-800', 'border-amber-300');
+                    inp.classList.add('bg-white', 'text-brand-black', 'border-gray-200');
+                }
+            });
+        } else {
+            // El sistema tiene menos seriales que las unidades pedidas (availableCount < totalUnits)
+            const maxAllowedNoSerial = totalUnits - availableCount;
+            const ans = prompt(
+                `El producto cuenta con ${availableCount} serial(es) registrado(s) en el sistema.\n` +
+                `Debes ingresar código para al menos ${availableCount} unidad(es).\n\n` +
+                `¿Cuántas unidades deseas marcar SIN SERIAL? (1 a ${maxAllowedNoSerial}):`,
+                maxAllowedNoSerial
+            );
+            if (ans === null) return;
+            let count = parseInt(ans, 10);
+            if (isNaN(count) || count < 1) count = 1;
+            if (count > maxAllowedNoSerial) count = maxAllowedNoSerial;
+
+            const startNoSerialIdx = totalUnits - count;
+            inputs.forEach((inp, i) => {
+                if (i >= startNoSerialIdx) {
+                    inp.value = 'SIN-SERIAL';
+                    inp.classList.remove('bg-white', 'text-brand-black', 'border-gray-200');
+                    inp.classList.add('bg-amber-50', 'text-amber-800', 'border-amber-300');
+                } else {
+                    inp.classList.remove('bg-amber-50', 'text-amber-800', 'border-amber-300');
+                    inp.classList.add('bg-white', 'text-brand-black', 'border-gray-200');
+                }
+            });
+        }
+
+        const lbl = document.getElementById(`label-noserial-${idx}`);
+        if (lbl) lbl.textContent = 'Quitar Sin Serial';
+        if (currentOrderId) saveDraftSerials(currentOrderId);
+
+    } catch (e) {
+        console.error("Error validando seriales de despacho:", e);
+        alert("Error al verificar seriales en inventario.");
+    } finally {
+        if (btn) btn.innerHTML = originalBtnHtml;
     }
 };
 
@@ -291,8 +392,8 @@ export function showActionToast(msg, type = 'info', duration = 3500) {
     }
 
     const toast = document.createElement('div');
-    const isError = type === 'error' || msg.includes('⚠️') || msg.includes('❌') || msg.toLowerCase().includes('error');
-    const isSuccess = type === 'success' || msg.includes('✅') || msg.includes('🚚');
+    const isError = type === 'error' || msg.includes('') || msg.includes('') || msg.toLowerCase().includes('error');
+    const isSuccess = type === 'success' || msg.includes('') || msg.includes('');
 
     const bgClass = isError 
         ? 'bg-slate-900 text-red-200 border-red-500/50 shadow-red-950/40' 
@@ -302,7 +403,7 @@ export function showActionToast(msg, type = 'info', duration = 3500) {
         ? '<i class="fa-solid fa-triangle-exclamation text-red-400 text-base shrink-0 mt-0.5"></i>' 
         : (isSuccess ? '<i class="fa-solid fa-circle-check text-emerald-400 text-base shrink-0 mt-0.5"></i>' : '<i class="fa-solid fa-circle-info text-cyan-400 text-base shrink-0 mt-0.5"></i>');
 
-    const cleanMsg = msg.replace(/^[⚠️✅🚚❌]\s*/, '');
+    const cleanMsg = msg.replace(/^[]\s*/, '');
 
     toast.className = `pointer-events-auto flex items-start gap-3 p-4 rounded-2xl shadow-2xl border ${bgClass} text-xs font-bold leading-snug transition-all duration-200 transform -translate-y-2 opacity-0`;
     toast.innerHTML = `
@@ -360,7 +461,7 @@ export async function viewOrderDetail(orderId) {
         let isAdmin = false;
         if (auth.currentUser) {
             const uDoc = await getDoc(doc(db, "users", auth.currentUser.uid));
-            if (uDoc.exists() && uDoc.data().role === 'admin') isAdmin = true;
+            if (uDoc.exists() && ['admin', 'developer'].includes(uDoc.data().role)) isAdmin = true;
         }
 
         const snap = await getDoc(doc(db, "orders", orderId));
@@ -381,14 +482,18 @@ export async function viewOrderDetail(orderId) {
 
         const badge = getEl('modal-order-status-badge');
         if (badge) {
-            badge.textContent = o.status || 'PENDIENTE';
+            let bText = o.status || 'PENDIENTE';
             let bClass = 'bg-yellow-100 text-yellow-700 border-yellow-200';
-            if (o.status === 'ALISTADO') bClass = 'bg-blue-100 text-blue-700 border-blue-200';
-            if (o.status === 'DESPACHADO') bClass = 'bg-slate-800 text-white border-slate-900';
-            if (o.status === 'PAGADO') bClass = 'bg-green-100 text-green-700 border-green-200'; 
-            if (o.status === 'DEVOLUCION_PARCIAL') bClass = 'bg-orange-100 text-orange-700 border-orange-200';
-            if (o.status === 'DEVUELTO') bClass = 'bg-purple-100 text-purple-700 border-purple-200';
-            if (['CANCELADO', 'RECHAZADO'].includes(o.status)) bClass = 'bg-red-100 text-red-700 border-red-200';
+            if (o.cancellationPendingConfirm || o.status === 'CANCELACION_PENDIENTE') {
+                bText = 'CANCELACION EN ML';
+                bClass = 'bg-rose-600 text-white border-rose-700 animate-pulse font-black shadow-md';
+            } else if (o.status === 'ALISTADO') bClass = 'bg-blue-100 text-blue-700 border-blue-200';
+            else if (o.status === 'DESPACHADO') bClass = 'bg-slate-800 text-white border-slate-900';
+            else if (o.status === 'PAGADO') bClass = 'bg-green-100 text-green-700 border-green-200'; 
+            else if (o.status === 'DEVOLUCION_PARCIAL') bClass = 'bg-orange-100 text-orange-700 border-orange-200';
+            else if (o.status === 'DEVUELTO') bClass = 'bg-purple-100 text-purple-700 border-purple-200';
+            else if (['CANCELADO', 'RECHAZADO'].includes(o.status)) bClass = 'bg-red-100 text-red-700 border-red-200';
+            badge.textContent = bText;
             badge.className = `px-3 py-1 rounded-full text-[10px] font-black uppercase border ${bClass}`;
         }
 
@@ -436,6 +541,23 @@ export async function viewOrderDetail(orderId) {
                 const bonus = Number(o.mlShippingBonus) || 0;
                 const net = Number(o.netAmount) || Number(o.total) || 0;
 
+                let valBadgeHtml = '';
+                if (o.mlNeedsSecondValidation) {
+                    valBadgeHtml = `
+                        <div class="mt-2.5 p-2 rounded-lg bg-amber-100/90 border border-amber-300 text-[10px] text-amber-900 font-bold flex items-center justify-between">
+                            <span class="flex items-center gap-1.5"><i class="fa-solid fa-clock text-amber-600"></i> Validacion Inicial (1/2). Revalidacion automatica en 5 min.</span>
+                            <span class="text-[9px] uppercase px-1.5 py-0.5 rounded bg-amber-200 border border-amber-400 font-mono">1/2</span>
+                        </div>
+                    `;
+                } else if (o.mlValidationCount >= 2) {
+                    valBadgeHtml = `
+                        <div class="mt-2.5 p-2 rounded-lg bg-emerald-100/90 border border-emerald-300 text-[10px] text-emerald-900 font-bold flex items-center justify-between">
+                            <span class="flex items-center gap-1.5"><i class="fa-solid fa-circle-check text-emerald-600"></i> Validado 2 veces con MercadoLibre (Valores exactos y liquidados)</span>
+                            <span class="text-[9px] uppercase px-1.5 py-0.5 rounded bg-emerald-200 border border-emerald-400 font-black">OK 2/2</span>
+                        </div>
+                    `;
+                }
+
                 mlBreakdownHtml = `
                     <div class="mt-3 p-3.5 rounded-xl bg-amber-50/90 border border-amber-200 text-xs">
                         <div class="flex items-center justify-between font-black text-amber-900 mb-2 border-b border-amber-200/80 pb-1.5">
@@ -473,11 +595,38 @@ export async function viewOrderDetail(orderId) {
                                 <span class="text-emerald-700 font-black">$${net.toLocaleString('es-CO')}</span>
                             </div>
                         </div>
+                        ${valBadgeHtml}
                     </div>
                 `;
             }
 
-            paymentSection.innerHTML = `<div class="flex justify-between items-start"><div class="flex items-center gap-3"><div class="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center ${mInfo.color} text-lg"><i class="${mInfo.icon}"></i></div><div><p class="text-[10px] font-black uppercase text-gray-400 leading-none mb-1">Método de Pago</p><p class="text-xs font-black text-brand-black uppercase">${mInfo.label}</p></div></div>${statusHtml}</div>${o.paymentId ? `<div class="mt-2 pt-2 border-t border-gray-100 text-[9px] text-gray-400 font-mono">Ref: ${o.paymentId}</div>` : ''}${mlBreakdownHtml}`;
+            let cancelBannerHtml = '';
+            if (o.cancellationPendingConfirm || o.status === 'CANCELACION_PENDIENTE') {
+                cancelBannerHtml = `
+                    <div class="mb-4 p-4 rounded-2xl bg-rose-50 border-2 border-rose-500 text-rose-950 shadow-md animate-in fade-in">
+                        <div class="flex items-center justify-between border-b border-rose-200 pb-2 mb-2">
+                            <div class="flex items-center gap-2">
+                                <i class="fa-solid fa-triangle-exclamation text-rose-600 text-base"></i>
+                                <span class="font-black text-xs uppercase text-rose-700 tracking-wider">Alerta: Cancelado en MercadoLibre</span>
+                            </div>
+                            <span class="text-[9px] font-black uppercase bg-rose-600 text-white px-2.5 py-0.5 rounded-full shadow-2xs">Retener Paquete</span>
+                        </div>
+                        <p class="text-xs text-rose-900 font-semibold mb-3">
+                            ${o.cancellationReason || 'El comprador o MercadoLibre cancelaron esta orden. Verifica en bodega antes de despachar.'}
+                        </p>
+                        <div class="flex flex-wrap gap-2">
+                            <button type="button" onclick="window.confirmOrderCancellation('${orderId}')" class="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow transition flex items-center gap-1.5 active:scale-95 cursor-pointer">
+                                <i class="fa-solid fa-hand"></i> Confirmar Retencion en Bodega (Cancelar y Liberar Seriales)
+                            </button>
+                            <button type="button" onclick="window.reportCancellationConflict('${orderId}')" class="px-3 py-2 bg-white hover:bg-rose-100 text-rose-700 border border-rose-300 font-bold text-xs uppercase tracking-wider rounded-xl transition flex items-center gap-1.5 active:scale-95 cursor-pointer">
+                                <i class="fa-solid fa-truck-fast"></i> Ya fue entregado (Reportar conflicto)
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }
+
+            paymentSection.innerHTML = `${cancelBannerHtml}<div class="flex justify-between items-start"><div class="flex items-center gap-3"><div class="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center ${mInfo.color} text-lg"><i class="${mInfo.icon}"></i></div><div><p class="text-[10px] font-black uppercase text-gray-400 leading-none mb-1">Método de Pago</p><p class="text-xs font-black text-brand-black uppercase">${mInfo.label}</p></div></div>${statusHtml}</div>${o.paymentId ? `<div class="mt-2 pt-2 border-t border-gray-100 text-[9px] text-gray-400 font-mono">Ref: ${o.paymentId}</div>` : ''}${mlBreakdownHtml}`;
             paymentSection.classList.remove('hidden');
         }
 
@@ -707,7 +856,7 @@ export async function viewOrderDetail(orderId) {
 
                             const isDuplicate = allInputs.some(otherInput => otherInput !== this && !isNoSerial(otherInput.value) && otherInput.value.trim().toUpperCase() === val);
                             if (isDuplicate) {
-                                showActionToast(`⚠️ El serial "${val}" ya fue escaneado en esta orden. Por favor revisa.`, 'error');
+                                showActionToast(`El serial "${val}" ya fue escaneado en esta orden. Por favor revisa.`, 'error');
                                 this.value = ""; 
                                 this.focus(); 
                                 this.classList.add('border-red-500', 'bg-red-50');
@@ -742,7 +891,7 @@ export async function viewOrderDetail(orderId) {
             }
         }
 
-        // 🔥 LÓGICA DE VISUALIZACIÓN DE TOTALES CON 4X1000
+        // LÓGICA DE VISUALIZACIÓN DE TOTALES CON 4X1000
         const subtotal = o.subtotal || o.total;
         const shipping = o.shippingCost || 0;
         const tax4x1000 = o.tax4x1000 || 0; // Sacamos el 4x1000 de Firebase
@@ -840,8 +989,8 @@ export async function viewOrderDetail(orderId) {
             if (footerActions) {
                 footerActions.classList.remove('hidden');
 
-                // Permitir editar órdenes PENDIENTES (manuales) y órdenes ALISTADAS
-                if ((o.status === 'PENDIENTE' && o.source === 'MANUAL') || o.status === 'ALISTADO') {
+                // Permitir editar órdenes en estados previos a despacho (PENDIENTE de cualquier origen, EN_PREPARACION y ALISTADO)
+                if (['PENDIENTE', 'EN_PREPARACION', 'ALISTADO'].includes(o.status)) {
                     const btnEdit = document.createElement('button');
                     btnEdit.id = 'btn-edit-action';
                     btnEdit.className = "w-11 h-11 bg-cyan-50 text-brand-black border border-brand-cyan/40 hover:bg-brand-cyan rounded-xl transition-all flex items-center justify-center shadow-2xs shrink-0";
@@ -870,7 +1019,7 @@ export async function viewOrderDetail(orderId) {
 // ANULAR ORDEN MANUAL/ONLINE (ADMIN)
 // ==========================================================================
 async function cancelManualOrder(order) {
-    if (!confirm("🚨 ATENCIÓN ADMINISTRADOR 🚨\n\n¿Estás seguro de ANULAR esta venta?\n\n- Los productos regresarán automáticamente al inventario (si fueron descontados).\n- El dinero se restará de la cuenta de tesorería (si aplica).\n- La orden quedará como CANCELADA.\n\nEsta acción es irreversible.")) return;
+    if (!confirm("ATENCIÓN ADMINISTRADOR \n\n¿Estás seguro de ANULAR esta venta?\n\n- Los productos regresarán automáticamente al inventario (si fueron descontados).\n- El dinero se restará de la cuenta de tesorería (si aplica).\n- La orden quedará como CANCELADA.\n\nEsta acción es irreversible.")) return;
 
     const btn = getEl('btn-cancel-action');
     if(btn) { btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i>'; btn.disabled = true; }
@@ -973,7 +1122,7 @@ async function cancelManualOrder(order) {
         }
 
         clearDraftSerials(order.id);
-        alert("✅ Venta anulada exitosamente. \nEl stock fue devuelto al catálogo (si corresponde) y el dinero fue revertido de la cuenta (si aplica).");
+        alert("Venta anulada exitosamente. \nEl stock fue devuelto al catálogo (si corresponde) y el dinero fue revertido de la cuenta (si aplica).");
         getEl('order-modal').classList.add('hidden');
         currentOrderData = null;
 
@@ -984,21 +1133,213 @@ async function cancelManualOrder(order) {
 }
 
 // ==========================================================================
-// 🔥 NUEVO: EDITAR ORDEN MANUAL (ADMIN) + 4x1000
+// NUEVO: EDITAR ORDEN MANUAL (ADMIN) + 4x1000
 // ==========================================================================
 let editOrderOriginal = null;
 let editItems = [];
 
+// Precargar catálogo de productos para el buscador de edición
+if (typeof AdminStore !== 'undefined' && AdminStore.subscribeToProducts) {
+    try {
+        AdminStore.subscribeToProducts(p => {
+            editProductsCache = p || [];
+            isProductsSubscribed = true;
+        });
+    } catch(err) {
+        console.warn("[OrderActions] No se pudo autosuscribir a productos:", err);
+    }
+}
+
+function isExternalOrUnknownProduct(id) {
+    if (!id || typeof id !== 'string') return true;
+    return id.startsWith('ML-UNKNOWN') || id.startsWith('UNKNOWN-');
+}
+
 async function safeAdjustStock(id, delta, color, capacity, reason = null, details = null, retries = 3) {
+    if (!id || isExternalOrUnknownProduct(id)) {
+        console.warn(`[Stock] Omitiendo ajuste para producto externo o sin ID local: ${id}`);
+        return;
+    }
     for (let i = 0; i < retries; i++) {
         try {
             await adjustStock(id, delta, color, capacity, reason, details);
             return; 
         } catch(e) {
+            const errStr = String(e?.message || e || '');
+            if (errStr.includes("no existe") || errStr.includes("not exist")) {
+                console.warn(`[Stock] Producto ${id} no encontrado en catálogo local. Omitiendo ajuste de stock.`);
+                return;
+            }
             if (i === retries - 1) throw e;
             console.warn(`[Stock] Reintento por choque con Centinela para ${id}...`);
             await new Promise(r => setTimeout(r, 800)); 
         }
+    }
+}
+
+// ==========================================================================
+// CANCELACIONES DE MERCADOLIBRE (RETENCIÓN EN BODEGA Y LIBERACIÓN DE SERIALES)
+// ==========================================================================
+export async function confirmOrderCancellation(orderId) {
+    if (!orderId) return;
+    const confirmMsg = 
+        "Confirmar Retención de Pedido Cancelado:\n\n" +
+        "¿Confirmas que este pedido NO fue despachado ni entregado a la transportadora y fue retenido en bodega?\n\n" +
+        "Al confirmar:\n" +
+        "• La orden pasará a estado CANCELADO.\n" +
+        "• Los seriales asignados volverán a quedar disponibles en inventario para otra venta.\n" +
+        "• La información de seriales y productos se conservará en el pedido para auditoría.\n" +
+        "• El stock volverá a quedar cuadrado en bodega.\n\n" +
+        "¿Deseas continuar?";
+
+    if (!confirm(confirmMsg)) return;
+
+    try {
+        const oSnap = await getDoc(doc(db, "orders", orderId));
+        if (!oSnap.exists()) {
+            alert("No se encontró el pedido en la base de datos.");
+            return;
+        }
+
+        const o = oSnap.data();
+        const userName = auth.currentUser?.displayName || auth.currentUser?.email || 'Usuario';
+
+        // 1. Liberar seriales legítimos a AVAILABLE (sin borrar información en el pedido)
+        try {
+            const linkedSerials = await getDocs(query(collection(db, "product_serials"), where("orderId", "==", orderId)));
+            if (!linkedSerials.empty) {
+                const batchSerials = writeBatch(db);
+                linkedSerials.forEach(d => {
+                    const data = d.data();
+                    if (isRegularizedSerial(data)) {
+                        batchSerials.delete(d.ref);
+                    } else {
+                        batchSerials.update(d.ref, {
+                            status: 'AVAILABLE',
+                            orderId: null,
+                            orderInternalNumber: null,
+                            clientName: null,
+                            clientPhone: null,
+                            dispatchedAt: null,
+                            returnedAt: serverTimestamp(),
+                            updatedAt: serverTimestamp(),
+                            notes: 'Liberado por confirmación de retención en cancelación'
+                        });
+                    }
+                });
+                await batchSerials.commit();
+            }
+        } catch (errSerials) {
+            console.warn("Error liberando seriales en confirmOrderCancellation:", errSerials);
+        }
+
+        // 2. Revertir stock a bodega si estaba descontado
+        if (o.isStockDeducted && o.items && o.items.length > 0) {
+            const ordNum = o.internalOrderNumber || orderId;
+            for (const item of o.items) {
+                const qty = Number(item.quantity) || 1;
+                await safeAdjustStock(item.id, qty, item.color, item.capacity, 'DEVOLUCION_CANCELACION', `Devolución por confirmación de cancelación del pedido #${ordNum}`);
+            }
+        }
+
+        // 3. Reversar contabilidad / tesorería si aplica
+        try {
+            const refundAmount = Number(o.netAmount) || Number(o.amountPaid) || Number(o.total) || 0;
+            if (refundAmount > 0 && o.paymentAccountId) {
+                const accRef = doc(db, "accounts", o.paymentAccountId);
+                const accSnap = await getDoc(accRef);
+                if (accSnap.exists()) {
+                    const curBal = Number(accSnap.data().balance) || 0;
+                    await updateDoc(accRef, { balance: Math.max(0, curBal - refundAmount) });
+
+                    const expenseRef = doc(collection(db, "expenses"));
+                    await updateDoc(expenseRef, {
+                        amount: refundAmount,
+                        category: "Cancelaciones / Anulaciones",
+                        description: `Reverso por cancelación de orden #${orderId}`,
+                        paymentMethod: accSnap.data().name || o.paymentMethod || 'MercadoLibre',
+                        supplierName: o.userName || 'Cliente ML',
+                        date: serverTimestamp(),
+                        createdAt: serverTimestamp(),
+                        type: 'EXPENSE',
+                        orderId: orderId
+                    });
+                }
+            }
+        } catch (accErr) {
+            console.warn("Error ajustando tesorería en cancelación:", accErr);
+        }
+
+        // 4. Actualizar el documento de la orden (preservando o.items y seriales históricos)
+        await updateDoc(doc(db, "orders", orderId), {
+            status: 'CANCELADO',
+            cancellationPendingConfirm: false,
+            cancellationConfirmed: true,
+            cancellationConfirmedBy: userName,
+            cancellationConfirmedAt: serverTimestamp(),
+            cancellationRetainedInWarehouse: true,
+            paymentStatus: 'REFUNDED',
+            isStockDeducted: false,
+            updatedAt: serverTimestamp()
+        });
+
+        clearDraftSerials(orderId);
+        showActionToast("Cancelación confirmada exitosamente. Seriales liberados a inventario disponible y registro preservado.", "success");
+
+        const modal = getEl('order-modal');
+        if (modal && !modal.classList.contains('hidden')) {
+            modal.classList.add('hidden');
+        }
+
+        if (typeof window.reCalcularFiltroLocal === 'function') {
+            window.reCalcularFiltroLocal();
+        }
+        if (typeof window.renderOrdersFromMemory === 'function') {
+            window.renderOrdersFromMemory();
+        }
+    } catch (err) {
+        console.error("Error confirmando cancelación:", err);
+        alert("Error al confirmar la cancelación: " + err.message);
+    }
+}
+
+export async function reportCancellationConflict(orderId) {
+    if (!orderId) return;
+    const confirmMsg = 
+        "Atención: Este pedido ya fue entregado a la transportadora.\n\n" +
+        "Se registrará la alerta de conflicto para iniciar reclamo en MercadoLibre y cobrar el valor del producto o recuperar el paquete.\n\n" +
+        "¿Deseas reportar el conflicto?";
+
+    if (!confirm(confirmMsg)) return;
+
+    try {
+        const userName = auth.currentUser?.displayName || auth.currentUser?.email || 'Usuario';
+        await updateDoc(doc(db, "orders", orderId), {
+            status: 'DESPACHADO',
+            cancellationPendingConfirm: false,
+            cancellationConflict: true,
+            cancellationConflictAt: serverTimestamp(),
+            cancellationConflictBy: userName,
+            cancellationConflictNote: 'Despachado en bodega antes de la cancelación en MercadoLibre. Requiere gestión de cobro ante la plataforma.',
+            updatedAt: serverTimestamp()
+        });
+
+        showActionToast("Conflicto registrado. La orden se mantiene como DESPACHADA.", "info");
+
+        const modal = getEl('order-modal');
+        if (modal && !modal.classList.contains('hidden')) {
+            modal.classList.add('hidden');
+        }
+
+        if (typeof window.reCalcularFiltroLocal === 'function') {
+            window.reCalcularFiltroLocal();
+        }
+        if (typeof window.renderOrdersFromMemory === 'function') {
+            window.renderOrdersFromMemory();
+        }
+    } catch (err) {
+        console.error("Error reportando conflicto:", err);
+        alert("Error al reportar conflicto: " + err.message);
     }
 }
 
@@ -1129,14 +1470,24 @@ function injectEditModalHtml() {
 }
 
 function openEditOrderModal(order) {
-    if (!isProductsSubscribed) {
-        AdminStore.subscribeToProducts(p => editProductsCache = p);
+    if (!order) return;
+    if (!isProductsSubscribed && typeof AdminStore !== 'undefined' && AdminStore.subscribeToProducts) {
+        AdminStore.subscribeToProducts(p => editProductsCache = p || []);
         isProductsSubscribed = true;
     }
 
     injectEditModalHtml();
     editOrderOriginal = JSON.parse(JSON.stringify(order));
-    editItems = JSON.parse(JSON.stringify(order.items || []));
+    editItems = (order.items || []).map(i => ({
+        id: i.id || '',
+        name: i.name || 'Producto',
+        price: Number(i.price) || 0,
+        quantity: Number(i.quantity) || 1,
+        color: i.color || null,
+        capacity: i.capacity || null,
+        image: i.image || i.mainImage || '',
+        sns: Array.isArray(i.sns) ? [...i.sns] : []
+    }));
     
     // Título dinámico
     const titleEl = getEl('eo-modal-title-text');
@@ -1154,8 +1505,10 @@ function openEditOrderModal(order) {
     if (getEl('eo-client-city')) getEl('eo-client-city').value = order.shippingData?.city || order.city || '';
     if (getEl('eo-order-notes')) getEl('eo-order-notes').value = order.notes || order.shippingData?.notes || '';
 
-    getEl('eo-shipping-cost').value = formatCurrency(order.shippingCost || 0);
-    getEl('eo-apply-4x1000').checked = (order.tax4x1000 > 0);
+    const shippingEl = getEl('eo-shipping-cost');
+    if (shippingEl) shippingEl.value = formatCurrency(order.shippingCost || 0);
+    const apply4x1000El = getEl('eo-apply-4x1000');
+    if (apply4x1000El) apply4x1000El.checked = (order.tax4x1000 > 0);
 
     renderEditItems();
     getEl('edit-order-modal').classList.remove('hidden');
@@ -1163,8 +1516,9 @@ function openEditOrderModal(order) {
 
 function renderEditItems() {
     const list = getEl('eo-items-list');
+    if (!list) return;
     list.innerHTML = "";
-    if(editItems.length === 0) list.innerHTML = `<p class="text-xs text-gray-400 text-center py-4 font-bold">No hay productos. Busca uno arriba para agregar.</p>`;
+    if (editItems.length === 0) list.innerHTML = `<p class="text-xs text-gray-400 text-center py-4 font-bold">No hay productos. Busca uno arriba para agregar.</p>`;
     
     editItems.forEach((item, idx) => {
         const product = editProductsCache.find(p => p.id === item.id);
@@ -1182,6 +1536,9 @@ function renderEditItems() {
                 </select>`;
             }
         }
+        if (!colorHtml && item.color) {
+            colorHtml = `<div class="text-[9px] font-bold text-gray-500 py-1 px-1.5 bg-slate-50 rounded border border-gray-100 truncate">Color: ${item.color}</div>`;
+        }
 
         let capHtml = '';
         if (product) {
@@ -1195,6 +1552,9 @@ function renderEditItems() {
                     ${caps.map(c => `<option value="${c}" ${c === item.capacity ? 'selected' : ''}>${c}</option>`).join('')}
                 </select>`;
             }
+        }
+        if (!capHtml && item.capacity) {
+            capHtml = `<div class="text-[9px] font-bold text-gray-500 py-1 px-1.5 bg-slate-50 rounded border border-gray-100 truncate">Capacidad: ${item.capacity}</div>`;
         }
 
         const div = document.createElement('div');
@@ -1227,8 +1587,8 @@ function renderEditItems() {
     document.querySelectorAll('.e-capacity').forEach(sel => sel.onchange = (e) => editItems[e.target.dataset.idx].capacity = e.target.value);
 
     document.querySelectorAll('.e-qty').forEach(inp => inp.onchange = (e) => {
-        const val = parseInt(e.target.value);
-        editItems[e.target.dataset.idx].quantity = val > 0 ? val : 1;
+        const val = parseInt(e.target.value, 10);
+        editItems[e.target.dataset.idx].quantity = (val && val > 0) ? val : 1;
         e.target.value = editItems[e.target.dataset.idx].quantity;
         calculateEditTotals();
     });
@@ -1237,7 +1597,7 @@ function renderEditItems() {
         inp.oninput = (e) => {
             const val = parseCurrency(e.target.value);
             e.target.value = formatCurrency(val);
-            editItems[e.target.dataset.idx].price = val;
+            editItems[e.target.dataset.idx].price = isNaN(val) ? 0 : val;
             calculateEditTotals();
         };
         inp.onfocus = (e) => e.target.select();
@@ -1253,61 +1613,102 @@ function renderEditItems() {
 }
 
 function calculateEditTotals() {
-    const shipping = parseCurrency(getEl('eo-shipping-cost').value);
-    const subtotal = editItems.reduce((acc, i) => acc + (i.price * i.quantity), 0);
+    const shippingEl = getEl('eo-shipping-cost');
+    const apply4x1000El = getEl('eo-apply-4x1000');
+    const shipping = shippingEl ? parseCurrency(shippingEl.value) : 0;
+    const subtotal = editItems.reduce((acc, i) => acc + ((Number(i.price) || 0) * (Number(i.quantity) || 1)), 0);
     let baseTotal = subtotal + shipping;
     
     let tax4x1000 = 0;
-    if (getEl('eo-apply-4x1000').checked) {
+    if (apply4x1000El && apply4x1000El.checked) {
         tax4x1000 = Math.round(baseTotal * 0.004);
     }
     
     const total = baseTotal + tax4x1000;
     
     const display = getEl('eo-total-display');
-    if (tax4x1000 > 0) {
-        display.innerHTML = `${formatCurrency(total)} <span class="block text-[12px] font-bold text-purple-500 mt-2 tracking-widest">+ ${formatCurrency(tax4x1000)} (Impuesto 4x1000)</span>`;
-    } else {
-        display.textContent = formatCurrency(total);
+    if (display) {
+        if (tax4x1000 > 0) {
+            display.innerHTML = `${formatCurrency(total)} <span class="block text-[12px] font-bold text-purple-500 mt-2 tracking-widest">+ ${formatCurrency(tax4x1000)} (Impuesto 4x1000)</span>`;
+        } else {
+            display.textContent = formatCurrency(total);
+        }
     }
 }
 
 async function saveEditedOrder() {
-    if(editItems.length === 0) return alert("La orden debe tener al menos un producto.");
-    if(!confirm("¿Estás seguro de modificar esta orden?\n\nEl stock de los productos y los valores se ajustarán automáticamente.")) return;
+    if (!editOrderOriginal) return;
+    if (editItems.length === 0) return alert("La orden debe tener al menos un producto.");
+    if (!confirm("¿Estás seguro de modificar esta orden?\n\nEl stock de los productos y los valores se ajustarán automáticamente.")) return;
 
     const btn = getEl('btn-save-edited-order');
-    const originalText = btn.innerHTML;
-    btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Ajustando Inventario...';
-    btn.disabled = true;
+    const originalText = btn ? btn.innerHTML : '<i class="fa-solid fa-save"></i> Guardar Cambios';
+    if (btn) {
+        btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Verificando inventario...';
+        btn.disabled = true;
+    }
 
     try {
         const oldItems = editOrderOriginal.items || [];
         const newItems = editItems;
-        const newShipping = parseCurrency(getEl('eo-shipping-cost').value);
-        const newSubtotal = newItems.reduce((acc, i) => acc + (i.price * i.quantity), 0);
+        const newShipping = parseCurrency(getEl('eo-shipping-cost')?.value || 0);
+        const newSubtotal = newItems.reduce((acc, i) => acc + ((Number(i.price) || 0) * (Number(i.quantity) || 1)), 0);
         let baseTotal = newSubtotal + newShipping;
-        let newTax4x1000 = getEl('eo-apply-4x1000').checked ? Math.round(baseTotal * 0.004) : 0;
+        let newTax4x1000 = getEl('eo-apply-4x1000')?.checked ? Math.round(baseTotal * 0.004) : 0;
         const newTotal = baseTotal + newTax4x1000;
 
         const deltaMap = {};
         
         oldItems.forEach(item => {
             const k = `${item.id}|${item.color||''}|${item.capacity||''}`;
-            if(!deltaMap[k]) deltaMap[k] = { id: item.id, color: item.color, capacity: item.capacity, delta: 0 };
-            deltaMap[k].delta += item.quantity; 
+            if (!deltaMap[k]) deltaMap[k] = { id: item.id, color: item.color, capacity: item.capacity, name: item.name || '', delta: 0 };
+            deltaMap[k].delta += Number(item.quantity || 1); 
         });
 
         newItems.forEach(item => {
             const k = `${item.id}|${item.color||''}|${item.capacity||''}`;
-            if(!deltaMap[k]) deltaMap[k] = { id: item.id, color: item.color, capacity: item.capacity, delta: 0 };
-            deltaMap[k].delta -= item.quantity; 
+            if (!deltaMap[k]) deltaMap[k] = { id: item.id, color: item.color, capacity: item.capacity, name: item.name || '', delta: 0 };
+            deltaMap[k].delta -= Number(item.quantity || 1); 
         });
 
+        // 1. VALIDACIÓN PREVIA DE DISPONIBILIDAD (Evita inconsistencias o descuentos parciales)
+        for (const key in deltaMap) {
+            const sd = deltaMap[key];
+            if (sd.delta < 0 && !isExternalOrUnknownProduct(sd.id)) {
+                const required = Math.abs(sd.delta);
+                const pSnap = await getDoc(doc(db, "products", sd.id));
+                if (pSnap.exists()) {
+                    const pData = pSnap.data();
+                    if (pData.combinations && pData.combinations.length > 0) {
+                        const combo = pData.combinations.find(c => 
+                            (c.color === sd.color || (!c.color && !sd.color)) &&
+                            (c.capacity === sd.capacity || (!c.capacity && !sd.capacity))
+                        );
+                        if (combo) {
+                            if ((combo.stock || 0) < required) {
+                                throw new Error(`Stock insuficiente para la variante "${pData.name} (${sd.color || ''} ${sd.capacity || ''})". Disponibles: ${combo.stock || 0}, Solicitados adicionales: ${required}.`);
+                            }
+                        } else if ((pData.stock || 0) < required) {
+                            throw new Error(`Stock insuficiente para "${pData.name}". Disponibles: ${pData.stock || 0}, Solicitados adicionales: ${required}.`);
+                        }
+                    } else if ((pData.stock || 0) < required) {
+                        throw new Error(`Stock insuficiente para "${pData.name}". Disponibles: ${pData.stock || 0}, Solicitados adicionales: ${required}.`);
+                    }
+                }
+            }
+        }
+
+        if (btn) btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Ajustando Inventario...';
+
+        // 2. AJUSTE EFECTIVO DE INVENTARIO
         const editOrdNum = editOrderOriginal.internalOrderNumber || editOrderOriginal.id;
         for (const key in deltaMap) {
             const sd = deltaMap[key];
             if (sd.delta !== 0) {
+                if (isExternalOrUnknownProduct(sd.id)) {
+                    console.warn(`[Stock] Omitiendo ajuste para ítem sin producto local registrado: ${sd.id}`);
+                    continue;
+                }
                 const editReason = sd.delta < 0 ? 'VENTA_PEDIDO' : 'DEVOLUCION_CANCELACION';
                 const editDetails = sd.delta < 0 
                     ? `Modificación de pedido #${editOrdNum} (unidades adicionales vendidas: ${Math.abs(sd.delta)})`
@@ -1381,7 +1782,7 @@ async function saveEditedOrder() {
             await updateDoc(remRef, remUpdates);
         }
 
-        alert("✅ Orden editada y stock cuadrado con éxito.");
+        alert("Orden editada y stock cuadrado con éxito.");
         getEl('edit-order-modal').classList.add('hidden');
         getEl('order-modal').classList.add('hidden'); 
 
@@ -1395,22 +1796,32 @@ async function saveEditedOrder() {
         const errMsg = e?.message || (typeof e === 'string' ? e : "Error inesperado");
         alert("Error al editar la orden: " + errMsg);
     } finally {
-        btn.innerHTML = originalText;
-        btn.disabled = false;
+        if (btn) {
+            btn.innerHTML = originalText;
+            btn.disabled = false;
+        }
     }
 }
 
 
 // --- 2. ACCIONES (ALISTAR / DESPACHAR) ---
 export async function saveAlistamiento(onSuccess) {
-    if (!currentOrderId) return;
+    const orderIdToSave = currentOrderId || window.currentOrderId || currentOrderData?.id;
+    if (!orderIdToSave) {
+        showActionToast("No se encontró la orden activa para guardar alistamiento.", "error");
+        return;
+    }
+    currentOrderId = orderIdToSave;
     const btn = getEl('btn-save-alistado');
     const originalText = btn ? btn.innerHTML : '<i class="fa-solid fa-floppy-disk text-base"></i>';
     if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i>'; }
     try {
-        const snap = await getDoc(doc(db, "orders", currentOrderId));
+        const snap = await getDoc(doc(db, "orders", orderIdToSave));
         if (!snap.exists()) throw new Error("La orden no existe en la base de datos.");
         const orderData = snap.data();
+        if (orderData.cancellationPendingConfirm || orderData.status === 'CANCELACION_PENDIENTE') {
+            throw new Error("BLOQUEO DE SEGURIDAD: Esta orden fue cancelada en MercadoLibre. Debes confirmar la retencion antes de alistar o despachar.");
+        }
         const items = orderData.items || [];
 
         const allSnsInOrder = [];
@@ -1432,13 +1843,13 @@ export async function saveAlistamiento(onSuccess) {
 
             const emptyIdx = sns.findIndex(s => !s);
             if (emptyIdx !== -1) {
-                throw new Error(`⚠️ Falta ingresar el serial (SN) de la unidad #${emptyIdx + 1} para "${item.name}". (Si el producto no tiene serial físico, pulsa "Marcar Sin Serial").`);
+                throw new Error(`Falta ingresar el serial (SN) de la unidad #${emptyIdx + 1} para "${item.name}". (Si el producto no tiene serial físico, pulsa "Marcar Sin Serial").`);
             }
 
             for (const sn of sns) {
                 if (!isNoSerial(sn)) {
                     if (allSnsInOrder.some(x => !isNoSerial(x.sn) && x.sn === sn)) {
-                        throw new Error(`⚠️ El serial "${sn}" está duplicado en este pedido. Cada unidad debe tener un serial diferente.`);
+                        throw new Error(`El serial "${sn}" está duplicado en este pedido. Cada unidad debe tener un serial diferente.`);
                     }
                 }
                 allSnsInOrder.push({ 
@@ -1452,6 +1863,29 @@ export async function saveAlistamiento(onSuccess) {
             }
 
             updatedItems.push({ ...item, sns });
+        }
+
+        // 1.5 Validar regla estricta: Todo producto debe salir con código y solo se permite despachar sin código si el sistema no lo tiene
+        for (let idx = 0; idx < items.length; idx++) {
+            const item = items[idx];
+            const inputs = Array.from(document.querySelectorAll(`.sn-input[data-item-index="${idx}"]`));
+            const noSerialCount = inputs.filter(i => isNoSerial(i.value)).length;
+
+            if (noSerialCount > 0) {
+                const availableDocs = await getAvailableSerialsForItem(item);
+                const availableCount = availableDocs.length;
+                const totalUnits = item.quantity || inputs.length || 1;
+                const maxAllowedNoSerial = Math.max(0, totalUnits - availableCount);
+
+                if (noSerialCount > maxAllowedNoSerial) {
+                    throw new Error(
+                        `Bloqueo de Despacho:\n` +
+                        `El producto "${item.name}" tiene ${availableCount} serial(es) disponible(s) en el sistema.\n` +
+                        `Todo producto debe salir con código. Solo se permite despachar sin serial si el sistema NO lo tiene.\n` +
+                        `(Unidades sin serial permitidas: ${maxAllowedNoSerial}, pero ingresaste: ${noSerialCount}).`
+                    );
+                }
+            }
         }
 
         // 2. Validación estricta y detección de seriales a actualizar o regularizar
@@ -1480,7 +1914,7 @@ export async function saveAlistamiento(onSuccess) {
             const matchingDoc = serialSnap.docs.find(d => d.data().productId === itemSn.itemId);
             if (!matchingDoc) {
                 const otherProduct = serialSnap.docs[0].data();
-                throw new Error(`🚨 Error de Alistamiento:\nEl serial "${itemSn.sn}" pertenece a otro producto ("${otherProduct.productName || 'otro equipo'}"), no a "${itemSn.itemName}".`);
+                throw new Error(`Error de Alistamiento:\nEl serial "${itemSn.sn}" pertenece a otro producto ("${otherProduct.productName || 'otro equipo'}"), no a "${itemSn.itemName}".`);
             }
 
             const sData = matchingDoc.data();
@@ -1489,7 +1923,7 @@ export async function saveAlistamiento(onSuccess) {
             if (sData.status === 'DISPATCHED' && sData.orderId && sData.orderId !== currentOrderId) {
                 const prevOrderNum = sData.orderInternalNumber || sData.orderId.slice(0, 6).toUpperCase();
                 const clientInfo = sData.clientName ? ` (Cliente: ${sData.clientName})` : '';
-                throw new Error(`🚨 Error de Alistamiento:\nEl serial "${itemSn.sn}" ya fue despachado en la orden #${prevOrderNum}${clientInfo}. No se puede volver a despachar.`);
+                throw new Error(`Error de Alistamiento:\nEl serial "${itemSn.sn}" ya fue despachado en la orden #${prevOrderNum}${clientInfo}. No se puede volver a despachar.`);
             }
 
             serialDocsToUpdate.push({ ref: matchingDoc.ref, sn: itemSn.sn });
@@ -1498,7 +1932,7 @@ export async function saveAlistamiento(onSuccess) {
         // Opción 1: Si hay seriales no registrados en compras, confirmar su regularización sobre la marcha
         if (unregisteredSerials.length > 0) {
             const listMsg = unregisteredSerials.map(u => `• [${u.sn}] → ${u.itemName}`).join('\n');
-            const confirmMsg = `⚠️ REGULARIZACIÓN DE SERIALES ANTIGUOS:\n\nLos siguientes seriales no se encontraron registrados en compras previas:\n\n${listMsg}\n\n¿Deseas registrarlos automáticamente como "Inventario Inicial / Regularizado" y despacharlos en este pedido?`;
+            const confirmMsg = `REGULARIZACIÓN DE SERIALES ANTIGUOS:\n\nLos siguientes seriales no se encontraron registrados en compras previas:\n\n${listMsg}\n\n¿Deseas registrarlos automáticamente como "Inventario Inicial / Regularizado" y despacharlos en este pedido?`;
             
             const confirmed = window.confirm(confirmMsg);
             if (!confirmed) {
@@ -1585,10 +2019,10 @@ export async function saveAlistamiento(onSuccess) {
 
         await batch.commit();
 
-        // 🔥 Limpiar borrador local ya que quedó persistido en la base de datos
+        // Limpiar borrador local ya que quedó persistido en la base de datos
         clearDraftSerials(currentOrderId);
 
-        showActionToast("✅ Alistamiento guardado con éxito y seriales vinculados a la venta.", "success");
+        showActionToast("Alistamiento guardado con éxito y seriales vinculados a la venta.", "success");
         getEl('order-modal').classList.add('hidden');
         if (onSuccess) onSuccess();
         else if (window.switchTab) window.switchTab(window.currentTab || 'ACTIONABLE');
@@ -1606,7 +2040,12 @@ export async function saveAlistamiento(onSuccess) {
 export async function openDispatchModal() {
     if (!currentOrderId) return;
     
-    // Obtener los datos de envío
+    if (currentOrderData?.cancellationPendingConfirm || currentOrderData?.status === 'CANCELACION_PENDIENTE') {
+        showActionToast("Este pedido fue cancelado en la plataforma. Debe confirmar la retencion en bodega antes de despachar.", "warning");
+        return;
+    }
+    
+    // Obtener los datos de envio
     const address = (currentOrderData?.shippingData?.address || currentOrderData?.address || 'Retiro en Tienda / Local').toLowerCase();
     const isPickup = address.includes('recogida en local') || 
                      address.includes('retiro en local') || 
@@ -1616,7 +2055,7 @@ export async function openDispatchModal() {
                      address.includes('retiro en local / tienda');
                      
     if (isPickup) {
-        if (confirm("¿Seguro desea realizar la entrega?")) {
+        if (confirm("Seguro desea realizar la entrega?")) {
             const btn = getEl('btn-set-despachado');
             const originalText = btn ? btn.innerHTML : '';
             if (btn) {
@@ -1631,12 +2070,12 @@ export async function openDispatchModal() {
                     shippedAt: new Date(), 
                     updatedAt: new Date() 
                 });
-                showActionToast("🚚 Pedido entregado y despachado con éxito", "success");
+                showActionToast("Pedido entregado y despachado con éxito", "success");
                 getEl('order-modal').classList.add('hidden');
                 if (window.switchTab) window.switchTab('ACTIONABLE');
             } catch(e) { 
                 console.error(e); 
-                showActionToast("⚠️ Error al realizar la entrega: " + e.message, "error");
+                showActionToast("Error al realizar la entrega: " + e.message, "error");
             } finally { 
                 if (btn) {
                     btn.disabled = false;
@@ -1655,19 +2094,28 @@ export async function openDispatchModal() {
 }
 
 export async function confirmDispatch(onSuccess) {
-    if (!currentOrderId) return;
+    const orderIdToDispatch = currentOrderId || window.currentOrderId || currentOrderData?.id;
+    if (!orderIdToDispatch) {
+        showActionToast("No se encontró la orden activa para despachar.", "error");
+        return;
+    }
+    if (currentOrderData?.cancellationPendingConfirm || currentOrderData?.status === 'CANCELACION_PENDIENTE') {
+        showActionToast("Accion bloqueada: El pedido fue cancelado en la plataforma. Confirme la retencion primero.", "warning");
+        return;
+    }
+    currentOrderId = orderIdToDispatch;
     const btn = getEl('btn-confirm-dispatch');
-    const carrier = getEl('dispatch-carrier').value;
-    const tracking = getEl('dispatch-tracking').value;
+    const carrier = getEl('dispatch-carrier')?.value?.trim();
+    const tracking = getEl('dispatch-tracking')?.value?.trim();
     
-    if (!carrier || !tracking) return showActionToast("⚠️ Faltan datos de envío (Transportadora o Guía)", "error");
+    if (!carrier || !tracking) return showActionToast("Faltan datos de envío (Transportadora o Guía)", "error");
     
-    btn.disabled = true;
+    if (btn) btn.disabled = true;
     try {
-        await updateDoc(doc(db, "orders", currentOrderId), { 
+        await updateDoc(doc(db, "orders", orderIdToDispatch), { 
             status: 'DESPACHADO', shippingCarrier: carrier, shippingTracking: tracking, shippedAt: new Date(), updatedAt: new Date() 
         });
-        showActionToast("🚚 Despachado exitosamente", "success");
+        showActionToast("Despachado exitosamente", "success");
         getEl('dispatch-modal').classList.add('hidden');
         getEl('order-modal').classList.add('hidden');
         if(onSuccess) onSuccess();
@@ -1723,7 +2171,7 @@ export async function viewReceipt(orderId) {
         if (!o) {
             const msg = "Error al encontrar los datos del pedido para generar el recibo";
             if (typeof showActionToast === 'function') {
-                showActionToast("⚠️ " + msg, "error");
+                showActionToast("" + msg, "error");
             } else {
                 alert(msg);
             }
@@ -1887,7 +2335,7 @@ export async function viewReceipt(orderId) {
                             Imprimir / PDF
                         </button>
                         <button onclick="window.close()" class="btn-close">
-                            ✕ Cerrar
+                            X Cerrar
                         </button>
                     </div>
                 </div>
@@ -1959,7 +2407,7 @@ export async function viewReceipt(orderId) {
     } catch(e) {
         console.error("Error al abrir recibo:", e);
         if (typeof showActionToast === 'function') {
-            showActionToast("⚠️ Error al abrir el recibo: " + e.message, "error");
+            showActionToast("Error al abrir el recibo: " + e.message, "error");
         } else {
             alert("Error al abrir el recibo: " + e.message);
         }
@@ -1972,7 +2420,7 @@ export async function requestInvoice(orderId) {
     if(!confirm("¿Marcar este pedido para Facturación Electrónica?")) return;
     try {
         await updateDoc(doc(db, "orders", orderId), { requiresInvoice: true, billingStatus: 'PENDING', updatedAt: new Date() });
-        alert("✅ Solicitud enviada al Módulo de Facturación.");
+        alert("Solicitud enviada al Módulo de Facturación.");
         location.reload();
     } catch (e) { alert("Error al actualizar: " + e.message); }
 }
@@ -2370,11 +2818,11 @@ if (refundForm) {
 
             if (itemsToRestoreStock.length > 0) {
                 for (const item of itemsToRestoreStock) {
-                    await adjustStock(item.id, item.qty, item.color, item.capacity, 'DEVOLUCION_CANCELACION', `Devolución de stock por reembolso en pedido #${orderId.slice(0, 8)}`);
+                    await safeAdjustStock(item.id, item.qty, item.color, item.capacity, 'DEVOLUCION_CANCELACION', `Devolución de stock por reembolso en pedido #${orderId.slice(0, 8)}`);
                 }
             }
 
-            // 🔥 Liberar seriales legítimos a AVAILABLE o eliminar regularizados en devolución
+            // Liberar seriales legítimos a AVAILABLE o eliminar regularizados en devolución
             let countUpdated = 0;
             let countDeleted = 0;
 
@@ -2419,7 +2867,7 @@ if (refundForm) {
 
                     if (countUpdated > 0 || countDeleted > 0) {
                         await batchSerials.commit();
-                        console.log(`✅ [Devolución] Seriales procesados: ${countUpdated} liberados a AVAILABLE, ${countDeleted} regularizados eliminados.`);
+                        console.log(`[Devolución] Seriales procesados: ${countUpdated} liberados a AVAILABLE, ${countDeleted} regularizados eliminados.`);
                     }
                 } catch (errSerials) {
                     console.error("Error liberando/eliminando seriales en devolución:", errSerials);
@@ -2465,7 +2913,7 @@ if (refundForm) {
                 if (countDeleted > 0) parts.push(`${countDeleted} regularizado(s) eliminado(s)`);
                 serialMsg = `\nSeriales: ${parts.join(', ')}.`;
             }
-            alert(`✅ Devolución procesada correctamente.${serialMsg}`);
+            alert(`Devolución procesada correctamente.${serialMsg}`);
             currentOrderData = null; accountsCache = null;
             getEl('refund-modal').classList.add('hidden'); 
             getEl('order-modal').classList.add('hidden');
@@ -2521,7 +2969,7 @@ if (payForm) {
                 t.update(orderRef, { status: nextStatus, paymentStatus: isFullyPaid ? 'PAID' : 'PARTIAL', amountPaid: newAmountPaid, paymentMethod: oData.paymentMethod || 'MANUAL', paymentAccountId: accId, paymentDate: serverTimestamp(), updatedAt: serverTimestamp() });
             });
 
-            alert("✅ Pago registrado exitosamente.");
+            alert("Pago registrado exitosamente.");
             document.getElementById('payment-modal').classList.add('hidden');
             currentOrderData = null; accountsCache = null;
 
@@ -2556,7 +3004,7 @@ export function generateLabels(ordersArray) {
             return `
             <div class="label-box">
                 <div class="header-logo">
-                    <img src="https://pixeltechcol.com/img/logo.webp" alt="PixelTech">
+                    <img src="${PIXELTECH_LOGO_DATA_URI}" alt="PixelTech">
                 </div>
                 <div class="company-info">
                     <div>
@@ -2670,7 +3118,7 @@ export function generateLabels(ordersArray) {
                 
                 .dest-info { font-size: 14px; line-height: 1.6; }
                 
-                /* 🔥 CORRECCIÓN DE CORTES (TEXTO MULTILÍNEA) 🔥 */
+                /* CORRECCIÓN DE CORTES (TEXTO MULTILÍNEA) */
                 .info-line { 
                     margin-bottom: 12px; 
                     border-bottom: 2px solid #111827; 
@@ -2690,8 +3138,8 @@ export function generateLabels(ordersArray) {
                     font-weight: 700; 
                     font-size: 13px; 
                     text-align: left; 
-                    white-space: normal; /* 🔥 Permite múltiples líneas */
-                    word-break: break-word; /* 🔥 Rompe la palabra si es exageradamente larga */
+                    white-space: normal; /* Permite múltiples líneas */
+                    word-break: break-word; /* Rompe la palabra si es exageradamente larga */
                     line-height: 1.2;
                 }
                 .info-row { display: flex; gap: 15px; }
@@ -2700,7 +3148,29 @@ export function generateLabels(ordersArray) {
         <body>
             ${allPagesHtml}
             <script>
-                setTimeout(() => { window.print(); window.close(); }, 800);
+                function triggerPrint() {
+                    if (document.fonts && document.fonts.ready) {
+                        document.fonts.ready.then(() => {
+                            setTimeout(() => {
+                                window.focus();
+                                window.print();
+                            }, 200);
+                        });
+                    } else {
+                        setTimeout(() => {
+                            window.focus();
+                            window.print();
+                        }, 250);
+                    }
+                }
+                window.onafterprint = () => {
+                    try { window.close(); } catch(e) {}
+                };
+                if (document.readyState === 'complete') {
+                    triggerPrint();
+                } else {
+                    window.addEventListener('load', triggerPrint);
+                }
             <\/script>
         </body>
         </html>
@@ -2716,94 +3186,499 @@ let currentBulkOrdersToPay = [];
 let currentBulkOrdersToDispatch = [];
 let currentBulkOrdersToPack = [];
 
-// --- A. ALISTAMIENTO MASIVO ---
-export async function openBulkPackingModal() {
-    const checkboxes = document.querySelectorAll('.order-cb:checked');
-    if(checkboxes.length === 0) return alert("⚠️ Selecciona al menos un pedido de la tabla.");
+// --- A. ALISTAMIENTO MASIVO / RAPIDO CON SERIALES ---
+export async function openBulkPackingModal(presetOrders, isMLFlow = false) {
+    let candidateOrders = [];
+    if (presetOrders && Array.isArray(presetOrders) && presetOrders.length > 0) {
+        candidateOrders = presetOrders;
+    } else {
+        const checkboxes = document.querySelectorAll('.order-cb:checked');
+        if (checkboxes.length === 0) {
+            alert("Selecciona al menos un pedido de la tabla.");
+            return;
+        }
+        const selectedIds = Array.from(checkboxes).map(cb => cb.value);
+        const cachedOrders = window.adminOrdersCache || [];
+        candidateOrders = cachedOrders.filter(o => selectedIds.includes(o.id));
+    }
 
-    const selectedIds = Array.from(checkboxes).map(cb => cb.value);
     currentBulkOrdersToPack = [];
     let omittedCount = 0;
 
-    const cachedOrders = window.adminOrdersCache || [];
-
-    for (const id of selectedIds) {
-        const o = cachedOrders.find(order => order.id === id);
-        if (o) {
-            if (['ALISTADO', 'DESPACHADO', 'EN_RUTA', 'ENTREGADO', 'CANCELADO', 'RECHAZADO', 'DEVUELTO', 'DEVOLUCION_PARCIAL'].includes(o.status)) {
-                omittedCount++;
-                continue;
-            }
-            currentBulkOrdersToPack.push(o);
+    for (const o of candidateOrders) {
+        if (!o) continue;
+        if (['ALISTADO', 'DESPACHADO', 'EN_RUTA', 'ENTREGADO', 'CANCELADO', 'CANCELACION_PENDIENTE', 'RECHAZADO', 'DEVUELTO', 'DEVOLUCION_PARCIAL'].includes(o.status) || o.cancellationPendingConfirm) {
+            omittedCount++;
+            continue;
         }
-    }
-
-    getEl('bulk-packing-modal').classList.remove('hidden');
-    const btnConfirm = getEl('btn-confirm-bulk-pack');
-
-    getEl('bulk-pack-valid').textContent = currentBulkOrdersToPack.length;
-
-    const warningEl = getEl('bulk-pack-warning');
-    if (omittedCount > 0) {
-        warningEl.innerHTML = `<i class="fa-solid fa-triangle-exclamation"></i> Se omitieron ${omittedCount} pedidos porque ya estaban alistados, despachados o cancelados.`;
-        warningEl.classList.remove('hidden');
-    } else {
-        warningEl.classList.add('hidden');
+        currentBulkOrdersToPack.push(o);
     }
 
     if (currentBulkOrdersToPack.length === 0) {
-        btnConfirm.disabled = true;
-        btnConfirm.innerHTML = "No hay pedidos válidos";
-        return; 
+        if (omittedCount > 0) {
+            alert("Los pedidos seleccionados ya se encuentran alistados, despachados o cancelados.");
+        } else {
+            alert("No se encontraron pedidos pendientes de alistamiento.");
+        }
+        return;
     }
 
-    btnConfirm.disabled = false;
-    btnConfirm.innerHTML = '<i class="fa-solid fa-box-open"></i> Confirmar Alistamiento Masivo';
+    const modal = getEl('bulk-packing-modal');
+    if (!modal) return;
+    modal.classList.remove('hidden');
+
+    const channelBadge = getEl('bulk-pack-channel-badge');
+    const storeBadge = getEl('bulk-pack-store-badge');
+    const warningEl = getEl('bulk-pack-warning');
+    const listContainer = getEl('bulk-pack-list');
+    const ordersCountEl = getEl('bulk-pack-orders-count');
+    const unitsCountEl = getEl('bulk-pack-units-count');
+    const enteredCountEl = getEl('bulk-pack-entered-count');
+    const totalSnsEl = getEl('bulk-pack-total-sns');
+    const btnConfirm = getEl('btn-confirm-bulk-pack');
+    const btnConfirmText = getEl('btn-confirm-bulk-pack-text');
+
+    if (isMLFlow) {
+        if (channelBadge) channelBadge.textContent = "MercadoLibre";
+        if (storeBadge) {
+            storeBadge.classList.remove('hidden');
+            storeBadge.textContent = "Rotulos Abiertos";
+        }
+    } else {
+        if (channelBadge) channelBadge.textContent = "Pedidos Convencionales / Masivo";
+        if (storeBadge) storeBadge.classList.add('hidden');
+    }
+
+    if (warningEl) {
+        if (omittedCount > 0) {
+            warningEl.innerHTML = `<i class="fa-solid fa-triangle-exclamation mr-1.5"></i> Se omitieron ${omittedCount} pedidos que ya estaban alistados, despachados o cancelados.`;
+            warningEl.classList.remove('hidden');
+        } else {
+            warningEl.classList.add('hidden');
+        }
+    }
+
+    let totalUnits = 0;
+    let htmlBuffer = '';
+
+    currentBulkOrdersToPack.forEach((o, oIdx) => {
+        const orderNum = o.internalOrderNumber ? `#${o.internalOrderNumber}` : (o.orderNumber || o.id.slice(0, 8).toUpperCase());
+        const buyerName = o.buyerInfo?.name || o.userName || o.customerName || 'Cliente General';
+        const buyerPhone = o.buyerInfo?.phone || o.phone || '';
+        const buyerCity = o.shippingData?.city || o.buyerInfo?.city || o.city || '';
+        const carrier = o.shippingCarrier || o.carrier || o.shippingData?.carrier || '';
+        const items = Array.isArray(o.items) ? o.items : [];
+        const isML = (o.source && o.source.startsWith('MERCADOLIBRE')) ||
+                     o.channel === 'MERCADOLIBRE' ||
+                     (o.paymentMethod && o.paymentMethod.startsWith('MERCADOLIBRE')) ||
+                     String(o.id).startsWith('ML-') ||
+                     String(o.id).startsWith('ML2-') ||
+                     String(o.id).startsWith('ML3-');
+
+        const mlStore = typeof window.getOrderMLStore === 'function' ? window.getOrderMLStore(o) : null;
+        const storeNames = window.mlStoreNames || {};
+        const storeLabel = mlStore ? (storeNames[mlStore] || `MELI ${mlStore}`) : 'MELI';
+
+        let orderItemsHtml = '';
+
+        items.forEach((item, itemIdx) => {
+            const qty = Number(item.quantity) || 1;
+            totalUnits += qty;
+            const img = item.mainImage || item.image || item.imageUrl || item.thumbnail || '../img/placeholder.png';
+            const variants = [item.color, item.capacity, item.variant].filter(Boolean).join(' ');
+
+            let inputsHtml = '';
+            for (let u = 0; u < qty; u++) {
+                let prefillVal = '';
+                if (Array.isArray(item.sns) && item.sns[u]) {
+                    prefillVal = item.sns[u];
+                }
+
+                inputsHtml += `
+                    <div class="relative">
+                        <i class="fa-solid fa-barcode absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs pointer-events-none"></i>
+                        <input type="text"
+                            data-order-id="${o.id}"
+                            data-item-idx="${itemIdx}"
+                            data-unit-idx="${u}"
+                            data-product-id="${item.id || ''}"
+                            data-product-name="${(item.name || item.title || '').replace(/"/g, '&quot;')}"
+                            placeholder="Serial #${u + 1} (o N/A)"
+                            value="${prefillVal}"
+                            class="bulk-sn-input w-full rounded-xl py-2 pl-9 pr-3 text-xs font-mono font-bold outline-none uppercase border border-slate-200 bg-white text-brand-black focus:border-purple-600 focus:ring-1 focus:ring-purple-200 transition" />
+                    </div>
+                `;
+            }
+
+            orderItemsHtml += `
+                <div class="p-3 bg-slate-50/80 rounded-xl border border-slate-200/70 flex flex-col sm:flex-row gap-3 items-start mb-2.5 last:mb-0">
+                    <div class="w-12 h-12 rounded-lg bg-white border border-slate-200 p-1 shrink-0 flex items-center justify-center shadow-2xs">
+                        <img src="${img}" class="max-w-full max-h-full object-contain" onerror="this.src='../img/placeholder.png'">
+                    </div>
+                    <div class="flex-grow w-full">
+                        <div class="flex items-start justify-between gap-2 mb-1">
+                            <div>
+                                <h6 class="font-black text-xs text-brand-black uppercase leading-tight">${item.name || item.title || 'Producto'}</h6>
+                                ${variants ? `<span class="text-[9px] font-semibold text-slate-500 uppercase">${variants}</span>` : ''}
+                            </div>
+                            <span class="text-xs font-black text-purple-700 bg-purple-50 px-2 py-0.5 rounded-md border border-purple-200 shrink-0">x${qty}</span>
+                        </div>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
+                            ${inputsHtml}
+                        </div>
+                        <div class="flex justify-end mt-1.5">
+                            <button type="button" onclick="window.toggleItemBulkNoSerial('${o.id}', ${itemIdx})" class="text-[9px] font-bold text-slate-500 hover:text-brand-black bg-white hover:bg-slate-100 px-2.5 py-1 rounded-md border border-slate-200 transition flex items-center gap-1 shadow-2xs">
+                                <i class="fa-solid fa-ban text-amber-500 text-[8px]"></i> Marcar Sin Serial este item
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+
+        htmlBuffer += `
+            <div class="bg-white border border-slate-200 rounded-2xl p-4 shadow-sm order-pack-card" data-order-id="${o.id}">
+                <div class="flex items-center justify-between pb-3 mb-3 border-b border-slate-100 flex-wrap gap-2">
+                    <div class="flex items-center gap-2.5">
+                        <span class="w-7 h-7 rounded-lg bg-slate-900 text-white flex items-center justify-center font-black text-[10px]">
+                            #${oIdx + 1}
+                        </span>
+                        <div>
+                            <div class="flex items-center gap-2">
+                                <span class="font-black text-sm text-brand-black uppercase tracking-tight">${orderNum}</span>
+                                ${isML ? `<span class="bg-[#FFE600] text-black text-[8px] font-black px-2 py-0.5 rounded shadow-2xs border border-yellow-400 uppercase">${storeLabel}</span>` : `<span class="bg-slate-100 text-slate-700 text-[8px] font-black px-2 py-0.5 rounded uppercase">Web / Directa</span>`}
+                            </div>
+                            <div class="text-[10px] text-slate-500 font-semibold flex items-center gap-1.5 mt-0.5">
+                                <span>${buyerName}</span>
+                                ${buyerCity ? `<span class="text-slate-300">•</span><span>${buyerCity}</span>` : ''}
+                                ${carrier ? `<span class="text-slate-300">•</span><span class="text-brand-cyan">${carrier}</span>` : ''}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button type="button" onclick="window.toggleOrderBulkNoSerial('${o.id}')" class="text-[9px] font-bold text-slate-600 hover:text-brand-black bg-slate-100 hover:bg-slate-200 px-2.5 py-1.5 rounded-lg border border-slate-200 transition flex items-center gap-1">
+                            <i class="fa-solid fa-ban text-amber-500 text-[9px]"></i> Marcar Todo Sin Serial en este pedido
+                        </button>
+                    </div>
+                </div>
+                <div class="space-y-2">
+                    ${orderItemsHtml}
+                </div>
+            </div>
+        `;
+    });
+
+    if (listContainer) listContainer.innerHTML = htmlBuffer;
+    if (ordersCountEl) ordersCountEl.textContent = currentBulkOrdersToPack.length;
+    if (unitsCountEl) unitsCountEl.textContent = totalUnits;
+    if (totalSnsEl) totalSnsEl.textContent = totalUnits;
+
+    updateBulkPackCounters();
+    setupBulkPackInputListeners();
+
+    if (btnConfirm) btnConfirm.disabled = false;
+    if (btnConfirmText) btnConfirmText.textContent = `Confirmar y Alistar ${currentBulkOrdersToPack.length} Pedidos`;
+}
+
+function updateBulkPackCounters() {
+    const inputs = Array.from(document.querySelectorAll('.bulk-sn-input'));
+    const total = inputs.length;
+    const filled = inputs.filter(i => !!i.value.trim()).length;
+    const enteredCountEl = document.getElementById('bulk-pack-entered-count');
+    if (enteredCountEl) enteredCountEl.textContent = filled;
+}
+
+function setupBulkPackInputListeners() {
+    const inputs = Array.from(document.querySelectorAll('.bulk-sn-input'));
+    inputs.forEach((input, index) => {
+        input.addEventListener('input', () => {
+            const val = input.value.trim().toUpperCase();
+            if (isNoSerial(val)) {
+                input.classList.add('bg-amber-50', 'text-amber-800', 'border-amber-300');
+                input.classList.remove('bg-white', 'text-brand-black', 'border-slate-200');
+            } else {
+                input.classList.remove('bg-amber-50', 'text-amber-800', 'border-amber-300');
+                input.classList.add('bg-white', 'text-brand-black', 'border-slate-200');
+            }
+            updateBulkPackCounters();
+        });
+
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                input.value = input.value.trim().toUpperCase();
+                const nextInput = inputs.slice(index + 1).find(i => !i.value.trim()) || inputs[index + 1];
+                if (nextInput) {
+                    nextInput.focus();
+                    nextInput.select();
+                }
+            }
+        });
+    });
+
+    const firstEmpty = inputs.find(i => !i.value.trim());
+    if (firstEmpty) {
+        setTimeout(() => firstEmpty.focus(), 150);
+    }
+}
+
+export function closeBulkPackingModal() {
+    const modal = document.getElementById('bulk-packing-modal');
+    if (modal) modal.classList.add('hidden');
+}
+
+export function toggleItemBulkNoSerial(orderId, itemIdx) {
+    const inputs = Array.from(document.querySelectorAll(`.bulk-sn-input[data-order-id="${orderId}"][data-item-idx="${itemIdx}"]`));
+    const allNoSerial = inputs.every(i => isNoSerial(i.value));
+    inputs.forEach(i => {
+        i.value = allNoSerial ? '' : 'SIN-SERIAL';
+        i.dispatchEvent(new Event('input'));
+    });
+}
+
+export function toggleOrderBulkNoSerial(orderId) {
+    const inputs = Array.from(document.querySelectorAll(`.bulk-sn-input[data-order-id="${orderId}"]`));
+    const allNoSerial = inputs.every(i => isNoSerial(i.value));
+    inputs.forEach(i => {
+        i.value = allNoSerial ? '' : 'SIN-SERIAL';
+        i.dispatchEvent(new Event('input'));
+    });
+}
+
+export function bulkMarkAllNoSerial() {
+    const inputs = Array.from(document.querySelectorAll('.bulk-sn-input'));
+    const allNoSerial = inputs.every(i => isNoSerial(i.value));
+    inputs.forEach(i => {
+        i.value = allNoSerial ? '' : 'SIN-SERIAL';
+        i.dispatchEvent(new Event('input'));
+    });
 }
 
 export async function processBulkPacking() {
+    if (!currentBulkOrdersToPack || currentBulkOrdersToPack.length === 0) {
+        alert("No hay pedidos activos para alistar.");
+        return;
+    }
+
     const btn = getEl('btn-confirm-bulk-pack');
-    const originalText = btn.innerHTML;
-    btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Procesando...';
+    const originalText = btn ? btn.innerHTML : '';
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-1.5"></i> Validando seriales...';
+    }
 
     try {
-        let batch = writeBatch(db); 
-        let opsCount = 0;
+        const allSnsInBulk = [];
+        const orderUpdates = [];
 
         for (const order of currentBulkOrdersToPack) {
-            const oRef = doc(db, "orders", order.id);
-            // 🔥 Trigger al Store
-            batch.update(oRef, {
-                status: 'ALISTADO',
-                updatedAt: serverTimestamp()
-            });
-            opsCount++;
+            const orderNum = order.internalOrderNumber ? `#${order.internalOrderNumber}` : order.id.slice(0, 8).toUpperCase();
+            const clientName = order.buyerInfo?.name || order.userName || order.customerName || 'Cliente';
+            const clientPhone = order.buyerInfo?.phone || order.phone || '';
+            const items = order.items || [];
+            const updatedItems = [];
+            const orderSns = [];
 
-            if (opsCount >= 450) {
-                await batch.commit();
-                batch = writeBatch(db); 
-                opsCount = 0;
+            for (let idx = 0; idx < items.length; idx++) {
+                const item = items[idx];
+                const qty = Number(item.quantity) || 1;
+                const inputs = Array.from(document.querySelectorAll(`.bulk-sn-input[data-order-id="${order.id}"][data-item-idx="${idx}"]`));
+                const sns = inputs.map(i => {
+                    const val = i.value.trim().toUpperCase();
+                    return isNoSerial(val) ? 'SIN-SERIAL' : val;
+                });
+
+                if (sns.length < qty) {
+                    throw new Error(`Faltan campos de serial para "${item.name || item.title}" en el pedido ${orderNum}.`);
+                }
+
+                const emptyIdx = sns.findIndex(s => !s);
+                if (emptyIdx !== -1) {
+                    const emptyInput = inputs[emptyIdx];
+                    if (emptyInput) {
+                        emptyInput.classList.add('border-rose-500', 'bg-rose-50');
+                        emptyInput.focus();
+                    }
+                    throw new Error(`Falta ingresar el serial de la unidad #${emptyIdx + 1} de "${item.name || item.title}" en el pedido ${orderNum}. Si el producto no tiene serial físico, pulsa "Marcar Sin Serial".`);
+                }
+
+                for (const sn of sns) {
+                    if (!isNoSerial(sn)) {
+                        if (orderSns.some(x => !isNoSerial(x.sn) && x.sn === sn)) {
+                            throw new Error(`El serial "${sn}" está duplicado dentro del pedido ${orderNum}. Cada unidad debe tener un serial diferente.`);
+                        }
+                    }
+                    orderSns.push({
+                        sn,
+                        itemId: item.id || '',
+                        itemName: item.name || item.title || 'Producto',
+                        itemColor: item.color || null,
+                        itemCapacity: item.capacity || null,
+                        sku: item.sku || '',
+                        orderId: order.id,
+                        orderNum,
+                        clientName,
+                        clientPhone
+                    });
+                }
+
+                updatedItems.push({ ...item, sns });
+            }
+
+            allSnsInBulk.push(...orderSns);
+            orderUpdates.push({ order, updatedItems });
+        }
+
+        for (let i = 0; i < allSnsInBulk.length; i++) {
+            const snObjA = allSnsInBulk[i];
+            if (isNoSerial(snObjA.sn)) continue;
+            for (let j = i + 1; j < allSnsInBulk.length; j++) {
+                const snObjB = allSnsInBulk[j];
+                if (!isNoSerial(snObjB.sn) && snObjA.sn === snObjB.sn) {
+                    throw new Error(`El serial "${snObjA.sn}" está repetido entre dos pedidos distintos (${snObjA.orderNum} y ${snObjB.orderNum}).`);
+                }
             }
         }
 
-        if (opsCount > 0) await batch.commit();
+        if (btn) btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-1.5"></i> Verificando inventario...';
 
-        alert(`✅ ${currentBulkOrdersToPack.length} pedidos marcados como ALISTADOS.`);
-        getEl('bulk-packing-modal').classList.add('hidden');
+        const serialDocsToUpdate = [];
+        const unregisteredSerials = [];
+
+        for (const itemSn of allSnsInBulk) {
+            if (isNoSerial(itemSn.sn)) continue;
+
+            const q = query(collection(db, "product_serials"), where("serialNumber", "==", itemSn.sn));
+            const snap = await getDocs(q);
+
+            if (snap.empty) {
+                unregisteredSerials.push(itemSn);
+                continue;
+            }
+
+            const matchingDoc = snap.docs.find(d => d.data().productId === itemSn.itemId);
+            if (!matchingDoc) {
+                const other = snap.docs[0].data();
+                throw new Error(`El serial "${itemSn.sn}" pertenece a otro producto ("${other.productName || 'otro equipo'}"), no a "${itemSn.itemName}".`);
+            }
+
+            const sData = matchingDoc.data();
+            if (sData.status === 'DISPATCHED' && sData.orderId && sData.orderId !== itemSn.orderId) {
+                const prevNum = sData.orderInternalNumber || sData.orderId.slice(0, 6).toUpperCase();
+                throw new Error(`El serial "${itemSn.sn}" ya fue despachado en la orden #${prevNum}. No se puede volver a despachar.`);
+            }
+
+            serialDocsToUpdate.push({ ref: matchingDoc.ref, ...itemSn });
+        }
+
+        if (unregisteredSerials.length > 0) {
+            const listMsg = unregisteredSerials.map(u => `• [${u.sn}] en orden ${u.orderNum} (${u.itemName})`).slice(0, 10).join('\n');
+            const moreMsg = unregisteredSerials.length > 10 ? `\n... y ${unregisteredSerials.length - 10} más.` : '';
+            const confirmMsg = `REGULARIZACION DE SERIALES ANTIGUOS:\n\nLos siguientes ${unregisteredSerials.length} serial(es) no se encontraron en compras previas:\n\n${listMsg}${moreMsg}\n\n¿Deseas registrarlos automáticamente como "Inventario Inicial / Regularizado" y alistar estos pedidos?`;
+            if (!window.confirm(confirmMsg)) {
+                throw new Error("Alistamiento masivo cancelado por el usuario.");
+            }
+        }
+
+        if (btn) btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-1.5"></i> Guardando alistamientos...';
+
+        const now = new Date();
+        let batch = writeBatch(db);
+        let ops = 0;
+
+        for (const item of serialDocsToUpdate) {
+            batch.update(item.ref, {
+                status: 'DISPATCHED',
+                orderId: item.orderId,
+                orderInternalNumber: item.orderNum,
+                clientName: item.clientName,
+                clientPhone: item.clientPhone,
+                dispatchedAt: now,
+                updatedAt: now
+            });
+            ops++;
+            if (ops >= 400) { await batch.commit(); batch = writeBatch(db); ops = 0; }
+        }
+
+        for (const item of unregisteredSerials) {
+            const newRef = doc(collection(db, "product_serials"));
+            batch.set(newRef, {
+                serialNumber: item.sn,
+                productId: item.itemId,
+                productName: item.itemName,
+                sku: item.sku || '',
+                color: item.itemColor || null,
+                capacity: item.itemCapacity || null,
+                status: 'DISPATCHED',
+                supplierName: 'Inventario Inicial / Regularizado',
+                source: 'REGULARIZADO_ALISTAMIENTO',
+                orderId: item.orderId,
+                orderInternalNumber: item.orderNum,
+                clientName: item.clientName,
+                clientPhone: item.clientPhone,
+                dispatchedAt: now,
+                createdAt: now,
+                updatedAt: now
+            });
+            ops++;
+            if (ops >= 400) { await batch.commit(); batch = writeBatch(db); ops = 0; }
+        }
+
+        for (const { order, updatedItems } of orderUpdates) {
+            batch.update(doc(db, "orders", order.id), {
+                items: updatedItems,
+                status: 'ALISTADO',
+                updatedAt: now
+            });
+            ops++;
+            if (ops >= 400) { await batch.commit(); batch = writeBatch(db); ops = 0; }
+        }
+
+        if (ops > 0) {
+            await batch.commit();
+        }
+
+        orderUpdates.forEach(({ order }) => {
+            if (typeof clearDraftSerials === 'function') clearDraftSerials(order.id);
+        });
+
         document.querySelectorAll('.order-cb').forEach(cb => cb.checked = false);
+        const selAll = document.getElementById('select-all-orders');
+        if (selAll) selAll.checked = false;
+        if (typeof window.updateBulkActionBar === 'function') window.updateBulkActionBar();
+
+        closeBulkPackingModal();
+
+        if (typeof showActionToast === 'function') {
+            showActionToast(`${orderUpdates.length} pedidos alistados con éxito y seriales vinculados.`, 'success');
+        } else {
+            alert(`${orderUpdates.length} pedidos alistados con éxito.`);
+        }
+
+        if (typeof window.renderOrdersFromMemory === 'function') {
+            window.renderOrdersFromMemory();
+        }
 
     } catch (e) {
-        console.error(e);
-        alert("Error alistando: " + (e.message || e));
+        console.error("Error en processBulkPacking:", e);
+        const msg = e?.message || (typeof e === 'string' ? e : "Error al procesar alistamiento masivo.");
+        if (typeof showActionToast === 'function') {
+            showActionToast(msg, "error");
+        } else {
+            alert(msg);
+        }
     } finally {
-        btn.disabled = false; btn.innerHTML = originalText;
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+        }
     }
 }
 
 // --- B. COBRO MASIVO ---
 export async function openBulkPaymentModal() {
     const checkboxes = document.querySelectorAll('.order-cb:checked');
-    if(checkboxes.length === 0) return alert("⚠️ Selecciona al menos un pedido.");
+    if(checkboxes.length === 0) return alert("Selecciona al menos un pedido.");
     
     const selectedIds = Array.from(checkboxes).map(cb => cb.value);
     currentBulkOrdersToPay = [];
@@ -2842,7 +3717,7 @@ export async function openBulkPaymentModal() {
     if (currentBulkOrdersToPay.length === 0) {
         getEl('bulk-pay-total').textContent = "$0";
         getEl('btn-confirm-bulk-pay').disabled = true;
-        return alert("❌ Ninguno de los pedidos seleccionados tiene saldo pendiente por cobrar.");
+        return alert("Ninguno de los pedidos seleccionados tiene saldo pendiente por cobrar.");
     }
 
     getEl('bulk-pay-count').textContent = currentBulkOrdersToPay.length;
@@ -2861,7 +3736,7 @@ export async function openBulkPaymentModal() {
 
 export async function processBulkPayment() {
     const accId = getEl('bulk-pay-account-select').value;
-    if (!accId) return alert("⚠️ Debes seleccionar una cuenta de destino.");
+    if (!accId) return alert("Debes seleccionar una cuenta de destino.");
 
     const btn = getEl('btn-confirm-bulk-pay');
     const originalText = btn.innerHTML;
@@ -2903,7 +3778,7 @@ export async function processBulkPayment() {
                     nextStatus = 'PAGADO';
                 }
 
-                // 🔥 Trigger al Store (updatedAt)
+                // Trigger al Store (updatedAt)
                 t.update(o.ref, {
                     status: nextStatus,
                     paymentStatus: 'PAID',
@@ -2929,7 +3804,7 @@ export async function processBulkPayment() {
             }
         });
 
-        alert("✅ Cobro masivo registrado exitosamente.");
+        alert("Cobro masivo registrado exitosamente.");
         getEl('bulk-payment-modal').classList.add('hidden');
         document.querySelectorAll('.order-cb').forEach(cb => cb.checked = false);
 
@@ -2944,7 +3819,7 @@ export async function processBulkPayment() {
 // --- C. DESPACHO MASIVO ---
 export async function openBulkDispatchModal() {
     const checkboxes = document.querySelectorAll('.order-cb:checked');
-    if(checkboxes.length === 0) return alert("⚠️ Selecciona al menos un pedido.");
+    if(checkboxes.length === 0) return alert("Selecciona al menos un pedido.");
 
     const selectedIds = Array.from(checkboxes).map(cb => cb.value);
     currentBulkOrdersToDispatch = [];
@@ -2959,7 +3834,7 @@ export async function openBulkDispatchModal() {
     for (const id of selectedIds) {
         const o = cachedOrders.find(order => order.id === id);
         if (o) {
-            if (['DESPACHADO', 'ENTREGADO', 'CANCELADO', 'RECHAZADO', 'DEVUELTO'].includes(o.status)) {
+            if (['DESPACHADO', 'ENTREGADO', 'CANCELADO', 'CANCELACION_PENDIENTE', 'RECHAZADO', 'DEVUELTO'].includes(o.status) || o.cancellationPendingConfirm) {
                 omittedCount++;
                 continue; 
             }
@@ -2990,7 +3865,7 @@ export async function openBulkDispatchModal() {
     }
 
     if (currentBulkOrdersToDispatch.length === 0) {
-        listContainer.innerHTML = `<p class="text-center text-red-500 font-bold py-4">❌ Ninguno de los pedidos seleccionados es válido para despachar.</p>`;
+        listContainer.innerHTML = `<p class="text-center text-red-500 font-bold py-4">Ninguno de los pedidos seleccionados es válido para despachar.</p>`;
         getEl('btn-confirm-bulk-dispatch').disabled = true;
         return;
     }
@@ -3002,7 +3877,7 @@ export async function openBulkDispatchModal() {
 
 export async function processBulkDispatch() {
     const carrier = getEl('bulk-dispatch-carrier').value;
-    if (!carrier) return alert("⚠️ Por favor, selecciona una Transportadora Global.");
+    if (!carrier) return alert("Por favor, selecciona una Transportadora Global.");
 
     const updatesToApply = [];
     for (const order of currentBulkOrdersToDispatch) {
@@ -3010,7 +3885,7 @@ export async function processBulkDispatch() {
         const trackingNum = trackInput ? trackInput.value.trim() : "";
         
         if (!trackingNum) {
-            return alert(`⚠️ Te falta asignar el número de guía para la orden ${order.internalOrderNumber || order.id.slice(0,6)}.`);
+            return alert(`Te falta asignar el número de guía para la orden ${order.internalOrderNumber || order.id.slice(0,6)}.`);
         }
         
         updatesToApply.push({ id: order.id, tracking: trackingNum });
@@ -3026,7 +3901,7 @@ export async function processBulkDispatch() {
 
         for (const update of updatesToApply) {
             const oRef = doc(db, "orders", update.id);
-            // 🔥 Trigger al Store
+            // Trigger al Store
             batch.update(oRef, {
                 status: 'DESPACHADO', 
                 shippingCarrier: carrier, 
@@ -3045,7 +3920,7 @@ export async function processBulkDispatch() {
 
         if (opsCount > 0) await batch.commit();
 
-        alert("🚚 ¡Despacho Masivo Exitoso!");
+        alert("¡Despacho Masivo Exitoso!");
         getEl('bulk-dispatch-modal').classList.add('hidden');
         document.querySelectorAll('.order-cb').forEach(cb => cb.checked = false); 
 
@@ -3058,6 +3933,8 @@ export async function processBulkDispatch() {
 }
 
 // --- EXPORTAR AL WINDOW ---
+window.confirmOrderCancellation = confirmOrderCancellation;
+window.reportCancellationConflict = reportCancellationConflict;
 window.generateLabels = generateLabels;
 window.openBulkPaymentModal = openBulkPaymentModal;
 window.processBulkPayment = processBulkPayment;
@@ -3065,25 +3942,37 @@ window.openBulkDispatchModal = openBulkDispatchModal;
 window.processBulkDispatch = processBulkDispatch;
 window.openBulkPackingModal = openBulkPackingModal;
 window.processBulkPacking = processBulkPacking;
+window.closeBulkPackingModal = closeBulkPackingModal;
+window.toggleItemBulkNoSerial = toggleItemBulkNoSerial;
+window.toggleOrderBulkNoSerial = toggleOrderBulkNoSerial;
+window.bulkMarkAllNoSerial = bulkMarkAllNoSerial;
 window.openPaymentModal = openPaymentModal;
 window.printSelectedLabels = (ordersArray) => {
-    if (ordersArray && Array.isArray(ordersArray) && ordersArray.length > 0) {
-        generateLabels(ordersArray);
+    let ordersToProcess = ordersArray;
+    if (!ordersToProcess || !Array.isArray(ordersToProcess) || ordersToProcess.length === 0) {
+        const checkboxes = document.querySelectorAll('.order-cb:checked');
+        if (checkboxes.length === 0) {
+            alert("Por favor, selecciona al menos un pedido marcando las casillas de la tabla.");
+            return;
+        }
+        const selectedIds = Array.from(checkboxes).map(cb => cb.value);
+        const cache = window.adminOrdersCache || [];
+        ordersToProcess = cache.filter(o => selectedIds.includes(o.id));
+        if (ordersToProcess.length === 0) {
+            alert("No se encontraron los datos de los pedidos seleccionados en la memoria.");
+            return;
+        }
+    }
+    const cancelledPending = ordersToProcess.filter(o => o.cancellationPendingConfirm || o.status === 'CANCELACION_PENDIENTE');
+    if (cancelledPending.length > 0) {
+        alert("Atencion: Se han seleccionado pedidos con cancelacion pendiente en MercadoLibre. Esos pedidos fueron omitidos para evitar rotulado y despacho erroneo.");
+    }
+    const validOrders = ordersToProcess.filter(o => !o.cancellationPendingConfirm && o.status !== 'CANCELACION_PENDIENTE');
+    if (validOrders.length === 0) {
+        alert("No hay pedidos validos para generar rotulo.");
         return;
     }
-    const checkboxes = document.querySelectorAll('.order-cb:checked');
-    if (checkboxes.length === 0) {
-        alert("⚠️ Por favor, selecciona al menos un pedido marcando las casillas de la tabla.");
-        return;
-    }
-    const selectedIds = Array.from(checkboxes).map(cb => cb.value);
-    const cache = window.adminOrdersCache || [];
-    const selectedOrders = cache.filter(o => selectedIds.includes(o.id));
-    if (selectedOrders.length === 0) {
-        alert("⚠️ No se encontraron los datos de los pedidos seleccionados en la memoria.");
-        return;
-    }
-    generateLabels(selectedOrders);
+    generateLabels(validOrders);
 };
 
 window.recalcMLFinances = async function(orderId) {
@@ -3096,9 +3985,9 @@ window.recalcMLFinances = async function(orderId) {
         const recalcFn = httpsCallable(functions, 'recalcMLOrderFinances');
         await recalcFn({ orderId });
         if (typeof showActionToast === 'function') {
-            showActionToast('✅ Comisiones recalculadas con éxito desde MercadoLibre', 'success', 3000);
+            showActionToast('Comisiones recalculadas con éxito desde MercadoLibre', 'success', 3000);
         } else {
-            alert('✅ Comisiones recalculadas con éxito desde MercadoLibre');
+            alert('Comisiones recalculadas con éxito desde MercadoLibre');
         }
         if (typeof window.viewOrderDetail === 'function') {
             window.viewOrderDetail(orderId);
@@ -3106,9 +3995,9 @@ window.recalcMLFinances = async function(orderId) {
     } catch (e) {
         console.error("Error recalculando finanzas ML:", e);
         if (typeof showActionToast === 'function') {
-            showActionToast('⚠️ Error al recalcular: ' + e.message, 'error', 4000);
+            showActionToast('Error al recalcular: ' + e.message, 'error', 4000);
         } else {
-            alert('⚠️ Error al recalcular: ' + e.message);
+            alert('Error al recalcular: ' + e.message);
         }
         if (btn) {
             btn.disabled = false;
@@ -3123,4 +4012,14 @@ window.openMercadoLibreLabel = function(orderId) {
         functionsUrl = "http://localhost:5001/pixeltechcol/us-central1/getMercadoLibreLabel";
     }
     window.open(`${functionsUrl}?orderId=${orderId}`, '_blank');
+
+    const cache = window.adminOrdersCache || [];
+    const targetOrder = cache.find(o => o.id === orderId);
+    if (targetOrder && !['ALISTADO', 'DESPACHADO', 'EN_RUTA', 'ENTREGADO', 'CANCELADO', 'CANCELACION_PENDIENTE', 'RECHAZADO', 'DEVUELTO', 'DEVOLUCION_PARCIAL'].includes(targetOrder.status) && !targetOrder.cancellationPendingConfirm) {
+        setTimeout(() => {
+            if (typeof window.openBulkPackingModal === 'function') {
+                window.openBulkPackingModal([targetOrder], true);
+            }
+        }, 500);
+    }
 };

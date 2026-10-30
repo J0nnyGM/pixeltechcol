@@ -33,7 +33,7 @@ priceInput.addEventListener('input', (e) => {
 function lockGlobalInputs() { 
     stockInput.readOnly = true;
     stockInput.classList.add('bg-gray-100', 'text-gray-400', 'cursor-not-allowed');
-    stockLabel.innerHTML = "Stock Total <span class='text-xs text-brand-cyan'>(Auto)</span>";
+    stockLabel.innerHTML = "Stock Total <span class='text-xs text-amber-500 font-bold'>(Solo Entradas / Sync)</span>";
 
     const skuInput = document.getElementById('p-sku');
     if(skuInput) {
@@ -44,9 +44,10 @@ function lockGlobalInputs() {
 }
 
 function unlockGlobalInputs() { 
-    stockInput.readOnly = false;
-    stockInput.classList.remove('bg-gray-100', 'text-gray-400', 'cursor-not-allowed');
-    stockLabel.innerHTML = "Stock Total <span class='text-xs text-brand-cyan'>(Editable)</span>";
+    // 🔥 El stock ya no es editable desde la edición de producto (solo mediante Entradas o Sincronización)
+    stockInput.readOnly = true;
+    stockInput.classList.add('bg-gray-100', 'text-gray-400', 'cursor-not-allowed');
+    stockLabel.innerHTML = "Stock Total <span class='text-xs text-amber-500 font-bold'>(Solo Entradas / Sync)</span>";
 
     const skuInput = document.getElementById('p-sku');
     if(skuInput) {
@@ -389,9 +390,9 @@ function renderMatrix() {
             <td class="p-4"><input type="number" value="${prev.price}" onchange="updateMatrixData('${row.key}', 'price', this.value)" class="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs font-bold text-brand-cyan outline-none focus:border-brand-cyan"></td>
             
             <td class="p-4">
-                <input type="number" value="${prev.stock}" 
-                onchange="updateMatrixData('${row.key}', 'stock', this.value)" 
-                class="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs font-bold text-brand-black outline-none focus:border-brand-cyan">
+                <input type="number" value="${prev.stock != null ? prev.stock : 0}" readonly disabled 
+                class="w-full bg-gray-100 border border-gray-200 rounded-lg p-2 text-xs font-bold text-gray-400 outline-none cursor-not-allowed"
+                title="El stock solo puede modificarse mediante Entradas o desde la Sincronización de Inventario">
             </td>`;
         tbody.appendChild(tr);
     });
@@ -400,6 +401,10 @@ function renderMatrix() {
 
 window.updateMatrixData = (key, field, val) => { 
     if(!matrixData[key]) matrixData[key]={}; 
+    if (field === 'stock') {
+        // Bloqueado en edición de producto: solo entradas o sincronización de inventario
+        return;
+    }
     if (field === 'sku') {
         matrixData[key][field] = val.toUpperCase();
     } else {

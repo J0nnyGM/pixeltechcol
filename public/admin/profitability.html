@@ -6,215 +6,517 @@
     <meta name="theme-color" content="#00AEC7">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Rentabilidad FIFO | PixelTech Admin</title>
+    <title>Rentabilidad FIFO & Catálogo | PixelTech Admin</title>
     <link rel="stylesheet" href="../css/styles.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-        <style>
-        .custom-scroll::-webkit-scrollbar { width: 6px; }
+    <style>
+        .hidden { display: none !important; }
+        .custom-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 9999px; }
         .custom-scroll::-webkit-scrollbar-track { background: transparent; }
-        .custom-scroll::-webkit-scrollbar-thumb { background: #00AEC7; border-radius: 10px; }
-        .fade-in { animation: fadeIn 0.4s ease-out forwards; opacity: 0; transform: translateY(10px); }
-        @keyframes fadeIn { to { opacity: 1; transform: translateY(0); } }
+        .modal-enter { animation: modalSlideIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+        @keyframes modalSlideIn { 
+            from { opacity: 0; transform: scale(0.96) translateY(8px); } 
+            to { opacity: 1; transform: scale(1) translateY(0); } 
+        }
+        .fade-in { animation: fadeIn 0.25s ease-out forwards; opacity: 0; }
+        @keyframes fadeIn { to { opacity: 1; } }
     </style>
 </head>
 
-<body class="bg-slate-50 font-sans text-brand-black flex h-screen overflow-hidden selection:bg-brand-cyan selection:text-white" style="display: none;">
+<body class="bg-slate-100/70 font-sans text-slate-800 flex h-screen overflow-hidden" style="display: none;">
 
     <div id="admin-sidebar"></div>
 
-    <main class="flex-grow overflow-y-auto relative custom-scroll">
-        <header class="bg-white/90 backdrop-blur-xl border-b border-gray-100 px-8 py-5 flex justify-between items-center sticky top-0 z-40 shadow-sm">
+    <main class="flex-grow overflow-y-auto p-4 sm:p-6 lg:p-8 bg-slate-50 w-full custom-scroll">
+        
+        <!-- Header Principal -->
+        <header class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
             <div>
-                <h2 class="font-black text-gray-400 text-[9px] uppercase tracking-[0.4em]">Finanzas & Análisis</h2>
+                <div class="flex items-center gap-2.5 flex-wrap">
+                    <h1 class="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">Rentabilidad por Producto</h1>
+                    <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-cyan-50 text-cyan-800 border border-cyan-200">
+                        <span class="w-1.5 h-1.5 rounded-full bg-cyan-500 animate-pulse"></span>
+                        Modelo FIFO & Costo Promedio
+                    </span>
+                    <span id="badge-start-date" class="hidden inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200" title="Fecha de inicio contable activa">
+                        <i class="fa-solid fa-filter text-[9px] text-amber-600"></i>
+                        <span id="badge-start-date-text">Desde: --</span>
+                    </span>
+                </div>
+                <p class="text-slate-500 text-xs sm:text-sm mt-0.5">Valuación real de existencias, análisis de costo por lotes de compra y margen de ganancia individual.</p>
             </div>
-            <div class="w-10 h-10 bg-brand-black text-white rounded-xl flex items-center justify-center font-bold shadow-lg">
-                <i class="fa-solid fa-chart-line"></i>
+            
+            <div class="flex items-center gap-2.5 w-full md:w-auto">
+                <button id="btn-back-general" onclick="window.showGeneralDashboard()" class="hidden bg-white border border-slate-200 text-slate-700 hover:text-cyan-600 hover:border-cyan-400 px-4 py-2.5 rounded-xl font-bold text-xs transition-all shadow-xs flex items-center justify-center gap-2 active:scale-95">
+                    <i class="fa-solid fa-arrow-left text-xs"></i>
+                    <span>Volver al Catálogo</span>
+                </button>
+                <button id="btn-open-settings" onclick="window.openSettingsModal()" title="Configuración de fecha de corte contable" class="bg-white border border-slate-200 text-slate-700 hover:text-slate-900 hover:border-slate-400 px-3.5 py-2.5 rounded-xl font-bold text-xs transition-all shadow-xs flex items-center justify-center gap-1.5 active:scale-95">
+                    <i class="fa-solid fa-sliders text-xs"></i>
+                    <span class="hidden sm:inline">Ajustes Base</span>
+                </button>
+                <button id="btn-sync-fifo" onclick="window.refreshFIFOData()" title="Recalcular finanzas" class="bg-white border border-slate-200 text-slate-700 hover:text-slate-900 hover:border-slate-400 px-4 py-2.5 rounded-xl font-bold text-xs transition-all shadow-xs flex items-center justify-center gap-2 active:scale-95">
+                    <i id="sync-icon" class="fa-solid fa-arrows-rotate text-xs"></i>
+                    <span>Sincronizar</span>
+                </button>
             </div>
         </header>
 
-        <div class="p-8 max-w-7xl mx-auto pb-40">
-            <div class="mb-10 flex justify-between items-end">
-                <div>
-                    <h1 class="text-4xl font-black text-brand-black tracking-tighter uppercase leading-none">
-                        Rentabilidad <span class="text-brand-cyan">FIFO</span>
-                    </h1>
-                    <p class="text-gray-400 text-sm font-bold mt-2 tracking-wide">Analiza el margen de ganancia real basado en tu historial de abastecimiento.</p>
+        <!-- Filtro Superior de Periodo -->
+        <div class="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200/80 shadow-xs mb-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center text-sm font-black">
+                    <i class="fa-solid fa-calendar-check"></i>
                 </div>
-                <button id="btn-back-general" onclick="window.showGeneralDashboard()" class="hidden bg-white border border-gray-200 text-brand-black px-5 py-3 rounded-xl font-black text-[10px] uppercase tracking-widest hover:border-brand-cyan hover:text-brand-cyan transition shadow-sm items-center gap-2">
-                    <i class="fa-solid fa-arrow-left"></i> Volver al Resumen
+                <div>
+                    <span class="text-[10px] font-black uppercase tracking-wider text-slate-400">Periodo de Análisis de Ventas</span>
+                    <h3 class="text-sm font-black text-slate-900" id="current-period-title">Historial Global (Todos los Tiempos)</h3>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-2 w-full sm:w-auto">
+                <div class="flex items-center bg-slate-50 border border-slate-200 rounded-xl p-0.5 w-full sm:w-auto">
+                    <input type="month" id="filter-month" class="bg-transparent text-xs font-bold text-slate-700 px-3 py-2 outline-none cursor-pointer uppercase">
+                    <button id="btn-clear-date" class="px-3 py-2 text-slate-400 hover:text-slate-700 text-xs border-l border-slate-200 font-bold" title="Ver todo el historial">
+                        <i class="fa-solid fa-calendar-xmark mr-1"></i> Global
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- DASHBOARD GENERAL (CATÁLOGO COMPLETO) -->
+        <div id="general-dashboard" class="fade-in space-y-6">
+
+            <!-- 4 KPIs Maestros del Catálogo -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
+                <!-- KPI 1: Valuación del Inventario Actual -->
+                <div class="bg-white p-5 lg:p-6 rounded-2xl border border-slate-200/80 shadow-xs relative overflow-hidden">
+                    <div class="flex items-start justify-between">
+                        <div class="space-y-1">
+                            <span class="text-[10px] font-black uppercase tracking-wider text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-100">
+                                Existencias Físicas
+                            </span>
+                            <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mt-1">Valor de Inventario</p>
+                            <h3 class="text-2xl font-black text-slate-900 tracking-tight" id="kpi-stock-value">$0</h3>
+                        </div>
+                        <div class="w-11 h-11 rounded-xl bg-blue-50 text-blue-600 border border-blue-100 flex items-center justify-center text-lg shrink-0">
+                            <i class="fa-solid fa-warehouse"></i>
+                        </div>
+                    </div>
+                    <div class="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500 font-medium">
+                        <span id="kpi-stock-units" class="font-bold text-slate-700">0 unidades en stock</span>
+                        <span class="text-slate-400 font-medium">Costo Promedio</span>
+                    </div>
+                </div>
+
+                <!-- KPI 2: Ventas Totales Netas -->
+                <div class="bg-white p-5 lg:p-6 rounded-2xl border border-slate-200/80 shadow-xs relative overflow-hidden">
+                    <div class="flex items-start justify-between">
+                        <div class="space-y-1">
+                            <span class="text-[10px] font-black uppercase tracking-wider text-cyan-600 bg-cyan-50 px-2 py-0.5 rounded-md border border-cyan-100">
+                                Ingresos Realizados
+                            </span>
+                            <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mt-1">Ventas de Productos</p>
+                            <h3 class="text-2xl font-black text-slate-900 tracking-tight" id="kpi-total-revenue">$0</h3>
+                        </div>
+                        <div class="w-11 h-11 rounded-xl bg-cyan-50 text-cyan-600 border border-cyan-100 flex items-center justify-center text-lg shrink-0">
+                            <i class="fa-solid fa-cash-register"></i>
+                        </div>
+                    </div>
+                    <div class="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500 font-medium">
+                        <span id="kpi-units-sold" class="font-bold text-slate-700">0 unidades vendidas</span>
+                        <span class="text-slate-400 font-medium">Periodo activo</span>
+                    </div>
+                </div>
+
+                <!-- KPI 3: Costo de Ventas (COGS FIFO) -->
+                <div class="bg-white p-5 lg:p-6 rounded-2xl border border-slate-200/80 shadow-xs relative overflow-hidden">
+                    <div class="flex items-start justify-between">
+                        <div class="space-y-1">
+                            <span class="text-[10px] font-black uppercase tracking-wider text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-100">
+                                Costo Mercancía Vendida
+                            </span>
+                            <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mt-1">Costo Ventas (FIFO)</p>
+                            <h3 class="text-2xl font-black text-slate-900 tracking-tight" id="kpi-total-cogs">$0</h3>
+                        </div>
+                        <div class="w-11 h-11 rounded-xl bg-amber-50 text-amber-600 border border-amber-100 flex items-center justify-center text-lg shrink-0">
+                            <i class="fa-solid fa-boxes-packing"></i>
+                        </div>
+                    </div>
+                    <div class="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500 font-medium">
+                        <span>Lotes de compras</span>
+                        <span id="kpi-cogs-pct" class="font-bold text-amber-700">0% de ventas</span>
+                    </div>
+                </div>
+
+                <!-- KPI 4: Utilidad Bruta & Margen Global -->
+                <div class="bg-white p-5 lg:p-6 rounded-2xl border border-slate-200/80 shadow-xs relative overflow-hidden">
+                    <div class="flex items-start justify-between">
+                        <div class="space-y-1">
+                            <span class="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md border" id="kpi-profit-margin-badge">
+                                Margen: 0%
+                            </span>
+                            <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mt-1">Ganancia Bruta Real</p>
+                            <h3 class="text-2xl font-black tracking-tight" id="kpi-total-profit">$0</h3>
+                        </div>
+                        <div class="w-11 h-11 rounded-xl flex items-center justify-center text-lg shrink-0" id="kpi-profit-icon">
+                            <i class="fa-solid fa-chart-pie"></i>
+                        </div>
+                    </div>
+                    <div class="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500 font-medium">
+                        <span>(Ventas - Costo FIFO)</span>
+                        <span id="kpi-catalog-count" class="font-bold text-slate-700">0 productos analizados</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Top 10 Destacados: Más Vendidos y Más Rentables -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- Top Más Vendidos -->
+                <div class="bg-white p-5 lg:p-6 rounded-2xl border border-slate-200/80 shadow-xs">
+                    <div class="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
+                        <div class="flex items-center gap-2.5">
+                            <div class="w-8 h-8 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center text-xs">
+                                <i class="fa-solid fa-trophy"></i>
+                            </div>
+                            <div>
+                                <h3 class="font-black text-xs uppercase tracking-wider text-slate-900">Top Productos Más Vendidos</h3>
+                                <p class="text-[10px] font-bold text-slate-400">Ordenados por mayor volumen de ingresos</p>
+                            </div>
+                        </div>
+                        <span class="text-[10px] font-black uppercase text-cyan-600 bg-cyan-50 px-2 py-0.5 rounded">Por Ventas</span>
+                    </div>
+                    <div id="top-sales-list" class="space-y-2">
+                        <div class="text-center p-8 text-slate-400 text-xs font-bold">
+                            <i class="fa-solid fa-circle-notch fa-spin text-base text-cyan-500 mb-2 block"></i>
+                            Calculando finanzas...
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Top Más Rentables -->
+                <div class="bg-white p-5 lg:p-6 rounded-2xl border border-slate-200/80 shadow-xs">
+                    <div class="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
+                        <div class="flex items-center gap-2.5">
+                            <div class="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center text-xs">
+                                <i class="fa-solid fa-chart-line"></i>
+                            </div>
+                            <div>
+                                <h3 class="font-black text-xs uppercase tracking-wider text-slate-900">Top Productos Más Rentables</h3>
+                                <p class="text-[10px] font-bold text-slate-400">Ordenados por mayor utilidad neta en dinero</p>
+                            </div>
+                        </div>
+                        <span class="text-[10px] font-black uppercase text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded">Por Ganancia</span>
+                    </div>
+                    <div id="top-profit-list" class="space-y-2">
+                        <div class="text-center p-8 text-slate-400 text-xs font-bold">
+                            <i class="fa-solid fa-circle-notch fa-spin text-base text-cyan-500 mb-2 block"></i>
+                            Calculando finanzas...
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tabla Completa del Catálogo con Filtros y Paginación -->
+            <div class="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+                <!-- Toolbar de Búsqueda y Filtros -->
+                <div class="p-5 border-b border-slate-100 bg-slate-50/50 flex flex-col md:flex-row justify-between items-stretch md:items-center gap-3">
+                    <div class="relative flex-grow max-w-lg">
+                        <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
+                        <input type="text" id="catalog-search" placeholder="Buscar producto por nombre, SKU, marca..." 
+                            class="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100 outline-none transition-all placeholder:text-slate-400">
+                    </div>
+
+                    <div class="flex items-center gap-2.5 flex-wrap sm:flex-nowrap">
+                        <select id="catalog-filter-category" class="bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-xs font-bold text-slate-700 outline-none cursor-pointer">
+                            <option value="">Todas las Categorías</option>
+                        </select>
+
+                        <select id="catalog-sort-select" class="bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-xs font-bold text-slate-700 outline-none cursor-pointer">
+                            <option value="profit-desc">Mayor Utilidad ($)</option>
+                            <option value="revenue-desc">Mayores Ventas ($)</option>
+                            <option value="margin-desc">Mayor Margen (%)</option>
+                            <option value="qty-desc">Más Unidades Vendidas</option>
+                            <option value="stock-desc">Mayor Stock Físico</option>
+                            <option value="name-asc">Nombre (A-Z)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Tabla de Productos -->
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse">
+                        <thead class="bg-slate-50/80 text-[10px] uppercase font-black text-slate-400 tracking-wider border-b border-slate-100">
+                            <tr>
+                                <th class="px-6 py-3.5">Producto</th>
+                                <th class="px-4 py-3.5 text-center">Stock Físico</th>
+                                <th class="px-4 py-3.5 text-right">Costo Promedio</th>
+                                <th class="px-4 py-3.5 text-right">Valor en Stock</th>
+                                <th class="px-4 py-3.5 text-center">Vendidos</th>
+                                <th class="px-4 py-3.5 text-right">Ventas Netas</th>
+                                <th class="px-4 py-3.5 text-right">Costo FIFO</th>
+                                <th class="px-6 py-3.5 text-right">Ganancia Real</th>
+                                <th class="px-4 py-3.5 text-center">Margen</th>
+                                <th class="px-4 py-3.5 text-center">Acción</th>
+                            </tr>
+                        </thead>
+                        <tbody id="catalog-table-body" class="divide-y divide-slate-100 text-xs font-medium text-slate-600">
+                            <tr>
+                                <td colspan="10" class="p-8 text-center text-slate-400 font-bold">
+                                    <i class="fa-solid fa-circle-notch fa-spin text-base text-cyan-500 mb-2 block"></i>
+                                    Cargando catálogo contable...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Paginación de la Tabla -->
+                <div class="px-6 py-4 border-t border-slate-100 bg-slate-50/50 flex flex-col sm:flex-row justify-between items-center gap-3">
+                    <div class="flex items-center gap-3">
+                        <span id="catalog-page-info" class="text-xs font-bold text-slate-500">Mostrando 0 de 0 productos</span>
+                        <div class="flex items-center gap-1.5 text-xs text-slate-400">
+                            <span>Mostrar:</span>
+                            <select id="catalog-page-size" class="bg-white border border-slate-200 rounded-md px-2 py-1 text-xs font-bold text-slate-700 outline-none">
+                                <option value="15" selected>15</option>
+                                <option value="30">30</option>
+                                <option value="50">50</option>
+                                <option value="100">100</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button id="catalog-btn-prev" onclick="window.changeCatalogPage(-1)" disabled 
+                            class="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-600 text-xs font-bold uppercase disabled:opacity-40 disabled:cursor-not-allowed hover:border-slate-400 hover:text-slate-900 transition shadow-2xs flex items-center gap-1">
+                            <i class="fa-solid fa-chevron-left text-[9px]"></i> Anterior
+                        </button>
+                        <span id="catalog-page-current" class="text-xs font-bold text-slate-600 px-2">Pág 1 / 1</span>
+                        <button id="catalog-btn-next" onclick="window.changeCatalogPage(1)" disabled
+                            class="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-600 text-xs font-bold uppercase disabled:opacity-40 disabled:cursor-not-allowed hover:border-slate-400 hover:text-slate-900 transition shadow-2xs flex items-center gap-1">
+                            Siguiente <i class="fa-solid fa-chevron-right text-[9px]"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- DASHBOARD ESPECÍFICO DEL PRODUCTO (AUDITORÍA INDIVIDUAL) -->
+        <div id="specific-dashboard" class="hidden fade-in space-y-6">
+            
+            <!-- Cabecera del Producto Seleccionado -->
+            <div class="bg-slate-900 text-white p-6 rounded-2xl shadow-xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div class="flex items-center gap-4 min-w-0">
+                    <img id="dash-img" src="" class="w-16 h-16 rounded-xl bg-white object-contain p-1 shrink-0 border border-slate-800">
+                    <div class="min-w-0">
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <h2 id="dash-name" class="text-lg sm:text-xl font-black text-white uppercase truncate max-w-xl">Producto</h2>
+                            <span id="dash-category-badge" class="px-2 py-0.5 rounded text-[9px] font-black uppercase bg-white/10 text-cyan-300">Categoría</span>
+                        </div>
+                        <p id="dash-sku" class="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">SKU: ---</p>
+                    </div>
+                </div>
+                <button onclick="window.showGeneralDashboard()" class="bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 shrink-0">
+                    <i class="fa-solid fa-arrow-left text-xs"></i>
+                    <span>Volver al Catálogo</span>
                 </button>
             </div>
 
-            <div class="bg-white p-8 rounded-[2.5rem] border border-gray-100 shadow-sm mb-8 relative z-30">
-                <div class="flex items-center gap-3 mb-4">
-                    <div class="w-8 h-8 rounded-full bg-brand-cyan/10 flex items-center justify-center text-brand-cyan">
-                        <i class="fa-solid fa-box-open"></i>
-                    </div>
-                    <label class="text-[10px] font-black text-gray-400 uppercase tracking-[0.2em]">Buscar Producto Específico</label>
+            <!-- BLOQUE 1: Existencias Actuales & Valuación por Costo Promedio -->
+            <div class="space-y-3">
+                <div class="flex items-center gap-2">
+                    <div class="w-2.5 h-2.5 rounded-full bg-blue-500"></div>
+                    <h4 class="text-xs font-black uppercase tracking-wider text-slate-700">
+                        Existencias Físicas Actuales • <span class="text-blue-600 font-bold">Método Costo Promedio Ponderado</span>
+                    </h4>
                 </div>
-
-                <div class="relative">
-                    <i class="fa-solid fa-magnifying-glass absolute left-6 top-1/2 -translate-y-1/2 text-gray-300"></i>
-                    <input type="text" id="product-search" placeholder="Escribe el nombre o SKU del producto..."
-                        class="w-full bg-slate-50 border-2 border-transparent rounded-2xl py-4 pl-14 pr-6 text-sm font-black text-gray-600 outline-none focus:bg-white focus:border-brand-cyan/30 focus:text-brand-black transition-all">
-                    
-                    <div id="product-results" class="absolute left-0 top-full mt-2 w-full bg-white border border-gray-100 rounded-2xl shadow-2xl max-h-60 overflow-y-auto hidden z-50 p-2 custom-scroll">
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
+                        <p class="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">Stock Físico</p>
+                        <h3 id="dash-stock-current" class="text-2xl font-black text-slate-900">0</h3>
+                        <p class="text-[10px] font-bold text-slate-400 mt-1">Unidades disponibles</p>
                     </div>
-                </div>
-            </div>
-
-            <div id="general-dashboard" class="fade-in space-y-8">
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                    <div class="bg-white p-8 rounded-[2.5rem] border border-gray-100 shadow-sm">
-                        <h3 class="font-black text-brand-black uppercase text-sm mb-6 flex items-center gap-2 border-b border-gray-50 pb-4">
-                            <i class="fa-solid fa-trophy text-yellow-500 text-xl"></i> Top 10 Más Vendidos <span class="text-[9px] text-gray-400 ml-auto">(Por Ingresos)</span>
-                        </h3>
-                        <div id="top-sales-list" class="space-y-1">
-                            <div class="text-center p-8 text-gray-400 text-xs"><i class="fa-solid fa-circle-notch fa-spin text-2xl text-brand-cyan mb-2"></i><br>Calculando finanzas...</div>
-                        </div>
+                    <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
+                        <p class="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">Costo Promedio Unit.</p>
+                        <h3 id="dash-avg-cost" class="text-2xl font-black text-blue-600">$0</h3>
+                        <p class="text-[10px] font-bold text-slate-400 mt-1">Ponderado unidades existentes</p>
                     </div>
-                    <div class="bg-white p-8 rounded-[2.5rem] border border-gray-100 shadow-sm">
-                        <h3 class="font-black text-brand-black uppercase text-sm mb-6 flex items-center gap-2 border-b border-gray-50 pb-4">
-                            <i class="fa-solid fa-chart-pie text-emerald-500 text-xl"></i> Top 10 Más Rentables <span class="text-[9px] text-gray-400 ml-auto">(Por Utilidad Neta)</span>
-                        </h3>
-                        <div id="top-profit-list" class="space-y-1">
-                            <div class="text-center p-8 text-gray-400 text-xs"><i class="fa-solid fa-circle-notch fa-spin text-2xl text-brand-cyan mb-2"></i><br>Calculando finanzas...</div>
-                        </div>
+                    <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
+                        <p class="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">Valor Total en Stock</p>
+                        <h3 id="dash-stock-value" class="text-2xl font-black text-slate-900">$0</h3>
+                        <p class="text-[10px] font-bold text-slate-400 mt-1">Stock × Costo Promedio</p>
+                    </div>
+                    <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
+                        <p class="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">Último Costo Obtenido</p>
+                        <h3 id="dash-last-cost" class="text-2xl font-black text-slate-700">$0</h3>
+                        <p class="text-[10px] font-bold text-slate-400 mt-1">Referencia última compra/costo</p>
                     </div>
                 </div>
             </div>
 
-            <div id="specific-dashboard" class="hidden fade-in space-y-8">
-                
-                <div class="flex items-center gap-4 bg-slate-900 p-6 rounded-[2rem] shadow-xl border border-slate-800">
-                    <img id="dash-img" src="" class="w-16 h-16 rounded-xl bg-white object-contain p-1">
+            <!-- BLOQUE 2: Rendimiento Comercial & Ventas por Método FIFO -->
+            <div class="space-y-3">
+                <div class="flex items-center gap-2">
+                    <div class="w-2.5 h-2.5 rounded-full bg-emerald-500"></div>
+                    <h4 class="text-xs font-black uppercase tracking-wider text-slate-700">
+                        Ventas & Rendimiento Real • <span class="text-emerald-600 font-bold">Método FIFO (Consumo de Lotes de Compra)</span>
+                    </h4>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
+                        <p class="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">Unidades Vendidas</p>
+                        <h3 id="dash-qty-sold" class="text-2xl font-black text-slate-900">0</h3>
+                        <p class="text-[10px] font-bold text-slate-400 mt-1">Total unidades despachadas</p>
+                    </div>
+                    <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
+                        <p class="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">Ingresos (Ventas Netas)</p>
+                        <h3 id="dash-revenue" class="text-2xl font-black text-cyan-600">$0</h3>
+                        <p class="text-[10px] font-bold text-slate-400 mt-1">Neto recibido en caja/cuenta</p>
+                    </div>
+                    <div class="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs">
+                        <p class="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">Costo FIFO (COGS)</p>
+                        <h3 id="dash-cogs" class="text-2xl font-black text-amber-700">-$0</h3>
+                        <p class="text-[10px] font-bold text-slate-400 mt-1">Costo real de compra de lotes</p>
+                    </div>
+                    <div class="bg-slate-900 p-5 rounded-2xl shadow-md text-white border border-slate-800">
+                        <p class="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">Ganancia Bruta Realizada</p>
+                        <h3 id="dash-profit" class="text-2xl font-black text-emerald-400">$0</h3>
+                        <p id="dash-margin" class="text-xs font-bold text-cyan-300 mt-1">Margen: 0%</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- LÍNEA DE TIEMPO CON FILTROS, PAGINACIÓN Y ORDEN CRONOLÓGICO -->
+            <div class="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
+                <div class="p-5 border-b border-slate-100 bg-slate-50/50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
                     <div>
-                        <h2 id="dash-name" class="text-xl font-black text-white uppercase">Producto</h2>
-                        <p id="dash-sku" class="text-xs font-bold text-gray-400 uppercase tracking-widest">SKU: ---</p>
+                        <h3 class="font-black text-xs uppercase tracking-wider text-slate-900">Historial de Movimientos de Inventario & Ventas</h3>
+                        <p class="text-[10px] font-bold text-slate-400 mt-0.5">Ordenados del más reciente al más antiguo • Costo FIFO asignado a cada venta</p>
                     </div>
-                </div>
-
-                <!-- BLOQUE 1: Existencias Actuales & Valuación por Costo Promedio -->
-                <div class="space-y-3">
-                    <div class="flex items-center gap-2">
-                        <span class="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
-                        <h4 class="text-[11px] font-black uppercase tracking-widest text-gray-500">
-                            Existencias Actuales • <span class="text-blue-600">Método Costo Promedio</span>
-                        </h4>
-                    </div>
-                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                        <div class="bg-white p-5 rounded-3xl border border-gray-100 shadow-sm">
-                            <p class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Stock en Inventario</p>
-                            <h3 id="dash-stock-current" class="text-2xl sm:text-3xl font-black text-brand-black">0</h3>
-                            <p class="text-[9px] font-bold text-gray-400 mt-1">Unidades físicas disponibles</p>
+                    <div class="flex items-center gap-3">
+                        <div class="flex items-center gap-1.5 text-xs">
+                            <span class="text-slate-400 font-bold">Filtrar:</span>
+                            <select id="timeline-filter-type" onchange="window.filterTimelineByType(this.value)" class="bg-white border border-slate-200 rounded-lg px-2.5 py-1 text-xs font-bold text-slate-700 outline-none">
+                                <option value="ALL">Todos los Movimientos</option>
+                                <option value="IN">Solo Compras (IN)</option>
+                                <option value="OUT">Solo Ventas (OUT)</option>
+                            </select>
                         </div>
-                        <div class="bg-white p-5 rounded-3xl border border-gray-100 shadow-sm">
-                            <p class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Costo Promedio Unit.</p>
-                            <h3 id="dash-avg-cost" class="text-2xl sm:text-3xl font-black text-blue-600">$0</h3>
-                            <p class="text-[9px] font-bold text-gray-400 mt-1">Ponderado unidades existentes</p>
-                        </div>
-                        <div class="bg-white p-5 rounded-3xl border border-gray-100 shadow-sm">
-                            <p class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Valor Total Inventario</p>
-                            <h3 id="dash-stock-value" class="text-2xl sm:text-3xl font-black text-brand-black">$0</h3>
-                            <p class="text-[9px] font-bold text-gray-400 mt-1">Stock actual × Costo Promedio</p>
-                        </div>
-                        <div class="bg-white p-5 rounded-3xl border border-gray-100 shadow-sm">
-                            <p class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Último Costo Obtenido</p>
-                            <h3 id="dash-last-cost" class="text-2xl sm:text-3xl font-black text-gray-700">$0</h3>
-                            <p class="text-[9px] font-bold text-gray-400 mt-1">Referencia última compra/costo</p>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- BLOQUE 2: Rendimiento Comercial & Ventas por Método FIFO -->
-                <div class="space-y-3">
-                    <div class="flex items-center gap-2">
-                        <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
-                        <h4 class="text-[11px] font-black uppercase tracking-widest text-gray-500">
-                            Ventas & Rendimiento • <span class="text-emerald-600">Método FIFO (Salidas de Lotes)</span>
-                        </h4>
-                    </div>
-                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                        <div class="bg-white p-5 rounded-3xl border border-gray-100 shadow-sm">
-                            <p class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Unidades Vendidas</p>
-                            <h3 id="dash-qty-sold" class="text-2xl sm:text-3xl font-black text-brand-black">0</h3>
-                        </div>
-                        <div class="bg-white p-5 rounded-3xl border border-gray-100 shadow-sm">
-                            <p class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Ingresos (Ventas)</p>
-                            <h3 id="dash-revenue" class="text-2xl sm:text-3xl font-black text-emerald-500">$0</h3>
-                        </div>
-                        <div class="bg-white p-5 rounded-3xl border border-gray-100 shadow-sm">
-                            <p class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Costo FIFO (COGS)</p>
-                            <h3 id="dash-cogs" class="text-2xl sm:text-3xl font-black text-red-400">-$0</h3>
-                        </div>
-                        <div class="bg-gradient-to-br from-brand-cyan to-blue-600 p-5 rounded-3xl shadow-lg text-white">
-                            <p class="text-[9px] font-black text-white/70 uppercase tracking-widest mb-1">Ganancia Bruta Realizada</p>
-                            <h3 id="dash-profit" class="text-2xl sm:text-3xl font-black tracking-tight">$0</h3>
-                            <p id="dash-margin" class="text-xs font-bold mt-1 text-white/90">Margen: 0%</p>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- LÍNEA DE TIEMPO CON PAGINACIÓN Y ORDEN MÁS NUEVO A MÁS VIEJO -->
-                <div class="bg-white rounded-[2.5rem] shadow-xl border border-gray-100 overflow-hidden">
-                    <div class="p-6 border-b border-gray-50 bg-slate-50/50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
-                        <div>
-                            <h3 class="font-black text-brand-black uppercase text-[11px] tracking-widest">Historial de Movimientos</h3>
-                            <p class="text-[9px] text-gray-400 font-bold uppercase tracking-wider mt-0.5">Ordenados del más nuevo al más viejo • Ganancia por venta calculada con FIFO</p>
-                        </div>
-                        <div class="flex items-center gap-2">
-                            <span class="text-[9px] font-black uppercase text-gray-400">Ver:</span>
-                            <select id="timeline-page-size" onchange="window.setTimelinePageSize(this.value)" class="bg-white border border-gray-200 rounded-lg px-2.5 py-1 text-xs font-bold outline-none cursor-pointer">
+                        <div class="flex items-center gap-1.5 text-xs">
+                            <span class="text-slate-400 font-bold">Ver:</span>
+                            <select id="timeline-page-size" onchange="window.setTimelinePageSize(this.value)" class="bg-white border border-slate-200 rounded-lg px-2.5 py-1 text-xs font-bold text-slate-700 outline-none">
                                 <option value="10" selected>10</option>
                                 <option value="20">20</option>
                                 <option value="50">50</option>
                             </select>
                         </div>
                     </div>
-                    <div class="overflow-x-auto custom-scroll">
-                        <table class="w-full text-left text-sm min-w-[800px]">
-                            <thead class="bg-white text-[9px] uppercase font-black text-gray-400 tracking-widest border-b border-gray-100">
-                                <tr>
-                                    <th class="px-6 py-4">Fecha</th>
-                                    <th class="px-6 py-4">Movimiento</th>
-                                    <th class="px-6 py-4 text-center">Cant.</th>
-                                    <th class="px-6 py-4 text-right">Precio / Costo Unit.</th>
-                                    <th class="px-6 py-4 text-right">Total Movimiento</th>
-                                    <th class="px-6 py-4 text-right text-brand-cyan">Utilidad (FIFO)</th>
-                                </tr>
-                            </thead>
-                            <tbody id="timeline-table-body" class="divide-y divide-gray-50">
-                            </tbody>
-                        </table>
-                    </div>
-
-                    <!-- Controles de Paginación -->
-                    <div class="p-4 border-t border-gray-100 bg-slate-50/40 flex flex-col sm:flex-row justify-between items-center gap-3">
-                        <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
-                            Mostrando <span id="timeline-view-range" class="text-brand-black font-black">0-0</span> de <span id="timeline-total-count" class="text-brand-black font-black">0</span> movimientos
-                        </p>
-                        <div class="flex items-center gap-2">
-                            <button id="btn-timeline-prev" onclick="window.changeTimelinePage(-1)" disabled
-                                class="px-3.5 py-1.5 bg-white border border-gray-200 rounded-lg text-gray-400 text-xs font-bold uppercase disabled:opacity-40 disabled:cursor-not-allowed hover:border-brand-cyan hover:text-brand-cyan transition shadow-2xs flex items-center gap-1">
-                                <i class="fa-solid fa-chevron-left text-[10px]"></i> Anterior
-                            </button>
-                            <span class="text-xs font-bold text-gray-600 px-2">
-                                Página <span id="timeline-page-num" class="font-black text-brand-black">1</span> de <span id="timeline-total-pages" class="font-black text-brand-black">1</span>
-                            </span>
-                            <button id="btn-timeline-next" onclick="window.changeTimelinePage(1)" disabled
-                                class="px-3.5 py-1.5 bg-white border border-gray-200 rounded-lg text-gray-400 text-xs font-bold uppercase disabled:opacity-40 disabled:cursor-not-allowed hover:border-brand-cyan hover:text-brand-cyan transition shadow-2xs flex items-center gap-1">
-                                Siguiente <i class="fa-solid fa-chevron-right text-[10px]"></i>
-                            </button>
-                        </div>
-                    </div>
                 </div>
 
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse">
+                        <thead class="bg-slate-50/80 text-[10px] uppercase font-black text-slate-400 tracking-wider border-b border-slate-100">
+                            <tr>
+                                <th class="px-6 py-3.5">Fecha</th>
+                                <th class="px-6 py-3.5">Tipo de Movimiento</th>
+                                <th class="px-4 py-3.5 text-center">Cant.</th>
+                                <th class="px-6 py-3.5 text-right">Precio / Costo Unit.</th>
+                                <th class="px-6 py-3.5 text-right">Total Transacción</th>
+                                <th class="px-6 py-3.5 text-right">Utilidad (FIFO)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="timeline-table-body" class="divide-y divide-slate-100 text-xs font-medium text-slate-600">
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Controles de Paginación de Movimientos -->
+                <div class="px-6 py-4 border-t border-slate-100 bg-slate-50/50 flex flex-col sm:flex-row justify-between items-center gap-3">
+                    <p class="text-xs font-bold text-slate-500">
+                        Mostrando <span id="timeline-view-range" class="text-slate-900 font-black">0-0</span> de <span id="timeline-total-count" class="text-slate-900 font-black">0</span> movimientos
+                    </p>
+                    <div class="flex items-center gap-2">
+                        <button id="btn-timeline-prev" onclick="window.changeTimelinePage(-1)" disabled
+                            class="px-3.5 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-600 text-xs font-bold uppercase disabled:opacity-40 disabled:cursor-not-allowed hover:border-slate-400 hover:text-slate-900 transition shadow-2xs flex items-center gap-1">
+                            <i class="fa-solid fa-chevron-left text-[9px]"></i> Anterior
+                        </button>
+                        <span class="text-xs font-bold text-slate-600 px-2">
+                            Página <span id="timeline-page-num" class="font-black text-slate-900">1</span> de <span id="timeline-total-pages" class="font-black text-slate-900">1</span>
+                        </span>
+                        <button id="btn-timeline-next" onclick="window.changeTimelinePage(1)" disabled
+                            class="px-3.5 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-600 text-xs font-bold uppercase disabled:opacity-40 disabled:cursor-not-allowed hover:border-slate-400 hover:text-slate-900 transition shadow-2xs flex items-center gap-1">
+                            Siguiente <i class="fa-solid fa-chevron-right text-[9px]"></i>
+                        </button>
+                    </div>
+                </div>
             </div>
 
         </div>
+
     </main>
 
+    <!-- Modal Ajustes de Fecha Base Contable -->
+    <div id="settings-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
+        <div class="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden relative modal-enter border border-slate-200" onclick="event.stopPropagation()">
+            <!-- Header -->
+            <div class="px-6 py-5 border-b border-slate-100 flex justify-between items-center bg-slate-50/80">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center text-sm">
+                        <i class="fa-solid fa-sliders"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-base font-black text-slate-900 uppercase tracking-tight">Ajustes de Fecha Contable</h3>
+                        <p class="text-xs font-medium text-slate-500">Corte inicial para cálculo de rentabilidad</p>
+                    </div>
+                </div>
+                <button onclick="window.closeSettingsModal()" class="w-8 h-8 rounded-full bg-slate-100 text-slate-400 hover:text-slate-700 hover:bg-slate-200 flex items-center justify-center transition">
+                    <i class="fa-solid fa-xmark text-sm"></i>
+                </button>
+            </div>
+
+            <!-- Body -->
+            <div class="p-6 space-y-4">
+                <div class="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900 space-y-1">
+                    <p class="font-bold flex items-center gap-1.5">
+                        <i class="fa-solid fa-circle-info text-amber-600"></i>
+                        Corte de Datos Históricos
+                    </p>
+                    <p class="text-[11px] leading-relaxed text-amber-800">
+                        Establece la fecha a partir de la cual comenzaste a registrar costos y precios formalmente. Todas las ventas y órdenes anteriores a esta fecha serán ignoradas para evitar márgenes falsos.
+                    </p>
+                </div>
+
+                <div>
+                    <label class="block text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1.5">
+                        Analizar Ventas a Partir de (Fecha de Corte) *
+                    </label>
+                    <input type="date" id="input-start-date" 
+                        class="w-full bg-slate-50 border border-slate-200 p-3 rounded-xl font-bold text-xs text-slate-800 focus:bg-white focus:border-cyan-500 outline-none transition-all">
+                </div>
+
+                <div id="settings-status-box" class="p-3 rounded-xl bg-slate-50 border border-slate-100 text-xs flex items-center justify-between">
+                    <span class="text-slate-500 font-medium">Estado actual:</span>
+                    <span id="settings-status-text" class="font-bold text-slate-800">Todo el historial activo</span>
+                </div>
+
+                <div class="pt-2 flex flex-col gap-2">
+                    <button type="button" id="btn-save-start-date" onclick="window.saveAccountingStartDate()" 
+                        class="w-full bg-slate-900 hover:bg-cyan-600 hover:text-white text-white py-3 rounded-xl font-black text-xs uppercase tracking-wider transition-all shadow-md flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-check text-xs"></i>
+                        <span>Guardar Fecha de Inicio</span>
+                    </button>
+                    <button type="button" id="btn-clear-start-date" onclick="window.clearAccountingStartDate()" 
+                        class="w-full bg-white border border-slate-200 text-slate-600 hover:text-rose-600 hover:border-rose-200 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-rotate-left text-xs"></i>
+                        <span>Restablecer (Analizar Todo)</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script type="module" src="../js/admin-guard.js"></script>
-    <script type="module" src="../js/admin-profitability.js?v=1.0.1"></script>
+    <script type="module" src="../js/admin-profitability.js?v=2.0.0"></script>
 </body>
 </html>

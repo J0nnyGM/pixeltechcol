@@ -78,9 +78,9 @@ const MODAL_HTML = `
                 
                 <div>
                     <select id="m-shipping-mode" class="w-full bg-white border border-gray-200 h-10 px-3.5 rounded-xl text-xs font-bold outline-none focus:border-brand-cyan appearance-none cursor-pointer text-brand-black shadow-xs">
-                        <option value="pickup">📍 Recogida en Local / Contraentrega</option>
-                        <option value="new" selected>🚚 Nueva Dirección Nacional</option>
-                        <option value="saved" disabled id="opt-saved-addr">🏠 Dirección Guardada (Seleccione Cliente)</option>
+                        <option value="pickup">Recogida en Local / Contraentrega</option>
+                        <option value="new" selected>Nueva Dirección Nacional</option>
+                        <option value="saved" disabled id="opt-saved-addr">Dirección Guardada (Seleccione Cliente)</option>
                     </select>
                 </div>
 
@@ -131,7 +131,7 @@ const MODAL_HTML = `
                     <label for="m-payment-account" class="text-[9px] font-black uppercase text-gray-400 tracking-widest mb-1.5 block ml-1">Método de Pago</label>
                     <div class="relative">
                         <select id="m-payment-account" class="w-full bg-slate-50 border border-gray-200 h-11 px-3.5 rounded-xl text-xs font-bold outline-none focus:border-emerald-500 transition-all appearance-none cursor-pointer text-brand-black shadow-xs">
-                            <option value="credit">⏳ Cartera (Pendiente por Cobrar)</option>
+                            <option value="credit">Cartera (Pendiente por Cobrar)</option>
                         </select>
                         <i class="fa-solid fa-chevron-down absolute right-3.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs pointer-events-none"></i>
                     </div>
@@ -162,7 +162,7 @@ const MODAL_HTML = `
                     <i class="fa-solid fa-truck-fast absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-300 text-xs"></i>
                     <input type="text" id="m-shipping-cost" value="$ 0" class="currency-input w-full bg-white border border-gray-200 h-10 pl-10 pr-3 rounded-xl text-xs font-black outline-none focus:border-brand-cyan text-brand-black transition-colors shadow-inner">
                 </div>
-                <!-- 🔥 Checkbox 4x1000 -->
+                <!-- Checkbox 4x1000 -->
                 <label for="m-apply-4x1000" class="flex items-center gap-2 mt-1.5 cursor-pointer ml-1 select-none">
                     <input type="checkbox" id="m-apply-4x1000" class="w-3.5 h-3.5 rounded text-brand-cyan border-gray-300 focus:ring-brand-cyan">
                     <span class="text-[9px] font-black uppercase text-gray-500 tracking-wider">Cobrar 4x1000 Cliente</span>
@@ -184,9 +184,12 @@ const MODAL_HTML = `
 </div>
 `;
 
-// --- VARIABLES GLOBALES ---
+// --- VARIABLES GLOBALES & CACHÉS DE RENDIMIENTO ---
 let manualProductsCache = []; 
 let manualClientsCache = [];
+let paymentAccountsCache = null;
+let departmentsCache = null;
+const citiesCache = {};
 let isCreatingNewClient = false;
 let selectedUserId = null;
 let selectedUserName = "";
@@ -195,6 +198,21 @@ let selectedUserDoc = "";
 let currentUserAddresses = [];
 let onSuccessCallback = null;
 let manualItemRowSeq = 0;
+
+// Fallback estático inmediato de departamentos de Colombia para 0ms de espera
+const COLOMBIA_DEPTS_FALLBACK = [
+    { id: 1, name: "Amazonas" }, { id: 2, name: "Antioquia" }, { id: 3, name: "Arauca" },
+    { id: 4, name: "Atlántico" }, { id: 5, name: "Bogotá D.C." }, { id: 6, name: "Bolívar" },
+    { id: 7, name: "Boyacá" }, { id: 8, name: "Caldas" }, { id: 9, name: "Caquetá" },
+    { id: 10, name: "Casanare" }, { id: 11, name: "Cauca" }, { id: 12, name: "Cesar" },
+    { id: 13, name: "Chocó" }, { id: 14, name: "Córdoba" }, { id: 15, name: "Cundinamarca" },
+    { id: 16, name: "Guainía" }, { id: 17, name: "Guaviare" }, { id: 18, name: "Huila" },
+    { id: 19, name: "La Guajira" }, { id: 20, name: "Magdalena" }, { id: 21, name: "Meta" },
+    { id: 22, name: "Nariño" }, { id: 23, name: "Norte de Santander" }, { id: 24, name: "Putumayo" },
+    { id: 25, name: "Quindío" }, { id: 26, name: "Risaralda" }, { id: 27, name: "San Andrés y Providencia" },
+    { id: 28, name: "Santander" }, { id: 29, name: "Sucre" }, { id: 30, name: "Tolima" },
+    { id: 31, name: "Valle del Cauca" }, { id: 32, name: "Vaupés" }, { id: 33, name: "Vichada" }
+];
 
 const formatCurrency = (num) => '$ ' + num.toLocaleString('es-CO');
 const parseCurrency = (str) => Number(str.replace(/[^0-9-]/g, '')) || 0;
@@ -435,7 +453,14 @@ function setupRowPriceInput(row) {
 }
 
 AdminStore.subscribeToProducts((products) => {
-    manualProductsCache = products;
+    manualProductsCache = (products || []).map(p => {
+        if (!p._searchIndex) {
+            const cat = typeof p.category === 'object' && p.category ? (p.category.name || '') : (p.category || '');
+            const brand = typeof p.brand === 'object' && p.brand ? (p.brand.name || '') : (p.brand || '');
+            p._searchIndex = normalizeText(`${p.name || ''} ${p.sku || ''} ${cat} ${brand} ${p.searchStr || ''}`);
+        }
+        return p;
+    });
     const modal = document.getElementById('manual-modal');
     if (modal && !modal.classList.contains('hidden')) {
         document.querySelectorAll('.item-row-container').forEach(row => {
@@ -467,7 +492,15 @@ AdminStore.subscribeToProducts((products) => {
 });
 
 AdminStore.subscribeToClients((clients) => {
-    manualClientsCache = clients;
+    manualClientsCache = (clients || []).map(u => {
+        if (!u._searchIndex) {
+            const clientNameRaw = u.name || u.userName || "";
+            const clientPhoneRaw = u.phone || "";
+            const clientDocRaw = u.document || "";
+            u._searchIndex = normalizeText(`${clientNameRaw} ${clientPhoneRaw} ${clientDocRaw}`);
+        }
+        return u;
+    });
     const searchInput = document.getElementById('m-cust-search');
     if (searchInput && searchInput.value.trim().length >= 2 && !isCreatingNewClient && !selectedUserId) {
         searchInput.dispatchEvent(new Event('input'));
@@ -501,12 +534,21 @@ export function initManualSale(onSuccess) {
         document.head.appendChild(style);
     }
     onSuccessCallback = onSuccess;
+
+    // Pre-cargar cuentas y departamentos en segundo plano para 0ms de espera al abrir el modal
+    loadPaymentAccounts();
+    loadManualDepartments();
 }
 
-export async function openManualSaleModal() {
+export function openManualSaleModal() {
     const modal = document.getElementById('manual-modal');
+    if (!modal) return;
     const container = document.getElementById('manual-items-container');
     
+    // 1. ABRIR EL MODAL INMEDIATAMENTE (0ms - respuesta táctil instantánea al clic)
+    modal.classList.remove('hidden');
+
+    // 2. Limpiar estado de cliente y formularios
     isCreatingNewClient = false;
     selectedUserId = null;
     selectedUserName = "";
@@ -523,24 +565,29 @@ export async function openManualSaleModal() {
     document.getElementById('m-nc-phone').value = "";
     document.getElementById('m-nc-doc').value = "";
     document.getElementById('m-nc-email').value = "";
-    document.getElementById('m-apply-4x1000').checked = false; // Reiniciar check
+    document.getElementById('m-apply-4x1000').checked = false;
 
     document.getElementById('manual-total-display').textContent = "$ 0";
     document.getElementById('m-shipping-cost').value = "$ 0";
     document.getElementById('m-dept-manual').value = "";
     document.getElementById('m-city-manual').value = "";
+    document.getElementById('m-city-manual').disabled = true;
     document.getElementById('m-address-manual').value = "";
     container.innerHTML = "";
 
-    await Promise.all([
-        loadPaymentAccounts(), 
-        loadManualDepartments()
-    ]);
+    // 3. Poblar selectores de cuentas y departamentos desde caché en memoria (0ms)
+    loadPaymentAccounts(); 
+    loadManualDepartments();
     
+    // 4. Agregar primera línea de producto e inicializar máscara de moneda
     addManualItemRow();
     setupCurrencyInput(document.getElementById('m-shipping-cost'));
 
-    modal.classList.remove('hidden');
+    // 5. Enfocar el buscador de clientes de forma inmediata para agilizar la venta
+    setTimeout(() => {
+        const custSearch = document.getElementById('m-cust-search');
+        if (custSearch) custSearch.focus();
+    }, 60);
 }
 
 function setupEventListeners() {
@@ -562,16 +609,37 @@ function setupEventListeners() {
     const mDept = document.getElementById('m-dept-manual');
     const mCity = document.getElementById('m-city-manual');
     mDept.onchange = async (e) => {
-        if(!e.target.value) return;
-        mCity.disabled = true; mCity.innerHTML = '<option>Cargando...</option>';
+        const deptId = e.target.value;
+        if (!deptId) {
+            mCity.disabled = true;
+            mCity.innerHTML = '<option value="">Seleccione Depto primero</option>';
+            return;
+        }
+
+        if (citiesCache[deptId] && citiesCache[deptId].length > 0) {
+            let options = '<option value="">Ciudad...</option>';
+            citiesCache[deptId].forEach(c => options += `<option value="${c.name}">${c.name}</option>`);
+            mCity.innerHTML = options;
+            mCity.disabled = false;
+            return;
+        }
+
+        mCity.disabled = true; 
+        mCity.innerHTML = '<option>Cargando ciudades...</option>';
         try {
-            const res = await fetch(`https://api-colombia.com/api/v1/Department/${e.target.value}/cities`);
+            const res = await fetch(`https://api-colombia.com/api/v1/Department/${deptId}/cities`);
             const cities = await res.json();
             cities.sort((a,b)=>a.name.localeCompare(b.name));
-            mCity.innerHTML = '<option value="">Ciudad...</option>';
-            cities.forEach(c => mCity.innerHTML += `<option value="${c.name}">${c.name}</option>`);
+            citiesCache[deptId] = cities;
+            let options = '<option value="">Ciudad...</option>';
+            cities.forEach(c => options += `<option value="${c.name}">${c.name}</option>`);
+            mCity.innerHTML = options;
             mCity.disabled = false;
-        } catch(e) { console.error(e); }
+        } catch(e) { 
+            console.error("Error al cargar ciudades:", e);
+            mCity.disabled = false;
+            mCity.innerHTML = '<option value="">Error al cargar ciudades</option>';
+        }
     };
 }
 
@@ -645,14 +713,14 @@ function addManualItemRow() {
         const max = parseInt(div.querySelector('.p-max-stock').value) || 0;
         const current = parseInt(qtyInput.value) || 1;
         if (max > 0 && current > max) {
-            alert(`⚠️ Solo quedan ${max} unidades disponibles de esta variante.`);
+            alert(`Aviso: Solo quedan ${max} unidades disponibles de esta variante.`);
             qtyInput.value = max;
         } else if (max <= 0) {
             const hasVariants = div.querySelector('.p-color') || div.querySelector('.p-capacity');
             if (hasVariants) {
-                alert(`⚠️ Debes seleccionar una variante disponible con stock.`);
+                alert(`Aviso: Debes seleccionar una variante disponible con stock.`);
             } else {
-                alert(`⚠️ Este producto no tiene stock disponible.`);
+                alert(`Aviso: Este producto no tiene stock disponible.`);
             }
             qtyInput.value = 1;
         }
@@ -668,6 +736,7 @@ function setupProductSearch(row) {
     const searchInput = row.querySelector('.p-search');
     const resultsDiv = row.querySelector('.p-results');
     const preview = row.querySelector('.p-img-preview');
+    let searchTimeout = null;
 
     searchInput.addEventListener('input', (e) => {
         row.querySelector('.p-id').value = "";
@@ -675,63 +744,70 @@ function setupProductSearch(row) {
         if (badge) badge.classList.add('hidden');
         if (preview) preview.innerHTML = `<i class="fa-solid fa-box text-gray-300 text-sm"></i>`;
 
+        clearTimeout(searchTimeout);
         const term = normalizeText(e.target.value);
-        resultsDiv.innerHTML = "";
-        if (term.length < 2) { resultsDiv.classList.add('hidden'); return; }
-
-        const words = term.split(/\s+/).filter(Boolean);
-        const matches = manualProductsCache.filter(p => {
-            const cat = typeof p.category === 'object' && p.category ? (p.category.name || '') : (p.category || '');
-            const brand = typeof p.brand === 'object' && p.brand ? (p.brand.name || '') : (p.brand || '');
-            const searchStr = normalizeText(`${p.name || ''} ${p.sku || ''} ${cat} ${brand} ${p.searchStr || ''}`);
-            return words.every(w => searchStr.includes(w));
-        });
-
-        if (matches.length === 0) {
-            resultsDiv.innerHTML = `<div class="p-3 text-[10px] text-gray-400 text-center uppercase font-bold">No se encontraron productos</div>`;
-            resultsDiv.classList.remove('hidden');
-            return;
+        if (term.length < 2) { 
+            resultsDiv.innerHTML = "";
+            resultsDiv.classList.add('hidden'); 
+            return; 
         }
 
-        matches.slice(0, 20).forEach(prod => {
-            const totalStock = getProductTotalStock(prod);
-            const isOutOfStock = totalStock <= 0;
-            const itemDiv = document.createElement('div');
-            itemDiv.className = `p-2.5 flex items-center justify-between rounded-xl border-b border-gray-50 last:border-0 ${isOutOfStock ? 'bg-gray-50 opacity-60 cursor-not-allowed' : 'hover:bg-cyan-50 cursor-pointer transition'}`;
-            
-            const prodImg = prod.mainImage || prod.image || (prod.images && prod.images[0] ? prod.images[0] : 'https://placehold.co/50');
-            itemDiv.innerHTML = `
-                <div class="flex items-center gap-3 flex-1 min-w-0 pr-2">
-                    <img src="${prodImg}" class="w-9 h-9 object-cover rounded-lg shrink-0 border border-gray-100 shadow-xs">
-                    <div class="flex-1 min-w-0">
-                        <p class="text-xs font-bold text-brand-black truncate ${isOutOfStock ? 'line-through text-gray-400' : ''}">${prod.name}</p>
-                        <p class="text-[10px] text-gray-400 mt-0.5">${prod.sku ? 'SKU: ' + prod.sku : ''} | Stock Total: <span class="font-bold ${isOutOfStock ? 'text-red-500' : 'text-emerald-600'}">${totalStock}</span></p>
-                    </div>
-                </div>
-                <div class="text-right shrink-0">
-                    <p class="text-xs font-black text-brand-black">${formatCurrency(prod.price)}</p>
-                </div>
-            `;
+        searchTimeout = setTimeout(() => {
+            const words = term.split(/\s+/).filter(Boolean);
+            const matches = manualProductsCache.filter(p => {
+                const sIdx = p._searchIndex || '';
+                return words.every(w => sIdx.includes(w));
+            });
 
-            if (!isOutOfStock) {
-                itemDiv.onmousedown = (ev) => {
-                    ev.preventDefault();
-                    ev.stopPropagation();
-                    selectProductForRow(row, prod);
-                    resultsDiv.classList.add('hidden');
-                };
-            } else {
-                itemDiv.onmousedown = (ev) => {
-                    ev.preventDefault();
-                    ev.stopPropagation();
-                    alert("⚠️ Este producto está completamente agotado (Stock: 0).");
-                };
+            resultsDiv.innerHTML = "";
+            if (matches.length === 0) {
+                resultsDiv.innerHTML = `<div class="p-3 text-[10px] text-gray-400 text-center uppercase font-bold">No se encontraron productos</div>`;
+                resultsDiv.classList.remove('hidden');
+                return;
             }
 
-            resultsDiv.appendChild(itemDiv);
-        });
+            const frag = document.createDocumentFragment();
+            matches.slice(0, 20).forEach(prod => {
+                const totalStock = getProductTotalStock(prod);
+                const isOutOfStock = totalStock <= 0;
+                const itemDiv = document.createElement('div');
+                itemDiv.className = `p-2.5 flex items-center justify-between rounded-xl border-b border-gray-50 last:border-0 ${isOutOfStock ? 'bg-gray-50 opacity-60 cursor-not-allowed' : 'hover:bg-cyan-50 cursor-pointer transition'}`;
+                
+                const prodImg = prod.mainImage || prod.image || (prod.images && prod.images[0] ? prod.images[0] : 'https://placehold.co/50');
+                itemDiv.innerHTML = `
+                    <div class="flex items-center gap-3 flex-1 min-w-0 pr-2">
+                        <img src="${prodImg}" loading="lazy" class="w-9 h-9 object-cover rounded-lg shrink-0 border border-gray-100 shadow-xs">
+                        <div class="flex-1 min-w-0">
+                            <p class="text-xs font-bold text-brand-black truncate ${isOutOfStock ? 'line-through text-gray-400' : ''}">${prod.name}</p>
+                            <p class="text-[10px] text-gray-400 mt-0.5">${prod.sku ? 'SKU: ' + prod.sku : ''} | Stock Total: <span class="font-bold ${isOutOfStock ? 'text-red-500' : 'text-emerald-600'}">${totalStock}</span></p>
+                        </div>
+                    </div>
+                    <div class="text-right shrink-0">
+                        <p class="text-xs font-black text-brand-black">${formatCurrency(prod.price)}</p>
+                    </div>
+                `;
 
-        resultsDiv.classList.remove('hidden');
+                if (!isOutOfStock) {
+                    itemDiv.onmousedown = (ev) => {
+                        ev.preventDefault();
+                        ev.stopPropagation();
+                        selectProductForRow(row, prod);
+                        resultsDiv.classList.add('hidden');
+                    };
+                } else {
+                    itemDiv.onmousedown = (ev) => {
+                        ev.preventDefault();
+                        ev.stopPropagation();
+                        alert("Aviso: Este producto está completamente agotado (Stock: 0).");
+                    };
+                }
+
+                frag.appendChild(itemDiv);
+            });
+
+            resultsDiv.appendChild(frag);
+            resultsDiv.classList.remove('hidden');
+        }, 80);
     });
 
     document.addEventListener('mousedown', (e) => {
@@ -940,7 +1016,7 @@ function renderVariantSelectors(row, product) {
     updateRowStock(row, product, true);
 }
 
-// 🔥 CÁLCULO TOTAL CON 4X1000
+// CALCULO TOTAL CON 4X1000
 function calculateManualTotal() {
     let subtotal = 0;
     document.querySelectorAll('.item-row-container').forEach(row => {
@@ -980,71 +1056,78 @@ async function setupCustomerSearch() {
     const optSaved = document.getElementById('opt-saved-addr');
     const savedSelect = document.getElementById('m-saved-addr-select');
 
+    let debounceTimer = null;
     search.addEventListener('input', (e) => {
-        const term = normalizeText(e.target.value);
-        results.innerHTML = "";
-        
-        if (term.length < 2) { results.classList.add('hidden'); return; }
-        
-        const filtered = manualClientsCache.filter(u => {
-            const clientNameRaw = u.name || u.userName || "";
-            const clientPhoneRaw = u.phone || "";
-            const clientDocRaw = u.document || "";
-            return normalizeText(clientNameRaw).includes(term) || clientPhoneRaw.includes(term) || clientDocRaw.includes(term);
-        });
-
-        if (filtered.length === 0) {
-            results.innerHTML = `<div class="p-4 text-[10px] text-gray-400 font-bold text-center uppercase border-b border-gray-100">Cliente no encontrado</div><div class="p-2 bg-gray-50 rounded-b-2xl"><button type="button" id="btn-m-inline-create" class="w-full bg-brand-cyan text-brand-black font-black text-[10px] py-3 rounded-xl uppercase tracking-widest hover:bg-cyan-400 transition shadow-sm flex items-center justify-center gap-2"><i class="fa-solid fa-user-plus"></i> Registrar Nuevo Cliente</button></div>`;
-            document.getElementById('btn-m-inline-create').onmousedown = (ev) => {
-                ev.preventDefault(); 
-                isCreatingNewClient = true;
-                searchSection.classList.add('hidden'); newClientSection.classList.remove('hidden');
-                
-                const rawTerm = search.value.trim();
-                if (/^[\d\s\+]+$/.test(rawTerm)) {
-                    document.getElementById('m-nc-phone').value = rawTerm.replace(/\s+/g, '');
-                    document.getElementById('m-nc-name').focus();
-                } else {
-                    document.getElementById('m-nc-name').value = rawTerm;
-                    document.getElementById('m-nc-phone').focus();
-                }
-                
-                optSaved.disabled = true; optSaved.textContent = "🏠 Dirección Guardada (Seleccione Cliente)";
-                modeSelect.value = 'new'; modeSelect.dispatchEvent(new Event('change'));
-                results.classList.add('hidden');
-            };
-        } else {
-            filtered.slice(0, 8).forEach(u => {
-                const div = document.createElement('div');
-                div.className = "p-3 hover:bg-cyan-50 cursor-pointer rounded-xl transition flex justify-between items-center border-b border-gray-50 last:border-0 group";
-                const displayName = u.name || u.userName || 'Cliente sin nombre';
-                div.innerHTML = `<div><span class="block font-black text-xs uppercase text-brand-black">${displayName}</span><span class="text-[9px] font-bold text-gray-400">${u.phone || 'Sin teléfono'} ${u.document ? ` | Doc: ${u.document}` : ''}</span></div><button class="bg-white border border-gray-200 text-brand-cyan w-6 h-6 rounded-full flex items-center justify-center group-hover:bg-brand-cyan group-hover:text-white transition shadow-sm"><i class="fa-solid fa-check text-[10px]"></i></button>`;
-                
-                div.onmousedown = (ev) => {
-                    ev.preventDefault(); 
-                    isCreatingNewClient = false; selectedUserId = u.id; selectedUserName = displayName;
-                    selectedUserPhone = u.phone || ""; selectedUserDoc = u.document || ""; 
-                    currentUserAddresses = u.addresses || [];
-                    
-                    searchSection.classList.add('hidden'); selectedSection.classList.remove('hidden');
-                    document.getElementById('m-sel-cname').textContent = selectedUserName;
-                    document.getElementById('m-sel-cphone').textContent = selectedUserPhone || "Sin Teléfono";
-                    
-                    if (currentUserAddresses.length > 0) {
-                        optSaved.disabled = false; optSaved.textContent = `🏠 Usar Guardada (${currentUserAddresses.length})`;
-                        savedSelect.innerHTML = '<option value="">Seleccione Dirección...</option>';
-                        currentUserAddresses.forEach((a, i) => savedSelect.innerHTML += `<option value="${i}">${a.alias} - ${a.address}</option>`);
-                        modeSelect.value = 'saved';
-                    } else {
-                        optSaved.disabled = true; optSaved.textContent = "🏠 Sin direcciones guardadas";
-                        modeSelect.value = 'new';
-                    }
-                    modeSelect.dispatchEvent(new Event('change')); results.classList.add('hidden');
-                };
-                results.appendChild(div);
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+            const term = normalizeText(e.target.value);
+            results.innerHTML = "";
+            
+            if (term.length < 2) { results.classList.add('hidden'); return; }
+            
+            const filtered = manualClientsCache.filter(u => {
+                if (u._searchIndex) return u._searchIndex.includes(term);
+                const clientNameRaw = u.name || u.userName || "";
+                const clientPhoneRaw = u.phone || "";
+                const clientDocRaw = u.document || "";
+                return normalizeText(clientNameRaw).includes(term) || clientPhoneRaw.includes(term) || clientDocRaw.includes(term);
             });
-        }
-        results.classList.remove('hidden');
+
+            if (filtered.length === 0) {
+                results.innerHTML = `<div class="p-4 text-[10px] text-gray-400 font-bold text-center uppercase border-b border-gray-100">Cliente no encontrado</div><div class="p-2 bg-gray-50 rounded-b-2xl"><button type="button" id="btn-m-inline-create" class="w-full bg-brand-cyan text-brand-black font-black text-[10px] py-3 rounded-xl uppercase tracking-widest hover:bg-cyan-400 transition shadow-sm flex items-center justify-center gap-2"><i class="fa-solid fa-user-plus"></i> Registrar Nuevo Cliente</button></div>`;
+                document.getElementById('btn-m-inline-create').onmousedown = (ev) => {
+                    ev.preventDefault(); 
+                    isCreatingNewClient = true;
+                    searchSection.classList.add('hidden'); newClientSection.classList.remove('hidden');
+                    
+                    const rawTerm = search.value.trim();
+                    if (/^[\d\s\+]+$/.test(rawTerm)) {
+                        document.getElementById('m-nc-phone').value = rawTerm.replace(/\s+/g, '');
+                        document.getElementById('m-nc-name').focus();
+                    } else {
+                        document.getElementById('m-nc-name').value = rawTerm;
+                        document.getElementById('m-nc-phone').focus();
+                    }
+                    
+                    optSaved.disabled = true; optSaved.textContent = "Dirección Guardada (Seleccione Cliente)";
+                    modeSelect.value = 'new'; modeSelect.dispatchEvent(new Event('change'));
+                    results.classList.add('hidden');
+                };
+            } else {
+                const fragment = document.createDocumentFragment();
+                filtered.slice(0, 8).forEach(u => {
+                    const div = document.createElement('div');
+                    div.className = "p-3 hover:bg-cyan-50 cursor-pointer rounded-xl transition flex justify-between items-center border-b border-gray-50 last:border-0 group";
+                    const displayName = u.name || u.userName || 'Cliente sin nombre';
+                    div.innerHTML = `<div><span class="block font-black text-xs uppercase text-brand-black">${displayName}</span><span class="text-[9px] font-bold text-gray-400">${u.phone || 'Sin teléfono'} ${u.document ? ` | Doc: ${u.document}` : ''}</span></div><button class="bg-white border border-gray-200 text-brand-cyan w-6 h-6 rounded-full flex items-center justify-center group-hover:bg-brand-cyan group-hover:text-white transition shadow-sm"><i class="fa-solid fa-check text-[10px]"></i></button>`;
+                    
+                    div.onmousedown = (ev) => {
+                        ev.preventDefault(); 
+                        isCreatingNewClient = false; selectedUserId = u.id; selectedUserName = displayName;
+                        selectedUserPhone = u.phone || ""; selectedUserDoc = u.document || ""; 
+                        currentUserAddresses = u.addresses || [];
+                        
+                        searchSection.classList.add('hidden'); selectedSection.classList.remove('hidden');
+                        document.getElementById('m-sel-cname').textContent = selectedUserName;
+                        document.getElementById('m-sel-cphone').textContent = selectedUserPhone || "Sin Teléfono";
+                        
+                        if (currentUserAddresses.length > 0) {
+                            optSaved.disabled = false; optSaved.textContent = `Usar Guardada (${currentUserAddresses.length})`;
+                            savedSelect.innerHTML = '<option value="">Seleccione Dirección...</option>';
+                            currentUserAddresses.forEach((a, i) => savedSelect.innerHTML += `<option value="${i}">${a.alias} - ${a.address}</option>`);
+                            modeSelect.value = 'saved';
+                        } else {
+                            optSaved.disabled = true; optSaved.textContent = "Sin direcciones guardadas";
+                            modeSelect.value = 'new';
+                        }
+                        modeSelect.dispatchEvent(new Event('change')); results.classList.add('hidden');
+                    };
+                    fragment.appendChild(div);
+                });
+                results.appendChild(fragment);
+            }
+            results.classList.remove('hidden');
+        }, 80);
     });
 
     const resetClientUI = () => {
@@ -1053,7 +1136,7 @@ async function setupCustomerSearch() {
         
         searchSection.classList.remove('hidden'); selectedSection.classList.add('hidden'); newClientSection.classList.add('hidden'); results.classList.add('hidden'); search.focus();
         
-        optSaved.disabled = true; optSaved.textContent = "🏠 Dirección Guardada (Seleccione Cliente)";
+        optSaved.disabled = true; optSaved.textContent = "Dirección Guardada (Seleccione Cliente)";
         modeSelect.value = 'new'; modeSelect.dispatchEvent(new Event('change'));
     };
 
@@ -1065,33 +1148,79 @@ async function setupCustomerSearch() {
     });
 }
 
+function renderPaymentAccountsOptions(sel, accounts) {
+    let html = `<option value="credit">Cartera (Pendiente de Cobro)</option>`;
+    accounts.forEach(acc => {
+        html += `<option value="${acc.id}">PAGO RECIBIDO EN: ${acc.name}</option>`;
+    });
+    sel.innerHTML = html;
+}
+
 async function loadPaymentAccounts() {
     const sel = document.getElementById('m-payment-account');
-    sel.innerHTML = `<option value="credit">⏳ Cartera (Pendiente de Cobro)</option>`;
+    if (!sel) return;
+    if (paymentAccountsCache && paymentAccountsCache.length > 0) {
+        renderPaymentAccountsOptions(sel, paymentAccountsCache);
+    } else {
+        sel.innerHTML = `<option value="credit">Cartera (Pendiente de Cobro)</option>`;
+    }
     try {
         const q = query(collection(db, "accounts"), orderBy("name", "asc"));
         const snap = await getDocs(q);
-        snap.forEach(d => sel.innerHTML += `<option value="${d.id}">🏦 PAGO RECIBIDO EN: ${d.data().name}</option>`);
-    } catch(e) { console.error(e); }
+        const accounts = [];
+        snap.forEach(d => accounts.push({ id: d.id, ...d.data() }));
+        paymentAccountsCache = accounts;
+        renderPaymentAccountsOptions(sel, accounts);
+    } catch(e) { console.error("Error al cargar cuentas:", e); }
+}
+
+function renderDepartmentsOptions(sel, depts) {
+    let options = '<option value="">Seleccionar Depto...</option>';
+    depts.forEach(d => {
+        options += `<option value="${d.id}">${d.name}</option>`;
+    });
+    sel.innerHTML = options;
 }
 
 async function loadManualDepartments() {
     const selManual = document.getElementById('m-dept-manual');
+    if (!selManual) return;
+    
+    // 1. Usar cache en memoria si ya fue cargado
+    if (departmentsCache && departmentsCache.length > 0) {
+        renderDepartmentsOptions(selManual, departmentsCache);
+        return;
+    }
+    
+    // 2. Usar localStorage para carga instantanea (0ms)
+    try {
+        const cachedStr = localStorage.getItem('pixeltech_colombia_departments');
+        if (cachedStr) {
+            departmentsCache = JSON.parse(cachedStr);
+            renderDepartmentsOptions(selManual, departmentsCache);
+            return;
+        }
+    } catch(err) { /* ignore parse error */ }
+    
+    // 3. Fallback estatico inmediato (33 departamentos de Colombia)
+    renderDepartmentsOptions(selManual, COLOMBIA_DEPTS_FALLBACK);
+    
+    // 4. Actualizar en segundo plano sin bloquear la interfaz
     try {
         const res = await fetch('https://api-colombia.com/api/v1/Department');
         const data = await res.json();
         data.sort((a,b) => a.name.localeCompare(b.name));
-        let options = '<option value="">Seleccionar Depto...</option>';
-        data.forEach(d => options += `<option value="${d.id}">${d.name}</option>`);
-        if (selManual) selManual.innerHTML = options;
-    } catch(e) { console.error(e); }
+        departmentsCache = data;
+        localStorage.setItem('pixeltech_colombia_departments', JSON.stringify(data));
+        renderDepartmentsOptions(selManual, data);
+    } catch(e) { console.error("Error al obtener departamentos:", e); }
 }
 
 // --- GUARDAR TRANSACCIÓN ---
 async function saveOrder() {
     const btn = document.getElementById('btn-save-manual');
     
-    if (!selectedUserId && !isCreatingNewClient) { return alert("🚨 Por favor, busca un cliente existente o registra uno nuevo."); }
+    if (!selectedUserId && !isCreatingNewClient) { return alert("Por favor, busca un cliente existente o registra uno nuevo."); }
 
     const items = [];
     let hasStockError = false;
@@ -1112,7 +1241,7 @@ async function saveOrder() {
 
             if (colorEl && colorEl.value === "") {
                 hasVariantError = true;
-                if (!variantErrorMessage) variantErrorMessage = `🚨 Debes seleccionar un Color para el producto: ${prodName}`;
+                if (!variantErrorMessage) variantErrorMessage = `Debes seleccionar un Color para el producto: ${prodName}`;
                 colorEl.classList.add('border-red-500', 'ring-2', 'ring-red-200');
                 
                 // Letrero flotante sutil debajo
@@ -1136,7 +1265,7 @@ async function saveOrder() {
             }
             if (capEl && capEl.value === "") {
                 hasVariantError = true;
-                if (!variantErrorMessage) variantErrorMessage = `🚨 Debes seleccionar una Capacidad para el producto: ${prodName}`;
+                if (!variantErrorMessage) variantErrorMessage = `Debes seleccionar una Capacidad para el producto: ${prodName}`;
                 capEl.classList.add('border-red-500', 'ring-2', 'ring-red-200');
 
                 // Letrero flotante sutil debajo
@@ -1184,14 +1313,14 @@ async function saveOrder() {
         if (firstErrorEl) firstErrorEl.focus();
         return;
     }
-    if (hasStockError) return alert("🚨 Uno de los productos seleccionados excede o no tiene stock disponible.");
-    if (items.length === 0) return alert("🚨 Debes agregar al menos un producto a la venta.");
+    if (hasStockError) return alert("Uno de los productos seleccionados excede o no tiene stock disponible.");
+    if (items.length === 0) return alert("Debes agregar al menos un producto a la venta.");
 
     const shippingMode = document.getElementById('m-shipping-mode').value;
     let shippingData = {};
     let clientDept = ""; let clientCity = ""; let clientAddr = "";
     
-    if (shippingMode === 'pickup') { shippingData = { address: "📍 Recogida en Local" }; } 
+    if (shippingMode === 'pickup') { shippingData = { address: "Recogida en Local" }; } 
     else if (shippingMode === 'saved') {
         const idx = document.getElementById('m-saved-addr-select').value;
         if (idx === "") return alert("Seleccione la dirección guardada del cliente");
@@ -1221,7 +1350,7 @@ async function saveOrder() {
             custPhone = document.getElementById('m-nc-phone').value.trim();
             custDoc = document.getElementById('m-nc-doc').value.trim(); 
             emailVal = document.getElementById('m-nc-email').value.trim();
-            if (!custName || !custPhone) throw new Error("🚨 El Nombre y Teléfono del nuevo cliente son obligatorios.");
+            if (!custName || !custPhone) throw new Error("El Nombre y Teléfono del nuevo cliente son obligatorios.");
 
             const newClientData = {
                 name: custName, phone: custPhone, email: emailVal, document: custDoc, source: 'MANUAL', role: 'client',
@@ -1232,7 +1361,7 @@ async function saveOrder() {
             finalUserId = docRef.id;
         }
 
-        // 🔥 LÓGICA DE 4X1000
+        // LOGICA DE 4X1000
         const shippingCost = parseCurrency(document.getElementById('m-shipping-cost').value);
         const subtotal = items.reduce((acc, i) => acc + (i.price * i.quantity), 0);
         let baseTotal = subtotal + shippingCost;
@@ -1288,7 +1417,7 @@ async function saveOrder() {
                 stockDeductedItems.push(item);
             }
         } catch (stockErr) {
-            console.error("🚨 Error aplicando descuento de stock tras crear la orden:", stockErr);
+            console.error("Error aplicando descuento de stock tras crear la orden:", stockErr);
             // Rollback de stock devuelto para evitar inconsistencias
             for (const item of stockDeductedItems) {
                 try {
@@ -1299,17 +1428,17 @@ async function saveOrder() {
             await deleteDoc(doc(db, "orders", orderRef.id));
             await deleteDoc(doc(db, "remissions", orderRef.id));
             const stockMsg = stockErr?.message || (typeof stockErr === 'string' ? stockErr : "Stock insuficiente");
-            throw new Error(`🚨 No se pudo completar la venta por un problema de inventario: ${stockMsg}`);
+            throw new Error(`No se pudo completar la venta por un problema de inventario: ${stockMsg}`);
         }
 
-        alert(`✅ Venta Exitosa.\nLa orden #${orderRef.id.slice(0,6)} ha sido enviada al centro logístico.`);
+        alert(`Venta Exitosa.\nLa orden #${orderRef.id.slice(0,6)} ha sido enviada al centro logístico.`);
         document.getElementById('manual-modal').classList.add('hidden');
         if (onSuccessCallback) onSuccessCallback();
 
     } catch (e) {
         console.error("Error en saveOrder:", e);
         const errMsg = e?.message || (typeof e === 'string' ? e : "Error inesperado al procesar la venta.");
-        alert(`❌ ${errMsg}`);
+        alert(errMsg);
     } finally {
         btn.disabled = false; btn.innerHTML = originalText;
     }

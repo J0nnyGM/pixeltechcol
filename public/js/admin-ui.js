@@ -1,9 +1,33 @@
 // public/js/admin-ui.js
 import { auth, db, collection, query, where, onSnapshot, clearAllAppDataAndReload } from './firebase-init.js';
 
-export function loadAdminSidebar(userRole = 'customer') {
+function isItemActive(currentPath, itemPath) {
+    if (!currentPath || !itemPath) return false;
+    const cleanCurrent = currentPath.split('?')[0].split('#')[0].toLowerCase().trim().replace(/^\/+|\/+$/g, '');
+    const cleanItem = itemPath.split('?')[0].split('#')[0].toLowerCase().trim().replace(/^\/+|\/+$/g, '');
+    if (cleanCurrent === cleanItem) return true;
+    const currentNoExt = cleanCurrent.replace(/\.html$/, '');
+    const itemNoExt = cleanItem.replace(/\.html$/, '');
+    if (currentNoExt === itemNoExt) return true;
+    const currentFile = currentNoExt.split('/').pop() || 'index';
+    const itemFile = itemNoExt.split('/').pop() || 'index';
+    if (itemFile === 'index' && (currentFile === '' || currentFile === 'index' || currentFile === 'admin')) return true;
+    if (currentFile === itemFile) return true;
+    if (itemFile === 'products' && (currentFile === 'create-product' || currentFile === 'edit-product')) return true;
+    if (itemFile === 'clients' && currentFile === 'client-details') return true;
+    if (itemFile === 'suppliers' && currentFile === 'supplier-detail') return true;
+    return false;
+}
+
+export function loadAdminSidebar(userRole = null) {
     const sidebarContainer = document.getElementById('admin-sidebar');
     if (!sidebarContainer) return;
+
+    // Obtener rol efectivo: parámetro > sessionStorage > 'customer'
+    const cachedRole = sessionStorage.getItem('pixeltech_user_role');
+    const effectiveRole = (userRole && userRole !== 'customer') 
+        ? userRole 
+        : (cachedRole || userRole || 'customer');
 
     const currentPage = window.location.pathname;
 
@@ -54,6 +78,7 @@ export function loadAdminSidebar(userRole = 'customer') {
                 { name: 'Cuentas', icon: 'fa-vault', path: '/admin/treasury.html' },
                 { name: 'Control de Gastos', icon: 'fa-money-bill-trend-up', path: '/admin/expenses.html' }, 
                 { name: 'Rentabilidad FIFO', icon: 'fa-chart-pie', path: '/admin/profitability.html' },
+                { name: 'Rentabilidad Canales', icon: 'fa-chart-column', path: '/admin/branches-profitability.html' },
                 { name: 'Logística', icon: 'fa-truck-fast', path: '/admin/shipping-config.html' },
                 { name: 'Banners y Promos', icon: 'fa-bullhorn', path: '/admin/promotions.html' },
                 { name: 'Configuración', icon: 'fa-gear', path: '/admin/settings.html' }
@@ -64,10 +89,10 @@ export function loadAdminSidebar(userRole = 'customer') {
     // --- 3. FILTRAR MENÚ SEGÚN EL ROL ---
     const filteredGroups = navGroups.map(group => {
         const allowedItems = group.items.filter(item => {
-            if (userRole === 'admin' || userRole === 'developer') return true;
-            // Configuración y Usuarios siempre restringidos a Admin
-            if (item.name === 'Gestión Usuarios' || item.name === 'Configuración' || item.name === 'Proveedores' || item.name === 'Marcas') return false; 
-            return rolePermissions[userRole]?.includes(item.name);
+            if (effectiveRole === 'admin' || effectiveRole === 'developer') return true;
+            // Configuración, Usuarios y Rentabilidad Canales siempre restringidos a Admin
+            if (item.name === 'Gestión Usuarios' || item.name === 'Configuración' || item.name === 'Proveedores' || item.name === 'Marcas' || item.name === 'Rentabilidad Canales') return false; 
+            return rolePermissions[effectiveRole]?.includes(item.name);
         });
         return { ...group, items: allowedItems };
     }).filter(group => group.items.length > 0);
@@ -78,7 +103,7 @@ export function loadAdminSidebar(userRole = 'customer') {
                 ${group.title ? `<p class="px-4 text-[9px] font-black text-gray-600 uppercase tracking-widest mb-3 opacity-60">${group.title}</p>` : ''}
                 <div class="space-y-1">
                     ${group.items.map(item => {
-                        const isActive = currentPage.includes(item.path);
+                        const isActive = isItemActive(currentPage, item.path);
                         const isWhatsApp = item.name === 'WhatsApp';
                         return `
                             <a href="${item.path}" class="flex items-center gap-3 px-4 py-2.5 rounded-xl transition-all duration-300 font-bold text-sm group ${
@@ -98,22 +123,22 @@ export function loadAdminSidebar(userRole = 'customer') {
     };
 
     // --- 4. BARRA INFERIOR (SOLO MÓVIL) DINÁMICA ---
-    const showOrders = userRole === 'admin' || userRole === 'developer' || userRole === 'ventas' || userRole === 'logistica';
-    const showProducts = userRole === 'admin' || userRole === 'developer' || userRole === 'ventas' || userRole === 'logistica';
+    const showOrders = effectiveRole === 'admin' || effectiveRole === 'developer' || effectiveRole === 'ventas' || effectiveRole === 'logistica';
+    const showProducts = effectiveRole === 'admin' || effectiveRole === 'developer' || effectiveRole === 'ventas' || effectiveRole === 'logistica';
 
     const mobileBottomBar = `
         <nav class="md:hidden fixed bottom-0 left-0 w-full bg-brand-black text-gray-400 border-t border-gray-800 z-[60] flex justify-around items-center pb-safe">
-            <a href="/admin/index.html" class="flex flex-col items-center py-3 px-2 w-full ${currentPage.includes('/admin/index.html') ? 'text-brand-cyan' : 'hover:text-white'}">
+            <a href="/admin/index.html" class="flex flex-col items-center py-3 px-2 w-full ${isItemActive(currentPage, '/admin/index.html') ? 'text-brand-cyan' : 'hover:text-white'}">
                 <i class="fa-solid fa-chart-line text-lg mb-1"></i>
                 <span class="text-[8px] font-bold uppercase tracking-widest">Inicio</span>
             </a>
             ${showOrders ? `
-            <a href="/admin/orders.html" class="flex flex-col items-center py-3 px-2 w-full ${currentPage.includes('/admin/orders.html') ? 'text-brand-cyan' : 'hover:text-white'}">
+            <a href="/admin/orders.html" class="flex flex-col items-center py-3 px-2 w-full ${isItemActive(currentPage, '/admin/orders.html') ? 'text-brand-cyan' : 'hover:text-white'}">
                 <i class="fa-solid fa-clipboard-list text-lg mb-1"></i>
                 <span class="text-[8px] font-bold uppercase tracking-widest">Pedidos</span>
             </a>` : ''}
             ${showProducts ? `
-            <a href="/admin/products.html" class="flex flex-col items-center py-3 px-2 w-full ${currentPage.includes('/admin/products.html') ? 'text-brand-cyan' : 'hover:text-white'}">
+            <a href="/admin/products.html" class="flex flex-col items-center py-3 px-2 w-full ${isItemActive(currentPage, '/admin/products.html') ? 'text-brand-cyan' : 'hover:text-white'}">
                 <i class="fa-solid fa-box-open text-lg mb-1"></i>
                 <span class="text-[8px] font-bold uppercase tracking-widest">Stock</span>
             </a>` : ''}
@@ -147,13 +172,13 @@ export function loadAdminSidebar(userRole = 'customer') {
                     <div class="absolute inset-0 bg-brand-cyan/20 blur-xl rounded-full group-hover:bg-brand-cyan/30 transition"></div>
                     <img src="../img/logo.webp" alt="PixelTech" class="h-10 md:h-12 w-auto relative z-10 drop-shadow-lg">
                 </div>
-                <p class="text-[9px] text-gray-500 font-black uppercase tracking-[0.3em] mt-3">Admin Panel | <span class="text-brand-cyan">${userRole}</span></p>
+                <p class="text-[9px] text-gray-500 font-black uppercase tracking-[0.3em] mt-3">Admin Panel | <span class="text-brand-cyan">${effectiveRole}</span></p>
                 <button id="btn-update-app" class="hidden w-full flex items-center justify-center gap-2 py-3 mt-5 text-xs font-black uppercase tracking-widest text-brand-cyan bg-brand-cyan/10 border border-brand-cyan/30 hover:bg-brand-cyan hover:text-brand-black rounded-xl transition-all duration-300 shadow-[0_0_15px_rgba(0,174,199,0.3)]">
                     <i class="fa-solid fa-cloud-arrow-down fa-bounce"></i> Actualizar App
                 </button>
             </div>
 
-            <nav class="flex-grow p-4 mt-2 overflow-y-auto sidebar-scroll pb-24 md:pb-8">
+            <nav id="admin-sidebar-nav" class="flex-grow p-4 mt-2 overflow-y-auto sidebar-scroll pb-24 md:pb-8">
                 ${generateNavHTML()}
             </nav>
 
@@ -205,6 +230,47 @@ export function loadAdminSidebar(userRole = 'customer') {
         console.error("Error al iniciar notificaciones de WhatsApp en sidebar:", error);
     }
 
+    // --- GESTIÓN DE SCROLL PERSISTENTE DEL SIDEBAR ---
+    const navEl = document.getElementById('admin-sidebar-nav');
+    if (navEl) {
+        const applySavedScroll = () => {
+            const savedScroll = sessionStorage.getItem('pixeltech_admin_sidebar_scroll');
+            if (savedScroll !== null && !isNaN(parseInt(savedScroll, 10))) {
+                navEl.scrollTop = parseInt(savedScroll, 10);
+            } else {
+                // Si no hay posición guardada pero hay un elemento activo fuera de foco, enfocarlo
+                const activeLink = navEl.querySelector('.bg-brand-cyan');
+                if (activeLink) {
+                    activeLink.scrollIntoView({ block: 'nearest' });
+                }
+            }
+        };
+
+        // Aplicar inmediatamente y revalidar en el siguiente ciclo de render
+        applySavedScroll();
+        requestAnimationFrame(applySavedScroll);
+        setTimeout(applySavedScroll, 60);
+
+        // Guardar posición en tiempo real mientras el usuario se desplaza
+        navEl.addEventListener('scroll', () => {
+            sessionStorage.setItem('pixeltech_admin_sidebar_scroll', String(navEl.scrollTop));
+        }, { passive: true });
+
+        // Guardar posición al hacer clic en cualquier enlace del menú para navegación instantánea
+        navEl.querySelectorAll('a').forEach(link => {
+            link.addEventListener('click', () => {
+                sessionStorage.setItem('pixeltech_admin_sidebar_scroll', String(navEl.scrollTop));
+            });
+        });
+    }
+
+    window.addEventListener('beforeunload', () => {
+        const curNav = document.getElementById('admin-sidebar-nav');
+        if (curNav) {
+            sessionStorage.setItem('pixeltech_admin_sidebar_scroll', String(curNav.scrollTop));
+        }
+    });
+
     // --- LÓGICA DE EVENTOS (Se mantiene igual) ---
     const sidebar = document.getElementById('main-sidebar');
     const overlayEl = document.getElementById('sidebar-overlay');
@@ -212,7 +278,17 @@ export function loadAdminSidebar(userRole = 'customer') {
     const closeBtn = document.getElementById('mobile-menu-close');
     const logoutBtn = document.getElementById('btn-logout-global');
 
-    function openMenu() { sidebar.classList.remove('-translate-x-full'); overlayEl.classList.remove('hidden'); setTimeout(() => overlayEl.classList.remove('opacity-0'), 10); }
+    function openMenu() { 
+        sidebar.classList.remove('-translate-x-full'); 
+        overlayEl.classList.remove('hidden'); 
+        setTimeout(() => overlayEl.classList.remove('opacity-0'), 10); 
+        if (navEl) {
+            const savedScroll = sessionStorage.getItem('pixeltech_admin_sidebar_scroll');
+            if (savedScroll !== null && !isNaN(parseInt(savedScroll, 10))) {
+                navEl.scrollTop = parseInt(savedScroll, 10);
+            }
+        }
+    }
     function closeMenu() { sidebar.classList.add('-translate-x-full'); overlayEl.classList.add('opacity-0'); setTimeout(() => overlayEl.classList.add('hidden'), 300); }
 
     if (triggerBtn) triggerBtn.addEventListener('click', openMenu);
@@ -221,7 +297,7 @@ export function loadAdminSidebar(userRole = 'customer') {
 
     if (logoutBtn) {
         logoutBtn.onclick = () => {
-            if(confirm("¿Deseas cerrar la sesión administrativa?")) {
+            if(confirm("Deseas cerrar la sesión administrativa?")) {
                 auth.signOut().then(() => window.location.href = '/index.html');
             }
         };

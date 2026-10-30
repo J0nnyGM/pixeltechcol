@@ -6,165 +6,381 @@
     <meta name="theme-color" content="#00AEC7">
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Historial de Compras | PixelTech Admin</title>
+    <title>Historial de Compras & Cuentas por Pagar | PixelTech Admin</title>
     <link rel="stylesheet" href="../css/styles.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-        <style>
+    <style>
         .hidden { display: none !important; }
-        .custom-scroll::-webkit-scrollbar { width: 6px; }
-        .custom-scroll::-webkit-scrollbar-track { background: #f1f1f1; }
-        .custom-scroll::-webkit-scrollbar-thumb { background: #00AEC7; border-radius: 10px; }
-        .fade-in { animation: fadeIn 0.3s ease-out forwards; opacity: 0; transform: translateY(5px); }
-        @keyframes fadeIn { to { opacity: 1; transform: translateY(0); } }
+        .custom-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scroll::-webkit-scrollbar-track { background: transparent; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 9999px; }
+        .filter-pill.active {
+            background-color: #0f172a;
+            color: #ffffff;
+            box-shadow: 0 4px 6px -1px rgba(15, 23, 42, 0.12);
+        }
+        .modal-enter { animation: modalSlideIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+        @keyframes modalSlideIn {
+            from { opacity: 0; transform: scale(0.96) translateY(8px); }
+            to { opacity: 1; transform: scale(1) translateY(0); }
+        }
     </style>
 </head>
 
-<body class="bg-slate-50 font-sans text-brand-black flex h-screen overflow-hidden selection:bg-brand-cyan selection:text-white" style="display: none;">
+<body class="bg-slate-100/70 font-sans text-slate-800 flex h-screen overflow-hidden" style="display: none;">
 
     <div id="admin-sidebar"></div>
 
-    <main class="flex-grow overflow-y-auto relative custom-scroll">
-        <header class="bg-white/90 backdrop-blur-xl border-b border-gray-100 px-8 py-4 flex justify-between items-center sticky top-0 z-20 shadow-sm">
-            <h2 class="font-black text-brand-black text-[9px] uppercase tracking-[0.3em]">Logística & Abastecimiento</h2>
-            <div class="flex items-center gap-4">
-                <button onclick="window.location.href='inventory-entry.html'" class="bg-brand-black text-white px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-brand-cyan hover:text-brand-black transition-all flex items-center gap-2 transform active:scale-95 shadow-lg">
-                    <i class="fa-solid fa-plus"></i> Nueva Entrada
+    <main class="flex-grow overflow-y-auto relative custom-scroll p-4 sm:p-6 lg:p-8 bg-slate-50 w-full">
+        
+        <!-- Header Superior -->
+        <header class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+            <div>
+                <div class="flex items-center gap-3">
+                    <h1 class="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">Historial de Compras</h1>
+                    <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-cyan-50 text-cyan-700 border border-cyan-200">
+                        <i class="fa-solid fa-boxes-stacked text-[9px]"></i>
+                        Abastecimiento
+                    </span>
+                </div>
+                <p class="text-slate-500 text-xs sm:text-sm mt-0.5">Control de entradas de inventario, estados de pago, vencimientos y compromisos a proveedores.</p>
+            </div>
+            
+            <div class="flex items-center gap-2.5 w-full md:w-auto">
+                <button onclick="window.location.href='cartera.html'" title="Ir al módulo de Cartera Consolidada" class="bg-white border border-slate-200 text-slate-700 hover:text-slate-900 hover:border-slate-400 px-4 py-2.5 rounded-xl font-bold text-xs transition-all shadow-xs flex items-center justify-center gap-2 active:scale-95">
+                    <i class="fa-solid fa-wallet text-xs"></i>
+                    <span>Ver Cartera</span>
+                </button>
+                <button onclick="window.location.href='inventory-entry.html'" class="bg-slate-900 hover:bg-slate-800 text-white px-5 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition-all shadow-sm flex items-center justify-center gap-2 active:scale-95">
+                    <i class="fa-solid fa-plus text-xs"></i>
+                    <span>Nueva Entrada</span>
                 </button>
             </div>
         </header>
 
-        <div class="p-8 max-w-[1400px] mx-auto pb-20">
-            <div class="flex flex-col md:flex-row justify-between items-end mb-8 gap-6">
-                <div>
-                    <h1 class="text-4xl font-black tracking-tighter text-brand-black uppercase leading-none mb-2">
-                        Historial de <span class="text-brand-cyan">Compras</span>
-                    </h1>
-                    <p class="text-sm text-gray-500 font-bold tracking-wide">Registro de facturas y entradas de inventario.</p>
+        <!-- KPI Cards: Finanzas y Asistente de Próximos Pagos -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 lg:gap-6 mb-6">
+            <!-- Card 1: Total Facturado en Compras -->
+            <div class="bg-white p-5 lg:p-6 rounded-2xl border border-slate-200/80 shadow-xs hover:shadow-md transition-shadow relative overflow-hidden">
+                <div class="flex items-start justify-between">
+                    <div class="space-y-1">
+                        <span class="text-[10px] font-black uppercase tracking-wider text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md border border-slate-200">
+                            Inventario
+                        </span>
+                        <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mt-1">Total Compras Realizadas</p>
+                        <h3 class="text-2xl lg:text-3xl font-black text-slate-900 tracking-tight" id="kpi-total-purchases">$0</h3>
+                    </div>
+                    <div class="w-12 h-12 rounded-2xl bg-cyan-50 text-cyan-600 border border-cyan-100 flex items-center justify-center text-xl shrink-0">
+                        <i class="fa-solid fa-cart-flatbed"></i>
+                    </div>
                 </div>
-                <div class="relative w-full md:w-auto">
-                    <i class="fa-solid fa-search absolute left-4 top-1/2 -translate-y-1/2 text-gray-300 text-xs"></i>
-                    <input type="text" id="search-input" placeholder="Buscar proveedor o ID..."
-                        class="w-full md:w-64 pl-10 pr-4 py-3 rounded-xl border border-gray-200 text-xs font-bold outline-none focus:border-brand-cyan transition bg-white shadow-sm text-brand-black">
+                <div class="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500 font-medium">
+                    <span id="kpi-count-purchases" class="font-bold text-slate-700">0 entradas</span>
+                    <span class="font-semibold text-slate-400">Histórico completo</span>
                 </div>
             </div>
 
-            <div class="bg-white rounded-[2.5rem] shadow-xl border border-gray-100 overflow-hidden fade-in">
-                <div class="overflow-x-auto custom-scroll">
-                    <table class="w-full text-left text-sm min-w-[800px]">
-                        <thead class="bg-slate-50 text-[9px] uppercase font-black text-gray-400 tracking-widest border-b border-gray-100">
-                            <tr>
-                                <th class="px-8 py-6 w-36">ID / Fecha</th>
-                                <th class="px-8 py-6">Proveedor</th>
-                                <th class="px-8 py-6 text-center">Cant. Ítems</th>
-                                <th class="px-8 py-6 text-center">Registrado por</th>
-                                <th class="px-8 py-6 text-right">Costo Total</th>
-                                <th class="px-8 py-6 text-center w-32">Acciones</th>
-                            </tr>
-                        </thead>
-                        <tbody id="purchases-table-body" class="divide-y divide-gray-50">
-                            <tr><td colspan="6" class="p-10 text-center text-xs text-gray-400 font-bold uppercase"><i class="fa-solid fa-circle-notch fa-spin text-brand-cyan text-lg mb-2"></i><br>Cargando compras...</td></tr>
-                        </tbody>
-                    </table>
+            <!-- Card 2: Saldo Pendiente por Pagar (Cuentas por Pagar) -->
+            <div class="bg-white p-5 lg:p-6 rounded-2xl border border-slate-200/80 shadow-xs hover:shadow-md transition-shadow relative overflow-hidden">
+                <div class="flex items-start justify-between">
+                    <div class="space-y-1">
+                        <span class="text-[10px] font-black uppercase tracking-wider text-rose-600 bg-rose-50 px-2 py-0.5 rounded-md border border-rose-100">
+                            Cuentas por Pagar
+                        </span>
+                        <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mt-1">Saldo Adeudado a Proveedores</p>
+                        <h3 class="text-2xl lg:text-3xl font-black text-rose-600 tracking-tight" id="kpi-total-pending">$0</h3>
+                    </div>
+                    <div class="w-12 h-12 rounded-2xl bg-rose-50 text-rose-600 border border-rose-100 flex items-center justify-center text-xl shrink-0">
+                        <i class="fa-solid fa-file-invoice-dollar"></i>
+                    </div>
+                </div>
+                <div class="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500 font-medium">
+                    <span id="kpi-count-pending" class="font-bold text-slate-700">0 compras con saldo</span>
+                    <button onclick="window.setFilter('pending')" class="text-[11px] font-bold text-rose-600 hover:text-rose-800 underline">
+                        Filtrar por pagar
+                    </button>
+                </div>
+            </div>
+
+            <!-- Card 3: Asistente de Próximos Pagos y Vencimientos -->
+            <div class="bg-slate-900 p-5 lg:p-6 rounded-2xl border border-slate-800 shadow-md relative overflow-hidden text-white">
+                <div class="flex items-start justify-between">
+                    <div class="space-y-1">
+                        <span id="kpi-urgent-badge" class="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                            Próximos Vencimientos
+                        </span>
+                        <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mt-1">Pagos Urgentes (Vencidas / 7 Días)</p>
+                        <h3 class="text-2xl lg:text-3xl font-black tracking-tight text-amber-400" id="kpi-urgent-amount">$0</h3>
+                    </div>
+                    <div class="w-12 h-12 rounded-2xl bg-white/10 text-white flex items-center justify-center text-xl shrink-0">
+                        <i class="fa-solid fa-clock-rotate-left"></i>
+                    </div>
+                </div>
+                <div class="mt-4 pt-3 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400 font-medium">
+                    <span id="kpi-urgent-breakdown" class="text-slate-300 font-bold">0 vencidas • 0 por vencer</span>
+                    <button onclick="window.setFilter('urgent')" class="text-[11px] font-bold text-amber-400 hover:text-amber-300 underline">
+                        Ver próximos pagos
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Contenedor Principal con Barra de Filtros y Tabla -->
+        <div class="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden flex flex-col min-h-[520px]">
+            <!-- Barra de Controles y Filtros -->
+            <div class="p-3.5 sm:p-4 border-b border-slate-100 bg-slate-50/70 flex flex-col lg:flex-row gap-3 justify-between items-stretch lg:items-center">
+                <!-- Filtros Tipo Pill -->
+                <div class="flex items-center gap-1.5 p-1 bg-slate-200/60 rounded-xl overflow-x-auto custom-scroll shrink-0">
+                    <button id="pill-all" onclick="window.setFilter('all')" class="filter-pill active px-3.5 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1.5 whitespace-nowrap">
+                        <span>Todas</span>
+                        <span id="badge-count-all" class="bg-white/20 text-white px-2 py-0.5 rounded-full text-[10px] font-bold">0</span>
+                    </button>
+                    <button id="pill-pending" onclick="window.setFilter('pending')" class="filter-pill px-3.5 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all text-slate-600 hover:text-slate-900 flex items-center gap-1.5 whitespace-nowrap">
+                        <span>Por Pagar</span>
+                        <span id="badge-count-pending" class="bg-slate-300/80 text-slate-700 px-2 py-0.5 rounded-full text-[10px] font-bold">0</span>
+                    </button>
+                    <button id="pill-due-soon" onclick="window.setFilter('due-soon')" class="filter-pill px-3.5 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all text-slate-600 hover:text-slate-900 flex items-center gap-1.5 whitespace-nowrap">
+                        <i class="fa-solid fa-calendar-day text-[10px] text-amber-500"></i>
+                        <span>Por Vencer (7d)</span>
+                        <span id="badge-count-due-soon" class="bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full text-[10px] font-black">0</span>
+                    </button>
+                    <button id="pill-overdue" onclick="window.setFilter('overdue')" class="filter-pill px-3.5 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all text-slate-600 hover:text-slate-900 flex items-center gap-1.5 whitespace-nowrap">
+                        <i class="fa-solid fa-triangle-exclamation text-[10px] text-rose-500"></i>
+                        <span>Vencidas</span>
+                        <span id="badge-count-overdue" class="bg-rose-100 text-rose-800 px-2 py-0.5 rounded-full text-[10px] font-black">0</span>
+                    </button>
+                    <button id="pill-paid" onclick="window.setFilter('paid')" class="filter-pill px-3.5 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider transition-all text-slate-600 hover:text-slate-900 flex items-center gap-1.5 whitespace-nowrap">
+                        <i class="fa-solid fa-check text-[10px] text-emerald-500"></i>
+                        <span>Pagadas</span>
+                        <span id="badge-count-paid" class="bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full text-[10px] font-black">0</span>
+                    </button>
                 </div>
 
-                <div id="pagination-container" class="p-6 flex flex-col sm:flex-row justify-between items-center gap-4 border-t border-gray-100 bg-slate-50/50">
-                    <p class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
-                        Mostrando <span id="pagination-range" class="text-brand-black font-black">0-0</span> de <span id="pagination-total" class="text-brand-black font-black">0</span> compras
-                    </p>
-                    <div class="flex items-center gap-3">
-                        <div class="flex items-center gap-1.5 text-[10px] font-bold text-gray-400 uppercase">
-                            <span>Mostrar:</span>
-                            <select id="page-size-select" class="bg-white border border-gray-200 rounded-lg px-2 py-1.5 text-xs font-bold text-brand-black outline-none focus:border-brand-cyan">
-                                <option value="15">15</option>
-                                <option value="30">30</option>
-                                <option value="50" selected>50</option>
-                                <option value="100">100</option>
-                            </select>
-                        </div>
-                        <div class="flex gap-2">
-                            <button id="btn-prev-page" onclick="window.changePurchasesPage(-1)" disabled 
-                                class="px-4 py-2 bg-white border border-gray-200 rounded-lg text-gray-400 text-xs font-bold uppercase disabled:opacity-40 disabled:cursor-not-allowed hover:border-brand-cyan hover:text-brand-cyan transition shadow-sm flex items-center gap-1">
-                                <i class="fa-solid fa-chevron-left"></i> Anterior
-                            </button>
-                            <button id="btn-next-page" onclick="window.changePurchasesPage(1)" disabled
-                                class="px-4 py-2 bg-white border border-gray-200 rounded-lg text-gray-400 text-xs font-bold uppercase disabled:opacity-40 disabled:cursor-not-allowed hover:border-brand-cyan hover:text-brand-cyan transition shadow-sm flex items-center gap-1">
-                                Siguiente <i class="fa-solid fa-chevron-right"></i>
-                            </button>
-                        </div>
+                <!-- Búsqueda y Ordenamiento -->
+                <div class="flex items-center gap-2 w-full lg:w-auto">
+                    <div class="relative flex-grow lg:w-64">
+                        <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
+                        <input type="text" id="search-input" placeholder="Buscar proveedor, ID o producto..." class="w-full pl-9 pr-4 py-2 rounded-xl border border-slate-200 bg-white text-xs font-medium text-slate-800 placeholder-slate-400 outline-none focus:border-slate-800 focus:ring-1 focus:ring-slate-800 transition">
+                    </div>
+
+                    <select id="sort-select" onchange="window.handleSortChange()" class="bg-white border border-slate-200 text-slate-700 font-bold text-xs px-3 py-2 rounded-xl outline-none focus:border-slate-800 transition shrink-0">
+                        <option value="recent-desc">Más recientes primero</option>
+                        <option value="due-asc">Vencimiento más próximo</option>
+                        <option value="pending-desc">Mayor saldo pendiente</option>
+                        <option value="total-desc">Mayor costo total</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Tabla de Compras -->
+            <div class="flex-grow overflow-x-auto custom-scroll">
+                <table class="w-full text-left border-collapse min-w-[950px]">
+                    <thead class="bg-slate-50 text-[10px] uppercase font-black text-slate-400 tracking-wider sticky top-0 z-10 border-b border-slate-200">
+                        <tr>
+                            <th class="px-6 py-3.5 w-36">ID / Fecha Entrada</th>
+                            <th class="px-6 py-3.5">Proveedor</th>
+                            <th class="px-6 py-3.5 text-center">Ítems</th>
+                            <th class="px-6 py-3.5 text-left">Estado de Pago & Abonos</th>
+                            <th class="px-6 py-3.5 text-left">Vencimiento & Urgencia</th>
+                            <th class="px-6 py-3.5 text-right">Costo Total & Saldo</th>
+                            <th class="px-6 py-3.5 text-center w-36">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody id="purchases-table-body" class="divide-y divide-slate-100 text-xs font-medium text-slate-700">
+                        <tr>
+                            <td colspan="7" class="p-12 text-center text-slate-400">
+                                <i class="fa-solid fa-circle-notch fa-spin text-lg mb-2"></i>
+                                <p class="text-xs font-bold uppercase tracking-wider">Cargando compras y cuentas por pagar...</p>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Paginación -->
+            <div id="pagination-container" class="p-4 flex flex-col sm:flex-row justify-between items-center gap-4 border-t border-slate-100 bg-slate-50/60">
+                <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                    Mostrando <span id="pagination-range" class="text-slate-800 font-black">0-0</span> de <span id="pagination-total" class="text-slate-800 font-black">0</span> compras
+                </p>
+                <div class="flex items-center gap-3">
+                    <div class="flex items-center gap-1.5 text-[10px] font-bold text-slate-400 uppercase">
+                        <span>Mostrar:</span>
+                        <select id="page-size-select" class="bg-white border border-slate-200 rounded-lg px-2 py-1 text-xs font-bold text-slate-800 outline-none focus:border-slate-800">
+                            <option value="15">15</option>
+                            <option value="30">30</option>
+                            <option value="50" selected>50</option>
+                            <option value="100">100</option>
+                        </select>
+                    </div>
+                    <div class="flex gap-2">
+                        <button id="btn-prev-page" onclick="window.changePurchasesPage(-1)" disabled 
+                            class="px-3.5 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-500 text-xs font-bold uppercase disabled:opacity-40 disabled:cursor-not-allowed hover:border-slate-800 hover:text-slate-900 transition shadow-2xs flex items-center gap-1">
+                            <i class="fa-solid fa-chevron-left text-[9px]"></i> Anterior
+                        </button>
+                        <button id="btn-next-page" onclick="window.changePurchasesPage(1)" disabled
+                            class="px-3.5 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-500 text-xs font-bold uppercase disabled:opacity-40 disabled:cursor-not-allowed hover:border-slate-800 hover:text-slate-900 transition shadow-2xs flex items-center gap-1">
+                            Siguiente <i class="fa-solid fa-chevron-right text-[9px]"></i>
+                        </button>
                     </div>
                 </div>
             </div>
         </div>
     </main>
 
+    <!-- Modal Detalle Factura / Compra -->
     <div id="purchase-modal" class="fixed inset-0 z-[70] hidden flex items-center justify-center p-4">
-        <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-md transition-opacity" onclick="document.getElementById('purchase-modal').classList.add('hidden')"></div>
-        <div class="relative bg-white w-full max-w-4xl rounded-[2.5rem] shadow-2xl flex flex-col max-h-[90vh] overflow-hidden animate-fadeIn">
+        <div class="absolute inset-0 bg-slate-900/60 backdrop-blur-xs transition-opacity" onclick="window.closePurchaseModal()"></div>
+        <div class="relative bg-white w-full max-w-4xl rounded-2xl sm:rounded-3xl shadow-2xl flex flex-col max-h-[92vh] overflow-hidden modal-enter border border-slate-200">
             
-            <div class="p-8 border-b border-gray-50 flex justify-between items-center bg-slate-50/50">
-                <div class="flex items-center gap-5">
-                    <div class="w-14 h-14 bg-white border border-gray-100 rounded-2xl flex items-center justify-center text-brand-cyan text-2xl shadow-sm">
+            <div class="px-6 py-5 border-b border-slate-100 flex justify-between items-center bg-slate-50/80">
+                <div class="flex items-center gap-4">
+                    <div class="w-12 h-12 bg-white border border-slate-200 rounded-2xl flex items-center justify-center text-cyan-600 text-xl shadow-2xs">
                         <i class="fa-solid fa-file-invoice"></i>
                     </div>
                     <div>
-                        <div class="flex items-center gap-3">
-                            <h3 class="text-3xl font-black tracking-tighter uppercase text-brand-black" id="modal-purchase-id">#COMPRA</h3>
+                        <div class="flex items-center gap-2.5">
+                            <h3 class="text-xl font-black tracking-tight uppercase text-slate-900" id="modal-purchase-id">#COMPRA</h3>
+                            <span id="modal-payment-status-badge" class="px-2.5 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider">...</span>
                         </div>
-                        <p id="modal-purchase-date" class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1">...</p>
+                        <p id="modal-purchase-date" class="text-xs font-medium text-slate-400 mt-0.5">...</p>
                     </div>
                 </div>
-                <button class="w-10 h-10 rounded-full bg-white border border-gray-200 text-gray-400 hover:bg-brand-red hover:text-white transition flex items-center justify-center" onclick="document.getElementById('purchase-modal').classList.add('hidden')">
-                    <i class="fa-solid fa-xmark"></i>
+                <button class="w-8 h-8 rounded-xl bg-white border border-slate-200 text-slate-400 hover:text-slate-800 transition flex items-center justify-center" onclick="window.closePurchaseModal()">
+                    <i class="fa-solid fa-xmark text-sm"></i>
                 </button>
             </div>
 
-            <div class="p-8 overflow-y-auto custom-scroll space-y-8 bg-white flex-grow">
+            <div class="p-6 overflow-y-auto custom-scroll space-y-6 bg-white flex-grow">
+                <!-- Panel de Métricas Financieras de la Compra -->
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                    <div class="bg-slate-50 p-3.5 rounded-xl border border-slate-200/80">
+                        <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Costo Total</span>
+                        <p id="modal-metric-total" class="text-base font-black text-slate-900 mt-0.5">$0</p>
+                    </div>
+                    <div class="bg-slate-50 p-3.5 rounded-xl border border-slate-200/80">
+                        <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Monto Abonado</span>
+                        <p id="modal-metric-paid" class="text-base font-black text-emerald-600 mt-0.5">$0</p>
+                    </div>
+                    <div class="bg-slate-50 p-3.5 rounded-xl border border-slate-200/80">
+                        <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Saldo Pendiente</span>
+                        <p id="modal-metric-pending" class="text-base font-black text-rose-600 mt-0.5">$0</p>
+                    </div>
+                    <div class="bg-slate-50 p-3.5 rounded-xl border border-slate-200/80">
+                        <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Vencimiento</span>
+                        <div id="modal-metric-due" class="text-xs font-bold text-slate-700 mt-0.5">--</div>
+                    </div>
+                </div>
+
+                <!-- Datos de la Compra -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div class="bg-white border border-slate-200/80 p-4 rounded-xl shadow-2xs">
+                        <h4 class="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1 flex items-center gap-1.5"><i class="fa-solid fa-building text-slate-500"></i> Proveedor</h4>
+                        <p id="modal-supplier-name" class="font-black text-slate-900 uppercase text-sm">...</p>
+                    </div>
+                    <div class="bg-white border border-slate-200/80 p-4 rounded-xl shadow-2xs">
+                        <h4 class="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1 flex items-center gap-1.5"><i class="fa-solid fa-user-tie text-slate-500"></i> Registrado Por</h4>
+                        <p id="modal-admin-name" class="font-bold text-slate-700 text-xs">...</p>
+                    </div>
+                    <div class="bg-white border border-slate-200/80 p-4 rounded-xl shadow-2xs">
+                        <h4 class="text-[10px] font-black uppercase tracking-wider text-slate-400 mb-1 flex items-center gap-1.5"><i class="fa-solid fa-receipt text-slate-500"></i> IVA (19%)</h4>
+                        <span id="modal-iva-badge" class="inline-block px-2.5 py-0.5 rounded text-[10px] font-black uppercase tracking-wider bg-slate-100 text-slate-600">NO APLICADO</span>
+                    </div>
+                </div>
+
+                <!-- Mercancía Ingresada -->
+                <div>
+                    <h4 class="text-xs font-black uppercase tracking-wider text-slate-900 mb-3 flex items-center gap-2">
+                        <i class="fa-solid fa-boxes-stacked text-slate-400"></i>
+                        <span>Mercancía Ingresada</span>
+                    </h4>
+                    <div class="overflow-x-auto rounded-xl border border-slate-200">
+                        <table class="w-full text-left text-xs">
+                            <thead class="bg-slate-50 text-[10px] uppercase font-black text-slate-400 tracking-wider border-b border-slate-200">
+                                <tr>
+                                    <th class="p-3">Producto</th>
+                                    <th class="p-3 text-center">Cant.</th>
+                                    <th class="p-3 text-right">Costo Unitario Base</th>
+                                    <th class="p-3 text-right">Total Fila</th>
+                                </tr>
+                            </thead>
+                            <tbody id="modal-items-list" class="divide-y divide-slate-100 font-medium text-slate-700">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Footer Modal Detalle -->
+            <div class="p-5 bg-slate-50 border-t border-slate-100 flex flex-col sm:flex-row justify-between items-center gap-3">
+                <div class="flex items-center gap-2 w-full sm:w-auto">
+                    <button id="modal-btn-edit" class="w-full sm:w-auto bg-white border border-slate-200 hover:border-slate-800 text-slate-700 hover:text-slate-900 px-4 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider transition flex items-center justify-center gap-2 shadow-2xs">
+                        <i class="fa-solid fa-pen-to-square text-xs"></i>
+                        <span>Editar Entrada</span>
+                    </button>
+                    <button id="modal-btn-pay" onclick="window.payCurrentModalPurchase()" class="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider transition flex items-center justify-center gap-2 shadow-sm active:scale-95">
+                        <i class="fa-solid fa-hand-holding-dollar text-xs"></i>
+                        <span>Abonar / Pagar Saldo</span>
+                    </button>
+                </div>
+                <div class="text-right">
+                    <p class="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Costo Total Factura</p>
+                    <h4 id="modal-purchase-total" class="text-2xl font-black text-slate-900 leading-none tracking-tight">$0</h4>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Modal Rápido de Pago / Abono a Compra -->
+    <div id="purchase-payment-modal" class="hidden fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/70 backdrop-blur-xs p-4">
+        <div class="bg-white w-full max-w-md rounded-2xl sm:rounded-3xl shadow-2xl relative modal-enter border border-slate-200 overflow-hidden">
+            <div class="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                <div>
+                    <h3 class="text-base font-black uppercase text-slate-900 tracking-tight">Pagar Factura de Compra</h3>
+                    <p class="text-xs text-slate-500" id="pay-supplier-name">Proveedor</p>
+                </div>
+                <button onclick="window.closePurchasePaymentModal()" class="w-8 h-8 rounded-xl bg-white border border-slate-200 text-slate-400 hover:text-rose-600 transition flex items-center justify-center">
+                    <i class="fa-solid fa-xmark text-sm"></i>
+                </button>
+            </div>
+
+            <form id="purchase-payment-form" class="p-6 space-y-4">
+                <input type="hidden" id="pay-purchase-id">
                 
-                <div class="flex flex-col md:flex-row gap-6">
-                    <div class="flex-1 bg-white border border-gray-100 p-6 rounded-[2rem] shadow-sm">
-                        <h4 class="text-[9px] font-black uppercase tracking-widest text-gray-400 mb-3 flex items-center gap-2"><i class="fa-solid fa-building text-brand-cyan"></i> Proveedor</h4>
-                        <p id="modal-supplier-name" class="font-black text-brand-black uppercase text-base">...</p>
-                    </div>
-                    <div class="flex-1 bg-white border border-gray-100 p-6 rounded-[2rem] shadow-sm">
-                        <h4 class="text-[9px] font-black uppercase tracking-widest text-gray-400 mb-3 flex items-center gap-2"><i class="fa-solid fa-user-tie text-brand-cyan"></i> Registrado Por</h4>
-                        <p id="modal-admin-name" class="font-bold text-gray-600 text-sm">...</p>
-                    </div>
-                    <div class="flex-1 bg-white border border-gray-100 p-6 rounded-[2rem] shadow-sm text-center flex flex-col justify-center">
-                        <p class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">IVA (19%)</p>
-                        <span id="modal-iva-badge" class="inline-block px-3 py-1 rounded bg-gray-100 text-gray-500 text-[10px] font-black uppercase tracking-widest">NO APLICADO</span>
+                <div class="bg-slate-50 p-3.5 rounded-xl border border-slate-200/80 flex items-center justify-between text-xs">
+                    <span class="font-bold text-slate-500">Saldo pendiente de esta compra:</span>
+                    <span id="pay-pending-balance-label" class="font-black text-sm text-rose-600">$0</span>
+                </div>
+
+                <div>
+                    <label class="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">Monto a Pagar / Abonar *</label>
+                    <input type="text" id="pay-amount-input" required placeholder="$ 0" class="w-full bg-slate-50 border border-slate-200 px-4 py-3 rounded-xl text-xl font-black text-slate-900 outline-none focus:border-slate-800 focus:bg-white transition currency-input">
+                    
+                    <div class="flex items-center gap-2 mt-2">
+                        <button type="button" onclick="window.setPurchasePaymentPreset(1)" class="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 transition">
+                            100% Saldo Total
+                        </button>
+                        <button type="button" onclick="window.setPurchasePaymentPreset(0.5)" class="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 transition">
+                            50% Mitad
+                        </button>
+                        <button type="button" onclick="window.setPurchasePaymentPreset(0)" class="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-slate-100 hover:bg-slate-200 text-slate-400 hover:text-slate-700 transition">
+                            Limpiar
+                        </button>
                     </div>
                 </div>
 
                 <div>
-                    <h4 class="text-[10px] font-black uppercase tracking-[0.2em] text-brand-black mb-4 border-b border-gray-100 pb-2">Mercancía Ingresada</h4>
-                    <div class="overflow-x-auto rounded-xl border border-gray-100">
-                        <table class="w-full text-left text-sm">
-                            <thead class="bg-slate-50 text-[9px] uppercase font-black text-gray-400 tracking-widest border-b border-gray-100">
-                                <tr>
-                                    <th class="p-4">Producto</th>
-                                    <th class="p-4 text-center">Cant.</th>
-                                    <th class="p-4 text-right">Costo Unit. Base</th>
-                                    <th class="p-4 text-right">Total Fila</th>
-                                </tr>
-                            </thead>
-                            <tbody id="modal-items-list" class="divide-y divide-gray-50">
-                                </tbody>
-                        </table>
-                    </div>
+                    <label class="block text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">Cuenta de Tesorería Origen *</label>
+                    <select id="pay-account-select" required class="w-full bg-slate-50 border border-slate-200 px-3.5 py-2.5 rounded-xl font-bold text-xs text-slate-800 outline-none focus:border-slate-800 focus:bg-white transition">
+                        <option value="">Seleccione cuenta...</option>
+                    </select>
                 </div>
 
-            </div>
-
-            <div class="p-8 bg-slate-50 border-t border-gray-100 flex flex-col sm:flex-row justify-between items-center gap-4">
-                <button id="modal-btn-edit" class="w-full sm:w-auto bg-brand-black text-white hover:bg-brand-cyan hover:text-brand-black px-6 py-3 rounded-xl font-black text-xs uppercase tracking-widest transition flex items-center justify-center gap-2 shadow-md">
-                    <i class="fa-solid fa-pen-to-square"></i> Editar Entrada
+                <button type="submit" id="btn-confirm-purchase-pay" class="w-full bg-slate-900 hover:bg-slate-800 text-white py-3.5 rounded-xl font-black text-xs uppercase tracking-wider transition shadow-md flex items-center justify-center gap-2 active:scale-98 mt-2">
+                    <i class="fa-solid fa-check text-xs"></i>
+                    <span>Confirmar Pago de Compra</span>
                 </button>
-                <div class="text-right">
-                    <p class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Costo Total Factura</p>
-                    <h4 id="modal-purchase-total" class="text-4xl font-black text-brand-black leading-none tracking-tight">$0</h4>
-                </div>
-            </div>
-
+            </form>
         </div>
     </div>
 

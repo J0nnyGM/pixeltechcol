@@ -1,4 +1,4 @@
-import { db, doc, collection, query, where, limit, getDocs, onSnapshot } from './firebase-init.js';
+import { db, doc, collection, query, where, limit, getDocs, getDoc, onSnapshot } from './firebase-init.js';
 import { addToCart } from './cart.js'; 
 import { trackEcommerceEvent } from './global-components.js';
 
@@ -52,7 +52,7 @@ const els = {
     relatedGrid: document.getElementById('related-grid')
 };
 
-// 🔥 FUNCIÓN SEO: Transforma la URL para pedir la versión miniatura
+// Transforma la URL para pedir la version miniatura
 function getResizedImageUrl(url) {
     if (!url || !url.includes('firebasestorage')) return url;
     return url.replace(/(\.jpg|\.jpeg|\.png|\.webp)(\?alt=media)/i, '_200x200$1$2');
@@ -71,13 +71,77 @@ function getProductFromCache(id) {
     return null;
 }
 
-// Variable global para guardar la lista de imágenes actual
+// Variable global para guardar la lista de imagenes actual
 let currentGalleryImages = [];
-// Variable para controlar la suscripción en tiempo real y evitar duplicados
+// Variable para controlar la suscripcion en tiempo real y evitar duplicados
 let unsubscribeProduct = null;
 
-// LÓGICA DE SWIPE (DESLIZAMIENTO EN MÓVILES)
+// Lógica de swipe para dispositivos moviles
 let swipeInitialized = false;
+
+// Parser para documentos REST de Firestore
+function parseFirestoreRestDoc(fields, id) {
+    const parseVal = (v) => {
+        if (!v || typeof v !== 'object') return null;
+        if ('stringValue' in v) return v.stringValue;
+        if ('integerValue' in v) return parseInt(v.integerValue, 10);
+        if ('doubleValue' in v) return parseFloat(v.doubleValue);
+        if ('booleanValue' in v) return !!v.booleanValue;
+        if ('nullValue' in v) return null;
+        if ('arrayValue' in v) {
+            const vals = v.arrayValue.values || [];
+            return vals.map(parseVal);
+        }
+        if ('mapValue' in v) {
+            const res = {};
+            const subFields = v.mapValue.fields || {};
+            for (const k in subFields) {
+                res[k] = parseVal(subFields[k]);
+            }
+            return res;
+        }
+        return null;
+    };
+
+    const docData = { id };
+    for (const key in fields) {
+        docData[key] = parseVal(fields[key]);
+    }
+    return docData;
+}
+
+// Consulta directa resiliente con timeout y fallback REST
+async function fetchProductDirectly(productId) {
+    try {
+        const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error("Timeout Firestore getDoc")), 3500)
+        );
+        const docPromise = getDoc(doc(db, "products", productId));
+        const snap = await Promise.race([docPromise, timeoutPromise]);
+        
+        if (snap && snap.exists()) {
+            return { id: snap.id, ...snap.data() };
+        }
+    } catch (err) {
+        console.warn("[Detalle] getDoc lento o no disponible, usando fallback REST...", err);
+    }
+
+    try {
+        const apiKey = "AIzaSyALwLCRjRaWUE5yy5-TBjjxKehguNhb0GU";
+        const url = `https://firestore.googleapis.com/v1/projects/pixeltechcol/databases/(default)/documents/products/${encodeURIComponent(productId)}?key=${apiKey}`;
+        const res = await fetch(url);
+        if (res.ok) {
+            const json = await res.json();
+            if (json && json.fields) {
+                return parseFirestoreRestDoc(json.fields, productId);
+            }
+        }
+    } catch (restErr) {
+        console.warn("[Detalle] REST fallback error:", restErr);
+    }
+
+    return null;
+}
 
 export async function initProductDetail() {
     const params = new URLSearchParams(window.location.search);
@@ -85,66 +149,65 @@ export async function initProductDetail() {
 
     if (!productId) { window.location.href = '/index.html'; return; }
 
-    // 1. 🔥 HIDRATACIÓN INMEDIATA (Velocidad Extrema) 🔥
     let productData = null;
 
+    // 1. HIDRATACION INMEDIATA: Datos precargados desde servidor (0ms)
     if (window.__PRELOADED_PRODUCT__) {
         productData = window.__PRELOADED_PRODUCT__;
-        
-        // Pintamos lo básico al instante
-        els.name.textContent = productData.name;
-        els.price.textContent = `$${productData.price.toLocaleString('es-CO')}`;
-        
-        if(els.mainImg.src === "" || els.mainImg.src.includes('undefined')) {
-             els.mainImg.src = productData.mainImage || 'https://placehold.co/500';
-        }
-        
-        if (els.loader) els.loader.classList.add('hidden');
-        if (els.content) els.content.classList.remove('hidden');
+        renderProductData(productData, productId);
     }
 
-    // 2. BUSCAR CACHÉ LOCAL
+    // 2. BUSCAR CACHE LOCAL (SmartCache)
     const cachedProduct = getProductFromCache(productId);
     if (cachedProduct) {
-        console.log("⚡ [Detalle] Cargado desde SmartCache");
-        productData = cachedProduct;
-        renderProductData(productData, productId);
+        if (!productData || (cachedProduct.variants && !productData.variants)) {
+            productData = cachedProduct;
+            renderProductData(productData, productId);
+        }
     } 
 
-    let firebaseStarted = false;
-
-    const startFirebaseSync = () => {
-        if (firebaseStarted) return;
-        firebaseStarted = true;
-        
-        if (unsubscribeProduct) unsubscribeProduct();
-        console.log("☁️ [Detalle] Iniciando Sync con Firebase...");
-        
-        unsubscribeProduct = onSnapshot(doc(db, "products", productId), (snap) => {
-            if (!snap.exists()) {
-                document.body.innerHTML = "<div class='flex flex-col items-center justify-center h-screen'><h1 class='text-2xl font-black mb-4'>Producto no encontrado o eliminado 😔</h1><a href='/' class='bg-brand-cyan px-6 py-3 rounded-xl font-bold'>Volver al Inicio</a></div>";
-                return;
-            }
-
-            const freshData = { id: snap.id, ...snap.data() };
+    // 3. CONSULTA DIRECTA CON TIMEOUT Y FALLBACK REST (Inmediata, sin esperar idle)
+    fetchProductDirectly(productId).then(freshData => {
+        if (freshData) {
             const isDifferent = !productData || JSON.stringify(productData) !== JSON.stringify(freshData);
-
             if (isDifferent) {
-                console.log("🔥 [Detalle] Actualización detectada.");
                 productData = freshData;
                 renderProductData(productData, productId);
                 updateLocalCacheWith(productData);
             }
-        }, (error) => {
-            console.error("Error en SmartSync Detalle:", error);
-        });
-    };
+        }
+    }).catch(err => {
+        console.warn("[Detalle] Error en sync directo:", err);
+    });
 
-    // 🔥 EN LA PÁGINA DE PRODUCTO, LA DATA ES VITAL: Pedimos las variantes de inmediato sin bloquear.
-    if ('requestIdleCallback' in window) {
-        requestIdleCallback(startFirebaseSync);
-    } else {
-        setTimeout(startFirebaseSync, 50);
+    // 4. SINCRONIZACION EN SEGUNDO PLANO
+    startRealtimeSync(productId);
+}
+
+function startRealtimeSync(productId) {
+    if (unsubscribeProduct) unsubscribeProduct();
+    try {
+        unsubscribeProduct = onSnapshot(doc(db, "products", productId), (snap) => {
+            if (!snap.exists()) {
+                if (!state.product) {
+                    document.body.innerHTML = "<div class='flex flex-col items-center justify-center h-screen'><h1 class='text-2xl font-black mb-4'>Producto no disponible</h1><a href='/' class='bg-brand-cyan px-6 py-3 rounded-xl font-bold'>Volver al Inicio</a></div>";
+                }
+                return;
+            }
+
+            const freshData = { id: snap.id, ...snap.data() };
+            const isDifferent = !state.product || JSON.stringify(state.product) !== JSON.stringify(freshData);
+
+            if (isDifferent) {
+                state.product = freshData;
+                renderProductData(freshData, productId);
+                updateLocalCacheWith(freshData);
+            }
+        }, (error) => {
+            console.warn("[Detalle] Listener en tiempo real inactivo:", error);
+        });
+    } catch (e) {
+        console.warn("[Detalle] Error iniciando listener:", e);
     }
 }
 
@@ -163,62 +226,62 @@ function updateLocalCacheWith(productData) {
 }
 
 async function renderProductData(p, productId) {
+    if (!p) return;
     state.product = p;
     
-    // Leer parámetros de la URL para autoseleccionar variantes
+    // Leer parametros de la URL para autoseleccionar variantes
     const params = new URLSearchParams(window.location.search);
     const urlColor = params.get('color');
     const urlCapacity = params.get('capacity');
 
-    if (urlColor && p.variants) {
-        const foundColor = p.variants.find(v => v.color.toLowerCase() === urlColor.toLowerCase());
+    if (urlColor && Array.isArray(p.variants)) {
+        const foundColor = p.variants.find(v => v.color && v.color.toLowerCase() === urlColor.toLowerCase());
         if (foundColor) state.selectedColor = foundColor.color;
     }
-    if (urlCapacity && p.capacities) {
-        const foundCap = p.capacities.find(c => c.label.toLowerCase() === urlCapacity.toLowerCase());
+    if (urlCapacity && Array.isArray(p.capacities)) {
+        const foundCap = p.capacities.find(c => c.label && c.label.toLowerCase() === urlCapacity.toLowerCase());
         if (foundCap) state.selectedCapacity = foundCap.label;
     }
 
-    // 🔥 CORRECCIÓN CRÍTICA: Autoselección de protección 🔥
-    // Si la URL trajo solo 1 parámetro (ej. el color) pero el producto requiere 2, 
-    // autoseleccionamos el faltante basándonos en el que tenga stock.
-    if (p.hasCapacities && !state.selectedCapacity) {
-        // Busca la primera capacidad que tenga stock haciendo match con el color seleccionado
+    // Autoseleccion de proteccion
+    if (p.hasCapacities && !state.selectedCapacity && Array.isArray(p.capacities) && p.capacities.length > 0) {
         const validCap = p.capacities.find(cap => getStockForVariant(p, state.selectedColor, cap.label) > 0) || p.capacities[0];
         if (validCap) state.selectedCapacity = validCap.label;
     }
     
-    if (p.hasVariants && !state.selectedColor) {
-        // Busca el primer color que tenga stock haciendo match con la capacidad seleccionada
+    if (p.hasVariants && !state.selectedColor && Array.isArray(p.variants) && p.variants.length > 0) {
         const validColor = p.variants.find(v => getStockForVariant(p, v.color, state.selectedCapacity) > 0) || p.variants[0];
         if (validColor) state.selectedColor = validColor.color;
     }
 
     // Inicializar valores base
-    state.currentPrice = p.price;
-    state.currentStock = p.stock || 0;
+    state.currentPrice = p.price || 0;
+    state.currentStock = typeof p.stock === 'number' ? p.stock : 0;
     
-    const allImages = [p.mainImage, ...(p.images || [])].filter(Boolean);
+    const rawImages = Array.isArray(p.images) ? p.images : [];
+    const allImages = [p.mainImage, ...rawImages].filter(Boolean);
     if (!state.currentImage || !allImages.includes(state.currentImage)) {
-        state.currentImage = p.mainImage || (p.images && p.images.length > 0 ? p.images[0] : 'https://placehold.co/500');
+        state.currentImage = p.mainImage || (allImages.length > 0 ? allImages[0] : 'https://placehold.co/500');
     }
 
     document.title = `${p.name} | PixelTech`;
-    els.name.textContent = p.name;
-    els.desc.innerHTML = p.description || '';
+    if (els.name) els.name.textContent = p.name;
+    if (els.desc) els.desc.innerHTML = p.description || '';
 
-    els.breadName.textContent = p.name;
-    if (p.category) {
+    if (els.breadName) els.breadName.textContent = p.name;
+    if (p.category && els.breadCat) {
         els.breadCat.textContent = p.category;
-        els.breadCatLink.href = `/shop/search.html?category=${encodeURIComponent(p.category)}`;
-    } else {
+        if (els.breadCatLink) els.breadCatLink.href = `/shop/search.html?category=${encodeURIComponent(p.category)}`;
+    } else if (els.breadCat) {
         els.breadCat.textContent = 'General';
     }
-    if (p.subcategory) {
+    if (p.subcategory && els.breadSub) {
         els.breadSub.textContent = p.subcategory;
-        els.breadSubLink.href = `/shop/search.html?category=${encodeURIComponent(p.category)}&subcategory=${encodeURIComponent(p.subcategory)}`;
-        els.breadSubLink.classList.remove('hidden');
-        els.breadSubSep.classList.remove('hidden');
+        if (els.breadSubLink) {
+            els.breadSubLink.href = `/shop/search.html?category=${encodeURIComponent(p.category || '')}&subcategory=${encodeURIComponent(p.subcategory)}`;
+            els.breadSubLink.classList.remove('hidden');
+        }
+        if (els.breadSubSep) els.breadSubSep.classList.remove('hidden');
     }
 
     if (p.warranty && els.warrantyText) {
@@ -227,31 +290,41 @@ async function renderProductData(p, productId) {
         els.warrantyText.textContent = `Garantía directa de ${p.warranty.time} ${unitText} por defectos de fábrica.`;
     }
 
-    trackEcommerceEvent('view_item', {
-        currency: "COP",
-        value: p.price,
-        items: [{ item_id: p.id, item_name: p.name, price: p.price, item_category: p.category }]
-    });
+    try {
+        trackEcommerceEvent('view_item', {
+            currency: "COP",
+            value: p.price,
+            items: [{ item_id: p.id, item_name: p.name, price: p.price, item_category: p.category }]
+        });
+    } catch(e) {}
 
     renderOptions(p);
     updatePriceDisplay(); 
     updateGallery();
     
-    els.mainImg.src = state.currentImage;
-    els.mainImg.alt = `Comprar ${p.name} - ${p.category} en Colombia`;
-    await updateShippingText();
+    if (els.mainImg) {
+        els.mainImg.src = state.currentImage;
+        els.mainImg.alt = `Comprar ${p.name} - ${p.category || ''} en Colombia`;
+    }
 
-    els.whatsappBtn.href = `https://wa.me/573009046450?text=Hola PixelTech, me interesa este producto: ${p.name} (Ref: ${productId})`;
+    // Consulta de envios no bloqueante
+    updateShippingText().catch(() => {});
+
+    if (els.whatsappBtn) {
+        els.whatsappBtn.href = `https://wa.me/573009046450?text=Hola PixelTech, me interesa este producto: ${encodeURIComponent(p.name)} (Ref: ${productId})`;
+    }
     if (els.loader) els.loader.classList.add('hidden');
     if (els.content) els.content.classList.remove('hidden');
-    els.btnAdd.onclick = handleAddToCart;
-    initStickyBar(); 
-    loadRelatedProductsOptimized(p.category, p.id); 
+    if (els.btnAdd) els.btnAdd.onclick = handleAddToCart;
     
-    // Inyectar schema al final con los datos ya actualizados
-    injectProductSchema(p);
-    updateMetaTags(p);
-    saveToHistory(p);
+    initStickyBar(); 
+    if (p.category) {
+        loadRelatedProductsOptimized(p.category, p.id); 
+    }
+    
+    try { injectProductSchema(p); } catch (e) {}
+    try { updateMetaTags(p); } catch (e) {}
+    try { saveToHistory(p); } catch (e) {}
 }
 
 async function loadRelatedProductsOptimized(category, currentId) {
@@ -287,7 +360,7 @@ async function loadRelatedProductsOptimized(category, currentId) {
     
     els.relatedSection.classList.remove('hidden');
     els.relatedGrid.innerHTML = related.slice(0, 8).map(p => {
-        const price = p.price.toLocaleString('es-CO');
+        const price = (p.price || 0).toLocaleString('es-CO');
         const originalImg = p.mainImage || (p.images && p.images.length > 0 ? p.images[0] : 'https://placehold.co/150');
         const miniaturaImg = getResizedImageUrl(originalImg);
         const hasDiscount = p.originalPrice && p.originalPrice > p.price;
@@ -300,7 +373,7 @@ async function loadRelatedProductsOptimized(category, currentId) {
                     <img src="${miniaturaImg}" width="224" height="224" onerror="this.onerror=null; this.src='${originalImg}';" class="max-w-full max-h-full object-contain group-hover:scale-110 transition duration-500 mix-blend-multiply" loading="lazy" alt="${p.name}">
                 </div>
                 <div class="px-1 md:px-2">
-                    <p class="text-[8px] md:text-[9px] font-bold text-gray-400 uppercase tracking-widest truncate mb-1">${p.category}</p>
+                    <p class="text-[8px] md:text-[9px] font-bold text-gray-400 uppercase tracking-widest truncate mb-1">${p.category || ''}</p>
                     <h4 class="text-[11px] md:text-xs font-black text-brand-black uppercase leading-tight line-clamp-2 h-8 mb-2 group-hover:text-brand-cyan transition">${p.name}</h4>
                     <div class="flex justify-between items-end border-t border-gray-50 pt-2 md:pt-3">
                         <div class="flex flex-col">
@@ -386,38 +459,45 @@ async function updateShippingText() {
     try {
         const configSnap = await getDoc(doc(db, "config", "shipping"));
         let cutoffTime = "14:00"; 
-        if (configSnap.exists()) cutoffTime = configSnap.data().cutoffTime || "14:00";
+        if (configSnap && configSnap.exists()) cutoffTime = configSnap.data().cutoffTime || "14:00";
         const now = new Date();
         const [hours, minutes] = cutoffTime.split(':').map(Number);
         const cutoffDate = new Date();
         cutoffDate.setHours(hours, minutes, 0, 0);
-        if (now < cutoffDate) els.shippingText.innerHTML = `<span class="text-green-600 font-black">¡Despacho HOY!</span> <span class="text-brand-black font-bold">si compras antes de las ${cutoffTime}</span>`;
-        else els.shippingText.innerHTML = `<span class="text-brand-cyan font-black">Despacho MAÑANA</span> <span class="text-brand-black font-bold">(Compras después de las ${cutoffTime})</span>`;
-    } catch (e) { els.shippingText.textContent = "Envío prioritario a nivel nacional."; }
+        if (now < cutoffDate) {
+            els.shippingText.innerHTML = `<span class="text-green-600 font-black">¡Despacho HOY!</span> <span class="text-brand-black font-bold">si compras antes de las ${cutoffTime}</span>`;
+        } else {
+            els.shippingText.innerHTML = `<span class="text-brand-cyan font-black">Despacho MAÑANA</span> <span class="text-brand-black font-bold">(Compras después de las ${cutoffTime})</span>`;
+        }
+    } catch (e) {
+        els.shippingText.textContent = "Envío prioritario a nivel nacional.";
+    }
 }
 
 function getStockForVariant(product, color, capacity) {
+    if (!product) return 0;
     if (product.isSimple) return product.stock || 0;
-    if (!product.combinations) return 0;
+    if (!Array.isArray(product.combinations)) return 0;
     const variant = product.combinations.find(c => (c.color === color || (!c.color && !color)) && (c.capacity === capacity || (!c.capacity && !capacity)));
-    return variant ? variant.stock : 0;
+    return variant ? (variant.stock || 0) : 0;
 }
 
 function updatePriceDisplay() {
     const p = state.product;
-    let price = p.price;
-    let stock = p.stock;
+    if (!p) return;
+    let price = p.price || 0;
+    let stock = typeof p.stock === 'number' ? p.stock : 0;
     let activeSku = p.sku || 'N/A'; 
 
-    if (!p.isSimple && p.combinations) {
+    if (!p.isSimple && Array.isArray(p.combinations)) {
         if (state.selectedColor || state.selectedCapacity) {
             const variant = p.combinations.find(c => 
                 (c.color === state.selectedColor || (!c.color && !state.selectedColor)) &&
                 (c.capacity === state.selectedCapacity || (!c.capacity && !state.selectedCapacity))
             );
             if (variant) {
-                stock = variant.stock;
-                price = variant.price;
+                stock = variant.stock || 0;
+                price = variant.price || price;
                 if(variant.sku) activeSku = variant.sku; 
             } else {
                 stock = 0; 
@@ -428,41 +508,52 @@ function updatePriceDisplay() {
     state.currentPrice = price;
     state.currentStock = stock;
 
-    const currentQty = parseInt(els.qty.value) || 1;
-    if (currentQty > stock) els.qty.value = Math.max(1, stock);
-    if (stock <= 0) els.qty.value = 0;
+    if (els.qty) {
+        const currentQty = parseInt(els.qty.value) || 1;
+        if (currentQty > stock) els.qty.value = Math.max(1, stock);
+        if (stock <= 0) els.qty.value = 0;
+    }
 
-    els.price.textContent = `$${price.toLocaleString('es-CO')}`;
-    if(els.stickyPrice) els.stickyPrice.textContent = `$${price.toLocaleString('es-CO')}`;
+    if (els.price) els.price.textContent = `$${price.toLocaleString('es-CO')}`;
+    if (els.stickyPrice) els.stickyPrice.textContent = `$${price.toLocaleString('es-CO')}`;
     
-    if(els.sku) {
-        els.sku.textContent = `REF: ${activeSku}`;
-        if (activeSku === 'N/A' || activeSku === '') els.sku.classList.add('hidden');
-        else els.sku.classList.remove('hidden');
+    if (els.sku) {
+        if (!activeSku || activeSku === 'N/A' || activeSku === '' || activeSku === '--') {
+            els.sku.classList.add('hidden');
+        } else {
+            els.sku.textContent = `REF: ${activeSku}`;
+            els.sku.classList.remove('hidden');
+        }
     }
 
     if (p.originalPrice && p.originalPrice > price) {
         const disc = Math.round(((p.originalPrice - price) / p.originalPrice) * 100);
         const formattedOld = `$${p.originalPrice.toLocaleString('es-CO')}`;
-        els.price.classList.add('text-brand-red');
-        els.oldPrice.textContent = formattedOld;
-        els.oldPrice.classList.remove('hidden');
-        if(els.discountTag) { els.discountTag.textContent = `-${disc}%`; els.discountTag.classList.remove('hidden'); }
-        if(els.stickyDiscountRow) {
+        if (els.price) els.price.classList.add('text-brand-red');
+        if (els.oldPrice) {
+            els.oldPrice.textContent = formattedOld;
+            els.oldPrice.classList.remove('hidden');
+        }
+        if (els.discountTag) { els.discountTag.textContent = `-${disc}%`; els.discountTag.classList.remove('hidden'); }
+        if (els.stickyDiscountRow) {
             els.stickyDiscountRow.classList.remove('hidden');
-            els.stickyOldPrice.textContent = formattedOld;
-            els.stickyBadge.textContent = `-${disc}%`;
-            els.stickyPrice.classList.add('text-brand-red');
-            els.stickyPrice.classList.remove('text-brand-black');
+            if (els.stickyOldPrice) els.stickyOldPrice.textContent = formattedOld;
+            if (els.stickyBadge) els.stickyBadge.textContent = `-${disc}%`;
+            if (els.stickyPrice) {
+                els.stickyPrice.classList.add('text-brand-red');
+                els.stickyPrice.classList.remove('text-brand-black');
+            }
         }
     } else {
-        els.price.classList.remove('text-brand-red');
-        els.oldPrice.classList.add('hidden');
-        if(els.discountTag) els.discountTag.classList.add('hidden');
-        if(els.stickyDiscountRow) {
+        if (els.price) els.price.classList.remove('text-brand-red');
+        if (els.oldPrice) els.oldPrice.classList.add('hidden');
+        if (els.discountTag) els.discountTag.classList.add('hidden');
+        if (els.stickyDiscountRow) {
             els.stickyDiscountRow.classList.add('hidden');
-            els.stickyPrice.classList.add('text-brand-black');
-            els.stickyPrice.classList.remove('text-brand-red');
+            if (els.stickyPrice) {
+                els.stickyPrice.classList.add('text-brand-black');
+                els.stickyPrice.classList.remove('text-brand-red');
+            }
         }
     }
 
@@ -470,44 +561,48 @@ function updatePriceDisplay() {
         if (stock > 0) {
             els.stockText.innerHTML = `<i class="fa-solid fa-circle-check"></i> ${stock} unidades disponibles`;
             els.stockText.className = "text-green-600 text-[10px] font-black uppercase tracking-widest mt-4 flex items-center gap-2";
-            els.btnAdd.disabled = false;
-            els.btnAdd.classList.remove('bg-gray-400', 'cursor-not-allowed');
-            els.btnAdd.classList.add('bg-brand-cyan');
-            els.btnAdd.textContent = "Agregar al carrito";
+            if (els.btnAdd) {
+                els.btnAdd.disabled = false;
+                els.btnAdd.classList.remove('bg-gray-400', 'cursor-not-allowed');
+                els.btnAdd.classList.add('bg-brand-cyan');
+                els.btnAdd.textContent = "Agregar al carrito";
+            }
         } else {
             els.stockText.innerHTML = `<i class="fa-solid fa-circle-xmark"></i> Agotado`;
             els.stockText.className = "text-red-500 text-[10px] font-black uppercase tracking-widest mt-4 flex items-center gap-2";
-            els.btnAdd.disabled = true;
-            els.btnAdd.classList.add('bg-gray-400', 'cursor-not-allowed');
-            els.btnAdd.classList.remove('bg-brand-cyan');
-            els.btnAdd.textContent = "Sin Stock";
+            if (els.btnAdd) {
+                els.btnAdd.disabled = true;
+                els.btnAdd.classList.add('bg-gray-400', 'cursor-not-allowed');
+                els.btnAdd.classList.remove('bg-brand-cyan');
+                els.btnAdd.textContent = "Sin Stock";
+            }
         }
     }
-    renderAddiWidget(price); // <-- AGREGA ESTA LÍNEA AQUÍ
-    injectProductSchema(p);
+
+    renderAddiWidget(price);
+    try { injectProductSchema(p); } catch (e) {}
 }
 
 function updateGallery() {
+    if (!els.thumbsContainer) return;
     els.thumbsContainer.innerHTML = "";
     let displayImages = [];
     
-    if (state.selectedColor && state.product.variants) {
+    if (state.selectedColor && Array.isArray(state.product?.variants)) {
         const v = state.product.variants.find(vari => vari.color === state.selectedColor);
-        if (v && v.images) displayImages = [...v.images];
+        if (v && Array.isArray(v.images)) displayImages = [...v.images];
     }
-    const globalImages = state.product.images || [];
+    const globalImages = Array.isArray(state.product?.images) ? state.product.images : [];
     
-    currentGalleryImages = Array.from(new Set([...displayImages, ...globalImages]));
+    currentGalleryImages = Array.from(new Set([...displayImages, ...globalImages].filter(Boolean)));
     
     if (currentGalleryImages.length === 0) {
-        currentGalleryImages = [state.product.mainImage || 'https://placehold.co/500'];
+        currentGalleryImages = [state.product?.mainImage || 'https://placehold.co/500'];
     }
 
     currentGalleryImages.forEach((src) => {
         const img = document.createElement('img');
-        
         img.src = getResizedImageUrl(src); 
-        
         img.onerror = function() {
             if (this.src !== src) {
                 this.src = src;
@@ -517,11 +612,12 @@ function updateGallery() {
         const activateImage = () => {
             if (state.currentImage === src) return; 
             state.currentImage = src;
-            els.mainImg.src = src; 
-            
-            els.mainImg.classList.remove('fade-in');
-            void els.mainImg.offsetWidth; 
-            els.mainImg.classList.add('fade-in');
+            if (els.mainImg) {
+                els.mainImg.src = src; 
+                els.mainImg.classList.remove('fade-in');
+                void els.mainImg.offsetWidth; 
+                els.mainImg.classList.add('fade-in');
+            }
 
             Array.from(els.thumbsContainer.children).forEach(child => { 
                 child.classList.remove('thumb-active'); 
@@ -534,12 +630,9 @@ function updateGallery() {
         };
 
         const isActive = state.currentImage === src;
-        
         img.className = `min-w-[80px] w-20 md:w-full h-20 object-contain bg-white border rounded-xl cursor-pointer transition-all duration-200 shrink-0 snap-center ${isActive ? 'thumb-active' : 'thumb-inactive'}`;
-        
         img.width = 80;
         img.height = 80;
-        
         img.onmouseenter = activateImage; 
         img.onclick = activateImage;      
         
@@ -550,9 +643,10 @@ function updateGallery() {
 }
 
 function initSwipeGallery() {
-    if (swipeInitialized || currentGalleryImages.length <= 1) return;
+    if (swipeInitialized || currentGalleryImages.length <= 1 || !els.mainImg) return;
     
     const imgContainer = els.mainImg.parentElement; 
+    if (!imgContainer) return;
     
     let touchStartX = 0;
     let touchEndX = 0;
@@ -587,20 +681,21 @@ function initSwipeGallery() {
 }
 
 function changeToImageIndex(index) {
+    if (!els.thumbsContainer) return;
     const thumbs = els.thumbsContainer.children;
     if (thumbs && thumbs[index]) {
         thumbs[index].click(); 
     }
 }
 
-
 function renderOptions(p) {
+    if (!els.optionsContainer) return;
     els.optionsContainer.innerHTML = "";
     
     let hasOptions = false; 
 
     // Colores
-    if (p.hasVariants && p.variants?.length > 0) {
+    if (p.hasVariants && Array.isArray(p.variants) && p.variants.length > 0) {
         hasOptions = true; 
         const colorDiv = document.createElement('div');
         colorDiv.innerHTML = `<label class="block text-[8px] font-black text-gray-400 uppercase tracking-widest mb-2 text-center md:text-left">Color</label>`;
@@ -609,7 +704,7 @@ function renderOptions(p) {
         
         p.variants.forEach((v) => {
             const isSelected = state.selectedColor === v.color;
-            let isOut = p.hasCapacities ? !p.combinations.some(c => c.color === v.color && c.stock > 0) : getStockForVariant(p, v.color, null) <= 0;
+            let isOut = p.hasCapacities ? (!Array.isArray(p.combinations) || !p.combinations.some(c => c.color === v.color && c.stock > 0)) : getStockForVariant(p, v.color, null) <= 0;
             const btn = document.createElement('button');
             let classes = "px-6 py-3 rounded-xl border-2 text-xs font-bold uppercase transition-all duration-200 relative ";
             if (isOut) { classes += "bg-gray-100 text-gray-400 border-gray-100 cursor-not-allowed opacity-60 "; btn.disabled = true; }
@@ -619,22 +714,28 @@ function renderOptions(p) {
             btn.innerHTML = v.color + (isOut ? `<span class="absolute -top-2 -right-2 bg-red-500 text-white text-[8px] px-1.5 rounded-full">AGOTADO</span>` : '');
             if (!isOut) btn.onclick = () => {
                 state.selectedColor = v.color;
-                if (p.hasCapacities) {
+                if (p.hasCapacities && Array.isArray(p.capacities)) {
                     if (getStockForVariant(p, state.selectedColor, state.selectedCapacity) <= 0) {
                         const validCap = p.capacities.find(cap => getStockForVariant(p, state.selectedColor, cap.label) > 0);
                         if (validCap) state.selectedCapacity = validCap.label;
                     }
                 }
-                if (v.images?.length > 0) { state.currentImage = v.images[0]; els.mainImg.src = state.currentImage; }
-                updateGallery(); updatePriceDisplay(); renderOptions(p);
+                if (Array.isArray(v.images) && v.images.length > 0) { 
+                    state.currentImage = v.images[0]; 
+                    if (els.mainImg) els.mainImg.src = state.currentImage; 
+                }
+                updateGallery(); 
+                updatePriceDisplay(); 
+                renderOptions(p);
             };
             btnContainer.appendChild(btn);
         });
-        colorDiv.appendChild(btnContainer); els.optionsContainer.appendChild(colorDiv);
+        colorDiv.appendChild(btnContainer); 
+        els.optionsContainer.appendChild(colorDiv);
     }
 
     // Capacidades
-    if (p.hasCapacities && p.capacities?.length > 0) {
+    if (p.hasCapacities && Array.isArray(p.capacities) && p.capacities.length > 0) {
         hasOptions = true; 
         const capDiv = document.createElement('div');
         capDiv.innerHTML = `<label class="block text-[8px] font-black text-gray-400 uppercase tracking-widest mb-2 text-center md:text-left">Capacidad</label>`;
@@ -652,19 +753,24 @@ function renderOptions(p) {
             btn.className = classes;
             
             let comboPrice = c.price; 
-            if (p.combinations && state.selectedColor) {
+            if (Array.isArray(p.combinations) && state.selectedColor) {
                  const combo = p.combinations.find(comb => comb.color === state.selectedColor && comb.capacity === c.label);
                  if (combo) comboPrice = combo.price;
-            } else if (p.combinations) {
+            } else if (Array.isArray(p.combinations)) {
                 const combos = p.combinations.filter(comb => comb.capacity === c.label);
                 if(combos.length > 0) comboPrice = Math.min(...combos.map(x => x.price));
             }
 
-            btn.innerHTML = `<span>${c.label}</span><span class="text-[9px] font-normal mt-1 ${isSelected ? 'text-brand-black' : 'text-gray-400'}">$${comboPrice.toLocaleString('es-CO')}</span>${isOut ? `<span class="absolute -top-2 -right-2 bg-red-500 text-white text-[8px] px-1.5 rounded-full">AGOTADO</span>` : ''}`;
-            if (!isOut) btn.onclick = () => { state.selectedCapacity = c.label; updatePriceDisplay(); renderOptions(p); };
+            btn.innerHTML = `<span>${c.label}</span><span class="text-[9px] font-normal mt-1 ${isSelected ? 'text-brand-black' : 'text-gray-400'}">$${(comboPrice || 0).toLocaleString('es-CO')}</span>${isOut ? `<span class="absolute -top-2 -right-2 bg-red-500 text-white text-[8px] px-1.5 rounded-full">AGOTADO</span>` : ''}`;
+            if (!isOut) btn.onclick = () => { 
+                state.selectedCapacity = c.label; 
+                updatePriceDisplay(); 
+                renderOptions(p); 
+            };
             btnContainer.appendChild(btn);
         });
-        capDiv.appendChild(btnContainer); els.optionsContainer.appendChild(capDiv);
+        capDiv.appendChild(btnContainer); 
+        els.optionsContainer.appendChild(capDiv);
     }
 
     if (hasOptions) {
@@ -675,8 +781,10 @@ function renderOptions(p) {
 }
 
 function handleAddToCart() {
+    if (!els.qty) return;
     const qty = parseInt(els.qty.value) || 1;
     const p = state.product;
+    if (!p) return;
     if (qty > state.currentStock) { alert(`Solo hay ${state.currentStock} unidades disponibles.`); return; }
     if (p.hasCapacities && !state.selectedCapacity) { alert("Selecciona una capacidad"); return; }
     if (p.hasVariants && !state.selectedColor) { alert("Selecciona un color"); return; }
@@ -698,44 +806,46 @@ function handleAddToCart() {
     
     addToCart({ id: p.id, name: p.name, price: state.currentPrice, image: state.currentImage, color: state.selectedColor, capacity: state.selectedCapacity, quantity: qty });
     if(window.showToast) window.showToast(`${p.name} agregado al carrito`);
-    setTimeout(() => { els.btnAdd.innerText = originalText; els.btnAdd.classList.remove('bg-green-500', 'text-white'); }, 1000);
+    setTimeout(() => { 
+        if (els.btnAdd) {
+            els.btnAdd.innerText = originalText; 
+            els.btnAdd.classList.remove('bg-green-500', 'text-white'); 
+        }
+    }, 1000);
 }
 
 window.changeQty = (d) => {
     const i = document.getElementById('p-qty');
+    if (!i) return;
     let v = parseInt(i.value) + d;
     if(v < 1) v = 1;
     if(v > state.currentStock) v = state.currentStock;
     i.value = v;
 };
 
-// 🔥 FUNCIÓN ACTUALIZADA Y ESTRICTA PARA GOOGLE MERCHANT 🔥
 function injectProductSchema(p) {
     const oldSchema = document.getElementById('json-ld-product');
     if (oldSchema) oldSchema.remove();
     
     const currentUrl = window.location.href; 
     
-    const exactDisplayedPrice = state.currentPrice || p.price;
-    const exactDisplayedStock = state.currentStock || p.stock || 0;
+    const exactDisplayedPrice = state.currentPrice || p.price || 0;
+    const exactDisplayedStock = typeof state.currentStock === 'number' ? state.currentStock : (p.stock || 0);
     const availability = exactDisplayedStock > 0 ? "https://schema.org/InStock" : "https://schema.org/OutOfStock";
 
     let schemaProductName = p.name;
-    
-    // 🔥 REPLICAMOS EXACTAMENTE LA LÓGICA DE IDs DEL XML DE MERCHANT 🔥
     let currentVariantId = p.id;
     let currentSku = p.sku || p.id;
 
     if (state.selectedColor || state.selectedCapacity) {
         schemaProductName = `${p.name} ${state.selectedCapacity || ''} ${state.selectedColor ? '- ' + state.selectedColor : ''}`.trim();
         
-        if (p.combinations) {
+        if (Array.isArray(p.combinations)) {
             const combo = p.combinations.find(c => 
                 (c.color === state.selectedColor || (!c.color && !state.selectedColor)) &&
                 (c.capacity === state.selectedCapacity || (!c.capacity && !state.selectedCapacity))
             );
             if (combo) {
-                // Genera un ID idéntico al que envía el feed XML
                 currentVariantId = combo.sku || `${p.id}_${combo.color || 'x'}_${combo.capacity || 'y'}`.replace(/\s+/g, '');
                 currentSku = combo.sku || p.sku || currentVariantId;
             }
@@ -749,7 +859,7 @@ function injectProductSchema(p) {
         "image": [state.currentImage || p.mainImage || p.image].filter(Boolean),
         "description": p.description ? p.description.replace(/<[^>]*>?/gm, '') : `Compra ${p.name} en PixelTech.`,
         "sku": currentSku,
-        "productID": currentVariantId, // 👈 ESTO EVITA EL ERROR DE DISCREPANCIA
+        "productID": currentVariantId,
         "brand": { "@type": "Brand", "name": p.brand || "Genérico" },
         "offers": {
             "@type": "Offer",
@@ -814,42 +924,60 @@ function updateMetaTags(p) {
 }
 
 function renderAddiWidget(price) {
-    if (!els.addiContainer || price <= 0) return;
-
-    // Si ya existe el widget, solo le actualizamos el precio (para cuando eligen otra variante)
-    let existingWidget = els.addiContainer.querySelector('addi-widget');
-    if (existingWidget) {
-        existingWidget.setAttribute('price', price);
+    if (!els.addiContainer || price <= 0) {
+        const sk = document.getElementById('addi-skeleton');
+        if (sk) sk.remove();
         return;
     }
 
-    // Función para inyectar Addi de forma asíncrona
-    const initAddi = () => {
-        if (!document.getElementById('addi-script')) {
-            const script = document.createElement('script');
-            script.id = 'addi-script';
-            script.src = "https://s3.amazonaws.com/widgets.addi.com/bundle.min.js";
-            script.async = true; // Esto evita que bloquee a PageSpeed
-            document.body.appendChild(script);
-        }
+    // Si ya existe el widget, solo le actualizamos el precio
+    let existingWidget = els.addiContainer.querySelector('addi-widget');
+    if (existingWidget) {
+        existingWidget.setAttribute('price', price);
+        const sk = document.getElementById('addi-skeleton');
+        if (sk) sk.remove();
+        return;
+    }
 
-        const widget = document.createElement('addi-widget');
-        widget.setAttribute('price', price);
-        widget.setAttribute('ally-slug', 'pixeltechcolombia-ecommerce');
-        widget.setAttribute('text-color', '#111827');
-        widget.setAttribute('logo-color', '#00AEC7');
-        
-        // Quitamos el esqueleto gris de carga
-        const skeleton = document.getElementById('addi-skeleton');
-        if (skeleton) skeleton.remove();
-        
-        els.addiContainer.appendChild(widget);
+    const initAddi = () => {
+        try {
+            if (!document.getElementById('addi-script')) {
+                const script = document.createElement('script');
+                script.id = 'addi-script';
+                script.src = "https://s3.amazonaws.com/widgets.addi.com/bundle.min.js";
+                script.async = true;
+                script.onerror = () => {
+                    const sk = document.getElementById('addi-skeleton');
+                    if (sk) sk.remove();
+                };
+                document.body.appendChild(script);
+            }
+
+            const widget = document.createElement('addi-widget');
+            widget.setAttribute('price', price);
+            widget.setAttribute('ally-slug', 'pixeltechcolombia-ecommerce');
+            widget.setAttribute('text-color', '#111827');
+            widget.setAttribute('logo-color', '#00AEC7');
+            
+            const skeleton = document.getElementById('addi-skeleton');
+            if (skeleton) skeleton.remove();
+            
+            els.addiContainer.appendChild(widget);
+        } catch (e) {
+            const skeleton = document.getElementById('addi-skeleton');
+            if (skeleton) skeleton.remove();
+        }
     };
 
-    // Le pedimos al navegador que cargue Addi solo cuando no esté ocupado
+    // Temporizador de seguridad: nunca dejar esqueleto pegado mas de 1.2 segundos
+    setTimeout(() => {
+        const sk = document.getElementById('addi-skeleton');
+        if (sk) sk.remove();
+    }, 1200);
+
     if ('requestIdleCallback' in window) {
-        requestIdleCallback(initAddi);
+        requestIdleCallback(initAddi, { timeout: 1000 });
     } else {
-        setTimeout(initAddi, 1000);
+        setTimeout(initAddi, 150);
     }
 }

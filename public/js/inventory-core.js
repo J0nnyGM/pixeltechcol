@@ -17,40 +17,73 @@ export async function adjustStock(productId, quantityChange, variantColor = null
             if (!productSnap.exists()) throw `El producto ${productId} no existe`;
 
             const pData = productSnap.data();
-            let newStock = (pData.stock || 0) + quantityChange;
-            let newCombinations = pData.combinations || [];
+            let newStock = (Number(pData.stock) || 0) + quantityChange;
+            let newCombinations = Array.isArray(pData.combinations) ? JSON.parse(JSON.stringify(pData.combinations)) : [];
+            let rootBranchStock = pData.branchStock ? { ...pData.branchStock } : null;
 
             // --- CASO 1: PRODUCTO CON MATRIZ DE VARIANTES ---
-            if (pData.combinations && pData.combinations.length > 0) {
-                // Buscamos la combinación exacta (Ej: Negro - 128GB)
-                const comboIndex = pData.combinations.findIndex(c => 
-                    (c.color === variantColor || (!c.color && !variantColor)) &&
-                    (c.capacity === variantCapacity || (!c.capacity && !variantCapacity))
-                );
+            if (newCombinations.length > 0) {
+                let comboIndex = -1;
+
+                if (variantColor || variantCapacity) {
+                    const normColor = String(variantColor || '').trim().toLowerCase();
+                    const normCap = String(variantCapacity || '').trim().toLowerCase();
+                    comboIndex = newCombinations.findIndex(c => 
+                        (String(c.color || '').trim().toLowerCase() === normColor || (!c.color && !variantColor)) &&
+                        (String(c.capacity || '').trim().toLowerCase() === normCap || (!c.capacity && !variantCapacity))
+                    );
+                }
+
+                if (comboIndex < 0 && newCombinations.length === 1) {
+                    comboIndex = 0;
+                }
 
                 if (comboIndex >= 0) {
-                    const currentVariantStock = pData.combinations[comboIndex].stock || 0;
+                    const combo = newCombinations[comboIndex];
+                    const currentVariantStock = Number(combo.stock) || 0;
                     const newVariantStock = currentVariantStock + quantityChange;
 
                     if (newVariantStock < 0) {
                         throw `Stock insuficiente para la variante: ${pData.name} (${variantColor || ''} ${variantCapacity || ''})`;
                     }
 
-                    // Actualizamos la variante específica
-                    pData.combinations[comboIndex].stock = newVariantStock;
+                    combo.stock = newVariantStock;
 
-                    // Recalculamos el stock global sumando todas las variantes para mantener consistencia
-                    newStock = pData.combinations.reduce((sum, item) => sum + item.stock, 0);
+                    if (combo.branchStock) {
+                        let curBodega = combo.branchStock['bodega'] !== undefined
+                            ? (Number(combo.branchStock['bodega']) || 0)
+                            : Math.max(0, currentVariantStock - Object.entries(combo.branchStock).filter(([k]) => k !== 'bodega').reduce((s, [, v]) => s + (Number(v) || 0), 0));
+                        combo.branchStock['bodega'] = Math.max(0, curBodega + quantityChange);
+                    }
+
+                    newStock = newCombinations.reduce((sum, item) => sum + (Number(item.stock) || 0), 0);
                 } else {
-                    // Si el producto tiene variantes pero no encontramos la combinación (caso raro de migración)
-                    // Solo validamos el global
-                    console.warn(`Variante no encontrada en ${pData.name}, afectando solo global.`);
+                    if (quantityChange < 0 && newStock < 0) {
+                        throw `Stock global insuficiente para ${pData.name}`;
+                    }
+                }
+
+                if (newCombinations.some(c => c.branchStock)) {
+                    rootBranchStock = {};
+                    newCombinations.forEach(c => {
+                        if (c.branchStock) {
+                            Object.keys(c.branchStock).forEach(bId => {
+                                rootBranchStock[bId] = (rootBranchStock[bId] || 0) + (Number(c.branchStock[bId]) || 0);
+                            });
+                        }
+                    });
+                }
+            } else {
+                if (newStock < 0) {
+                    throw `Stock global insuficiente para ${pData.name}`;
                 }
             }
 
-            // --- CASO 2: PRODUCTO SIMPLE O VALIDACIÓN FINAL ---
-            if (newStock < 0) {
-                throw `Stock global insuficiente para ${pData.name}`;
+            if (rootBranchStock && (!newCombinations || !newCombinations.some(c => c.branchStock))) {
+                let curBodega = rootBranchStock['bodega'] !== undefined
+                    ? (Number(rootBranchStock['bodega']) || 0)
+                    : Math.max(0, (Number(pData.stock) || 0) - Object.entries(rootBranchStock).filter(([k]) => k !== 'bodega').reduce((s, [, v]) => s + (Number(v) || 0), 0));
+                rootBranchStock['bodega'] = Math.max(0, curBodega + quantityChange);
             }
 
             const updatePayload = { 
@@ -59,6 +92,9 @@ export async function adjustStock(productId, quantityChange, variantColor = null
                 updatedAt: new Date()
             };
 
+            if (rootBranchStock) {
+                updatePayload.branchStock = rootBranchStock;
+            }
             if (changeReason) {
                 updatePayload.lastStockChangeReason = changeReason;
             }
@@ -66,14 +102,13 @@ export async function adjustStock(productId, quantityChange, variantColor = null
                 updatePayload.lastStockChangeDetails = changeDetails;
             }
 
-            // Guardamos los cambios
             transaction.update(productRef, updatePayload);
         });
 
-        console.log(`✅ Stock actualizado: ${productId} | Var: ${variantColor}/${variantCapacity} | Delta: ${quantityChange} | Motivo: ${changeReason || 'General'}`);
+        console.log(`[Inventario] Stock actualizado: ${productId} | Var: ${variantColor}/${variantCapacity} | Delta: ${quantityChange} | Motivo: ${changeReason || 'General'}`);
 
     } catch (e) {
-        console.error("❌ Error crítico en inventario:", e);
-        throw e; // Relanzar para que checkout.js sepa que falló
+        console.error("[Inventario Error] Error critico en ajuste de inventario:", e);
+        throw e;
     }
 }

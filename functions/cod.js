@@ -30,7 +30,7 @@ exports.createCODOrder = async (data, context) => {
     const shippingCost = Number(data.shippingCost || (data.data && data.data.shippingCost) || 0);
     const extraData = data.extraData || (data.data && data.data.extraData) || {};
     
-    // 🔥 AQUÍ CAPTURAMOS EL MÉTODO ENVIADO DESDE EL CHECKOUT.JS 🔥
+    //  AQUÍ CAPTURAMOS EL MÉTODO ENVIADO DESDE EL CHECKOUT.JS 
     const paymentMethod = data.paymentMethod || (data.data && data.data.paymentMethod) || 'CONTRAENTREGA';
 
     if (!rawItems || !rawItems.length) throw new functions.https.HttpsError('invalid-argument', 'Carrito vacío.');
@@ -65,33 +65,68 @@ exports.createCODOrder = async (data, context) => {
                 if (pData.excludeFromFreeShipping === true) hasExcludedProduct = true;
 
                 // Cálculo de Stock
-                let newStock = (pData.stock || 0) - qty;
+                let newStock = (Number(pData.stock) || 0) - qty;
                 if (newStock < 0) throw new Error(`Sin stock: ${pData.name}`);
                 
-                let newCombinations = pData.combinations || [];
-                if (item.color || item.capacity) {
-                    if (newCombinations.length > 0) {
-                        const idx = newCombinations.findIndex(c => 
-                            (c.color === item.color || (!c.color && !item.color)) &&
-                            (c.capacity === item.capacity || (!c.capacity && !item.capacity))
+                let newCombinations = Array.isArray(pData.combinations) ? JSON.parse(JSON.stringify(pData.combinations)) : [];
+                let rootBranchStock = pData.branchStock ? { ...pData.branchStock } : null;
+
+                if (newCombinations.length > 0) {
+                    let idx = -1;
+                    if (item.color || item.capacity) {
+                        const normColor = String(item.color || '').trim().toLowerCase();
+                        const normCap = String(item.capacity || '').trim().toLowerCase();
+                        idx = newCombinations.findIndex(c => 
+                            (String(c.color || '').trim().toLowerCase() === normColor || (!c.color && !item.color)) &&
+                            (String(c.capacity || '').trim().toLowerCase() === normCap || (!c.capacity && !item.capacity))
                         );
-                        if (idx >= 0) {
-                            if (newCombinations[idx].stock < qty) throw new Error(`Sin stock variante: ${pData.name}`);
-                            newCombinations[idx].stock -= qty;
+                    }
+                    if (idx < 0 && newCombinations.length === 1) idx = 0;
+
+                    if (idx >= 0) {
+                        if ((Number(newCombinations[idx].stock) || 0) < qty) throw new Error(`Sin stock variante: ${pData.name}`);
+                        newCombinations[idx].stock = Math.max(0, (Number(newCombinations[idx].stock) || 0) - qty);
+
+                        if (newCombinations[idx].branchStock) {
+                            let curBodega = newCombinations[idx].branchStock['bodega'] !== undefined
+                                ? (Number(newCombinations[idx].branchStock['bodega']) || 0)
+                                : Math.max(0, (Number(newCombinations[idx].stock) || 0) + qty - Object.entries(newCombinations[idx].branchStock).filter(([k]) => k !== 'bodega').reduce((s, [, v]) => s + (Number(v) || 0), 0));
+                            newCombinations[idx].branchStock['bodega'] = Math.max(0, curBodega - qty);
                         }
                     }
+
+                    newStock = newCombinations.reduce((sum, c) => sum + (Number(c.stock) || 0), 0);
+
+                    if (newCombinations.some(c => c.branchStock)) {
+                        rootBranchStock = {};
+                        newCombinations.forEach(c => {
+                            if (c.branchStock) {
+                                Object.keys(c.branchStock).forEach(bId => {
+                                    rootBranchStock[bId] = (rootBranchStock[bId] || 0) + (Number(c.branchStock[bId]) || 0);
+                                });
+                            }
+                        });
+                    }
+                } else if (rootBranchStock) {
+                    let curBodega = rootBranchStock['bodega'] !== undefined
+                        ? (Number(rootBranchStock['bodega']) || 0)
+                        : Math.max(0, (Number(pData.stock) || 0) - Object.entries(rootBranchStock).filter(([k]) => k !== 'bodega').reduce((s, [, v]) => s + (Number(v) || 0), 0));
+                    rootBranchStock['bodega'] = Math.max(0, curBodega - qty);
                 }
 
                 // Guardar la actualización para la Fase 2 (NO EJECUTAR AÚN)
+                const stockUpdatePayload = { 
+                    stock: newStock, 
+                    combinations: newCombinations,
+                    lastStockChangeReason: 'VENTA_PEDIDO',
+                    lastStockChangeDetails: `Venta web contraentrega pedido #${newOrderRef.id.slice(0, 8)}`,
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                };
+                if (rootBranchStock) stockUpdatePayload.branchStock = rootBranchStock;
+
                 pendingUpdates.push({
                     ref: pRef,
-                    data: { 
-                        stock: newStock, 
-                        combinations: newCombinations,
-                        lastStockChangeReason: 'VENTA_PEDIDO',
-                        lastStockChangeDetails: `Venta web contraentrega pedido #${newOrderRef.id.slice(0, 8)}`,
-                        updatedAt: admin.firestore.FieldValue.serverTimestamp()
-                    }
+                    data: stockUpdatePayload
                 });
 
                 subtotal += price * qty;
@@ -137,7 +172,7 @@ exports.createCODOrder = async (data, context) => {
                 clientAddress: `${shippingData.address}, ${shippingData.city}`,
                 items: dbItems, total, status: 'PENDIENTE_ALISTAMIENTO', type: 'VENTA_WEB',
                 createdAt: admin.firestore.FieldValue.serverTimestamp(),
-                updatedAt: admin.firestore.FieldValue.serverTimestamp() // 🔥 NUEVO
+                updatedAt: admin.firestore.FieldValue.serverTimestamp()
             };
 
             // --- FASE 2: ESCRITURAS (Solo .update() y .set()) ---
@@ -156,7 +191,7 @@ exports.createCODOrder = async (data, context) => {
         return { orderId: newOrderRef.id };
 
     } catch (error) {
-        console.error("❌ Error COD:", error);
+        console.error("[COD Error] Error procesando pedido contraentrega:", error);
         throw new functions.https.HttpsError('internal', error.message);
     }
 };

@@ -33,7 +33,7 @@ exports.createPreference = async (data, context) => {
     const db = admin.firestore();
     const auth = admin.auth();
 
-    console.log("🚀 Iniciando Checkout MP...");
+    console.log(" Iniciando Checkout MP...");
 
     const client = await getMPClient(db);
     if (!client) throw new functions.https.HttpsError('internal', 'Pasarela Mercado Pago no configurada.');
@@ -184,7 +184,7 @@ exports.createPreference = async (data, context) => {
         return { preferenceId: result.id, initPoint: result.init_point };
 
     } catch (error) {
-        console.error("❌ Error MP Create:", error);
+        console.error(" Error MP Create:", error);
         throw new functions.https.HttpsError('internal', error.message);
     }
 };
@@ -242,25 +242,67 @@ exports.webhook = async (req, res) => {
 
                 // Leer Inventario
                 const prodReads = [];
-                if(!oData.isStockDeducted) {
-                    for(const i of oData.items) {
+                if (!oData.isStockDeducted) {
+                    for (const i of oData.items) {
                         const pRef = db.collection('products').doc(i.id);
                         const pDoc = await t.get(pRef);
-                        if(pDoc.exists) {
+                        if (pDoc.exists) {
                             const pData = pDoc.data();
-                            let newS = (pData.stock||0) - (i.quantity||1);
-                            let newC = pData.combinations || [];
-                            
-                            if (i.color || i.capacity) {
-                                if (newC.length > 0) {
-                                    const idx = newC.findIndex(c => 
-                                        (c.color === i.color || (!c.color && !i.color)) &&
-                                        (c.capacity === i.capacity || (!c.capacity && !i.capacity))
+                            const qty = parseInt(i.quantity) || 1;
+                            let newS = Math.max(0, (Number(pData.stock) || 0) - qty);
+                            let newC = Array.isArray(pData.combinations) ? JSON.parse(JSON.stringify(pData.combinations)) : [];
+                            let rootBranchStock = pData.branchStock ? { ...pData.branchStock } : null;
+
+                            if (newC.length > 0) {
+                                let idx = -1;
+                                if (i.color || i.capacity) {
+                                    const normColor = String(i.color || '').trim().toLowerCase();
+                                    const normCap = String(i.capacity || '').trim().toLowerCase();
+                                    idx = newC.findIndex(c => 
+                                        (String(c.color || '').trim().toLowerCase() === normColor || (!c.color && !i.color)) &&
+                                        (String(c.capacity || '').trim().toLowerCase() === normCap || (!c.capacity && !i.capacity))
                                     );
-                                    if (idx >= 0) newC[idx].stock = Math.max(0, newC[idx].stock - i.quantity);
                                 }
+                                if (idx < 0 && newC.length === 1) idx = 0;
+
+                                if (idx >= 0) {
+                                    newC[idx].stock = Math.max(0, (Number(newC[idx].stock) || 0) - qty);
+                                    if (newC[idx].branchStock) {
+                                        let curBodega = newC[idx].branchStock['bodega'] !== undefined
+                                            ? (Number(newC[idx].branchStock['bodega']) || 0)
+                                            : Math.max(0, (Number(newC[idx].stock) || 0) + qty - Object.entries(newC[idx].branchStock).filter(([k]) => k !== 'bodega').reduce((s, [, v]) => s + (Number(v) || 0), 0));
+                                        newC[idx].branchStock['bodega'] = Math.max(0, curBodega - qty);
+                                    }
+                                }
+
+                                newS = newC.reduce((sum, c) => sum + (Number(c.stock) || 0), 0);
+
+                                if (newC.some(c => c.branchStock)) {
+                                    rootBranchStock = {};
+                                    newC.forEach(c => {
+                                        if (c.branchStock) {
+                                            Object.keys(c.branchStock).forEach(bId => {
+                                                rootBranchStock[bId] = (rootBranchStock[bId] || 0) + (Number(c.branchStock[bId]) || 0);
+                                            });
+                                        }
+                                    });
+                                }
+                            } else if (rootBranchStock) {
+                                let curBodega = rootBranchStock['bodega'] !== undefined
+                                    ? (Number(rootBranchStock['bodega']) || 0)
+                                    : Math.max(0, (Number(pData.stock) || 0) - Object.entries(rootBranchStock).filter(([k]) => k !== 'bodega').reduce((s, [, v]) => s + (Number(v) || 0), 0));
+                                rootBranchStock['bodega'] = Math.max(0, curBodega - qty);
                             }
-                            prodReads.push({ ref: pRef, stock: Math.max(0, newS), combos: newC });
+
+                            const stockPayload = { 
+                                stock: newS, 
+                                combinations: newC,
+                                lastStockChangeReason: 'VENTA_PEDIDO',
+                                lastStockChangeDetails: `Venta web MercadoPago pedido #${orderId.slice(0, 8)}`,
+                                updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                            };
+                            if (rootBranchStock) stockPayload.branchStock = rootBranchStock;
+                            prodReads.push({ ref: pRef, payload: stockPayload });
                         }
                     }
                 }
@@ -306,7 +348,7 @@ exports.webhook = async (req, res) => {
                 }
 
                 for(const p of prodReads) {
-                    t.update(p.ref, { stock: p.stock, combinations: p.combos });
+                    t.update(p.ref, p.payload);
                 }
                 
                 // Escribir Remisión blindada
@@ -330,7 +372,7 @@ exports.webhook = async (req, res) => {
                     paymentMethodName: accName
                 });
             });
-            console.log("✅ MP Order Approved:", orderId);
+            console.log("[MercadoPago] Order Approved:", orderId);
         } 
         
         // --- B. PAGO RECHAZADO / CANCELADO ---
@@ -348,14 +390,14 @@ exports.webhook = async (req, res) => {
                     updateObj.billingStatus = 'CANCELLED';
                 }
                 await orderRef.update(updateObj);
-                console.log("❌ MP Order Rejected:", orderId);
+                console.log(" MP Order Rejected:", orderId);
             }
         }
         
         res.status(200).send("OK");
 
     } catch (e) {
-        console.error("❌ MP Webhook Error:", e);
+        console.error(" MP Webhook Error:", e);
         res.status(500).send("Err");
     }
 };

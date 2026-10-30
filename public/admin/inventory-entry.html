@@ -114,9 +114,15 @@
         <div class="p-8 max-w-7xl mx-auto text-left pb-40">
             <div class="mb-10 flex flex-col md:flex-row justify-between items-end gap-6">
                 <div>
-                    <h1 id="entry-title"
-                        class="text-4xl lg:text-5xl font-black text-brand-black tracking-tighter uppercase leading-none">
-                        Entrada de <br><span class="text-brand-cyan">Mercancía</span></h1>
+                    <div class="flex items-center gap-3">
+                        <h1 id="entry-title"
+                            class="text-4xl lg:text-5xl font-black text-brand-black tracking-tighter uppercase leading-none">
+                            Entrada de <br><span class="text-brand-cyan">Mercancía</span></h1>
+                        <span id="auto-save-indicator" class="hidden self-start mt-2 inline-flex items-center gap-2 text-[10px] font-bold text-gray-500 bg-white border border-gray-200 shadow-sm px-3 py-1.5 rounded-xl">
+                            <i class="fa-solid fa-cloud-arrow-up text-brand-cyan"></i>
+                            <span id="auto-save-text">Borrador al día</span>
+                        </span>
+                    </div>
                     <p id="entry-subtitle" class="text-gray-400 text-sm font-bold mt-2 tracking-wide">Gestión de compras, costos e
                         incremento de stock.</p>
                 </div>
@@ -125,6 +131,27 @@
                     <i class="fa-solid fa-circle-info mr-2"></i>
                     <span id="entry-info-text">Recuerda que al procesar la entrada, el stock se sumará automáticamente y se recalculará el costo
                     promedio.</span>
+                </div>
+            </div>
+
+            <!-- BANNER DE BORRADOR GUARDADO EN LOCAL -->
+            <div id="draft-banner" class="hidden mb-8 p-5 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-[2rem] shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4 fade-in">
+                <div class="flex items-center gap-3.5">
+                    <div class="w-11 h-11 rounded-2xl bg-amber-500 text-white flex items-center justify-center shrink-0 text-lg shadow-md shadow-amber-500/20">
+                        <i class="fa-solid fa-floppy-disk"></i>
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <h4 class="text-xs font-black text-amber-950 uppercase tracking-wider">Borrador Local Recuperado</h4>
+                            <span class="text-[9px] font-black uppercase bg-amber-200/80 text-amber-900 px-2 py-0.5 rounded-md">Auto-guardado</span>
+                        </div>
+                        <p id="draft-status-text" class="text-[11px] text-amber-800 font-medium mt-0.5">Se restauraron los datos que tenías en progreso en este equipo.</p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2 w-full sm:w-auto justify-end">
+                    <button type="button" id="btn-discard-draft" class="px-5 py-2.5 bg-white hover:bg-red-50 text-red-600 border border-red-200 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-2 shadow-sm hover:border-red-300">
+                        <i class="fa-solid fa-trash-can"></i> Descartar Borrador
+                    </button>
                 </div>
             </div>
 
@@ -167,6 +194,191 @@
 
                 <div id="entry-items-container" class="p-8 space-y-4 bg-white min-h-[200px]"></div>
 
+                <!-- SECCIÓN FORMA DE PAGO & TESORERÍA -->
+                <div id="payment-section" class="p-8 border-t border-gray-100 bg-slate-50/70">
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+                        <div class="flex items-center gap-3">
+                            <div class="w-8 h-8 rounded-full bg-brand-cyan/10 flex items-center justify-center text-brand-cyan">
+                                <i class="fa-solid fa-wallet"></i>
+                            </div>
+                            <div>
+                                <h4 class="text-xs font-black text-brand-black uppercase tracking-widest">Forma de Pago & Tesorería</h4>
+                                <p class="text-[9px] font-bold text-gray-400 uppercase mt-0.5">Sincroniza el desembolso con Cartera, Cuentas y Estado de Cuenta</p>
+                            </div>
+                        </div>
+                        <div id="payment-badge-summary" class="inline-flex items-center gap-2 bg-white px-3.5 py-1.5 rounded-xl border border-gray-200 text-[10px] font-black uppercase tracking-wider text-brand-black shadow-sm">
+                            <i class="fa-solid fa-clock-rotate-left text-brand-cyan"></i>
+                            <span id="payment-badge-text">Crédito Cartera</span>
+                        </div>
+                    </div>
+
+                    <!-- Opciones de Forma de Pago (Tarjetas seleccionables) -->
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                        <!-- Tarjeta Crédito -->
+                        <label id="card-method-credito" class="payment-method-card relative flex items-start gap-3.5 p-5 bg-white border-2 border-brand-cyan rounded-2xl cursor-pointer shadow-sm transition-all hover:shadow-md">
+                            <input type="radio" name="payment-method" value="CREDITO" checked class="mt-1 accent-brand-cyan">
+                            <div>
+                                <div class="flex items-center gap-2">
+                                    <span class="text-xs font-black uppercase tracking-wider text-brand-black">A Crédito</span>
+                                    <span class="text-[8px] font-black uppercase bg-cyan-50 text-brand-cyan px-2 py-0.5 rounded-md border border-cyan-200">Cartera</span>
+                                </div>
+                                <p class="text-[10px] font-medium text-gray-500 mt-1 leading-snug">Factura a pagar con plazo. Se registra en Cartera como cuenta pendiente por pagar.</p>
+                            </div>
+                        </label>
+
+                        <!-- Tarjeta Contado -->
+                        <label id="card-method-contado" class="payment-method-card relative flex items-start gap-3.5 p-5 bg-white border-2 border-transparent rounded-2xl cursor-pointer shadow-sm transition-all hover:border-brand-cyan/40 hover:shadow-md">
+                            <input type="radio" name="payment-method" value="CONTADO" class="mt-1 accent-brand-cyan">
+                            <div>
+                                <div class="flex items-center gap-2">
+                                    <span class="text-xs font-black uppercase tracking-wider text-brand-black">De Contado</span>
+                                    <span class="text-[8px] font-black uppercase bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded-md border border-emerald-200">Inmediato</span>
+                                </div>
+                                <p class="text-[10px] font-medium text-gray-500 mt-1 leading-snug">Desembolso directo desde una cuenta o caja. Queda 100% pagado y sin deuda.</p>
+                            </div>
+                        </label>
+
+                        <!-- Tarjeta Mixto -->
+                        <label id="card-method-mixto" class="payment-method-card relative flex items-start gap-3.5 p-5 bg-white border-2 border-transparent rounded-2xl cursor-pointer shadow-sm transition-all hover:border-brand-cyan/40 hover:shadow-md">
+                            <input type="radio" name="payment-method" value="MIXTO" class="mt-1 accent-brand-cyan">
+                            <div>
+                                <div class="flex items-center gap-2">
+                                    <span class="text-xs font-black uppercase tracking-wider text-brand-black">Pago Mixto</span>
+                                    <span class="text-[8px] font-black uppercase bg-purple-50 text-purple-600 px-2 py-0.5 rounded-md border border-purple-200">Abono + Saldo</span>
+                                </div>
+                                <p class="text-[10px] font-medium text-gray-500 mt-1 leading-snug">Abono inmediato desde cuenta y el saldo restante queda como deuda a crédito.</p>
+                            </div>
+                        </label>
+                    </div>
+
+                    <!-- Panel de Detalles según la Opción Seleccionada -->
+                    <div id="payment-details-panel" class="bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
+                        <!-- Campos para CREDITO -->
+                        <div id="panel-credito" class="space-y-4">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1.5 block">Plazo de Crédito</label>
+                                    <select id="entry-credit-terms" class="w-full bg-slate-50 border border-gray-200 rounded-xl px-4 py-3 text-xs font-black text-brand-black outline-none focus:border-brand-cyan cursor-pointer transition">
+                                        <option value="15">15 Días Calendario</option>
+                                        <option value="30" selected>30 Días Calendario (Estándar)</option>
+                                        <option value="45">45 Días Calendario</option>
+                                        <option value="60">60 Días Calendario</option>
+                                        <option value="90">90 Días Calendario</option>
+                                        <option value="custom">Fecha Personalizada</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1.5 block">Fecha de Vencimiento</label>
+                                    <input type="date" id="entry-due-date" class="w-full bg-slate-50 border border-gray-200 rounded-xl px-4 py-3 text-xs font-black text-brand-black outline-none focus:border-brand-cyan transition">
+                                </div>
+                            </div>
+                            <div class="p-4 bg-cyan-50/60 border border-cyan-200 rounded-xl text-xs text-cyan-900 font-medium flex items-center gap-3">
+                                <i class="fa-solid fa-file-invoice-dollar text-brand-cyan text-base"></i>
+                                <span>La factura por <b id="credito-preview-amount">$0</b> se registrará en <b>Cartera</b> como cuenta por pagar con vencimiento el <b id="credito-preview-date">--/--/----</b>.</span>
+                            </div>
+                        </div>
+
+                        <!-- Campos para CONTADO -->
+                        <div id="panel-contado" class="space-y-4 hidden">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1.5 block">Cuenta de Origen / Desembolso</label>
+                                    <select id="entry-account-id" class="w-full bg-slate-50 border border-gray-200 rounded-xl px-4 py-3 text-xs font-black text-brand-black outline-none focus:border-brand-cyan cursor-pointer transition">
+                                        <option value="">Seleccione cuenta...</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1.5 block">Saldo en Cuenta</label>
+                                    <div id="account-status-box" class="h-[44px] bg-slate-50 border border-gray-200 rounded-xl px-4 flex items-center justify-between text-xs font-bold text-gray-400">
+                                        <span>Selecciona una cuenta</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Alerta Saldo Insuficiente -->
+                            <div id="account-insufficient-alert" class="hidden p-4 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 font-bold flex items-center gap-2">
+                                <i class="fa-solid fa-triangle-exclamation text-base text-red-500"></i>
+                                <span>Saldo insuficiente en la cuenta seleccionada para cubrir el valor total de la factura.</span>
+                            </div>
+
+                            <!-- Opción 4x1000 -->
+                            <div id="tax-4x1000-container" class="hidden p-3 bg-amber-50/70 border border-amber-200 rounded-xl flex items-center justify-between">
+                                <label class="flex items-center gap-2 cursor-pointer select-none">
+                                    <input type="checkbox" id="apply-4x1000-check" class="accent-brand-cyan">
+                                    <span class="text-xs font-black text-amber-900 uppercase tracking-wider">Aplicar Gravamen 4x1000 a la cuenta</span>
+                                </label>
+                                <span id="tax-4x1000-amount" class="text-xs font-black text-amber-900">+$0</span>
+                            </div>
+
+                            <div class="p-4 bg-emerald-50/60 border border-emerald-200 rounded-xl text-xs text-emerald-900 font-medium flex items-center gap-3">
+                                <i class="fa-solid fa-circle-check text-emerald-600 text-base"></i>
+                                <span>Se descontarán <b id="contado-preview-amount">$0</b> de la cuenta seleccionada y se creará el egreso contable en <b>Tesorería</b> con factura en estado <b>Pagado</b>.</span>
+                            </div>
+                        </div>
+
+                        <!-- Campos para MIXTO -->
+                        <div id="panel-mixto" class="space-y-4 hidden">
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <div>
+                                    <label class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1.5 block">Cuenta para el Abono</label>
+                                    <select id="entry-mixto-account-id" class="w-full bg-slate-50 border border-gray-200 rounded-xl px-4 py-3 text-xs font-black text-brand-black outline-none focus:border-brand-cyan cursor-pointer transition">
+                                        <option value="">Seleccione cuenta...</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1.5 block">Monto del Abono Inmediato</label>
+                                    <div class="flex items-center bg-slate-50 border border-gray-200 rounded-xl px-3 h-[44px] focus-within:border-brand-cyan focus-within:bg-white transition">
+                                        <span class="text-xs font-black text-gray-400 mr-2">$</span>
+                                        <input type="number" id="entry-initial-paid-amount" placeholder="0" min="0" class="w-full bg-transparent border-none text-xs font-black outline-none text-brand-black">
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1.5 block">Plazo para Saldo Restante</label>
+                                    <select id="entry-mixto-terms" class="w-full bg-slate-50 border border-gray-200 rounded-xl px-4 py-3 text-xs font-black text-brand-black outline-none focus:border-brand-cyan cursor-pointer transition">
+                                        <option value="15">15 Días</option>
+                                        <option value="30" selected>30 Días</option>
+                                        <option value="45">45 Días</option>
+                                        <option value="60">60 Días</option>
+                                        <option value="custom">Fecha Personalizada</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <!-- Fecha de vencimiento para saldo restante -->
+                            <div id="mixto-custom-date-container" class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1.5 block">Fecha de Vencimiento del Saldo</label>
+                                    <input type="date" id="entry-mixto-due-date" class="w-full bg-slate-50 border border-gray-200 rounded-xl px-4 py-3 text-xs font-black text-brand-black outline-none focus:border-brand-cyan transition">
+                                </div>
+                                <div>
+                                    <label class="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1.5 block">Estado de Cuenta Abono</label>
+                                    <div id="mixto-account-status-box" class="h-[44px] bg-slate-50 border border-gray-200 rounded-xl px-4 flex items-center justify-between text-xs font-bold text-gray-400">
+                                        <span>Selecciona una cuenta</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Alerta Mixto Saldo Insuficiente -->
+                            <div id="mixto-account-insufficient-alert" class="hidden p-4 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 font-bold flex items-center gap-2">
+                                <i class="fa-solid fa-triangle-exclamation text-base text-red-500"></i>
+                                <span>Saldo insuficiente en la cuenta para realizar el abono indicado.</span>
+                            </div>
+
+                            <!-- Desglose Mixto -->
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <div class="p-4 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between">
+                                    <span class="text-[10px] font-black uppercase text-emerald-800">Abono Inmediato (Tesorería)</span>
+                                    <span id="mixto-preview-paid" class="text-sm font-black text-emerald-700">$0</span>
+                                </div>
+                                <div class="p-4 bg-purple-50 border border-purple-200 rounded-xl flex items-center justify-between">
+                                    <span class="text-[10px] font-black uppercase text-purple-800">Saldo a Cartera (Deuda)</span>
+                                    <span id="mixto-preview-balance" class="text-sm font-black text-purple-700">$0</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="p-10 bg-slate-900 text-white mt-4 relative overflow-hidden rounded-b-[3rem]">
                     <div
                         class="absolute top-0 right-0 w-64 h-64 bg-brand-cyan/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none">
@@ -201,10 +413,10 @@
                                 <h4 id="display-iva" class="text-xl font-bold text-brand-cyan">$0</h4>
                             </div>
                             <div class="pl-8 md:pl-12 border-l border-white/10">
-                                <p class="text-[9px] font-black text-white/40 uppercase tracking-widest mb-1">Total
-                                    Factura</p>
+                                <p id="display-payment-term-label" class="text-[9px] font-black text-white/40 uppercase tracking-widest mb-1">Total Factura</p>
                                 <h3 id="display-grand-total"
                                     class="text-4xl font-black text-white leading-none tracking-tight">$0</h3>
+                                <p id="display-payment-subtext" class="text-[9px] font-black text-brand-cyan uppercase tracking-wider mt-1.5">A Crédito • Cartera</p>
                             </div>
                         </div>
                     </div>
@@ -412,8 +624,247 @@
         }
 
         // ========================================================================
-        // 3. LÓGICA DE FILAS Y UI
+        // 3. FORMA DE PAGO, TESORERÍA Y TOTALES
         // ========================================================================
+        let localAccountsList = [];
+        window.currentGrandTotal = 0;
+
+        AdminStore.subscribeToAccounts((accs) => {
+            localAccountsList = accs || [];
+            renderAccountsDropdowns();
+        });
+
+        function addDaysToDate(days) {
+            const d = new Date();
+            d.setDate(d.getDate() + parseInt(days, 10));
+            return d.toISOString().split('T')[0];
+        }
+
+        function formatDateDisplay(isoStr) {
+            if (!isoStr) return '--/--/----';
+            const parts = isoStr.split('-');
+            if (parts.length === 3) return `${parts[2]}/${parts[1]}/${parts[0]}`;
+            return isoStr;
+        }
+
+        function renderAccountsDropdowns() {
+            const accountSelect = document.getElementById('entry-account-id');
+            const mixtoAccountSelect = document.getElementById('entry-mixto-account-id');
+            if (!accountSelect || !mixtoAccountSelect) return;
+
+            const currentAccVal = accountSelect.value;
+            const currentMixtoVal = mixtoAccountSelect.value;
+
+            let optionsHtml = '<option value="">Seleccione cuenta...</option>';
+            localAccountsList.forEach(acc => {
+                const bal = (acc.balance || 0).toLocaleString('es-CO');
+                const typeLbl = acc.type ? `[${acc.type.toUpperCase()}] ` : '';
+                optionsHtml += `<option value="${acc.id}">${typeLbl}${acc.name} (Saldo: $${bal})</option>`;
+            });
+
+            accountSelect.innerHTML = optionsHtml;
+            mixtoAccountSelect.innerHTML = optionsHtml;
+
+            if (currentAccVal && localAccountsList.some(a => a.id === currentAccVal)) {
+                accountSelect.value = currentAccVal;
+            }
+            if (currentMixtoVal && localAccountsList.some(a => a.id === currentMixtoVal)) {
+                mixtoAccountSelect.value = currentMixtoVal;
+            }
+
+            updateContadoAccountStatus();
+            updateMixtoAccountStatus();
+        }
+
+        function setPaymentMethodUI(method) {
+            const cards = {
+                'CREDITO': document.getElementById('card-method-credito'),
+                'CONTADO': document.getElementById('card-method-contado'),
+                'MIXTO': document.getElementById('card-method-mixto')
+            };
+            const panels = {
+                'CREDITO': document.getElementById('panel-credito'),
+                'CONTADO': document.getElementById('panel-contado'),
+                'MIXTO': document.getElementById('panel-mixto')
+            };
+            const badgeText = document.getElementById('payment-badge-text');
+
+            Object.keys(cards).forEach(m => {
+                const card = cards[m];
+                const panel = panels[m];
+                if (m === method) {
+                    if (card) {
+                        card.classList.remove('border-transparent');
+                        card.classList.add('border-brand-cyan');
+                    }
+                    if (panel) panel.classList.remove('hidden');
+                } else {
+                    if (card) {
+                        card.classList.remove('border-brand-cyan');
+                        card.classList.add('border-transparent');
+                    }
+                    if (panel) panel.classList.add('hidden');
+                }
+            });
+
+            if (badgeText) {
+                if (method === 'CREDITO') badgeText.textContent = 'Crédito Cartera';
+                else if (method === 'CONTADO') badgeText.textContent = 'Contado Inmediato';
+                else if (method === 'MIXTO') badgeText.textContent = 'Pago Mixto';
+            }
+
+            window.updateAllTotals();
+        }
+
+        document.querySelectorAll('input[name="payment-method"]').forEach(radio => {
+            radio.addEventListener('change', (e) => {
+                setPaymentMethodUI(e.target.value);
+                debouncedSaveDraft();
+            });
+        });
+
+        const creditTermsSelect = document.getElementById('entry-credit-terms');
+        const dueDateInput = document.getElementById('entry-due-date');
+        const mixtoTermsSelect = document.getElementById('entry-mixto-terms');
+        const mixtoDueDateInput = document.getElementById('entry-mixto-due-date');
+
+        if (dueDateInput && !dueDateInput.value) {
+            dueDateInput.value = addDaysToDate(30);
+        }
+        if (mixtoDueDateInput && !mixtoDueDateInput.value) {
+            mixtoDueDateInput.value = addDaysToDate(30);
+        }
+
+        if (creditTermsSelect && dueDateInput) {
+            creditTermsSelect.addEventListener('change', (e) => {
+                if (e.target.value !== 'custom') {
+                    dueDateInput.value = addDaysToDate(e.target.value);
+                }
+                window.updateAllTotals();
+                debouncedSaveDraft();
+            });
+
+            dueDateInput.addEventListener('change', () => {
+                creditTermsSelect.value = 'custom';
+                window.updateAllTotals();
+                debouncedSaveDraft();
+            });
+        }
+
+        if (mixtoTermsSelect && mixtoDueDateInput) {
+            mixtoTermsSelect.addEventListener('change', (e) => {
+                if (e.target.value !== 'custom') {
+                    mixtoDueDateInput.value = addDaysToDate(e.target.value);
+                }
+                window.updateAllTotals();
+                debouncedSaveDraft();
+            });
+
+            mixtoDueDateInput.addEventListener('change', () => {
+                mixtoTermsSelect.value = 'custom';
+                window.updateAllTotals();
+                debouncedSaveDraft();
+            });
+        }
+
+        function updateContadoAccountStatus() {
+            const accId = document.getElementById('entry-account-id')?.value;
+            const box = document.getElementById('account-status-box');
+            const taxContainer = document.getElementById('tax-4x1000-container');
+            const taxAmountSpan = document.getElementById('tax-4x1000-amount');
+            const alertBox = document.getElementById('account-insufficient-alert');
+            if (!box) return;
+
+            if (!accId) {
+                box.innerHTML = `<span>Selecciona una cuenta</span>`;
+                if (taxContainer) taxContainer.classList.add('hidden');
+                if (alertBox) alertBox.classList.add('hidden');
+                return;
+            }
+
+            const acc = localAccountsList.find(a => a.id === accId);
+            if (!acc) return;
+
+            const balance = acc.balance || 0;
+            const grandTotal = window.currentGrandTotal || 0;
+            const isBank = acc.type === 'banco';
+            const isExempt = !!acc.isExempt;
+            const applyTax = document.getElementById('apply-4x1000-check')?.checked || false;
+            const tax4x1000 = (isBank && !isExempt && applyTax) ? Math.ceil(grandTotal * 0.004) : 0;
+            const totalDeduction = grandTotal + tax4x1000;
+
+            box.innerHTML = `
+                <span class="text-brand-black">Saldo disponible:</span>
+                <span class="font-black ${balance >= totalDeduction ? 'text-emerald-600' : 'text-red-500'}">$${balance.toLocaleString('es-CO')}</span>
+            `;
+
+            if (taxContainer) {
+                if (isBank && !isExempt) {
+                    taxContainer.classList.remove('hidden');
+                    if (taxAmountSpan) taxAmountSpan.textContent = `+$${Math.ceil(grandTotal * 0.004).toLocaleString('es-CO')}`;
+                } else {
+                    taxContainer.classList.add('hidden');
+                }
+            }
+
+            if (alertBox) {
+                if (grandTotal > 0 && balance < totalDeduction) {
+                    alertBox.classList.remove('hidden');
+                } else {
+                    alertBox.classList.add('hidden');
+                }
+            }
+        }
+
+        function updateMixtoAccountStatus() {
+            const accId = document.getElementById('entry-mixto-account-id')?.value;
+            const box = document.getElementById('mixto-account-status-box');
+            const alertBox = document.getElementById('mixto-account-insufficient-alert');
+            if (!box) return;
+
+            if (!accId) {
+                box.innerHTML = `<span>Selecciona una cuenta</span>`;
+                if (alertBox) alertBox.classList.add('hidden');
+                return;
+            }
+
+            const acc = localAccountsList.find(a => a.id === accId);
+            if (!acc) return;
+
+            const balance = acc.balance || 0;
+            const initialPaid = parseFloat(document.getElementById('entry-initial-paid-amount')?.value) || 0;
+
+            box.innerHTML = `
+                <span class="text-brand-black">Saldo disponible:</span>
+                <span class="font-black ${balance >= initialPaid ? 'text-emerald-600' : 'text-red-500'}">$${balance.toLocaleString('es-CO')}</span>
+            `;
+
+            if (alertBox) {
+                if (initialPaid > 0 && balance < initialPaid) {
+                    alertBox.classList.remove('hidden');
+                } else {
+                    alertBox.classList.add('hidden');
+                }
+            }
+        }
+
+        document.getElementById('entry-account-id')?.addEventListener('change', () => {
+            updateContadoAccountStatus();
+            debouncedSaveDraft();
+        });
+        document.getElementById('apply-4x1000-check')?.addEventListener('change', () => {
+            updateContadoAccountStatus();
+            debouncedSaveDraft();
+        });
+        document.getElementById('entry-mixto-account-id')?.addEventListener('change', () => {
+            updateMixtoAccountStatus();
+            debouncedSaveDraft();
+        });
+        document.getElementById('entry-initial-paid-amount')?.addEventListener('input', () => {
+            window.updateAllTotals();
+            updateMixtoAccountStatus();
+            debouncedSaveDraft();
+        });
 
         window.updateAllTotals = () => {
             let grandTotal = 0;
@@ -427,10 +878,301 @@
             const hasIva = ivaToggle.checked;
             const base = hasIva ? Math.round(grandTotal / 1.19) : grandTotal;
             const iva = grandTotal - base;
+            window.currentGrandTotal = Math.round(grandTotal);
+
             document.getElementById('display-grand-total').textContent = `$${Math.round(grandTotal).toLocaleString('es-CO')}`;
             document.getElementById('display-base').textContent = `$${Math.round(base).toLocaleString('es-CO')}`;
             document.getElementById('display-iva').textContent = `$${Math.round(iva).toLocaleString('es-CO')}`;
+
+            // Actualizar previas de pago
+            const method = document.querySelector('input[name="payment-method"]:checked')?.value || 'CREDITO';
+            const dueDateVal = document.getElementById('entry-due-date')?.value || '';
+            const initialAmountVal = parseFloat(document.getElementById('entry-initial-paid-amount')?.value) || 0;
+            const subtextEl = document.getElementById('display-payment-subtext');
+
+            const creditoPreviewAmt = document.getElementById('credito-preview-amount');
+            const creditoPreviewDt = document.getElementById('credito-preview-date');
+            const contadoPreviewAmt = document.getElementById('contado-preview-amount');
+            const mixtoPreviewPaid = document.getElementById('mixto-preview-paid');
+            const mixtoPreviewBal = document.getElementById('mixto-preview-balance');
+
+            if (creditoPreviewAmt) creditoPreviewAmt.textContent = `$${Math.round(grandTotal).toLocaleString('es-CO')}`;
+            if (creditoPreviewDt) creditoPreviewDt.textContent = formatDateDisplay(dueDateVal);
+            if (contadoPreviewAmt) contadoPreviewAmt.textContent = `$${Math.round(grandTotal).toLocaleString('es-CO')}`;
+
+            const mixtoBalance = Math.max(0, Math.round(grandTotal) - initialAmountVal);
+            if (mixtoPreviewPaid) mixtoPreviewPaid.textContent = `$${Math.round(initialAmountVal).toLocaleString('es-CO')}`;
+            if (mixtoPreviewBal) mixtoPreviewBal.textContent = `$${Math.round(mixtoBalance).toLocaleString('es-CO')}`;
+
+            if (subtextEl) {
+                if (method === 'CREDITO') {
+                    subtextEl.textContent = `A Crédito • Cartera (Vence: ${formatDateDisplay(dueDateVal)})`;
+                    subtextEl.className = "text-[9px] font-black text-brand-cyan uppercase tracking-wider mt-1.5";
+                } else if (method === 'CONTADO') {
+                    const accId = document.getElementById('entry-account-id')?.value;
+                    const acc = localAccountsList.find(a => a.id === accId);
+                    subtextEl.textContent = `Contado • Desembolso Inmediato (${acc ? acc.name : 'Cuenta'})`;
+                    subtextEl.className = "text-[9px] font-black text-emerald-400 uppercase tracking-wider mt-1.5";
+                } else if (method === 'MIXTO') {
+                    subtextEl.textContent = `Mixto • Abono: $${Math.round(initialAmountVal).toLocaleString('es-CO')} | Cartera: $${Math.round(mixtoBalance).toLocaleString('es-CO')}`;
+                    subtextEl.className = "text-[9px] font-black text-purple-400 uppercase tracking-wider mt-1.5";
+                }
+            }
+
+            updateContadoAccountStatus();
+            updateMixtoAccountStatus();
         };
+
+        // ========================================================================
+        // 3.1 SISTEMA DE AUTO-GUARDADO LOCAL (LOCALSTORAGE DRAFT)
+        // ========================================================================
+        const STORAGE_KEY = 'pixeltech_inventory_entry_draft';
+        let draftSaveTimer = null;
+
+        function updateAutoSaveUI(dateObj) {
+            const indicator = document.getElementById('auto-save-indicator');
+            const textEl = document.getElementById('auto-save-text');
+            if (!indicator || !textEl) return;
+
+            if (!dateObj) {
+                indicator.classList.add('hidden');
+                return;
+            }
+
+            indicator.classList.remove('hidden');
+            const timeStr = dateObj.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            textEl.textContent = `Borrador al día (${timeStr})`;
+        }
+
+        function getDraftPayload() {
+            const itemRows = document.querySelectorAll('.item-row');
+            const items = [];
+            itemRows.forEach(row => {
+                const pid = row.querySelector('.p-id')?.value || '';
+                const name = row.querySelector('.p-search')?.value || '';
+                const qty = parseInt(row.querySelector('.p-qty')?.value, 10) || 1;
+                const unitCost = row.querySelector('.p-unit-cost-input')?.value || '';
+                const color = row.querySelector('.p-color')?.value || '';
+                const capacity = row.querySelector('.p-capacity')?.value || '';
+                const noSerialQty = row._noSerialQty || 0;
+                const snInputs = Array.from(row.querySelectorAll('.p-sn-input'));
+                const sns = snInputs.map(input => input.value.trim().toUpperCase());
+                items.push({ pid, name, qty, unitCost, color, capacity, noSerialQty, sns });
+            });
+
+            const paymentMethod = document.querySelector('input[name="payment-method"]:checked')?.value || 'CREDITO';
+            return {
+                supplierId: supplierIdField.value,
+                supplierName: supplierSearchInput.value,
+                hasIVA: ivaToggle.checked,
+                paymentMethod,
+                creditTerms: document.getElementById('entry-credit-terms')?.value || '30',
+                creditDueDate: document.getElementById('entry-due-date')?.value || '',
+                accountId: document.getElementById('entry-account-id')?.value || '',
+                apply4x1000: document.getElementById('apply-4x1000-check')?.checked || false,
+                mixtoAccountId: document.getElementById('entry-mixto-account-id')?.value || '',
+                mixtoAmount: document.getElementById('entry-initial-paid-amount')?.value || '',
+                mixtoTerms: document.getElementById('entry-mixto-terms')?.value || '30',
+                mixtoDueDate: document.getElementById('entry-mixto-due-date')?.value || '',
+                items,
+                savedAt: new Date().toISOString()
+            };
+        }
+
+        function saveDraftToStorage() {
+            if (editId) return;
+            const payload = getDraftPayload();
+            const hasData = (payload.supplierName && payload.supplierName.trim().length > 0) ||
+                payload.items.some(i => (i.name && i.name.trim().length > 0) || i.unitCost || (i.sns && i.sns.some(s => s)));
+
+            if (!hasData) {
+                try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
+                updateAutoSaveUI(null);
+                return;
+            }
+
+            try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+                updateAutoSaveUI(new Date());
+            } catch (e) {
+                console.warn("No se pudo guardar borrador local:", e);
+            }
+        }
+
+        function debouncedSaveDraft() {
+            if (editId) return;
+            clearTimeout(draftSaveTimer);
+            draftSaveTimer = setTimeout(() => {
+                saveDraftToStorage();
+            }, 350);
+        }
+
+        async function restoreDraftFromStorage() {
+            if (editId) return false;
+            let raw = null;
+            try { raw = localStorage.getItem(STORAGE_KEY); } catch (e) {}
+            if (!raw) return false;
+
+            try {
+                const draft = JSON.parse(raw);
+                if (!draft || !draft.items || !Array.isArray(draft.items)) return false;
+
+                const hasContent = (draft.supplierName && draft.supplierName.trim().length > 0) ||
+                    draft.items.some(i => i.name && i.name.trim().length > 0);
+                if (!hasContent) return false;
+
+                // 1. Proveedor
+                if (draft.supplierId) {
+                    supplierIdField.value = draft.supplierId;
+                }
+                if (draft.supplierName) {
+                    supplierSearchInput.value = draft.supplierName;
+                }
+
+                // 2. IVA
+                ivaToggle.checked = !!draft.hasIVA;
+
+                // 3. Forma de Pago
+                if (draft.paymentMethod) {
+                    const radio = document.querySelector(`input[name="payment-method"][value="${draft.paymentMethod}"]`);
+                    if (radio) {
+                        radio.checked = true;
+                        setPaymentMethodUI(draft.paymentMethod);
+                    }
+                }
+                if (draft.creditTerms && document.getElementById('entry-credit-terms')) {
+                    document.getElementById('entry-credit-terms').value = draft.creditTerms;
+                }
+                if (draft.creditDueDate && document.getElementById('entry-due-date')) {
+                    document.getElementById('entry-due-date').value = draft.creditDueDate;
+                }
+                if (draft.accountId && document.getElementById('entry-account-id')) {
+                    document.getElementById('entry-account-id').value = draft.accountId;
+                }
+                if (document.getElementById('apply-4x1000-check')) {
+                    document.getElementById('apply-4x1000-check').checked = !!draft.apply4x1000;
+                }
+                if (draft.mixtoAccountId && document.getElementById('entry-mixto-account-id')) {
+                    document.getElementById('entry-mixto-account-id').value = draft.mixtoAccountId;
+                }
+                if (draft.mixtoAmount && document.getElementById('entry-initial-paid-amount')) {
+                    document.getElementById('entry-initial-paid-amount').value = draft.mixtoAmount;
+                }
+                if (draft.mixtoTerms && document.getElementById('entry-mixto-terms')) {
+                    document.getElementById('entry-mixto-terms').value = draft.mixtoTerms;
+                }
+                if (draft.mixtoDueDate && document.getElementById('entry-mixto-due-date')) {
+                    document.getElementById('entry-mixto-due-date').value = draft.mixtoDueDate;
+                }
+
+                // 4. Catálogo de productos
+                await ensureProductIndex();
+
+                // 5. Reconstruir filas de productos
+                itemsContainer.innerHTML = "";
+                for (const item of draft.items) {
+                    addProductRow();
+                    const row = itemsContainer.lastElementChild;
+                    if (!row) continue;
+
+                    if (item.pid) row.querySelector('.p-id').value = item.pid;
+                    if (item.name) row.querySelector('.p-search').value = item.name;
+                    if (item.qty) row.querySelector('.p-qty').value = item.qty;
+                    if (item.unitCost) row.querySelector('.p-unit-cost-input').value = item.unitCost;
+
+                    let prod = item.pid ? localProductIndex.find(p => p.id === item.pid) : null;
+                    if (prod) {
+                        renderVariants(row, prod);
+                    }
+
+                    if (item.color) {
+                        const colSel = row.querySelector('.p-color');
+                        if (colSel) {
+                            if (![...colSel.options].some(o => o.value === item.color)) {
+                                const opt = document.createElement('option');
+                                opt.value = item.color;
+                                opt.textContent = item.color;
+                                colSel.appendChild(opt);
+                            }
+                            colSel.value = item.color;
+                        }
+                    }
+
+                    if (item.capacity) {
+                        const capSel = row.querySelector('.p-capacity');
+                        if (capSel) {
+                            if (![...capSel.options].some(o => o.value === item.capacity)) {
+                                const opt = document.createElement('option');
+                                opt.value = item.capacity;
+                                opt.textContent = item.capacity;
+                                capSel.appendChild(opt);
+                            }
+                            capSel.value = item.capacity;
+                        }
+                    }
+
+                    row._noSerialQty = item.noSerialQty || 0;
+                    syncSerialInputs(row, item.sns || []);
+                }
+
+                window.updateAllTotals();
+
+                // Mostrar banner de borrador restaurado
+                const draftBanner = document.getElementById('draft-banner');
+                const draftStatusText = document.getElementById('draft-status-text');
+                if (draftBanner) {
+                    draftBanner.classList.remove('hidden');
+                    const savedTime = draft.savedAt ? new Date(draft.savedAt).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' }) : '';
+                    if (draftStatusText) {
+                        draftStatusText.textContent = `Borrador guardado localmente (${savedTime}) con ${draft.items.length} producto(s). Se restauraron los datos en pantalla.`;
+                    }
+                }
+                updateAutoSaveUI(draft.savedAt ? new Date(draft.savedAt) : new Date());
+                return true;
+            } catch (e) {
+                console.error("Error al restaurar borrador de inventario:", e);
+                return false;
+            }
+        }
+
+        function discardDraft() {
+            if (!confirm("¿Deseas descartar este borrador local? Se limpiará el formulario y se eliminará la copia guardada en este equipo.")) return;
+            try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
+
+            supplierIdField.value = "";
+            supplierSearchInput.value = "";
+            ivaToggle.checked = false;
+            itemsContainer.innerHTML = "";
+            addProductRow();
+
+            const radioCredito = document.querySelector('input[name="payment-method"][value="CREDITO"]');
+            if (radioCredito) {
+                radioCredito.checked = true;
+                setPaymentMethodUI('CREDITO');
+            }
+
+            const draftBanner = document.getElementById('draft-banner');
+            if (draftBanner) draftBanner.classList.add('hidden');
+            updateAutoSaveUI(null);
+            window.updateAllTotals();
+        }
+
+        const btnDiscard = document.getElementById('btn-discard-draft');
+        if (btnDiscard) {
+            btnDiscard.onclick = discardDraft;
+        }
+
+        // Detectar cambios globales para disparar auto-guardado
+        document.addEventListener('input', (e) => {
+            if (e.target.closest('#entry-items-container') || e.target.id === 'supplier-search' || e.target.closest('#payment-section')) {
+                debouncedSaveDraft();
+            }
+        });
+        document.addEventListener('change', (e) => {
+            if (e.target.closest('#entry-items-container') || e.target.id === 'global-iva-toggle' || e.target.closest('#payment-section')) {
+                debouncedSaveDraft();
+            }
+        });
 
         function addProductRow() {
             const div = document.createElement('div');
@@ -468,9 +1210,14 @@
                             <span class="text-[9px] font-black uppercase tracking-wider text-gray-500">Códigos Seriales (SN)</span>
                             <span class="p-sn-counter text-[9px] font-black px-2 py-0.5 rounded-full bg-cyan-50 text-brand-cyan border border-cyan-200">1 Requerido</span>
                         </div>
-                        <button type="button" class="btn-paste-sn text-[9px] font-black text-brand-cyan hover:underline uppercase tracking-wider flex items-center gap-1">
-                            <i class="fa-solid fa-paste text-[10px]"></i> Pegar Múltiples SN
-                        </button>
+                        <div class="flex items-center gap-2">
+                            <button type="button" class="btn-no-serial-qty text-[9px] font-black text-amber-600 hover:text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-2.5 py-1 rounded-lg uppercase tracking-wider flex items-center gap-1 transition">
+                                <i class="fa-solid fa-tag text-[9px]"></i> <span class="btn-no-serial-lbl">Unidades Sin Serial</span>
+                            </button>
+                            <button type="button" class="btn-paste-sn text-[9px] font-black text-brand-cyan hover:underline uppercase tracking-wider flex items-center gap-1">
+                                <i class="fa-solid fa-paste text-[10px]"></i> Pegar Múltiples SN
+                            </button>
+                        </div>
                     </div>
                     <div class="p-sn-container grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2"></div>
                 </div>`;
@@ -708,23 +1455,81 @@
             }
         }
 
+        function setupNoSerialButton(row) {
+            const btn = row.querySelector('.btn-no-serial-qty');
+            if (!btn) return;
+            btn.onclick = () => {
+                const qtyInput = row.querySelector('.p-qty');
+                let qty = parseInt(qtyInput ? qtyInput.value : 1) || 1;
+                const prodName = row.querySelector('.p-search')?.value.trim() || 'este producto';
+                const currentNoSerial = row._noSerialQty || 0;
+
+                const ans = prompt(
+                    `¿Cuántas unidades de "${prodName}" (de las ${qty} en total) deseas ingresar SIN SERIAL?\n\n` +
+                    `• Ingresa un número entre 0 y ${qty}.\n` +
+                    `• 0 = Todas requieren código SN.\n` +
+                    `• ${qty} = Todas ingresan sin código.\n` +
+                    `• Valor intermedio (ej: 2) = Se solicitarán seriales solo para las restantes.`,
+                    currentNoSerial > 0 ? currentNoSerial : 0
+                );
+
+                if (ans === null) return;
+                let parsed = parseInt(ans, 10);
+                if (isNaN(parsed) || parsed < 0) parsed = 0;
+                if (parsed > qty) parsed = qty;
+
+                row._noSerialQty = parsed;
+                syncSerialInputs(row);
+            };
+        }
+
         function syncSerialInputs(row, initialSns = []) {
             const qtyInput = row.querySelector('.p-qty');
             let qty = parseInt(qtyInput ? qtyInput.value : 1) || 1;
             if (qty < 1) qty = 1;
+
+            let noSerialQty = row._noSerialQty || 0;
+            if (noSerialQty > qty) noSerialQty = qty;
+            row._noSerialQty = noSerialQty;
+
+            const requiredSns = Math.max(0, qty - noSerialQty);
+
             const container = row.querySelector('.p-sn-container');
             const counter = row.querySelector('.p-sn-counter');
+            const btnLbl = row.querySelector('.btn-no-serial-lbl');
             if (!container) return;
 
+            if (btnLbl) {
+                btnLbl.textContent = noSerialQty > 0 ? `${noSerialQty} Sin Serial` : 'Unidades Sin Serial';
+            }
+
             if (counter) {
-                counter.textContent = `${qty} ${qty === 1 ? 'Requerido' : 'Requeridos'}`;
+                if (noSerialQty === 0) {
+                    counter.className = "p-sn-counter text-[9px] font-black px-2 py-0.5 rounded-full bg-cyan-50 text-brand-cyan border border-cyan-200";
+                    counter.textContent = `${qty} ${qty === 1 ? 'Requerido' : 'Requeridos'}`;
+                } else if (noSerialQty === qty) {
+                    counter.className = "p-sn-counter text-[9px] font-black px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-300";
+                    counter.textContent = `Todas (${qty}) Sin Serial`;
+                } else {
+                    counter.className = "p-sn-counter text-[9px] font-black px-2 py-0.5 rounded-full bg-cyan-50 text-brand-cyan border border-cyan-200";
+                    counter.innerHTML = `${requiredSns} Requerido${requiredSns === 1 ? '' : 's'} <span class="text-amber-700 font-bold ml-1">(${noSerialQty} sin SN)</span>`;
+                }
+            }
+
+            if (requiredSns === 0) {
+                container.innerHTML = `
+                    <div class="col-span-full p-3 bg-amber-50/80 border border-amber-200 rounded-xl text-center text-xs font-bold text-amber-900 flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-tag text-amber-600"></i> Las ${qty} unidades de este producto ingresarán al stock sin código de serial.
+                    </div>
+                `;
+                return;
             }
 
             const currentInputs = Array.from(container.querySelectorAll('.p-sn-input'));
             const currentValues = currentInputs.map(i => i.value.trim().toUpperCase());
 
             const finalValues = [];
-            for (let i = 0; i < qty; i++) {
+            for (let i = 0; i < requiredSns; i++) {
                 if (initialSns && initialSns[i] !== undefined) {
                     finalValues.push(initialSns[i]);
                 } else if (currentValues[i] !== undefined) {
@@ -980,6 +1785,7 @@
             unitCostInput.oninput = window.updateAllTotals;
 
             setupPasteSnButton(row);
+            setupNoSerialButton(row);
             syncSerialInputs(row);
         }
 
@@ -1132,6 +1938,32 @@
                     addProductRow();
                 }
 
+                // 4. Cargar Forma de Pago previa
+                if (pData.paymentMethod) {
+                    const r = document.querySelector(`input[name="payment-method"][value="${pData.paymentMethod}"]`);
+                    if (r) {
+                        r.checked = true;
+                        setPaymentMethodUI(pData.paymentMethod);
+                    }
+                }
+                if (pData.dueDate && document.getElementById('entry-due-date')) {
+                    document.getElementById('entry-due-date').value = pData.dueDate;
+                }
+                if (pData.accountId && document.getElementById('entry-account-id')) {
+                    document.getElementById('entry-account-id').value = pData.accountId;
+                }
+                if (pData.paymentMethod === 'MIXTO') {
+                    if (document.getElementById('entry-initial-paid-amount') && pData.amountPaid) {
+                        document.getElementById('entry-initial-paid-amount').value = pData.amountPaid;
+                    }
+                    if (document.getElementById('entry-mixto-account-id') && pData.accountId) {
+                        document.getElementById('entry-mixto-account-id').value = pData.accountId;
+                    }
+                    if (document.getElementById('entry-mixto-due-date') && pData.dueDate) {
+                        document.getElementById('entry-mixto-due-date').value = pData.dueDate;
+                    }
+                }
+
                 window.updateAllTotals();
 
             } catch (e) {
@@ -1177,19 +2009,22 @@
                     if (row.querySelector('.p-capacity') && !selectedCap) throw `⚠️ Selecciona una capacidad para: ${name}`;
 
                     // Leer seriales (SN) de esta fila
+                    const noSerialQty = Math.min(row._noSerialQty || 0, qty);
+                    const requiredSns = Math.max(0, qty - noSerialQty);
                     const snInputs = Array.from(row.querySelectorAll('.p-sn-input'));
                     const sns = snInputs.map(input => input.value.trim().toUpperCase());
 
-                    if (sns.length < qty) {
-                        throw `⚠️ Debes ingresar ${qty} códigos seriales (SN) para: ${name}`;
+                    if (sns.length < requiredSns) {
+                        throw `⚠️ Debes ingresar ${requiredSns} códigos seriales (SN) para: ${name} (${noSerialQty} configuradas sin serial)`;
                     }
 
-                    const emptySnIdx = sns.findIndex(s => !s);
+                    const emptySnIdx = sns.slice(0, requiredSns).findIndex(s => !s);
                     if (emptySnIdx !== -1) {
                         throw `⚠️ Falta ingresar el serial (SN) #${emptySnIdx + 1} para el producto: ${name}`;
                     }
 
-                    for (const sn of sns) {
+                    const validSns = sns.slice(0, requiredSns);
+                    for (const sn of validSns) {
                         if (allSnsInEntry.includes(sn)) {
                             throw `⚠️ El serial "${sn}" está duplicado en este formulario de entrada. Todos los seriales deben ser únicos.`;
                         }
@@ -1204,7 +2039,8 @@
                         selectedColor,
                         selectedCap,
                         name,
-                        sns
+                        sns: validSns,
+                        noSerialQty
                     });
                 }
 
@@ -1532,7 +2368,31 @@
                 // ----------------------------------------------------------------
                 // RAMA B: NUEVA ENTRADA (CREATE MODE)
                 // ----------------------------------------------------------------
+                // 1. Validar parámetros de Forma de Pago antes de iniciar transacción
+                const paymentMethod = document.querySelector('input[name="payment-method"]:checked')?.value || 'CREDITO';
+                let selectedAccountId = null;
+                let initialPaidAmount = 0;
+                let dueDateStr = null;
+                const apply4x1000 = document.getElementById('apply-4x1000-check')?.checked || false;
+
+                if (paymentMethod === 'CREDITO') {
+                    dueDateStr = document.getElementById('entry-due-date')?.value;
+                    if (!dueDateStr) throw "⚠️ Debe especificar la fecha de vencimiento para el crédito.";
+                } else if (paymentMethod === 'CONTADO') {
+                    selectedAccountId = document.getElementById('entry-account-id')?.value;
+                    if (!selectedAccountId) throw "⚠️ Debe seleccionar la cuenta de tesorería para el desembolso de contado.";
+                    dueDateStr = new Date().toISOString().split('T')[0];
+                } else if (paymentMethod === 'MIXTO') {
+                    selectedAccountId = document.getElementById('entry-mixto-account-id')?.value;
+                    if (!selectedAccountId) throw "⚠️ Debe seleccionar la cuenta de tesorería para el abono inicial.";
+                    initialPaidAmount = parseFloat(document.getElementById('entry-initial-paid-amount')?.value) || 0;
+                    if (initialPaidAmount <= 0) throw "⚠️ Para pago mixto, el abono inicial debe ser mayor a cero.";
+                    dueDateStr = document.getElementById('entry-mixto-due-date')?.value;
+                    if (!dueDateStr) throw "⚠️ Debe especificar la fecha de vencimiento para el saldo a crédito.";
+                }
+
                 await runTransaction(db, async (transaction) => {
+                    // 1. TODAS LAS LECTURAS PRIMERO (Regla estricta de Firestore)
                     const suppRef = doc(db, "suppliers", supplierId);
                     const suppSnap = await transaction.get(suppRef);
                     if (!suppSnap.exists()) throw "Proveedor no encontrado en la base de datos";
@@ -1541,6 +2401,14 @@
                     const productReads = uniquePids.map(pid => transaction.get(doc(db, "products", pid)));
                     const productSnaps = await Promise.all(productReads);
 
+                    let accountDocSnap = null;
+                    if (selectedAccountId) {
+                        const accRef = doc(db, "accounts", selectedAccountId);
+                        accountDocSnap = await transaction.get(accRef);
+                        if (!accountDocSnap.exists()) throw "La cuenta de tesorería seleccionada no existe en la base de datos.";
+                    }
+
+                    // 2. CÁLCULO DE ÍTEMS Y STOCKS
                     let totalInvoice = 0;
                     const purchaseItems = [];
                     const hasIvaGlobal = ivaToggle.checked;
@@ -1652,8 +2520,33 @@
                     });
 
                     const finalTotal = Math.round(totalInvoice);
+                    let paidAmount = 0;
+                    if (paymentMethod === 'CONTADO') {
+                        paidAmount = finalTotal;
+                    } else if (paymentMethod === 'MIXTO') {
+                        if (initialPaidAmount >= finalTotal) {
+                            throw "El abono inicial no puede ser mayor o igual al total de la factura. Para pago total, seleccione De Contado.";
+                        }
+                        paidAmount = Math.round(initialPaidAmount);
+                    }
+                    const pendingDebt = Math.max(0, finalTotal - paidAmount);
 
-                    // 1. Actualizar métricas del proveedor (con updatedAt para Delta Sync)
+                    // Validar cuenta y saldo si hay desembolso inmediato
+                    let accData = null;
+                    let tax4x1000 = 0;
+                    let totalAccountDeduction = 0;
+                    if (paidAmount > 0 && accountDocSnap) {
+                        accData = accountDocSnap.data();
+                        const isBankTax = (accData.type === 'banco' && !accData.isExempt && apply4x1000);
+                        tax4x1000 = isBankTax ? Math.ceil(paidAmount * 0.004) : 0;
+                        totalAccountDeduction = paidAmount + tax4x1000;
+                        const currentAccBalance = accData.balance || 0;
+                        if (currentAccBalance < totalAccountDeduction) {
+                            throw `Saldo insuficiente en la cuenta "${accData.name}". Saldo disponible: $${currentAccBalance.toLocaleString('es-CO')}, Requerido: $${totalAccountDeduction.toLocaleString('es-CO')}`;
+                        }
+                    }
+
+                    // 3. Actualizar métricas del proveedor (con updatedAt para Delta Sync)
                     transaction.update(suppRef, {
                         totalInvested: (suppSnap.data().totalInvested || 0) + finalTotal,
                         ordersCount: (suppSnap.data().ordersCount || 0) + 1,
@@ -1661,13 +2554,19 @@
                         updatedAt: now
                     });
 
-                    // 2. Registrar compra histórica (con updatedAt para Delta Sync)
+                    // 4. Registrar compra histórica (con updatedAt para Delta Sync)
                     const purchaseRef = doc(collection(db, "purchases"));
+                    const paymentStatus = paidAmount >= finalTotal ? 'PAID' : (paidAmount > 0 ? 'PARTIAL' : 'PENDING');
                     transaction.set(purchaseRef, {
                         supplierId,
                         supplierName: supplierSearchInput.value,
                         totalCost: finalTotal,
-                        amountPaid: 0,
+                        amountPaid: paidAmount,
+                        paymentStatus: paymentStatus,
+                        paymentMethod: paymentMethod,
+                        accountId: selectedAccountId || null,
+                        accountName: accData?.name || null,
+                        dueDate: dueDateStr || null,
                         hasIVA: hasIvaGlobal,
                         items: purchaseItems,
                         createdAt: now,
@@ -1675,7 +2574,52 @@
                         createdBy: document.getElementById('admin-name')?.textContent || 'Administrador'
                     });
 
-                    // 2.1 Guardar los seriales individuales en product_serials
+                    // 5. Desembolso de cuenta y registro de egreso contable
+                    if (paidAmount > 0 && accountDocSnap) {
+                        const accRef = doc(db, "accounts", selectedAccountId);
+                        transaction.update(accRef, {
+                            balance: (accData.balance || 0) - totalAccountDeduction,
+                            updatedAt: now
+                        });
+
+                        const expenseRef = doc(collection(db, "expenses"));
+                        transaction.set(expenseRef, {
+                            supplierId,
+                            supplierName: supplierSearchInput.value,
+                            purchaseId: purchaseRef.id,
+                            description: paidAmount >= finalTotal
+                                ? `Pago Contado Compra Inv. #${purchaseRef.id.slice(0,6).toUpperCase()}`
+                                : `Abono Inicial Compra Inv. #${purchaseRef.id.slice(0,6).toUpperCase()}`,
+                            category: "Pago Proveedores",
+                            type: 'EXPENSE',
+                            amount: paidAmount,
+                            paymentMethod: accData.name,
+                            accountId: selectedAccountId,
+                            date: now,
+                            createdAt: now,
+                            updatedAt: now
+                        });
+
+                        if (tax4x1000 > 0) {
+                            const taxRef = doc(collection(db, "expenses"));
+                            transaction.set(taxRef, {
+                                supplierId,
+                                supplierName: supplierSearchInput.value,
+                                purchaseId: purchaseRef.id,
+                                description: `4x1000 Desembolso Proveedor (Compra #${purchaseRef.id.slice(0,6).toUpperCase()})`,
+                                category: "Impuestos",
+                                type: 'EXPENSE',
+                                amount: tax4x1000,
+                                paymentMethod: accData.name,
+                                accountId: selectedAccountId,
+                                date: now,
+                                createdAt: now,
+                                updatedAt: now
+                            });
+                        }
+                    }
+
+                    // 6. Guardar los seriales individuales en product_serials
                     serialsToSave.forEach(s => {
                         const sRef = doc(collection(db, "product_serials"));
                         transaction.set(sRef, {
@@ -1701,23 +2645,24 @@
                         });
                     });
 
-                    // 3. Registrar cuenta por pagar (con updatedAt y supplierId para Delta Sync y pagos)
+                    // 7. Registrar cuenta por pagar (payables) para Cartera
                     const payableRef = doc(collection(db, "payables"));
                     transaction.set(payableRef, {
                         supplierId,
                         provider: supplierSearchInput.value,
                         description: `Compra Inv. #${purchaseRef.id.slice(0,6).toUpperCase()}`,
                         total: finalTotal,
-                        amountPaid: 0,
-                        balance: finalTotal,
-                        status: 'PENDING',
-                        dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+                        amountPaid: paidAmount,
+                        balance: pendingDebt,
+                        status: paidAmount >= finalTotal ? 'PAID' : 'PENDING',
+                        dueDate: dueDateStr || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+                        paymentMethod: paidAmount >= finalTotal ? (accData?.name || 'Contado') : null,
                         createdAt: now,
                         updatedAt: now,
                         purchaseId: purchaseRef.id
                     });
 
-                    // 4. Registrar logs de auditoría de inventario
+                    // 8. Registrar logs de auditoría de inventario
                     auditLogsToSave.forEach(log => {
                         const logRef = doc(collection(db, "inventory_audit_logs"));
                         transaction.set(logRef, {
@@ -1727,7 +2672,12 @@
                     });
                 });
 
-                alert("✅ Entrada de mercancía procesada e inventario actualizado exitosamente.");
+                // Limpiar borrador local al completar exitosamente
+                try {
+                    localStorage.removeItem('pixeltech_inventory_entry_draft');
+                } catch (e) {}
+
+                alert("✅ Entrada de mercancía procesada e inventario sincronizado exitosamente.");
                 window.location.reload();
 
             } catch (e) {
@@ -1742,7 +2692,12 @@
         if (editId) {
             loadPurchaseForEdit(editId);
         } else {
-            addProductRow();
+            (async () => {
+                const restored = await restoreDraftFromStorage();
+                if (!restored) {
+                    addProductRow();
+                }
+            })();
         }
         document.getElementById('btn-add-item-row').onclick = addProductRow;
     </script>

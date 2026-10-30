@@ -27,7 +27,7 @@ const orderCounterModule = require('./order-counter');
 const mercadolibreModule = require('./mercadolibre');
 const mercadolibre2Module = require('./mercadolibre2');
 const mercadolibre3Module = require('./mercadolibre3');
-const syncWatcherModule = require('./sync-watcher'); // 🔥 NUEVO: Importar el centinela
+const syncWatcherModule = require('./sync-watcher'); // NUEVO: Importar el centinela
 
 
 // --- 3. EXPORTAR FUNCIONES ---
@@ -60,8 +60,8 @@ exports.checkExpiredPromotions = schedulerModule.checkExpiredPromotions;
 // WhatsApp
 exports.whatsappWebhook = whatsappModule.webhook;
 exports.sendWhatsappMessage = whatsappModule.sendMessage;
-exports.sendTestTemplate = whatsappModule.sendTestTemplate; // 🔥 NUEVO: Exportar la prueba de plantilla
-exports.sendMassTemplate = whatsappModule.sendMassTemplate; // 🔥 NUEVO: Conectar la función de Campañas
+exports.sendTestTemplate = whatsappModule.sendTestTemplate; // NUEVO: Exportar la prueba de plantilla
+exports.sendMassTemplate = whatsappModule.sendMassTemplate; // NUEVO: Conectar la función de Campañas
 
 
 // Sync
@@ -77,7 +77,7 @@ exports.renderProductMeta = functions.https.onRequest(productMetaModule.renderPr
 exports.generateLocalInventoryFeed = localInventory.generateLocalInventoryFeed;
 
 
-// 🔥 NUEVO: Exportar el trigger asignador de consecutivos
+// NUEVO: Exportar el trigger asignador de consecutivos
 exports.assignSequentialNumber = orderCounterModule.assignSequentialNumber; 
 
 
@@ -100,8 +100,9 @@ exports.renewMercadoLibreStore3Token = onSchedule("every 5 hours", mercadolibre3
 exports.getMercadoLibreLabel = functions.https.onRequest(mercadolibreModule.getLabel);
 exports.syncAllStockToML = mercadolibreModule.syncAllStockToML;
 exports.recalcMLOrderFinances = mercadolibreModule.recalcMLOrderFinances;
+exports.revalidatePendingMLOrders = mercadolibreModule.revalidatePendingMLOrders;
 
-// 🔥 NUEVO: Exportar los Centinelas de Sincronización (Delta Sync)
+// NUEVO: Exportar los Centinelas de Sincronización (Delta Sync)
 exports.watchers = syncWatcherModule;
 
 
@@ -113,6 +114,6 @@ exports.fixMissingCedulas = fixCedulasModule.runFix;
 const fixInvoicesModule = require('./fix-invoices');
 exports.fixCancelledInvoices = fixInvoicesModule.runFixInvoices;
 
-// 👁️ VIGILANTE / CENTINELA DE AUDITORÍA DE INVENTARIO (Pruebas)
+// VIGILANTE / CENTINELA DE AUDITORIA DE INVENTARIO (Pruebas)
 const inventoryAuditWatcher = require('./inventory-audit-watcher');
 exports.watchInventoryChanges = inventoryAuditWatcher.watchInventoryChanges;
