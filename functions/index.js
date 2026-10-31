@@ -121,3 +121,7 @@ exports.watchInventoryChanges = inventoryAuditWatcher.watchInventoryChanges;
 // Arreglo de enlace de productos para ordenes ML
 const fixLinkOrderModule = require('./fix-link-order');
 exports.fixMLOrderLink = fixLinkOrderModule.fixMLOrderLink;
+
+// Arreglo de secuencia y consecutivos de remisiones y ordenes
+const fixOrderSequenceModule = require('./fix-order-sequence');
+exports.fixOrderSequence = fixOrderSequenceModule.runFixOrderSequence;

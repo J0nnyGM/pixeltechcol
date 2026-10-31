@@ -1380,16 +1380,46 @@ async function saveOrder() {
         let paymentMethodName = 'Crédito / Cartera';
         let amountPaid = 0;
 
-        if (accountId !== 'credit') {
-             await runTransaction(db, async (t) => {
-                 const ref = doc(db, "accounts", accountId);
-                 const d = await t.get(ref);
-                 if(!d.exists()) throw new Error("La cuenta seleccionada ya no existe.");
-                 t.update(ref, { balance: (d.data().balance || 0) + total });
-                 paymentMethodName = d.data().name;
-             });
-             await addDoc(collection(db, "expenses"), { amount: total, category: "Ingreso Ventas Manual", description: `Cobro Inmediato - Venta a ${custName || 'Cliente'}`, paymentMethod: paymentMethodName, supplierName: custName || "Cliente Directo", date: new Date(), createdAt: new Date(), type: 'INCOME' });
-             paymentStatus = 'PAID'; amountPaid = total;
+        // 1. Descontar stock PRIMERO para validar existencias y permisos ANTES de crear el pedido y quemar un consecutivo
+        let stockDeductedItems = [];
+        try {
+            for (const item of items) { 
+                await adjustStock(item.id, -(item.quantity), item.color, item.capacity, 'VENTA_PEDIDO', `Venta en pedido manual a ${custName || 'Cliente'}`);
+                stockDeductedItems.push(item);
+            }
+        } catch (stockErr) {
+            console.error("Error aplicando descuento de stock:", stockErr);
+            for (const item of stockDeductedItems) {
+                try {
+                    await adjustStock(item.id, item.quantity, item.color, item.capacity, 'AJUSTE_MANUAL', 'Rollback por falla al procesar la venta');
+                } catch (rbErr) { console.error("Error en rollback de stock:", rbErr); }
+            }
+            const stockMsg = stockErr?.message || (typeof stockErr === 'string' ? stockErr : "Stock insuficiente");
+            throw new Error(`No se pudo completar la venta por un problema de inventario: ${stockMsg}`);
+        }
+
+        // 2. Procesar pago y registro de ingreso si aplica
+        let expenseDocRef = null;
+        try {
+            if (accountId !== 'credit') {
+                 await runTransaction(db, async (t) => {
+                     const ref = doc(db, "accounts", accountId);
+                     const d = await t.get(ref);
+                     if(!d.exists()) throw new Error("La cuenta seleccionada ya no existe.");
+                     t.update(ref, { balance: (d.data().balance || 0) + total });
+                     paymentMethodName = d.data().name;
+                 });
+                 expenseDocRef = await addDoc(collection(db, "expenses"), { amount: total, category: "Ingreso Ventas Manual", description: `Cobro Inmediato - Venta a ${custName || 'Cliente'}`, paymentMethod: paymentMethodName, supplierName: custName || "Cliente Directo", date: new Date(), createdAt: new Date(), type: 'INCOME' });
+                 paymentStatus = 'PAID'; amountPaid = total;
+            }
+        } catch (payErr) {
+            console.error("Error procesando pago de venta manual:", payErr);
+            for (const item of stockDeductedItems) {
+                try {
+                    await adjustStock(item.id, item.quantity, item.color, item.capacity, 'AJUSTE_MANUAL', 'Rollback por error de pago en venta');
+                } catch (rbErr) { console.error("Error en rollback:", rbErr); }
+            }
+            throw new Error(`Error registrando el pago: ${payErr.message}`);
         }
 
         const orderData = {
@@ -1402,33 +1432,22 @@ async function saveOrder() {
             createdAt: new Date(), updatedAt: new Date(), shippingData, buyerInfo: { name: custName, email: emailVal || "", phone: custPhone, document: custDoc }
         };
         
-        // 1. Guardar la orden primero en Firestore
-        const orderRef = await addDoc(collection(db, "orders"), orderData);
-
-        // 2. Guardar la remisión correspondiente en Firestore
-        await setDoc(doc(db, "remissions", orderRef.id), { ...orderData, orderId: orderRef.id, status: 'PENDIENTE_ALISTAMIENTO', type: 'DIRECTA' });
-
-        // 3. SOLO AHORA QUE LA ORDEN Y REMISIÓN EXISTEN Y ESTÁN CONFIRMADAS, SE DESCUENTA EL STOCK
-        let stockDeductedItems = [];
-        const shortOrdId = orderRef.id.slice(0, 6);
+        // 3. Crear orden y remision con stock ya validado y descontado
+        let orderRef;
         try {
-            for (const item of items) { 
-                await adjustStock(item.id, -(item.quantity), item.color, item.capacity, 'VENTA_PEDIDO', `Venta en pedido manual #${shortOrdId}`);
-                stockDeductedItems.push(item);
-            }
-        } catch (stockErr) {
-            console.error("Error aplicando descuento de stock tras crear la orden:", stockErr);
-            // Rollback de stock devuelto para evitar inconsistencias
+            orderRef = await addDoc(collection(db, "orders"), orderData);
+            await setDoc(doc(db, "remissions", orderRef.id), { ...orderData, orderId: orderRef.id, status: 'PENDIENTE_ALISTAMIENTO', type: 'DIRECTA' });
+        } catch (createErr) {
+            console.error("Error guardando orden en Firestore:", createErr);
             for (const item of stockDeductedItems) {
                 try {
-                    await adjustStock(item.id, item.quantity, item.color, item.capacity, 'AJUSTE_MANUAL', 'Rollback por falla al procesar la venta');
-                } catch (rbErr) { console.error("Error en rollback de stock:", rbErr); }
+                    await adjustStock(item.id, item.quantity, item.color, item.capacity, 'AJUSTE_MANUAL', 'Rollback por error al guardar orden');
+                } catch (rbErr) { console.error("Error en rollback:", rbErr); }
             }
-            // Eliminar orden y remisión creadas si falla el inventario
-            await deleteDoc(doc(db, "orders", orderRef.id));
-            await deleteDoc(doc(db, "remissions", orderRef.id));
-            const stockMsg = stockErr?.message || (typeof stockErr === 'string' ? stockErr : "Stock insuficiente");
-            throw new Error(`No se pudo completar la venta por un problema de inventario: ${stockMsg}`);
+            if (expenseDocRef) {
+                try { await deleteDoc(expenseDocRef); } catch (e) { console.error("Error eliminando expense:", e); }
+            }
+            throw new Error(`Error guardando la orden: ${createErr.message}`);
         }
 
         alert(`Venta Exitosa.\nLa orden #${orderRef.id.slice(0,6)} ha sido enviada al centro logístico.`);

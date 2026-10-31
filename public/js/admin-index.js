@@ -1,7 +1,7 @@
 import '../js/admin-guard.js';
 import { db, collection, query, where, orderBy, limit, auth, doc, getDoc, getDocs, onSnapshot, Timestamp } from './firebase-init.js';
 import { loadAdminSidebar } from './admin-ui.js?v=2.0.0';
-import { initManualSale, openManualSaleModal } from './manual-sale.js?v=1.0.6';
+import { initManualSale, openManualSaleModal } from './manual-sale.js?v=1.0.7';
 import { AdminStore } from './admin-store.js';
 import './order-actions.js?v=1.1.7';
 

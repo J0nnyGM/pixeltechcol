@@ -67,20 +67,18 @@ service cloud.firestore {
       allow read: if true;
       
       // Solo empleados pueden crear o borrar.
-      // Nota: Mantener el delete solo para admin es una buena práctica de seguridad,
-      // pero si prefieres que cualquier staff borre puedes dejar isStaff().
       allow create: if isStaff();
       allow delete: if isAdmin();
       
-      // Ajuste: Empleados de staff excepto Ventas pueden actualizar todo.
-      // Clientes o Ventas pueden actualizar SOLO los campos de stock/inventario al realizar una venta o compra.
-      allow update: if (isStaff() && getUserData().role != 'ventas') || (
+      // Actualizar: Los empleados de staff (incluyendo Ventas) pueden actualizar productos e inventario.
+      // Clientes autenticados en tienda web pueden actualizar SOLO campos de stock al realizar una compra.
+      allow update: if isStaff() || (
         isAuthenticated() && 
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stock', 'combinations', 'updatedAt', 'lastStockChangeReason', 'lastStockChangeDetails'])
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stock', 'combinations', 'branchStock', 'updatedAt', 'lastStockChangeReason', 'lastStockChangeDetails'])
       );
 
       match /history/{historyId} {
-        allow read, write: if isStaff() && getUserData().role != 'ventas';
+        allow read, write: if isStaff();
       }
     }
 
