@@ -652,10 +652,14 @@
                                                 <input type="password" id="dev-ml-secret" placeholder="Client Secret Tienda 1" class="w-full bg-slate-50 border border-gray-200 rounded-lg p-2.5 text-xs font-mono outline-none text-brand-black focus:border-brand-cyan transition-all">
                                             </div>
                                         </div>
+                                        <div class="mb-2">
+                                            <label class="text-[9px] font-black uppercase text-gray-400 tracking-widest block mb-1">ML_REDIRECT_URI (Debe coincidir exactamente con Dev Portal ML)</label>
+                                            <input type="text" id="dev-ml-redirect" placeholder="https://mercadolibrewebhook-muiondpggq-uc.a.run.app" class="w-full bg-slate-50 border border-gray-200 rounded-lg p-2.5 text-xs font-mono outline-none text-brand-black focus:border-brand-cyan transition-all">
+                                        </div>
                                         <div class="flex items-center justify-between text-[9px] text-gray-400 font-mono">
                                             <span>Redirect URI configurada en Dev Portal ML:</span>
                                             <button type="button" onclick="window.copyRedirectUri(1)" class="text-brand-cyan hover:underline font-bold flex items-center gap-1">
-                                                https://.../mercadolibreWebhook <i class="fa-regular fa-copy"></i>
+                                                Copiar URI <i class="fa-regular fa-copy"></i>
                                             </button>
                                         </div>
                                     </div>
@@ -678,10 +682,14 @@
                                                 <input type="password" id="dev-ml-secret-2" placeholder="Client Secret Tienda 2" class="w-full bg-slate-50 border border-gray-200 rounded-lg p-2.5 text-xs font-mono outline-none text-brand-black focus:border-brand-cyan transition-all">
                                             </div>
                                         </div>
+                                        <div class="mb-2">
+                                            <label class="text-[9px] font-black uppercase text-gray-400 tracking-widest block mb-1">ML_REDIRECT_URI_2 (Debe coincidir exactamente con Dev Portal ML)</label>
+                                            <input type="text" id="dev-ml-redirect-2" placeholder="https://us-central1-pixeltechcol.cloudfunctions.net/mercadolibreStore2Webhook" class="w-full bg-slate-50 border border-gray-200 rounded-lg p-2.5 text-xs font-mono outline-none text-brand-black focus:border-brand-cyan transition-all">
+                                        </div>
                                         <div class="flex items-center justify-between text-[9px] text-gray-400 font-mono">
                                             <span>Redirect URI configurada en Dev Portal ML:</span>
                                             <button type="button" onclick="window.copyRedirectUri(2)" class="text-brand-cyan hover:underline font-bold flex items-center gap-1">
-                                                https://.../mercadolibreStore2Webhook <i class="fa-regular fa-copy"></i>
+                                                Copiar URI <i class="fa-regular fa-copy"></i>
                                             </button>
                                         </div>
                                     </div>
@@ -704,10 +712,14 @@
                                                 <input type="password" id="dev-ml-secret-3" placeholder="Client Secret Tienda 3" class="w-full bg-slate-50 border border-gray-200 rounded-lg p-2.5 text-xs font-mono outline-none text-brand-black focus:border-brand-cyan transition-all">
                                             </div>
                                         </div>
+                                        <div class="mb-2">
+                                            <label class="text-[9px] font-black uppercase text-gray-400 tracking-widest block mb-1">ML_REDIRECT_URI_3 (Debe coincidir exactamente con Dev Portal ML)</label>
+                                            <input type="text" id="dev-ml-redirect-3" placeholder="https://us-central1-pixeltechcol.cloudfunctions.net/mercadolibreStore3Webhook" class="w-full bg-slate-50 border border-gray-200 rounded-lg p-2.5 text-xs font-mono outline-none text-brand-black focus:border-brand-cyan transition-all">
+                                        </div>
                                         <div class="flex items-center justify-between text-[9px] text-gray-400 font-mono">
                                             <span>Redirect URI configurada en Dev Portal ML:</span>
                                             <button type="button" onclick="window.copyRedirectUri(3)" class="text-brand-cyan hover:underline font-bold flex items-center gap-1">
-                                                https://.../mercadolibreStore3Webhook <i class="fa-regular fa-copy"></i>
+                                                Copiar URI <i class="fa-regular fa-copy"></i>
                                             </button>
                                         </div>
                                     </div>
@@ -766,16 +778,23 @@
 
         // URIs de redirección oficiales de Cloud Functions para MercadoLibre
         const ML_REDIRECT_URIS = {
-            1: "https://us-central1-pixeltechcol.cloudfunctions.net/mercadolibreWebhook",
+            1: "https://mercadolibrewebhook-muiondpggq-uc.a.run.app",
             2: "https://us-central1-pixeltechcol.cloudfunctions.net/mercadolibreStore2Webhook",
             3: "https://us-central1-pixeltechcol.cloudfunctions.net/mercadolibreStore3Webhook"
         };
 
         // Función para copiar la URI de redirección al portapapeles
         window.copyRedirectUri = function(storeNum) {
-            const uri = ML_REDIRECT_URIS[storeNum] || ML_REDIRECT_URIS[1];
+            let uri = '';
+            if (storeNum === 2) {
+                uri = document.getElementById('dev-ml-redirect-2')?.value.trim() || currentDevData.ML_REDIRECT_URI_2 || ML_REDIRECT_URIS[2];
+            } else if (storeNum === 3) {
+                uri = document.getElementById('dev-ml-redirect-3')?.value.trim() || currentDevData.ML_REDIRECT_URI_3 || ML_REDIRECT_URIS[3];
+            } else {
+                uri = document.getElementById('dev-ml-redirect')?.value.trim() || currentDevData.ML_REDIRECT_URI || ML_REDIRECT_URIS[1];
+            }
             navigator.clipboard.writeText(uri).then(() => {
-                showNotification(`📋 URI de redirección para Tienda ${storeNum} copiada al portapapeles. Pégala en tu aplicación de MercadoLibre Developers.`, "success");
+                showNotification(`URI de redirección para Tienda ${storeNum} copiada al portapapeles. Pégala en tu aplicación de MercadoLibre Developers.`, "success");
             }).catch(() => {
                 prompt(`Copia esta URI para tu aplicación de MercadoLibre Developers (Tienda ${storeNum}):`, uri);
             });
@@ -786,37 +805,40 @@
         // Función de 1-Clic para autorizar/vincular la cuenta con MercadoLibre
         window.authorizeMLStore = function(storeNum) {
             if (currentUserRole !== 'developer' && currentUserRole !== 'admin' && currentUserRole !== 'administrador') {
-                alert("⛔ Acción denegada: Únicamente los administradores y desarrolladores tienen permisos para vincular o autorizar credenciales.");
+                alert("Acción denegada: Únicamente los administradores y desarrolladores tienen permisos para vincular o autorizar credenciales.");
                 return;
             }
 
             let appId = '';
+            let redirectUri = '';
             if (storeNum === 2) {
                 appId = document.getElementById('dev-ml-id-2')?.value.trim() || currentDevData.ML_APP_ID_2 || '';
+                redirectUri = document.getElementById('dev-ml-redirect-2')?.value.trim() || currentDevData.ML_REDIRECT_URI_2 || ML_REDIRECT_URIS[2];
             } else if (storeNum === 3) {
                 appId = document.getElementById('dev-ml-id-3')?.value.trim() || currentDevData.ML_APP_ID_3 || '';
+                redirectUri = document.getElementById('dev-ml-redirect-3')?.value.trim() || currentDevData.ML_REDIRECT_URI_3 || ML_REDIRECT_URIS[3];
             } else {
                 appId = document.getElementById('dev-ml-id')?.value.trim() || currentDevData.ML_APP_ID || '';
+                redirectUri = document.getElementById('dev-ml-redirect')?.value.trim() || currentDevData.ML_REDIRECT_URI || ML_REDIRECT_URIS[1];
             }
 
             if (!appId) {
                 if (currentUserRole === 'developer') {
-                    alert(`⚠️ Primero debes ingresar el ML_APP_ID para la Tienda ${storeNum} en la configuración de desarrollador.`);
+                    alert(`Primero debes ingresar el ML_APP_ID para la Tienda ${storeNum} en la configuración de desarrollador.`);
                     const inputEl = document.getElementById(storeNum === 2 ? 'dev-ml-id-2' : (storeNum === 3 ? 'dev-ml-id-3' : 'dev-ml-id'));
                     if (inputEl) {
                         inputEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
                         inputEl.focus();
                     }
                 } else {
-                    alert(`⚠️ La Tienda ${storeNum} requiere que el desarrollador configure el ML_APP_ID primero.`);
+                    alert(`La Tienda ${storeNum} requiere que el desarrollador configure el ML_APP_ID primero.`);
                 }
                 return;
             }
 
-            const redirectUri = ML_REDIRECT_URIS[storeNum] || ML_REDIRECT_URIS[1];
             const oauthUrl = `https://auth.mercadolibre.com.co/authorization?response_type=code&client_id=${encodeURIComponent(appId)}&redirect_uri=${encodeURIComponent(redirectUri)}`;
 
-            const confirmed = confirm(`🔗 ¿Deseas abrir la autorización oficial de MercadoLibre para la Tienda ${storeNum}?\n\n• Se abrirá una nueva pestaña donde deberás iniciar sesión con tu cuenta de MercadoLibre.\n• Al hacer clic en 'Permitir', la conexión y los tokens se guardarán de forma 100% automática.`);
+            const confirmed = confirm(`¿Deseas abrir la autorización oficial de MercadoLibre para la Tienda ${storeNum}?\n\n• Se abrirá una nueva pestaña donde deberás iniciar sesión con tu cuenta de MercadoLibre.\n• Al hacer clic en 'Permitir', la conexión y los tokens se guardarán de forma automática.\n\nRedirect URI: ${redirectUri}`);
             if (confirmed) {
                 window.open(oauthUrl, '_blank');
             }
@@ -1081,7 +1103,7 @@
             const btnRebuild = document.getElementById('btn-rebuild-feed');
             btnRebuild.addEventListener('click', async () => {
                 if (currentUserRole !== 'developer') {
-                    showNotification("⛔ Acción denegada: Solo desarrolladores pueden reconstruir el feed.", "error");
+                    showNotification("Acción denegada: Solo desarrolladores pueden reconstruir el feed.", "error");
                     return;
                 }
                 btnRebuild.disabled = true;
@@ -1126,7 +1148,7 @@
 
             btnSave.addEventListener('click', async () => {
                 if (currentUserRole !== 'developer') {
-                    showNotification("⛔ Acción denegada: Solo desarrolladores pueden modificar la integración de Ads.", "error");
+                    showNotification("Acción denegada: Solo desarrolladores pueden modificar la integración de Ads.", "error");
                     return;
                 }
                 btnSave.disabled = true;
@@ -1184,6 +1206,9 @@
                 mlSecret2: document.getElementById('dev-ml-secret-2'),
                 mlId3: document.getElementById('dev-ml-id-3'),
                 mlSecret3: document.getElementById('dev-ml-secret-3'),
+                mlRedirect: document.getElementById('dev-ml-redirect'),
+                mlRedirect2: document.getElementById('dev-ml-redirect-2'),
+                mlRedirect3: document.getElementById('dev-ml-redirect-3'),
                 falUserId: document.getElementById('dev-fal-user-id'),
                 falApiKey: document.getElementById('dev-fal-api-key'),
                 falApiUrl: document.getElementById('dev-fal-api-url')
@@ -1219,6 +1244,9 @@
                     if (inputs.mlSecret2) inputs.mlSecret2.value = data.ML_CLIENT_SECRET_2 || '';
                     if (inputs.mlId3) inputs.mlId3.value = data.ML_APP_ID_3 || '';
                     if (inputs.mlSecret3) inputs.mlSecret3.value = data.ML_CLIENT_SECRET_3 || '';
+                    if (inputs.mlRedirect) inputs.mlRedirect.value = data.ML_REDIRECT_URI || 'https://mercadolibrewebhook-muiondpggq-uc.a.run.app';
+                    if (inputs.mlRedirect2) inputs.mlRedirect2.value = data.ML_REDIRECT_URI_2 || 'https://us-central1-pixeltechcol.cloudfunctions.net/mercadolibreStore2Webhook';
+                    if (inputs.mlRedirect3) inputs.mlRedirect3.value = data.ML_REDIRECT_URI_3 || 'https://us-central1-pixeltechcol.cloudfunctions.net/mercadolibreStore3Webhook';
                 }
             }, (error) => {
                 console.error("Error al cargar config de desarrollador:", error);
@@ -1274,6 +1302,9 @@
                         ML_CLIENT_SECRET_2: inputs.mlSecret2.value.trim(),
                         ML_APP_ID_3: inputs.mlId3.value.trim(),
                         ML_CLIENT_SECRET_3: inputs.mlSecret3.value.trim(),
+                        ML_REDIRECT_URI: inputs.mlRedirect ? inputs.mlRedirect.value.trim() : 'https://mercadolibrewebhook-muiondpggq-uc.a.run.app',
+                        ML_REDIRECT_URI_2: inputs.mlRedirect2 ? inputs.mlRedirect2.value.trim() : 'https://us-central1-pixeltechcol.cloudfunctions.net/mercadolibreStore2Webhook',
+                        ML_REDIRECT_URI_3: inputs.mlRedirect3 ? inputs.mlRedirect3.value.trim() : 'https://us-central1-pixeltechcol.cloudfunctions.net/mercadolibreStore3Webhook',
                         developerUpdatedAt: new Date(),
                         developerUpdatedBy: auth.currentUser ? auth.currentUser.email : 'system'
                     }, { merge: true });
