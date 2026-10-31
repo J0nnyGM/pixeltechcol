@@ -665,6 +665,43 @@ function getMLFeeAmount(orderData) {
 }
 
 /**
+ * Detectar si una orden o envio fue cancelado en MercadoLibre o si el comprador solicito cancelacion
+ */
+function isOrderCancelled(orderData, rawShipment) {
+    if (!orderData) return false;
+
+    // 1. Estado oficial de la orden
+    if (orderData.status === 'cancelled') return true;
+
+    // 2. Detalle de cancelacion presente (solicitud de comprador o ML)
+    if (orderData.cancel_detail && (orderData.cancel_detail.requested_by || orderData.cancel_detail.code || orderData.cancel_detail.date)) {
+        return true;
+    }
+
+    // 3. Etiquetas de cancelacion o reclamo
+    if (Array.isArray(orderData.tags)) {
+        if (orderData.tags.includes('cancelled') || 
+            orderData.tags.includes('cancellation_requested') || 
+            orderData.tags.includes('cancellation_requested_by_buyer')) {
+            return true;
+        }
+    }
+
+    // 4. Estado del envio cancelado en Mercado Envios
+    if (rawShipment) {
+        if (rawShipment.status === 'cancelled' || rawShipment.substatus === 'cancelled') return true;
+        if (rawShipment.status_history?.date_cancelled != null) return true;
+    }
+
+    // 5. Peticion de cambio / devolucion / cancelacion en order_request
+    if (orderData.order_request && (orderData.order_request.change?.status === 'requested' || orderData.order_request.return?.status === 'requested')) {
+        return true;
+    }
+
+    return false;
+}
+
+/**
  * EXTRAER INFORMACIÓN COMPLETA Y CONFIABLE DEL COMPRADOR Y ENVÍO USANDO LA ESTRUCTURA OFICIAL ML
  */
 function extractMLBuyerInfo(orderData, shipment, billingInfo = null) {
@@ -885,12 +922,16 @@ function createWebhookHandler({
             const topic = req.body.topic || req.query.topic;
             let rawResource = req.body.resource || req.query.resource; 
             
-            if (topic && topic !== 'orders_v2' && topic !== 'orders' && topic !== 'packs') return res.status(200).send("OK: Ignored topic");
+            const validTopics = ['orders_v2', 'orders', 'packs', 'shipments', 'claims'];
+            if (topic && !validTopics.includes(topic)) return res.status(200).send("OK: Ignored topic");
             if (!rawResource) return res.status(200).send("OK: Missing resource");
 
             let resource = String(rawResource).trim();
             if (/^\d+$/.test(resource)) {
-                resource = topic === 'packs' ? `/packs/${resource}` : `/orders/${resource}`;
+                if (topic === 'packs') resource = `/packs/${resource}`;
+                else if (topic === 'shipments') resource = `/shipments/${resource}`;
+                else if (topic === 'claims') resource = `/claims/${resource}`;
+                else resource = `/orders/${resource}`;
             } else if (!resource.startsWith('/')) {
                 resource = `/${resource}`;
             }
@@ -903,24 +944,68 @@ function createWebhookHandler({
 
             let orderData = null;
             let actualResource = resource;
-            try {
-                orderData = await fetchML(actualResource, ML_TOKEN, db, storeDocName);
-            } catch (fetchErr) {
-                if (actualResource.startsWith('/orders/') && String(fetchErr.message || '').includes('Not Found')) {
-                    const fallbackPackResource = actualResource.replace('/orders/', '/packs/');
-                    console.log(`[ML] Recurso ${actualResource} no encontrado en /orders/. Probando fallback como paquete: ${fallbackPackResource}`);
-                    try {
-                        orderData = await fetchML(fallbackPackResource, ML_TOKEN, db, storeDocName);
-                        actualResource = fallbackPackResource;
-                    } catch (packErr) {
+            let preloadedShipment = null;
+
+            if (actualResource.startsWith('/shipments/')) {
+                console.log(`[ML] Notificacion de envio recibida (${actualResource}). Consultando detalles del envio para obtener orden asociada...`);
+                try {
+                    preloadedShipment = await fetchML(actualResource, ML_TOKEN, db, storeDocName);
+                    let targetOrderId = preloadedShipment.order_id || (Array.isArray(preloadedShipment.orders) && preloadedShipment.orders[0]?.id);
+                    let targetPackId = preloadedShipment.pack_id;
+                    if (!targetOrderId && Array.isArray(preloadedShipment.shipping_items) && preloadedShipment.shipping_items[0]?.order_id) {
+                        targetOrderId = preloadedShipment.shipping_items[0].order_id;
+                    }
+
+                    if (targetPackId) {
+                        actualResource = `/packs/${targetPackId}`;
+                        orderData = await fetchML(actualResource, ML_TOKEN, db, storeDocName);
+                    } else if (targetOrderId) {
+                        actualResource = `/orders/${targetOrderId}`;
+                        orderData = await fetchML(actualResource, ML_TOKEN, db, storeDocName);
+                    } else {
+                        console.warn(`[ML] Envio ${actualResource} no contiene order_id ni pack_id.`);
+                        return res.status(200).send("OK: Shipment has no linked order");
+                    }
+                } catch (sErr) {
+                    console.error(`[ML] Error resolviendo orden desde envio ${actualResource}:`, sErr);
+                    throw sErr;
+                }
+            } else if (actualResource.startsWith('/claims/')) {
+                console.log(`[ML] Notificacion de reclamo/cancelacion recibida (${actualResource}). Consultando detalles del reclamo...`);
+                try {
+                    const claimData = await fetchML(actualResource, ML_TOKEN, db, storeDocName);
+                    const targetOrderId = claimData.resource_id || claimData.order_id;
+                    if (targetOrderId) {
+                        actualResource = `/orders/${targetOrderId}`;
+                        orderData = await fetchML(actualResource, ML_TOKEN, db, storeDocName);
+                    } else {
+                        console.warn(`[ML] Reclamo ${actualResource} no contiene resource_id ni order_id.`);
+                        return res.status(200).send("OK: Claim has no linked order");
+                    }
+                } catch (cErr) {
+                    console.error(`[ML] Error resolviendo orden desde reclamo ${actualResource}:`, cErr);
+                    throw cErr;
+                }
+            } else {
+                try {
+                    orderData = await fetchML(actualResource, ML_TOKEN, db, storeDocName);
+                } catch (fetchErr) {
+                    if (actualResource.startsWith('/orders/') && String(fetchErr.message || '').includes('Not Found')) {
+                        const fallbackPackResource = actualResource.replace('/orders/', '/packs/');
+                        console.log(`[ML] Recurso ${actualResource} no encontrado en /orders/. Probando fallback como paquete: ${fallbackPackResource}`);
+                        try {
+                            orderData = await fetchML(fallbackPackResource, ML_TOKEN, db, storeDocName);
+                            actualResource = fallbackPackResource;
+                        } catch (packErr) {
+                            throw fetchErr;
+                        }
+                    } else {
                         throw fetchErr;
                     }
-                } else {
-                    throw fetchErr;
                 }
             }
 
-            const processSingleMLOrder = async (orderData, currentResource, responseObj = null) => {
+            const processSingleMLOrder = async (orderData, currentResource, responseObj = null, initialShipment = null) => {
                 const sendOk = (msg) => {
                     if (responseObj && !responseObj.headersSent) {
                         return responseObj.status(200).send(msg);
@@ -933,62 +1018,63 @@ function createWebhookHandler({
 
                 console.log(`[ML] RAW ML ORDER JSON (${orderId}):`, JSON.stringify(orderData));
 
-            try {
-                let debugShipment = null;
-                if (orderData.shipping && orderData.shipping.id) {
-                    try {
-                        debugShipment = await fetchML(`/shipments/${orderData.shipping.id}`, ML_TOKEN, db, storeDocName);
-                        console.log(` RAW ML SHIPMENT JSON (${orderId}):`, JSON.stringify(debugShipment));
-                    } catch (e) {
-                        console.error(`Error obteniendo debug shipment para ${orderId}:`, e);
-                    }
-                }
-                await db.collection('ml_debug_logs').doc(orderId).set({
-                    orderId: orderId,
-                    store: storeNumber,
-                    storeDocName: storeDocName,
-                    orderData: orderData,
-                    rawShipment: debugShipment,
-                    receivedAt: admin.firestore.FieldValue.serverTimestamp()
-                }, { merge: true });
-            } catch (dbgErr) {
-                console.error("Error al guardar log de depuración en ml_debug_logs:", dbgErr);
-            }
-
-            const orderCheck = await db.collection('orders').doc(orderId).get();
-            if (orderCheck.exists) {
-                const existingOrder = orderCheck.data();
-                const newMLStatus = orderData.status;
-
-                if (newMLStatus === 'cancelled' && existingOrder.status !== 'CANCELADO') {
-                    if (existingOrder.cancellationConfirmed) {
-                        return sendOk("OK: Cancellation already confirmed");
-                    }
-                    console.log(`[ML] Orden de ${storeTitle} ${orderId} fue cancelada en MercadoLibre. Marcando CANCELACION_PENDIENTE para confirmar retencion en bodega.`);
-                    
-                    await db.collection('orders').doc(orderId).update({
-                        status: 'CANCELACION_PENDIENTE',
-                        cancellationPendingConfirm: true,
-                        mlCancelled: true,
-                        mlStatus: 'cancelled',
-                        cancellationRequestedAt: admin.firestore.FieldValue.serverTimestamp(),
-                        cancellationReason: orderData.cancel_detail?.requested_by 
-                            ? `Cancelado por ${orderData.cancel_detail.requested_by} en MercadoLibre` 
-                            : 'Cancelado por el comprador o plataforma en MercadoLibre',
-                        cancellationPreviousStatus: existingOrder.status || 'PENDIENTE',
-                        updatedAt: admin.firestore.FieldValue.serverTimestamp()
-                    });
-
-                    return sendOk("OK: Marked for cancellation confirmation");
-                }
-
-                // Actualización automática con datos nuevos
-                let rawShipment = null;
-                if (orderData.shipping && orderData.shipping.id) {
+                let rawShipment = initialShipment;
+                if (!rawShipment && orderData.shipping && orderData.shipping.id) {
                     try {
                         rawShipment = await fetchML(`/shipments/${orderData.shipping.id}`, ML_TOKEN, db, storeDocName);
-                    } catch (err) {}
+                        console.log(` RAW ML SHIPMENT JSON (${orderId}):`, JSON.stringify(rawShipment));
+                    } catch (e) {
+                        console.error(`Error obteniendo shipment para ${orderId}:`, e);
+                    }
                 }
+
+                try {
+                    await db.collection('ml_debug_logs').doc(orderId).set({
+                        orderId: orderId,
+                        store: storeNumber,
+                        storeDocName: storeDocName,
+                        orderData: orderData,
+                        rawShipment: rawShipment,
+                        receivedAt: admin.firestore.FieldValue.serverTimestamp()
+                    }, { merge: true });
+                } catch (dbgErr) {
+                    console.error("Error al guardar log de depuracion en ml_debug_logs:", dbgErr);
+                }
+
+                const orderCheck = await db.collection('orders').doc(orderId).get();
+                if (orderCheck.exists) {
+                    const existingOrder = orderCheck.data();
+                    const isCancelled = isOrderCancelled(orderData, rawShipment);
+
+                    if (isCancelled && existingOrder.status !== 'CANCELADO') {
+                        if (existingOrder.cancellationConfirmed) {
+                            return sendOk("OK: Cancellation already confirmed");
+                        }
+                        if (existingOrder.status === 'CANCELACION_PENDIENTE' && existingOrder.cancellationPendingConfirm) {
+                            return sendOk("OK: Already marked for cancellation confirmation");
+                        }
+                        console.log(`[ML] Orden de ${storeTitle} ${orderId} fue cancelada en MercadoLibre. Marcando CANCELACION_PENDIENTE para confirmar retencion en bodega (estado previo: ${existingOrder.status || 'PENDIENTE'}).`);
+                        
+                        const cancelReason = orderData.cancel_detail?.requested_by 
+                            ? `Cancelado por ${orderData.cancel_detail.requested_by} en MercadoLibre (${orderData.cancel_detail.description || orderData.cancel_detail.code || 'Solicitud de comprador'})` 
+                            : (rawShipment?.status === 'cancelled' 
+                                ? 'Envio cancelado en MercadoLibre' 
+                                : 'Cancelado por el comprador o plataforma en MercadoLibre');
+
+                        await db.collection('orders').doc(orderId).update({
+                            status: 'CANCELACION_PENDIENTE',
+                            cancellationPendingConfirm: true,
+                            mlCancelled: true,
+                            mlStatus: orderData.status || 'cancelled',
+                            shippingStatus: rawShipment?.status || existingOrder.shippingStatus || 'cancelled',
+                            cancellationRequestedAt: admin.firestore.FieldValue.serverTimestamp(),
+                            cancellationReason: cancelReason,
+                            cancellationPreviousStatus: existingOrder.status || 'PENDIENTE',
+                            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                        });
+
+                        return sendOk("OK: Marked for cancellation confirmation");
+                    }
 
                 const isFullOrder = Boolean(
                     (rawShipment && rawShipment.logistic_type === 'fulfillment') ||
@@ -1179,12 +1265,11 @@ function createWebhookHandler({
                 return sendOk(`OK: La orden ML #${orderData.id} ya fue consolidada previamente.`);
             }
 
-            let rawShipment = null;
-            if (orderData.shipping && orderData.shipping.id) {
+            if (!rawShipment && orderData.shipping && orderData.shipping.id) {
                 try {
                     rawShipment = await fetchML(`/shipments/${orderData.shipping.id}`, ML_TOKEN, db, storeDocName);
                 } catch (err) {
-                    console.log("No se pudo obtener el envío de ML detallado.");
+                    console.log("No se pudo obtener el envio de ML detallado.");
                 }
             }
 
@@ -1561,7 +1646,8 @@ function createWebhookHandler({
                         }, { merge: true });
                     }
 
-                    const orderInitialStatus = orderData.status === 'cancelled'
+                    const isNewOrderCancelled = isOrderCancelled(orderData, rawShipment);
+                    const orderInitialStatus = isNewOrderCancelled
                         ? 'CANCELACION_PENDIENTE'
                         : (isFullOrder
                             ? (rawShipment?.status === 'delivered'
@@ -1569,11 +1655,13 @@ function createWebhookHandler({
                                 : (rawShipment?.status === 'shipped' || rawShipment?.status === 'in_transit' ? 'DESPACHADO' : 'ALISTADO'))
                             : 'PENDIENTE');
 
-                    const orderStatusDetail = isFullOrder
-                        ? (rawShipment?.status === 'delivered'
-                            ? 'ENTREGADO_FULFILLMENT'
-                            : (rawShipment?.status === 'shipped' || rawShipment?.status === 'in_transit' ? 'DESPACHADO_FULFILLMENT' : 'FULFILLMENT_ML'))
-                        : (orderData.status === 'cancelled' ? 'CANCELADO_ML' : 'PENDIENTE_ALISTAMIENTO');
+                    const orderStatusDetail = isNewOrderCancelled
+                        ? 'CANCELADO_ML_PENDIENTE_CONFIRMAR'
+                        : (isFullOrder
+                            ? (rawShipment?.status === 'delivered'
+                                ? 'ENTREGADO_FULFILLMENT'
+                                : (rawShipment?.status === 'shipped' || rawShipment?.status === 'in_transit' ? 'DESPACHADO_FULFILLMENT' : 'FULFILLMENT_ML'))
+                            : 'PENDIENTE_ALISTAMIENTO');
 
                     const orderRef = db.collection('orders').doc(orderId);
                     t.set(orderRef, {
@@ -1633,10 +1721,16 @@ function createWebhookHandler({
                         isMlFull: isFullOrder,
                         logisticType: isFullOrder ? 'fulfillment' : (rawShipment?.logistic_type || orderData.shipping?.logistic_type || 'default'),
                         shippingType: isFullOrder ? 'FULL' : (rawShipment?.logistic_type === 'self_service' ? 'FLEX' : 'STANDARD'),
-                        cancellationPendingConfirm: orderData.status === 'cancelled' ? true : false,
-                        mlCancelled: orderData.status === 'cancelled' ? true : false,
+                        cancellationPendingConfirm: isNewOrderCancelled ? true : false,
+                        mlCancelled: isNewOrderCancelled ? true : false,
+                        cancellationReason: isNewOrderCancelled 
+                            ? (orderData.cancel_detail?.requested_by 
+                                ? `Cancelado por ${orderData.cancel_detail.requested_by} en MercadoLibre (${orderData.cancel_detail.description || orderData.cancel_detail.code || 'Solicitud de comprador'})` 
+                                : (rawShipment?.status === 'cancelled' ? 'Envio cancelado en MercadoLibre' : 'Cancelado por el comprador o plataforma en MercadoLibre')) 
+                            : null,
+                        cancellationPreviousStatus: 'PENDIENTE',
                         paymentMethod: paymentMethod,
-                        paymentStatus: orderData.status === 'cancelled' ? 'REFUNDED' : 'PAID',
+                        paymentStatus: isNewOrderCancelled ? 'REFUNDED' : 'PAID',
                         isStockDeducted: shouldDeductStock,
                         paymentAccountId: accId,
                         mlValidationCount: 1,
@@ -1679,7 +1773,7 @@ function createWebhookHandler({
                 if (!subOrderId) continue;
                 try {
                     const subOrderData = await fetchML(`/orders/${subOrderId}`, ML_TOKEN, db, storeDocName);
-                    await processSingleMLOrder(subOrderData, `/orders/${subOrderId}`, null);
+                    await processSingleMLOrder(subOrderData, `/orders/${subOrderId}`, null, preloadedShipment);
                     processedResults.push(subOrderId);
                 } catch (subErr) {
                     console.error(`[ML] Error procesando sub-orden ${subOrderId} de paquete ${orderData.id}:`, subErr);
@@ -1689,7 +1783,7 @@ function createWebhookHandler({
         }
 
         // Orden individual
-        return await processSingleMLOrder(orderData, actualResource, res);
+        return await processSingleMLOrder(orderData, actualResource, res, preloadedShipment);
 
     } catch (error) {
         console.error(`[ML] Error en Webhook de ${storeTitle}:`, error);
@@ -2294,6 +2388,8 @@ async function syncAndValidateMLOrder(orderId, db, isSecondValidation = false, m
                     }
 
                     bonus = extractMLShippingBonus(mlOrderData, rawShipment);
+                    isCancelledInML = isOrderCancelled(mlOrderData, rawShipment);
+                    if (mlOrderData.cancel_detail) cancelDetail = mlOrderData.cancel_detail;
 
                     const extractedBuyer = extractMLBuyerInfo(mlOrderData, rawShipment, billingInfo);
                     if (extractedBuyer) {
@@ -2352,11 +2448,11 @@ async function syncAndValidateMLOrder(orderId, db, isSecondValidation = false, m
     if (isCancelledInML && ord.status !== 'CANCELADO' && !ord.cancellationConfirmed) {
         orderUpdates.cancellationPendingConfirm = true;
         orderUpdates.mlCancelled = true;
-        orderUpdates.mlStatus = 'cancelled';
+        orderUpdates.mlStatus = mlOrderData?.status || 'cancelled';
         orderUpdates.cancellationRequestedAt = admin.firestore.FieldValue.serverTimestamp();
         orderUpdates.cancellationReason = cancelDetail?.requested_by 
-            ? `Cancelado por ${cancelDetail.requested_by} en MercadoLibre` 
-            : 'Cancelado por el comprador o plataforma en MercadoLibre';
+            ? `Cancelado por ${cancelDetail.requested_by} en MercadoLibre (${cancelDetail.description || cancelDetail.code || 'Solicitud de comprador'})` 
+            : (rawShipment?.status === 'cancelled' ? 'Envio cancelado en MercadoLibre' : 'Cancelado por el comprador o plataforma en MercadoLibre');
         orderUpdates.cancellationPreviousStatus = ord.status || 'PENDIENTE';
         orderUpdates.status = 'CANCELACION_PENDIENTE';
     }
@@ -2379,7 +2475,7 @@ async function syncAndValidateMLOrder(orderId, db, isSecondValidation = false, m
         (Array.isArray(mlOrderData?.tags) && mlOrderData.tags.includes('fulfillment'))
     );
 
-    if (isFullOrder) {
+    if (isFullOrder && !isCancelledInML) {
         orderUpdates.isFull = true;
         orderUpdates.isMlFull = true;
         orderUpdates.logisticType = 'fulfillment';

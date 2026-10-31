@@ -1,4 +1,4 @@
-import { db, doc, getDoc, updateDoc, Timestamp, collection, getDocs, runTransaction, serverTimestamp, writeBatch, auth, query, where, limit, functions, httpsCallable } from './firebase-init.js';
+import { db, doc, getDoc, updateDoc, setDoc, Timestamp, collection, getDocs, runTransaction, serverTimestamp, writeBatch, auth, query, where, limit, functions, httpsCallable } from './firebase-init.js';
 import { adjustStock } from './inventory-core.js'; 
 import { AdminStore } from './admin-store.js';
 import { PIXELTECH_LOGO_DATA_URI } from './logo-data.js';
@@ -1322,7 +1322,7 @@ export async function confirmOrderCancellation(orderId) {
                     await updateDoc(accRef, { balance: Math.max(0, curBal - refundAmount) });
 
                     const expenseRef = doc(collection(db, "expenses"));
-                    await updateDoc(expenseRef, {
+                    await setDoc(expenseRef, {
                         amount: refundAmount,
                         category: "Cancelaciones / Anulaciones",
                         description: `Reverso por cancelación de orden #${orderId}`,
@@ -4370,6 +4370,8 @@ window.confirmLinkProduct = async function() {
         const targetCapacity = (combo && combo.capacity) ? String(combo.capacity) : (currentItem.capacity || "");
         const targetImage = product.mainImage || product.image || currentItem.image || "";
 
+        let stockDeductedInThisAttempt = false;
+
         // Si se solicito descontar inventario, invocar adjustStock
         if (shouldDeduct) {
             try {
@@ -4382,13 +4384,14 @@ window.confirmLinkProduct = async function() {
                     `Enlace manual de producto en orden #${state.orderId} (-${qty} un en ${selectedBranch})`,
                     selectedBranch
                 );
+                stockDeductedInThisAttempt = true;
             } catch(stkErr) {
                 console.error("Error al descontar stock en adjustStock:", stkErr);
                 alert(`Advertencia al descontar inventario: ${stkErr.message || stkErr}. El enlace continuara guardandose.`);
             }
         }
 
-        // Actualizar datos del item en la orden
+        // Actualizar datos del item en la orden (Usar fecha ISO para evitar error de serverTimestamp dentro de arrays)
         items[state.itemIndex] = {
             ...currentItem,
             id: product.id,
@@ -4402,7 +4405,7 @@ window.confirmLinkProduct = async function() {
             thumbnail: targetImage,
             isLinkedToCatalog: true,
             stockDeducted: shouldDeduct || Boolean(currentItem.stockDeducted),
-            linkedAt: serverTimestamp(),
+            linkedAt: new Date().toISOString(),
             linkedBy: auth.currentUser?.email || 'admin',
             linkedBranch: selectedBranch
         };
@@ -4426,6 +4429,25 @@ window.confirmLinkProduct = async function() {
 
     } catch(err) {
         console.error("Error al confirmar enlace de producto:", err);
+
+        // Si el stock fue descontado en este intento pero fallo guardar la orden, revertir para no descuadrar el inventario
+        if (stockDeductedInThisAttempt) {
+            try {
+                console.warn(`Revirtiendo descuento de stock (${qty} un) en ${product.id} por fallo al actualizar orden...`);
+                await adjustStock(
+                    product.id,
+                    qty,
+                    targetColor || null,
+                    targetCapacity || null,
+                    'REVERSO_ERROR_ENLACE',
+                    `Reverso de stock por fallo al guardar orden #${state.orderId} (+${qty} un)`,
+                    selectedBranch
+                );
+            } catch(revErr) {
+                console.error("Error al revertir stock:", revErr);
+            }
+        }
+
         alert(`Error al guardar el enlace: ${err.message || err}`);
         if (confirmBtn) {
             confirmBtn.disabled = false;

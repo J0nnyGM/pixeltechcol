@@ -117,3 +117,7 @@ exports.fixCancelledInvoices = fixInvoicesModule.runFixInvoices;
 // VIGILANTE / CENTINELA DE AUDITORIA DE INVENTARIO (Pruebas)
 const inventoryAuditWatcher = require('./inventory-audit-watcher');
 exports.watchInventoryChanges = inventoryAuditWatcher.watchInventoryChanges;
+
+// Arreglo de enlace de productos para ordenes ML
+const fixLinkOrderModule = require('./fix-link-order');
+exports.fixMLOrderLink = fixLinkOrderModule.fixMLOrderLink;
