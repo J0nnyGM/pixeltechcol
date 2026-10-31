@@ -63,7 +63,7 @@ async function getMLToken(db, storeDocName = 'mercadolibre') {
         const docSnap = await docRef.get();
         if (docSnap.exists) {
             const data = docSnap.data();
-            if (data && data.accessToken) return data.accessToken;
+            if (data && (data.accessToken || data.access_token)) return data.accessToken || data.access_token;
         }
     } catch (e) {
         console.error(`Error obteniendo token para ${storeDocName}:`, e);
@@ -146,32 +146,43 @@ async function refreshMLAccessToken(db, storeDocName = 'mercadolibre') {
 }
 
 // Función auxiliar para hacer peticiones a la API de MercadoLibre con auto-renovación si vence el token (401)
+// Función auxiliar para hacer peticiones a la API de MercadoLibre con auto-renovación si vence el token (401)
 async function fetchML(endpoint, token, db = null, storeDocName = 'mercadolibre') {
+    const cleanEndpoint = String(endpoint || '').trim().startsWith('/') ? String(endpoint).trim() : `/${String(endpoint || '').trim()}`;
     try {
-        const response = await fetch(`https://api.mercadolibre.com${endpoint}`, {
+        const response = await fetch(`https://api.mercadolibre.com${cleanEndpoint}`, {
             headers: { Authorization: `Bearer ${token}` }
         });
 
         if ((response.status === 401 || response.statusText === 'Unauthorized') && db) {
-            console.log(` Token 401 Unauthorized detectado en ${endpoint}. Renovando token automáticamente...`);
+            console.log(`[ML] Token 401 Unauthorized detectado en ${cleanEndpoint}. Renovando token automaticamente...`);
             const newToken = await refreshMLAccessToken(db, storeDocName);
-            const retryRes = await fetch(`https://api.mercadolibre.com${endpoint}`, {
+            const retryRes = await fetch(`https://api.mercadolibre.com${cleanEndpoint}`, {
                 headers: { Authorization: `Bearer ${newToken}` }
             });
-            if (!retryRes.ok) throw new Error(`Error en API ML (Reintento): ${retryRes.statusText}`);
+            if (!retryRes.ok) throw new Error(`Error en API ML (Reintento): ${retryRes.statusText} (${retryRes.status})`);
             return await retryRes.json();
         }
 
-        if (!response.ok) throw new Error(`Error en API ML: ${response.statusText}`);
+        if (!response.ok) {
+            let errorDetails = response.statusText;
+            try {
+                const errJson = await response.json();
+                if (errJson && (errJson.message || errJson.error)) {
+                    errorDetails = errJson.message || errJson.error;
+                }
+            } catch (_) {}
+            throw new Error(`Error en API ML: ${response.statusText} (${response.status}) - ${errorDetails}`);
+        }
         return await response.json();
     } catch (err) {
         if (err.message && err.message.includes('Unauthorized') && db) {
-            console.log(` Capturado error Unauthorized en catch. Intentando renovar token...`);
+            console.log(`[ML] Capturado error Unauthorized en catch. Intentando renovar token...`);
             const newToken = await refreshMLAccessToken(db, storeDocName);
-            const retryRes = await fetch(`https://api.mercadolibre.com${endpoint}`, {
+            const retryRes = await fetch(`https://api.mercadolibre.com${cleanEndpoint}`, {
                 headers: { Authorization: `Bearer ${newToken}` }
             });
-            if (!retryRes.ok) throw new Error(`Error en API ML (Reintento): ${retryRes.statusText}`);
+            if (!retryRes.ok) throw new Error(`Error en API ML (Reintento): ${retryRes.statusText} (${retryRes.status})`);
             return await retryRes.json();
         }
         throw err;
@@ -866,28 +877,61 @@ function createWebhookHandler({
                         </div>
                     `);
                 } else {
-                    console.error(` Error al canjear código ${storeTitle}:`, tokenData);
-                    return res.status(400).send(`Error al canjear código de ${storeTitle}: ${JSON.stringify(tokenData)}`);
+                    console.error(`[ML] Error al canjear codigo ${storeTitle}:`, tokenData);
+                    return res.status(400).send(`Error al canjear codigo de ${storeTitle}: ${JSON.stringify(tokenData)}`);
                 }
             }
 
             const topic = req.body.topic || req.query.topic;
-            const resource = req.body.resource; 
+            let rawResource = req.body.resource || req.query.resource; 
             
-            if (topic !== 'orders_v2' && topic !== 'orders') return res.status(200).send("OK: Ignored topic");
-            if (!resource) return res.status(200).send("OK: Missing resource");
+            if (topic && topic !== 'orders_v2' && topic !== 'orders' && topic !== 'packs') return res.status(200).send("OK: Ignored topic");
+            if (!rawResource) return res.status(200).send("OK: Missing resource");
 
-            console.log(` Nueva orden de ${storeTitle} detectada: ${resource}`);
+            let resource = String(rawResource).trim();
+            if (/^\d+$/.test(resource)) {
+                resource = topic === 'packs' ? `/packs/${resource}` : `/orders/${resource}`;
+            } else if (!resource.startsWith('/')) {
+                resource = `/${resource}`;
+            }
+
+            console.log(`[ML] Notificacion de ${storeTitle} recibida: topic=${topic || 'none'}, resource=${resource}`);
 
             const mlConfigDoc = await db.collection('config').doc(storeDocName).get();
-            if (!mlConfigDoc.exists) throw new Error(`Falta configuración de ${storeDocName} en DB`);
+            if (!mlConfigDoc.exists) throw new Error(`Falta configuracion de ${storeDocName} en DB`);
             const ML_TOKEN = mlConfigDoc.data().accessToken || mlConfigDoc.data().access_token;
 
-            const orderData = await fetchML(resource, ML_TOKEN, db, storeDocName);
-            const rawOrderId = String(orderData.id);
-            const orderId = `${orderPrefix}${rawOrderId}`;
+            let orderData = null;
+            let actualResource = resource;
+            try {
+                orderData = await fetchML(actualResource, ML_TOKEN, db, storeDocName);
+            } catch (fetchErr) {
+                if (actualResource.startsWith('/orders/') && String(fetchErr.message || '').includes('Not Found')) {
+                    const fallbackPackResource = actualResource.replace('/orders/', '/packs/');
+                    console.log(`[ML] Recurso ${actualResource} no encontrado en /orders/. Probando fallback como paquete: ${fallbackPackResource}`);
+                    try {
+                        orderData = await fetchML(fallbackPackResource, ML_TOKEN, db, storeDocName);
+                        actualResource = fallbackPackResource;
+                    } catch (packErr) {
+                        throw fetchErr;
+                    }
+                } else {
+                    throw fetchErr;
+                }
+            }
 
-            console.log(` RAW ML ORDER JSON (${orderId}):`, JSON.stringify(orderData));
+            const processSingleMLOrder = async (orderData, currentResource, responseObj = null) => {
+                const sendOk = (msg) => {
+                    if (responseObj && !responseObj.headersSent) {
+                        return responseObj.status(200).send(msg);
+                    }
+                    return msg;
+                };
+
+                const rawOrderId = String(orderData.id);
+                const orderId = `${orderPrefix}${rawOrderId}`;
+
+                console.log(`[ML] RAW ML ORDER JSON (${orderId}):`, JSON.stringify(orderData));
 
             try {
                 let debugShipment = null;
@@ -918,7 +962,7 @@ function createWebhookHandler({
 
                 if (newMLStatus === 'cancelled' && existingOrder.status !== 'CANCELADO') {
                     if (existingOrder.cancellationConfirmed) {
-                        return res.status(200).send("OK: Cancellation already confirmed");
+                        return sendOk("OK: Cancellation already confirmed");
                     }
                     console.log(`[ML] Orden de ${storeTitle} ${orderId} fue cancelada en MercadoLibre. Marcando CANCELACION_PENDIENTE para confirmar retencion en bodega.`);
                     
@@ -935,7 +979,7 @@ function createWebhookHandler({
                         updatedAt: admin.firestore.FieldValue.serverTimestamp()
                     });
 
-                    return res.status(200).send("OK: Marked for cancellation confirmation");
+                    return sendOk("OK: Marked for cancellation confirmation");
                 }
 
                 // Actualización automática con datos nuevos
@@ -1121,18 +1165,18 @@ function createWebhookHandler({
                         }
                     }
 
-                    console.log(` Orden ${orderId} (${storeTitle}) actualizada automáticamente con nuevos datos de ML (Neto: $${oldNet} -> $${netAmount}, Comisión: $${mlFee}).`);
-                    return res.status(200).send(`OK: Orden ${orderId} actualizada con nueva información.`);
+                    console.log(`[ML] Orden ${orderId} (${storeTitle}) actualizada automaticamente con nuevos datos de ML (Neto: $${oldNet} -> $${netAmount}, Comision: $${mlFee}).`);
+                    return sendOk(`OK: Orden ${orderId} actualizada con nueva informacion.`);
                 }
 
-                console.log(`ℹ La orden ${orderId} (${storeTitle}) ya existe en la base de datos y está al día.`);
-                return res.status(200).send(`OK: La orden ${orderId} ya existe en el sistema y está al día.`);
+                console.log(`[ML] La orden ${orderId} (${storeTitle}) ya existe en la base de datos y esta al dia.`);
+                return sendOk(`OK: La orden ${orderId} ya existe en el sistema y esta al dia.`);
             }
 
             const packMembershipCheck = await db.collection('orders').where('packOrderIds', 'array-contains', String(orderData.id)).limit(1).get();
             if (!packMembershipCheck.empty) {
-                console.log(`ℹ La orden ML #${orderData.id} ya fue consolidada en el paquete ${packMembershipCheck.docs[0].id}.`);
-                return res.status(200).send(`OK: La orden ML #${orderData.id} ya fue consolidada previamente.`);
+                console.log(`[ML] La orden ML #${orderData.id} ya fue consolidada en el paquete ${packMembershipCheck.docs[0].id}.`);
+                return sendOk(`OK: La orden ML #${orderData.id} ya fue consolidada previamente.`);
             }
 
             let rawShipment = null;
@@ -1244,9 +1288,10 @@ function createWebhookHandler({
 
             let dbItems = [];
             let itemsToDeduct = [];
+            const orderItemsList = Array.isArray(orderData.order_items) ? orderData.order_items : [];
             
-            for (const item of orderData.order_items) {
-                const mlEAN = item.item.seller_sku; 
+            for (const item of orderItemsList) {
+                const mlEAN = item.item ? item.item.seller_sku : null; 
                 const qty = Number(item.quantity) || 1;
                 
                 const foundProduct = await findProductInStore(db, item);
@@ -1257,12 +1302,12 @@ function createWebhookHandler({
 
                 let grossItemPrice = Number(item.unit_price) || 0;
                 let netItemPrice = Math.round(grossItemPrice * priceRatio);
-                let itemImage = (foundProduct && foundProduct.image) ? foundProduct.image : (item.item.thumbnail || item.item.picture_url || "");
+                let itemImage = (foundProduct && foundProduct.image) ? foundProduct.image : (item.item?.thumbnail || item.item?.picture_url || "");
                 let itemSku = (foundProduct && foundProduct.sku) ? foundProduct.sku : (mlEAN ? String(mlEAN) : "");
 
                 const dbItemObj = {
-                    id: foundProduct ? foundProduct.docId : `${orderPrefix}UNKNOWN-${mlEAN || item.item.id || 'NO_SKU'}`,
-                    name: (foundProduct && foundProduct.name) ? foundProduct.name : (item.item.title || `Producto ${storeTitle}`),
+                    id: foundProduct ? foundProduct.docId : `${orderPrefix}UNKNOWN-${mlEAN || item.item?.id || 'NO_SKU'}`,
+                    name: (foundProduct && foundProduct.name) ? foundProduct.name : (item.item?.title || `Producto ${storeTitle}`),
                     price: netItemPrice,
                     quantity: qty,
                     color: (foundProduct && foundProduct.color) ? String(foundProduct.color) : "",
@@ -1270,7 +1315,11 @@ function createWebhookHandler({
                     sku: itemSku,
                     image: itemImage,
                     mainImage: itemImage,
-                    thumbnail: itemImage
+                    thumbnail: itemImage,
+                    isLinkedToCatalog: Boolean(foundProduct),
+                    originalTitle: item.item?.title || '',
+                    mlItemId: item.item?.id ? String(item.item.id) : '',
+                    mlVariationId: item.item?.variation_id ? String(item.item.variation_id) : ''
                 };
 
                 if (isFullOrder) {
@@ -1616,13 +1665,37 @@ function createWebhookHandler({
             }
 
             console.log(`[ML] Orden ${orderId} (${storeTitle}) procesada y guardada correctamente.`);
-            return res.status(200).send(`OK: Orden ${orderId} procesada con exito.`);
+            return sendOk(`OK: Orden ${orderId} procesada con exito.`);
+        };
 
-        } catch (error) {
-            console.error(` Error en Webhook de ${storeTitle}:`, error);
-            return res.status(500).send(`Error procesando webhook: ${error.message}`);
+        const isPack = actualResource.startsWith('/packs/') || 
+                       (Array.isArray(orderData.orders) && (!orderData.order_items || orderData.order_items.length === 0));
+
+        if (isPack && Array.isArray(orderData.orders) && orderData.orders.length > 0) {
+            console.log(`[ML] Paquete de ordenes detectado (${orderData.id}). Procesando ${orderData.orders.length} sub-orden(es)...`);
+            const processedResults = [];
+            for (const subItem of orderData.orders) {
+                const subOrderId = subItem.id;
+                if (!subOrderId) continue;
+                try {
+                    const subOrderData = await fetchML(`/orders/${subOrderId}`, ML_TOKEN, db, storeDocName);
+                    await processSingleMLOrder(subOrderData, `/orders/${subOrderId}`, null);
+                    processedResults.push(subOrderId);
+                } catch (subErr) {
+                    console.error(`[ML] Error procesando sub-orden ${subOrderId} de paquete ${orderData.id}:`, subErr);
+                }
+            }
+            return res.status(200).send(`OK: Paquete ${orderData.id} procesado con ${processedResults.length} orden(es): ${processedResults.join(', ')}`);
         }
-    };
+
+        // Orden individual
+        return await processSingleMLOrder(orderData, actualResource, res);
+
+    } catch (error) {
+        console.error(`[ML] Error en Webhook de ${storeTitle}:`, error);
+        return res.status(500).send(`Error procesando webhook: ${error.message}`);
+    }
+};
 }
 
 // ============================================================================
@@ -2161,7 +2234,25 @@ async function syncAndValidateMLOrder(orderId, db, isSecondValidation = false, m
         if (token) {
             try {
                 const rawMLId = ord.mlOrderId || ord.id.replace(/^ML3?-/, '').replace(/^ML2?-/, '');
-                mlOrderData = await fetchML(`/orders/${rawMLId}`, token, db, storeDoc);
+                try {
+                    mlOrderData = await fetchML(`/orders/${rawMLId}`, token, db, storeDoc);
+                } catch (fetchErr) {
+                    if (String(fetchErr.message || '').includes('Not Found')) {
+                        try {
+                            const packData = await fetchML(`/packs/${rawMLId}`, token, db, storeDoc);
+                            if (packData && Array.isArray(packData.orders) && packData.orders.length > 0) {
+                                const subId = packData.orders[0].id;
+                                mlOrderData = await fetchML(`/orders/${subId}`, token, db, storeDoc);
+                            } else {
+                                mlOrderData = packData;
+                            }
+                        } catch (packErr) {
+                            throw fetchErr;
+                        }
+                    } else {
+                        throw fetchErr;
+                    }
+                }
                 if (mlOrderData) {
                     if (mlOrderData.status === 'cancelled') {
                         isCancelledInML = true;
@@ -2369,43 +2460,77 @@ exports.revalidatePendingMLOrders = onSchedule({
     try {
         const pendingSnap = await db.collection('ml_pending_revalidations')
             .where('status', '==', 'PENDING')
-            .where('scheduledAt', '<=', now)
-            .limit(10)
+            .limit(50)
             .get();
 
-        if (pendingSnap.empty) {
-            return;
-        }
-
-        console.log(`[ML] Revalidando ${pendingSnap.size} ordenes de MercadoLibre tras 5 minutos...`);
-
-        for (const docSnap of pendingSnap.docs) {
+        const nowMillis = Date.now();
+        const dueDocs = pendingSnap.empty ? [] : pendingSnap.docs.filter(docSnap => {
             const item = docSnap.data();
-            try {
-                const res = await syncAndValidateMLOrder(item.orderId, db, true);
-                console.log(`[ML] Segunda validacion (5 min) exitosa para ${item.orderId}. Dif: $${res.netDiff}`);
-                await docSnap.ref.update({
-                    status: 'COMPLETED',
-                    completedAt: admin.firestore.FieldValue.serverTimestamp(),
-                    netDiff: res.netDiff || 0
-                });
-            } catch (err) {
-                console.error(`[ML] Error en segunda validacion para ${item.orderId}:`, err);
-                const currentAttempts = Number(item.attempts) || 0;
-                if (currentAttempts >= 3) {
+            const sched = item.scheduledAt 
+                ? (typeof item.scheduledAt.toMillis === 'function' ? item.scheduledAt.toMillis() : (Number(item.scheduledAt.seconds || 0) * 1000))
+                : 0;
+            return sched <= nowMillis;
+        });
+
+        if (dueDocs.length > 0) {
+            console.log(`[ML] Revalidando ${dueDocs.length} ordenes de MercadoLibre pendientes tras 5 minutos...`);
+
+            for (const docSnap of dueDocs) {
+                const item = docSnap.data();
+                try {
+                    const res = await syncAndValidateMLOrder(item.orderId, db, true);
+                    console.log(`[ML] Segunda validacion (5 min) exitosa para ${item.orderId}. Dif: $${res.netDiff}`);
                     await docSnap.ref.update({
-                        status: 'FAILED',
-                        error: err.message,
-                        failedAt: admin.firestore.FieldValue.serverTimestamp()
+                        status: 'COMPLETED',
+                        completedAt: admin.firestore.FieldValue.serverTimestamp(),
+                        netDiff: res.netDiff || 0
                     });
-                } else {
-                    await docSnap.ref.update({
-                        attempts: currentAttempts + 1,
-                        lastError: err.message,
-                        scheduledAt: admin.firestore.Timestamp.fromMillis(Date.now() + 2 * 60 * 1000)
-                    });
+                } catch (err) {
+                    console.error(`[ML] Error en segunda validacion para ${item.orderId}:`, err);
+                    const currentAttempts = Number(item.attempts) || 0;
+                    if (currentAttempts >= 5) {
+                        await docSnap.ref.update({
+                            status: 'FAILED',
+                            error: err.message,
+                            failedAt: admin.firestore.FieldValue.serverTimestamp()
+                        });
+                    } else {
+                        await docSnap.ref.update({
+                            attempts: currentAttempts + 1,
+                            lastError: err.message,
+                            scheduledAt: admin.firestore.Timestamp.fromMillis(Date.now() + 2 * 60 * 1000)
+                        });
+                    }
                 }
             }
+        }
+
+        // Barrido directo en orders: Buscar ordenes que aun tengan mlNeedsSecondValidation: true creadas hace mas de 3 minutos
+        try {
+            const orphanOrdersSnap = await db.collection('orders')
+                .where('mlNeedsSecondValidation', '==', true)
+                .limit(20)
+                .get();
+
+            if (!orphanOrdersSnap.empty) {
+                for (const oDoc of orphanOrdersSnap.docs) {
+                    const oData = oDoc.data();
+                    const createdAtMs = oData.createdAt?.toMillis 
+                        ? oData.createdAt.toMillis() 
+                        : (Number(oData.createdAt?.seconds || 0) * 1000);
+
+                    if (Date.now() - createdAtMs >= 3 * 60 * 1000) {
+                        try {
+                            const res = await syncAndValidateMLOrder(oDoc.id, db, true);
+                            console.log(`[ML] Revalidacion por barrido directo completada para orden ${oDoc.id}. Dif: $${res.netDiff}`);
+                        } catch (orphErr) {
+                            console.warn(`[ML] Error en barrido directo para orden ${oDoc.id}:`, orphErr.message);
+                        }
+                    }
+                }
+            }
+        } catch (sweepErr) {
+            console.error("[ML] Error en barrido directo de ordenes pendientes:", sweepErr.message);
         }
     } catch (e) {
         console.error("[ML] Error en revalidatePendingMLOrders:", e);

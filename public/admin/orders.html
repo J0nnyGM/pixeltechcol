@@ -557,12 +557,125 @@
         </div>
     </div>
 
+    <!-- MODAL PARA ENLAZAR PRODUCTOS SIN SKU A CATALOGO LOCAL -->
+    <div id="modal-link-product" class="fixed inset-0 z-[100] hidden flex items-center justify-center p-3 sm:p-4 bg-brand-black/60 backdrop-blur-xs animate-fadeIn">
+        <div class="bg-white rounded-[2rem] border border-gray-100 shadow-2xl w-full max-w-xl overflow-hidden max-h-[92vh] flex flex-col">
+            <!-- Modal Header -->
+            <div class="p-6 border-b border-gray-100 flex items-center justify-between bg-slate-50/50">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-2xl bg-amber-500 text-white flex items-center justify-center text-lg font-black shrink-0 shadow-sm">
+                        <i class="fa-solid fa-link"></i>
+                    </div>
+                    <div>
+                        <h4 class="font-black text-sm uppercase text-brand-black">Enlazar a Producto Local</h4>
+                        <p class="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Asocia este item con un producto de tu catalogo local</p>
+                    </div>
+                </div>
+                <button type="button" onclick="window.closeLinkProductModal()" class="w-9 h-9 rounded-xl bg-white border border-gray-200 text-gray-400 hover:text-brand-black flex items-center justify-center transition active:scale-95 cursor-pointer">
+                    <i class="fa-solid fa-xmark text-sm"></i>
+                </button>
+            </div>
+
+            <!-- Modal Body -->
+            <div class="p-6 overflow-y-auto space-y-5 flex-grow">
+                <!-- Info del item actual en la orden -->
+                <div class="p-4 rounded-2xl bg-slate-50 border border-gray-200/80">
+                    <p class="text-[9px] font-black uppercase tracking-widest text-gray-400 mb-1">Item en la Orden</p>
+                    <div class="flex items-start justify-between gap-3">
+                        <div class="min-w-0 flex-grow">
+                            <h5 id="link-modal-item-name" class="font-black text-xs uppercase text-brand-black break-words">---</h5>
+                            <div class="flex items-center gap-2 mt-1 flex-wrap">
+                                <span id="link-modal-item-sku" class="text-[9px] font-mono font-bold text-gray-500 bg-white px-2 py-0.5 rounded border border-gray-200">SKU: ---</span>
+                                <span id="link-modal-item-price" class="text-[10px] font-black text-brand-black">---</span>
+                            </div>
+                        </div>
+                        <span id="link-modal-item-qty" class="px-2.5 py-1 rounded-xl bg-brand-cyan text-brand-black font-black text-xs shrink-0">x1</span>
+                    </div>
+                </div>
+
+                <!-- Buscador de productos del catalogo local -->
+                <div>
+                    <label class="block text-[10px] font-black uppercase tracking-wider text-gray-500 mb-1.5 ml-1">
+                        Buscar Producto en Catalogo Local
+                    </label>
+                    <div class="relative">
+                        <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs"></i>
+                        <input type="text" id="link-product-search" placeholder="Escribe el nombre, SKU o referencia..." 
+                            class="w-full bg-slate-50 border border-gray-200 pl-9 pr-8 py-2.5 rounded-xl text-xs font-bold text-brand-black outline-none focus:border-brand-cyan focus:ring-1 focus:ring-brand-cyan/20 transition shadow-xs"
+                            oninput="window.searchProductsToLink(this.value)">
+                        <button type="button" onclick="document.getElementById('link-product-search').value=''; window.searchProductsToLink('');" 
+                            class="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs cursor-pointer">
+                            <i class="fa-solid fa-circle-xmark"></i>
+                        </button>
+                    </div>
+                    <!-- Lista de resultados -->
+                    <div id="link-product-results" class="mt-2 max-h-48 overflow-y-auto space-y-1.5 border border-gray-100 rounded-2xl p-1 bg-white shadow-inner">
+                        <div class="p-4 text-center text-xs text-gray-400 font-bold">Escribe para buscar productos en el catalogo local...</div>
+                    </div>
+                </div>
+
+                <!-- Tarjeta del Producto Seleccionado -->
+                <div id="link-selected-container" class="hidden p-4 rounded-2xl bg-cyan-50/60 border border-cyan-200/80 space-y-3 animate-fadeIn">
+                    <div class="flex items-center justify-between">
+                        <span class="text-[9px] font-black uppercase tracking-widest text-cyan-800 flex items-center gap-1.5">
+                            <i class="fa-solid fa-circle-check text-brand-cyan"></i> Producto Seleccionado
+                        </span>
+                        <button type="button" onclick="window.clearSelectedProductToLink()" class="text-[9px] font-bold text-rose-600 hover:underline cursor-pointer">
+                            Cambiar
+                        </button>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <img id="link-selected-img" src="/img/placeholder-tech.webp" class="w-12 h-12 object-contain rounded-xl bg-white border border-cyan-100 p-1 shrink-0">
+                        <div class="flex-grow min-w-0">
+                            <p id="link-selected-name" class="font-black text-xs uppercase text-brand-black truncate">---</p>
+                            <p id="link-selected-sku" class="text-[9px] font-mono text-gray-500 font-bold">SKU: ---</p>
+                        </div>
+                    </div>
+
+                    <!-- Selector de variante (si aplica) -->
+                    <div id="link-variant-selector-wrapper" class="hidden">
+                        <label class="block text-[9px] font-black uppercase tracking-wider text-cyan-900 mb-1 ml-0.5">
+                            Variante / Combinacion Especifica:
+                        </label>
+                        <select id="link-product-variant-select" class="w-full bg-white border border-cyan-200 px-3 py-2 rounded-xl text-xs font-bold text-brand-black outline-none focus:border-brand-cyan cursor-pointer shadow-xs" onchange="window.updateSelectedVariantPreview()">
+                        </select>
+                    </div>
+
+                    <!-- Configuracion de descuento de inventario -->
+                    <div class="pt-2 border-t border-cyan-200/60 space-y-2">
+                        <label class="flex items-center gap-2 cursor-pointer select-none">
+                            <input type="checkbox" id="link-product-deduct-stock" checked class="w-4 h-4 rounded text-brand-cyan focus:ring-brand-cyan border-gray-300 cursor-pointer">
+                            <span class="text-xs font-black uppercase text-brand-black">Descontar inventario ahora</span>
+                        </label>
+                        <div id="link-branch-select-container" class="pl-6 flex items-center gap-2">
+                            <span class="text-[10px] font-bold text-gray-500 uppercase">Sede a descontar:</span>
+                            <select id="link-product-branch-select" class="bg-white border border-cyan-200 px-2.5 py-1 rounded-lg text-xs font-black text-brand-black outline-none cursor-pointer">
+                                <option value="bodega">Bodega Principal (Local)</option>
+                                <option value="full">Mercado Envios Full</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Modal Footer -->
+            <div class="p-6 border-t border-gray-100 flex items-center justify-end gap-3 bg-slate-50/50">
+                <button type="button" onclick="window.closeLinkProductModal()" class="px-4 py-2.5 rounded-xl border border-gray-200 bg-white hover:bg-slate-100 text-gray-600 font-black text-xs uppercase tracking-wider transition active:scale-95 cursor-pointer">
+                    Cancelar
+                </button>
+                <button type="button" id="btn-confirm-link-product" onclick="window.confirmLinkProduct()" disabled class="px-5 py-2.5 rounded-xl bg-gray-300 text-gray-500 font-black text-xs uppercase tracking-wider transition shadow-sm flex items-center gap-2 cursor-not-allowed">
+                    <i class="fa-solid fa-link"></i> Guardar Enlace
+                </button>
+            </div>
+        </div>
+    </div>
+
     <script type="module">
         import '../js/admin-guard.js';
         import { db, collection, getDocs, orderBy, query, limit, auth, doc, getDoc, where, onSnapshot, startAfter } from '../js/firebase-init.js';
         import { loadAdminSidebar } from '../js/admin-ui.js?v=2.0.0';
         import { initManualSale, openManualSaleModal } from '../js/manual-sale.js?v=1.0.6';
-        import '../js/order-actions.js?v=1.1.8';
+        import '../js/order-actions.js?v=1.1.9';
 
         loadAdminSidebar();
 
@@ -2036,7 +2149,7 @@
             let mlValidationBadge = '';
             if (isML) {
                 if (o.mlNeedsSecondValidation || o.mlValidationCount === 1) {
-                    mlValidationBadge = `<span class="inline-flex items-center gap-1 text-[8px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 shadow-2xs whitespace-nowrap" title="Validación 1/2 recibida. Revalidando automáticamente a los 5 minutos"><i class="fa-solid fa-hourglass-half text-[7px] text-amber-700"></i> 1/2 Val</span>`;
+                    mlValidationBadge = `<span class="inline-flex items-center gap-1 text-[8px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 shadow-2xs whitespace-nowrap cursor-pointer hover:bg-amber-200 transition" onclick="event.stopPropagation(); window.recalcMLFinances('${o.id}')" title="Validacion 1/2 recibida. Haz clic para revalidar inmediatamente"><i class="fa-solid fa-hourglass-half text-[7px] text-amber-700"></i> 1/2 Val</span>`;
                 } else if (o.mlValidationCount >= 2) {
                     mlValidationBadge = `<span class="inline-flex items-center gap-1 text-[8px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-900 border border-emerald-300 shadow-2xs whitespace-nowrap" title="Validado dos veces con MercadoLibre (Costos y comisiones exactas)"><i class="fa-solid fa-shield-check text-[7px] text-emerald-700"></i> 2/2 ML</span>`;
                 }

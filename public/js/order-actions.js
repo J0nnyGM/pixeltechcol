@@ -459,9 +459,14 @@ export async function viewOrderDetail(orderId) {
     
     try {
         let isAdmin = false;
+        let canLinkProduct = false;
         if (auth.currentUser) {
             const uDoc = await getDoc(doc(db, "users", auth.currentUser.uid));
-            if (uDoc.exists() && ['admin', 'developer'].includes(uDoc.data().role)) isAdmin = true;
+            if (uDoc.exists()) {
+                const uRole = uDoc.data().role;
+                if (['admin', 'developer'].includes(uRole)) isAdmin = true;
+                if (['admin', 'developer', 'ventas'].includes(uRole)) canLinkProduct = true;
+            }
         }
 
         const snap = await getDoc(doc(db, "orders", orderId));
@@ -764,6 +769,39 @@ export async function viewOrderDetail(orderId) {
                 }
 
                 const itemHasAllNoSerial = itemAllNoSerial && totalUnits > 0;
+
+                const isUnlinked = isExternalOrUnknownProduct(item.id) || !item.sku || item.isLinkedToCatalog === false;
+                const isManuallyLinked = item.isLinkedToCatalog === true || Boolean(item.linkedAt && item.sku);
+
+                let linkProductHtml = '';
+                if (canLinkProduct) {
+                    if (isUnlinked && !isManuallyLinked) {
+                        linkProductHtml = `
+                            <div class="mt-2 p-2.5 rounded-xl bg-amber-50 border border-amber-300 flex items-center justify-between flex-wrap gap-2 shadow-2xs">
+                                <div class="flex items-center gap-1.5 text-amber-900 text-[10px] font-bold">
+                                    <i class="fa-solid fa-triangle-exclamation text-amber-600"></i>
+                                    <span>Sin SKU / No enlazado a catalogo local</span>
+                                </div>
+                                <button type="button" onclick="window.openLinkProductModal('${orderId}', ${idx})" class="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white font-black text-[9px] uppercase tracking-wider rounded-lg transition shadow-2xs flex items-center gap-1 cursor-pointer active:scale-95">
+                                    <i class="fa-solid fa-link"></i> Enlazar a Producto Local
+                                </button>
+                            </div>
+                        `;
+                    } else {
+                        linkProductHtml = `
+                            <div class="mt-1 flex items-center gap-2 flex-wrap">
+                                <span class="text-[9px] font-bold text-gray-500 font-mono">SKU: <span class="text-brand-black font-black">${item.sku || 'N/A'}</span></span>
+                                ${isManuallyLinked ? `<span class="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 text-[8px] font-black uppercase flex items-center gap-1"><i class="fa-solid fa-circle-check text-emerald-600"></i> Enlazado a Catalogo</span>` : ''}
+                                <button type="button" onclick="window.openLinkProductModal('${orderId}', ${idx})" class="text-[9px] font-bold text-brand-cyan hover:text-brand-black underline cursor-pointer ml-1">
+                                    ${isManuallyLinked ? 'Cambiar enlace' : 'Vincular a catalogo'}
+                                </button>
+                            </div>
+                        `;
+                    }
+                } else if (item.sku) {
+                    linkProductHtml = `<div class="mt-1 text-[9px] font-bold text-gray-500 font-mono">SKU: <span class="text-brand-black font-black">${item.sku}</span></div>`;
+                }
+
                 return `
                     <div class="p-6 border-b border-gray-100 last:border-0 flex flex-col md:flex-row gap-6 items-start">
                         <div class="w-16 h-16 rounded-xl bg-white border border-gray-100 p-2 shrink-0 flex items-center justify-center shadow-xs">
@@ -774,10 +812,11 @@ export async function viewOrderDetail(orderId) {
                                 <h5 class="font-black text-xs uppercase text-brand-black">${item.name || item.title}</h5>
                                 <span class="text-xs font-black text-brand-cyan">x${item.quantity}</span>
                             </div>
-                            <div class="flex gap-2 mb-3">
+                            <div class="flex gap-2 mb-2">
                                 ${item.color ? `<span class="text-[8px] font-black uppercase bg-slate-100 px-2 py-1 rounded text-brand-black border border-gray-200">${item.color}</span>` : ''}
                                 ${item.capacity ? `<span class="text-[8px] font-black uppercase bg-slate-100 px-2 py-1 rounded text-brand-black border border-gray-200">${item.capacity}</span>` : ''}
                             </div>
+                            ${linkProductHtml ? `<div class="mb-3">${linkProductHtml}</div>` : ''}
                             <div class="bg-slate-100/60 p-3.5 rounded-2xl border border-gray-200/80">
                                 <div class="flex items-center justify-between mb-2.5">
                                     <p class="text-[9px] font-black text-brand-black uppercase tracking-widest flex items-center gap-1.5">
@@ -4052,5 +4091,345 @@ window.openMercadoLibreLabel = function(orderId) {
                 window.openBulkPackingModal([targetOrder], true);
             }
         }, 500);
+    }
+};
+
+// ==========================================================================
+// VINCULACION / ENLACE DE PRODUCTOS SIN SKU A CATALOGO LOCAL
+// ==========================================================================
+window.linkModalState = {
+    orderId: null,
+    itemIndex: null,
+    selectedProduct: null,
+    selectedVariantIndex: -1,
+    targetBranch: 'bodega'
+};
+
+window.openLinkProductModal = async function(orderId, itemIndex) {
+    if (!orderId || itemIndex === undefined || itemIndex === null) return;
+    
+    // Validar permisos
+    if (auth.currentUser) {
+        try {
+            const uDoc = await getDoc(doc(db, "users", auth.currentUser.uid));
+            if (!uDoc.exists() || !['admin', 'developer', 'ventas'].includes(uDoc.data().role)) {
+                alert("Acceso denegado: Solo administradores, desarrolladores y ventas pueden enlazar productos.");
+                return;
+            }
+        } catch(e) {
+            console.error("Error validando rol de usuario:", e);
+        }
+    }
+
+    const orderData = window.currentOrderData || null;
+    if (!orderData || !orderData.items || !orderData.items[itemIndex]) {
+        alert("No se encontro la informacion del item en la orden activa.");
+        return;
+    }
+
+    const item = orderData.items[itemIndex];
+    const isFullOrder = Boolean(orderData.isFull || orderData.isMlFull || orderData.logisticType === 'fulfillment' || orderData.shippingType === 'FULL');
+    const defaultBranch = isFullOrder ? 'full' : 'bodega';
+
+    window.linkModalState = {
+        orderId: orderId,
+        itemIndex: itemIndex,
+        selectedProduct: null,
+        selectedVariantIndex: -1,
+        targetBranch: defaultBranch
+    };
+
+    // Asegurar que editProductsCache este cargado
+    if (!editProductsCache || editProductsCache.length === 0) {
+        try {
+            const snap = await getDocs(collection(db, "products"));
+            editProductsCache = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        } catch(err) {
+            console.error("Error cargando productos para enlace:", err);
+        }
+    }
+
+    // Llenar informacion del item actual en el modal
+    const itemNameEl = getEl('link-modal-item-name');
+    const itemSkuEl = getEl('link-modal-item-sku');
+    const itemPriceEl = getEl('link-modal-item-price');
+    const itemQtyEl = getEl('link-modal-item-qty');
+    const branchSelectEl = getEl('link-product-branch-select');
+    const deductCheckboxEl = getEl('link-product-deduct-stock');
+
+    if (itemNameEl) itemNameEl.textContent = item.name || item.title || 'Producto';
+    if (itemSkuEl) itemSkuEl.textContent = `SKU: ${item.sku || item.id || 'Sin SKU'}`;
+    if (itemPriceEl) itemPriceEl.textContent = formatCurrency(item.price || 0);
+    if (itemQtyEl) itemQtyEl.textContent = `x${item.quantity || 1}`;
+
+    if (branchSelectEl) branchSelectEl.value = defaultBranch;
+    if (deductCheckboxEl) deductCheckboxEl.checked = !item.stockDeducted;
+
+    // Resetear buscador y seleccion
+    const searchInput = getEl('link-product-search');
+    if (searchInput) searchInput.value = '';
+    window.clearSelectedProductToLink();
+    window.renderProductSearchResults('');
+
+    const modal = getEl('modal-link-product');
+    if (modal) modal.classList.remove('hidden');
+};
+
+window.closeLinkProductModal = function() {
+    const modal = getEl('modal-link-product');
+    if (modal) modal.classList.add('hidden');
+    window.linkModalState = {
+        orderId: null,
+        itemIndex: null,
+        selectedProduct: null,
+        selectedVariantIndex: -1,
+        targetBranch: 'bodega'
+    };
+};
+
+window.searchProductsToLink = function(queryStr) {
+    window.renderProductSearchResults(queryStr);
+};
+
+window.renderProductSearchResults = function(queryStr) {
+    const container = getEl('link-product-results');
+    if (!container) return;
+
+    const term = normalizeText(queryStr || '').trim();
+    const products = editProductsCache || [];
+
+    if (!term) {
+        const initialList = products.slice(0, 8);
+        if (initialList.length === 0) {
+            container.innerHTML = '<div class="p-4 text-center text-xs text-gray-400 font-bold">No hay productos en el catalogo.</div>';
+            return;
+        }
+        container.innerHTML = initialList.map(p => window.generateProductSearchResultItemHtml(p)).join('');
+        return;
+    }
+
+    const filtered = products.filter(p => {
+        const nameMatch = normalizeText(p.name || '').includes(term);
+        const skuMatch = normalizeText(p.sku || '').includes(term);
+        const refMatch = normalizeText(p.reference || '').includes(term);
+        const comboMatch = Array.isArray(p.combinations) && p.combinations.some(c => 
+            normalizeText(c.sku || '').includes(term) ||
+            normalizeText(c.color || '').includes(term) ||
+            normalizeText(c.capacity || '').includes(term)
+        );
+        return nameMatch || skuMatch || refMatch || comboMatch;
+    }).slice(0, 15);
+
+    if (filtered.length === 0) {
+        container.innerHTML = `<div class="p-4 text-center text-xs text-gray-400 font-bold">No se encontraron productos para "${queryStr}".</div>`;
+        return;
+    }
+
+    container.innerHTML = filtered.map(p => window.generateProductSearchResultItemHtml(p)).join('');
+};
+
+window.generateProductSearchResultItemHtml = function(product) {
+    const img = product.mainImage || product.image || '/img/placeholder-tech.webp';
+    const totalStock = Number(product.stock) || 0;
+    const hasCombos = Array.isArray(product.combinations) && product.combinations.length > 0;
+    const comboCount = hasCombos ? product.combinations.length : 0;
+    const variantsText = hasCombos ? `${comboCount} variante${comboCount > 1 ? 's' : ''}` : 'Sin variantes';
+
+    return `
+        <div class="p-2.5 rounded-xl hover:bg-slate-50 transition border border-transparent hover:border-gray-200 flex items-center justify-between gap-3 cursor-pointer" onclick="window.selectProductToLink('${product.id}')">
+            <div class="flex items-center gap-3 min-w-0">
+                <img src="${img}" class="w-10 h-10 object-contain rounded-lg bg-white border border-gray-200 p-1 shrink-0">
+                <div class="min-w-0">
+                    <p class="font-black text-xs uppercase text-brand-black truncate">${product.name}</p>
+                    <div class="flex items-center gap-2 mt-0.5">
+                        <span class="text-[9px] font-mono text-gray-500 font-bold">${product.sku || 'Sin SKU'}</span>
+                        <span class="text-[9px] text-gray-400 font-bold">|</span>
+                        <span class="text-[9px] text-gray-500 font-bold">${variantsText}</span>
+                        <span class="text-[9px] text-gray-400 font-bold">|</span>
+                        <span class="text-[9px] font-black ${totalStock > 0 ? 'text-emerald-600' : 'text-rose-500'}">Stock: ${totalStock}</span>
+                    </div>
+                </div>
+            </div>
+            <button type="button" class="px-2.5 py-1 bg-brand-cyan hover:bg-brand-cyan/90 text-brand-black font-black text-[9px] uppercase tracking-wider rounded-lg transition shadow-2xs shrink-0 cursor-pointer">
+                Seleccionar
+            </button>
+        </div>
+    `;
+};
+
+window.selectProductToLink = function(productId) {
+    const product = (editProductsCache || []).find(p => p.id === productId);
+    if (!product) return;
+
+    window.linkModalState.selectedProduct = product;
+    window.linkModalState.selectedVariantIndex = -1;
+
+    const selectedContainer = getEl('link-selected-container');
+    const selectedImg = getEl('link-selected-img');
+    const selectedName = getEl('link-selected-name');
+    const selectedSku = getEl('link-selected-sku');
+    const variantWrapper = getEl('link-variant-selector-wrapper');
+    const variantSelect = getEl('link-product-variant-select');
+    const confirmBtn = getEl('btn-confirm-link-product');
+
+    if (selectedContainer) selectedContainer.classList.remove('hidden');
+    if (selectedImg) selectedImg.src = product.mainImage || product.image || '/img/placeholder-tech.webp';
+    if (selectedName) selectedName.textContent = product.name;
+    if (selectedSku) selectedSku.textContent = `SKU: ${product.sku || 'Sin SKU'}`;
+
+    const combos = Array.isArray(product.combinations) ? product.combinations : [];
+    if (combos.length > 0 && variantWrapper && variantSelect) {
+        variantWrapper.classList.remove('hidden');
+        variantSelect.innerHTML = combos.map((c, idx) => {
+            const colorStr = c.color || '';
+            const capStr = c.capacity || '';
+            const labelParts = [colorStr, capStr].filter(Boolean).join(' - ') || `Variante ${idx + 1}`;
+            const bBodega = c.branchStock?.bodega !== undefined ? c.branchStock.bodega : (Number(c.stock) || 0);
+            const bFull = c.branchStock?.full !== undefined ? c.branchStock.full : 0;
+            return `<option value="${idx}">${labelParts} | SKU: ${c.sku || 'S/N'} | Bodega: ${bBodega}, Full: ${bFull}</option>`;
+        }).join('');
+
+        window.linkModalState.selectedVariantIndex = 0;
+        window.updateSelectedVariantPreview();
+    } else if (variantWrapper) {
+        variantWrapper.classList.add('hidden');
+    }
+
+    if (confirmBtn) {
+        confirmBtn.disabled = false;
+        confirmBtn.className = 'px-5 py-2.5 rounded-xl bg-brand-cyan hover:bg-brand-cyan/90 text-brand-black font-black text-xs uppercase tracking-wider transition shadow-md flex items-center gap-2 cursor-pointer active:scale-95';
+    }
+};
+
+window.updateSelectedVariantPreview = function() {
+    const product = window.linkModalState.selectedProduct;
+    if (!product) return;
+
+    const variantSelect = getEl('link-product-variant-select');
+    const selectedSku = getEl('link-selected-sku');
+
+    if (variantSelect && product.combinations) {
+        const vIdx = parseInt(variantSelect.value, 10);
+        window.linkModalState.selectedVariantIndex = isNaN(vIdx) ? -1 : vIdx;
+        const combo = product.combinations[vIdx];
+        if (combo && selectedSku) {
+            selectedSku.textContent = `SKU Variante: ${combo.sku || product.sku || 'Sin SKU'}`;
+        }
+    }
+};
+
+window.clearSelectedProductToLink = function() {
+    window.linkModalState.selectedProduct = null;
+    window.linkModalState.selectedVariantIndex = -1;
+
+    const selectedContainer = getEl('link-selected-container');
+    const confirmBtn = getEl('btn-confirm-link-product');
+
+    if (selectedContainer) selectedContainer.classList.add('hidden');
+    if (confirmBtn) {
+        confirmBtn.disabled = true;
+        confirmBtn.className = 'px-5 py-2.5 rounded-xl bg-gray-300 text-gray-500 font-black text-xs uppercase tracking-wider transition shadow-sm flex items-center gap-2 cursor-not-allowed';
+    }
+};
+
+window.confirmLinkProduct = async function() {
+    const state = window.linkModalState;
+    if (!state.orderId || state.itemIndex === null || !state.selectedProduct) {
+        alert("Selecciona un producto del catalogo local antes de continuar.");
+        return;
+    }
+
+    const confirmBtn = getEl('btn-confirm-link-product');
+    if (confirmBtn) {
+        confirmBtn.disabled = true;
+        confirmBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Guardando Enlace...';
+    }
+
+    try {
+        const orderRef = doc(db, "orders", state.orderId);
+        const orderSnap = await getDoc(orderRef);
+        if (!orderSnap.exists()) throw new Error("La orden no existe en la base de datos.");
+
+        const orderData = orderSnap.data();
+        const items = orderData.items || [];
+        if (!items[state.itemIndex]) throw new Error("El item seleccionado no existe en la orden.");
+
+        const product = state.selectedProduct;
+        const combos = Array.isArray(product.combinations) ? product.combinations : [];
+        const combo = state.selectedVariantIndex >= 0 && combos[state.selectedVariantIndex] ? combos[state.selectedVariantIndex] : null;
+
+        const branchSelectEl = getEl('link-product-branch-select');
+        const deductCheckboxEl = getEl('link-product-deduct-stock');
+        const selectedBranch = branchSelectEl ? branchSelectEl.value : 'bodega';
+        const shouldDeduct = deductCheckboxEl ? deductCheckboxEl.checked : true;
+
+        const currentItem = items[state.itemIndex];
+        const qty = Number(currentItem.quantity) || 1;
+        const targetSku = (combo && combo.sku) ? String(combo.sku) : (product.sku ? String(product.sku) : "");
+        const targetColor = (combo && combo.color) ? String(combo.color) : (currentItem.color || "");
+        const targetCapacity = (combo && combo.capacity) ? String(combo.capacity) : (currentItem.capacity || "");
+        const targetImage = product.mainImage || product.image || currentItem.image || "";
+
+        // Si se solicito descontar inventario, invocar adjustStock
+        if (shouldDeduct) {
+            try {
+                await adjustStock(
+                    product.id,
+                    -qty,
+                    targetColor || null,
+                    targetCapacity || null,
+                    'ENLACE_PEDIDO_ML',
+                    `Enlace manual de producto en orden #${state.orderId} (-${qty} un en ${selectedBranch})`,
+                    selectedBranch
+                );
+            } catch(stkErr) {
+                console.error("Error al descontar stock en adjustStock:", stkErr);
+                alert(`Advertencia al descontar inventario: ${stkErr.message || stkErr}. El enlace continuara guardandose.`);
+            }
+        }
+
+        // Actualizar datos del item en la orden
+        items[state.itemIndex] = {
+            ...currentItem,
+            id: product.id,
+            name: product.name || currentItem.name,
+            originalTitle: currentItem.originalTitle || currentItem.name || currentItem.title || "",
+            sku: targetSku,
+            color: targetColor,
+            capacity: targetCapacity,
+            image: targetImage,
+            mainImage: targetImage,
+            thumbnail: targetImage,
+            isLinkedToCatalog: true,
+            stockDeducted: shouldDeduct || Boolean(currentItem.stockDeducted),
+            linkedAt: serverTimestamp(),
+            linkedBy: auth.currentUser?.email || 'admin',
+            linkedBranch: selectedBranch
+        };
+
+        await updateDoc(orderRef, {
+            items: items,
+            isStockDeducted: true,
+            updatedAt: serverTimestamp()
+        });
+
+        window.closeLinkProductModal();
+
+        if (typeof showActionToast === 'function') {
+            showActionToast(`Producto enlazado exitosamente a "${product.name}" (SKU: ${targetSku || 'N/A'})`, 'success', 4000);
+        } else {
+            alert(`Producto enlazado exitosamente a "${product.name}" (SKU: ${targetSku || 'N/A'})`);
+        }
+
+        // Refrescar el detalle de la orden activo
+        await window.viewOrderDetail(state.orderId);
+
+    } catch(err) {
+        console.error("Error al confirmar enlace de producto:", err);
+        alert(`Error al guardar el enlace: ${err.message || err}`);
+        if (confirmBtn) {
+            confirmBtn.disabled = false;
+            confirmBtn.innerHTML = '<i class="fa-solid fa-link"></i> Guardar Enlace';
+        }
     }
 };
