@@ -1017,11 +1017,24 @@ function renderOrderRow(o, role) {
                  String(o.id).startsWith('ML3-');
 
     const isFull = Boolean(o.isFull || o.isMlFull || o.logisticType === 'fulfillment');
+    const isFlex = Boolean(
+        o.shippingType === 'FLEX' ||
+        o.logisticType === 'self_service' ||
+        (Number(o.mlShippingBonus) > 0) ||
+        o.shippingCarrier === 'DESPACHOBOGOTA' ||
+        o.shippingData?.carrier === 'DESPACHOBOGOTA' ||
+        o.trackingNumber === 'urban' ||
+        o.shippingMethod === 'self_service'
+    );
 
     let channelBadgeHtml = '<span class="text-[8px] font-black px-2.5 py-1 rounded-md shadow-2xs whitespace-nowrap inline-block bg-slate-900 text-white">MOSTRADOR</span>';
     if (isML) {
-        const fullBadge = isFull ? '<span class="text-[8px] font-black px-1.5 py-0.5 rounded shadow-2xs whitespace-nowrap bg-emerald-600 text-white ml-1 tracking-wider inline-block">FULL</span>' : '';
-        channelBadgeHtml = `<div class="inline-flex items-center gap-1"><span class="text-[8px] font-black px-2.5 py-1 rounded-md shadow-2xs whitespace-nowrap inline-block bg-[#FFE600] text-black border border-yellow-400">MERCADOLIBRE</span>${fullBadge}</div>`;
+        const shippingBadge = isFull 
+            ? '<span class="text-[8px] font-black px-1.5 py-0.5 rounded shadow-2xs whitespace-nowrap bg-emerald-600 text-white ml-1 tracking-wider inline-block">FULL</span>' 
+            : (isFlex 
+                ? '<span class="text-[8px] font-black px-1.5 py-0.5 rounded shadow-2xs whitespace-nowrap bg-sky-600 text-white ml-1 tracking-wider inline-flex items-center gap-0.5" title="Mercado Envíos Flex"><i class="fa-solid fa-bolt text-[7px]"></i> FLEX</span>' 
+                : '');
+        channelBadgeHtml = `<div class="inline-flex items-center gap-1"><span class="text-[8px] font-black px-2.5 py-1 rounded-md shadow-2xs whitespace-nowrap inline-block bg-[#FFE600] text-black border border-yellow-400">MERCADOLIBRE</span>${shippingBadge}</div>`;
     } else if (isWeb) {
         channelBadgeHtml = '<span class="text-[8px] font-black px-2.5 py-1 rounded-md shadow-2xs whitespace-nowrap inline-block bg-cyan-50 text-cyan-800 border border-cyan-200">TIENDA WEB</span>';
     }
@@ -1159,11 +1172,24 @@ function renderOrderMobileCard(o, role) {
                  String(o.id).startsWith('ML3-');
 
     const isFull = Boolean(o.isFull || o.isMlFull || o.logisticType === 'fulfillment');
+    const isFlex = Boolean(
+        o.shippingType === 'FLEX' ||
+        o.logisticType === 'self_service' ||
+        (Number(o.mlShippingBonus) > 0) ||
+        o.shippingCarrier === 'DESPACHOBOGOTA' ||
+        o.shippingData?.carrier === 'DESPACHOBOGOTA' ||
+        o.trackingNumber === 'urban' ||
+        o.shippingMethod === 'self_service'
+    );
 
     let mobileChannelBadgeHtml = '<span class="text-[8px] font-black px-2 py-0.5 rounded shadow-2xs whitespace-nowrap bg-slate-900 text-white">MOSTRADOR</span>';
     if (isML) {
-        const fullBadge = isFull ? '<span class="text-[8px] font-black px-1.5 py-0.5 rounded shadow-2xs whitespace-nowrap bg-emerald-600 text-white ml-1 tracking-wider inline-block">FULL</span>' : '';
-        mobileChannelBadgeHtml = `<div class="inline-flex items-center gap-1"><span class="text-[8px] font-black px-2 py-0.5 rounded shadow-2xs whitespace-nowrap bg-[#FFE600] text-black border border-yellow-400">MERCADOLIBRE</span>${fullBadge}</div>`;
+        const shippingBadge = isFull 
+            ? '<span class="text-[8px] font-black px-1.5 py-0.5 rounded shadow-2xs whitespace-nowrap bg-emerald-600 text-white ml-1 tracking-wider inline-block">FULL</span>' 
+            : (isFlex 
+                ? '<span class="text-[8px] font-black px-1.5 py-0.5 rounded shadow-2xs whitespace-nowrap bg-sky-600 text-white ml-1 tracking-wider inline-flex items-center gap-0.5" title="Mercado Envíos Flex"><i class="fa-solid fa-bolt text-[7px]"></i> FLEX</span>' 
+                : '');
+        mobileChannelBadgeHtml = `<div class="inline-flex items-center gap-1"><span class="text-[8px] font-black px-2 py-0.5 rounded shadow-2xs whitespace-nowrap bg-[#FFE600] text-black border border-yellow-400">MERCADOLIBRE</span>${shippingBadge}</div>`;
     } else if (isWeb) {
         mobileChannelBadgeHtml = '<span class="text-[8px] font-black px-2 py-0.5 rounded shadow-2xs whitespace-nowrap bg-cyan-50 text-cyan-800 border border-cyan-200">TIENDA WEB</span>';
     }

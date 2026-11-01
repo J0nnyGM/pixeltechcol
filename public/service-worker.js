@@ -1,4 +1,4 @@
-const CACHE_NAME = 'pixeltech-shell-v11.03'; // 🔥 Versión Oficial 10.18: Ver recibo desacoplado, auto-guardado local de seriales y optimizaciones ML
+const CACHE_NAME = 'pixeltech-shell-v11.05';
 
 // Archivos vitales para que la app arranque sin internet
 const urlsToCache = [
@@ -12,13 +12,10 @@ const urlsToCache = [
 ];
 
 self.addEventListener('install', (event) => {
-  // ❌ AQUÍ ESTABA EL ERROR: Eliminamos self.skipWaiting()
-  // Ahora el nuevo Service Worker se instalará, pero se quedará en estado "waiting"
-  // hasta que el usuario presione el botón.
+  self.skipWaiting();
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then((cache) => {
-        console.log('Opened cache');
         return cache.addAll(urlsToCache);
       })
   );
@@ -30,14 +27,14 @@ self.addEventListener('activate', (event) => {
       return Promise.all(
         cacheNames.map((cacheName) => {
           if (cacheName !== CACHE_NAME) {
-            console.log('Borrando caché antiguo:', cacheName);
+            console.log('Borrando cache antiguo:', cacheName);
             return caches.delete(cacheName);
           }
         })
       );
     })
   );
-  self.clients.claim(); // Toma control de la página inmediatamente (una vez activado)
+  self.clients.claim();
 });
 
 self.addEventListener('fetch', (event) => {
@@ -48,7 +45,18 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-// Lista negra de dominios y archivos que el Service Worker DEBE IGNORAR (siempre consultar a la red sin interceptar).
+  const referrer = event.request.referrer || '';
+  const isAdminRequest = url.includes('/admin/') || 
+                         referrer.includes('/admin/') || 
+                         url.includes('/js/admin') || 
+                         url.includes('order-actions') || 
+                         url.includes('manual-sale') || 
+                         url.includes('inventory') ||
+                         url.includes('firebase-init') ||
+                         url.includes('product-detail') ||
+                         url.includes('product-serials');
+
+  // Lista negra de dominios y archivos que el Service Worker DEBE IGNORAR (siempre consultar a la red sin interceptar).
   const ignoredDomains = [
     'firebasestorage', 
     'firestore', 
@@ -74,9 +82,9 @@ self.addEventListener('fetch', (event) => {
     'index.html'
   ];
 
-  // Si la URL es de administración (/admin/), coincide con un dominio ignorado o con un archivo de administración vital, saltamos el caché
-  if (url.includes('/admin/') || ignoredDomains.some(domain => url.includes(domain)) || alwaysFetchFiles.some(file => url.includes(file))) {
-    return; // Pasa directamente a la red sin tocar el caché
+  // Si la peticion es de administracion o proviene de panel admin, saltamos el cache completamente
+  if (isAdminRequest || ignoredDomains.some(domain => url.includes(domain)) || alwaysFetchFiles.some(file => url.includes(file))) {
+    return; // Pasa directamente a la red sin tocar el cache
   }
 
   // 🔥 NUEVA ESTRATEGIA: Network First (Red Primero) para HTML, CSS y JS

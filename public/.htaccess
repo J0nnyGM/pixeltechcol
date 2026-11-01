@@ -112,9 +112,9 @@ ErrorDocument 404 /404.html
     ExpiresByType font/woff2                    "access plus 4 months"
     ExpiresByType image/svg+xml                 "access plus 4 months"
     
-    # CSS y JavaScript
-    ExpiresByType text/css                      "access plus 1 year"
-    ExpiresByType application/javascript        "access plus 1 year"
+    # CSS y JavaScript (Revalidacion inmediata en recarga)
+    ExpiresByType text/css                      "access plus 0 seconds"
+    ExpiresByType application/javascript        "access plus 0 seconds"
 
     # Excepción crítica para el Service Worker: NUNCA cachear para permitir actualizaciones instantáneas
     <FilesMatch "service-worker\.js$">
@@ -123,6 +123,28 @@ ErrorDocument 404 /404.html
         Header set Pragma "no-cache"
         Header set Expires "0"
     </FilesMatch>
+</IfModule>
+
+# ----------------------------------------------------------------------
+# 5.1 CONTROL DE CABECERAS HTTP PARA EVITAR CACHE VIEJO EN CPANEL
+# ----------------------------------------------------------------------
+<IfModule mod_headers.c>
+    # 1. Archivos HTML y PHP: Cero cache en disco para reflejar cambios instantaneamente
+    <FilesMatch "\.(html|htm|php)$">
+        Header set Cache-Control "no-cache, no-store, must-revalidate, max-age=0"
+        Header set Pragma "no-cache"
+        Header set Expires "0"
+    </FilesMatch>
+
+    # 2. JavaScript y CSS: Revalidacion obligatoria con ETag. Si el archivo cambio en cPanel, se descarga de inmediato al recargar
+    <FilesMatch "\.(js|css)$">
+        Header set Cache-Control "no-cache, must-revalidate"
+    </FilesMatch>
+
+    # 3. Todo el panel administrativo (/admin/): Cero cache estricto
+    SetEnvIf Request_URI "^/admin/" IS_ADMIN_AREA=1
+    Header set Cache-Control "no-cache, no-store, must-revalidate, max-age=0" env=IS_ADMIN_AREA
+    Header set Pragma "no-cache" env=IS_ADMIN_AREA
 </IfModule>
 
 # ----------------------------------------------------------------------

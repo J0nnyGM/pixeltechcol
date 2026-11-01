@@ -474,13 +474,52 @@ export async function viewOrderDetail(orderId) {
         const o = snap.data();
         currentOrderData = { id: snap.id, ...o };
         window.currentOrderData = currentOrderData;
+
+        // Asegurar catalogo local en memoria para resolucion de SKUs
+        if (!editProductsCache || editProductsCache.length === 0) {
+            try {
+                const pSnap = await getDocs(collection(db, "products"));
+                editProductsCache = pSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+            } catch (pErr) {}
+        }
+
+        const isML = Boolean(
+            (o.source && o.source.startsWith('MERCADOLIBRE')) || 
+            o.channel === 'MERCADOLIBRE' || 
+            (o.paymentMethod && o.paymentMethod.startsWith('MERCADOLIBRE')) || 
+            String(orderId).startsWith('ML-') || 
+            String(orderId).startsWith('ML2-') || 
+            String(orderId).startsWith('ML3-') || 
+            Boolean(o.mlOrderId)
+        );
+
         const isFull = Boolean(o.isFull || o.isMlFull || o.logisticType === 'fulfillment' || o.shippingType === 'FULL');
+        const isFlex = Boolean(
+            o.shippingType === 'FLEX' ||
+            o.logisticType === 'self_service' ||
+            (Number(o.mlShippingBonus) > 0) ||
+            o.shippingCarrier === 'DESPACHOBOGOTA' ||
+            o.shippingData?.carrier === 'DESPACHOBOGOTA' ||
+            o.trackingNumber === 'urban' ||
+            o.shippingMethod === 'self_service'
+        );
+
+        // Enlazar a catalogo local o pedir SKU SOLO aplica para pedidos originados en MercadoLibre
+        canLinkProduct = canLinkProduct && isML;
 
         const isWeb = o.source === 'TIENDA' || o.source === 'TIENDA_WEB';
         const iconContainer = getEl('modal-source-icon');
         if (iconContainer) {
-            iconContainer.innerHTML = isWeb ? '<i class="fa-solid fa-globe"></i>' : '<i class="fa-solid fa-store"></i>';
-            iconContainer.className = `w-16 h-16 bg-white rounded-2xl flex items-center justify-center text-2xl shadow-sm border border-gray-100 ${isWeb ? 'text-brand-cyan' : 'text-brand-black'}`;
+            if (isML) {
+                iconContainer.innerHTML = '<i class="fa-solid fa-handshake"></i>';
+                iconContainer.className = 'w-16 h-16 bg-[#FFE600]/20 text-yellow-800 rounded-2xl flex items-center justify-center text-2xl shadow-sm border border-yellow-300';
+            } else if (isWeb) {
+                iconContainer.innerHTML = '<i class="fa-solid fa-globe"></i>';
+                iconContainer.className = 'w-16 h-16 bg-white rounded-2xl flex items-center justify-center text-2xl shadow-sm border border-gray-100 text-brand-cyan';
+            } else {
+                iconContainer.innerHTML = '<i class="fa-solid fa-store"></i>';
+                iconContainer.className = 'w-16 h-16 bg-white rounded-2xl flex items-center justify-center text-2xl shadow-sm border border-gray-100 text-brand-black';
+            }
         }
 
         safeSetText('modal-order-id', `#${o.internalOrderNumber || snap.id.slice(0, 8).toUpperCase()}`);
@@ -499,18 +538,19 @@ export async function viewOrderDetail(orderId) {
             else if (o.status === 'DEVOLUCION_PARCIAL') bClass = 'bg-orange-100 text-orange-700 border-orange-200';
             else if (o.status === 'DEVUELTO') bClass = 'bg-purple-100 text-purple-700 border-purple-200';
             else if (['CANCELADO', 'RECHAZADO'].includes(o.status)) bClass = 'bg-red-100 text-red-700 border-red-200';
-            badge.textContent = bText;
-            badge.className = `px-3 py-1 rounded-full text-[10px] font-black uppercase border ${bClass}`;
+
+            let extraShippingBadge = '';
+            if (isFull) {
+                extraShippingBadge = '<span class="ml-2 px-2 py-0.5 rounded-full text-[9px] font-black uppercase bg-emerald-600 text-white shadow-2xs tracking-wider">FULL</span>';
+            } else if (isFlex) {
+                extraShippingBadge = '<span class="ml-2 px-2 py-0.5 rounded-full text-[9px] font-black uppercase bg-sky-600 text-white shadow-2xs tracking-wider inline-flex items-center gap-1"><i class="fa-solid fa-bolt text-[8px]"></i> FLEX</span>';
+            }
+
+            badge.innerHTML = `${bText}${extraShippingBadge}`;
+            badge.className = `px-3 py-1 rounded-full text-[10px] font-black uppercase border ${bClass} inline-flex items-center`;
         }
 
         const paymentSection = getEl('modal-payment-info');
-        const isML = (o.source && o.source.startsWith('MERCADOLIBRE')) || 
-                     o.channel === 'MERCADOLIBRE' || 
-                     (o.paymentMethod && o.paymentMethod.startsWith('MERCADOLIBRE')) || 
-                     String(orderId).startsWith('ML-') || 
-                     String(orderId).startsWith('ML2-') || 
-                     String(orderId).startsWith('ML3-') || 
-                     Boolean(o.mlOrderId);
         if (paymentSection) {
             const methods = {
                 'MERCADOPAGO': { label: 'MercadoPago', icon: 'fa-regular fa-credit-card', color: 'text-blue-500' },
@@ -654,7 +694,29 @@ export async function viewOrderDetail(orderId) {
                 `;
             }
 
-            paymentSection.innerHTML = `${cancelBannerHtml}${fullBannerHtml}<div class="flex justify-between items-start"><div class="flex items-center gap-3"><div class="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center ${mInfo.color} text-lg"><i class="${mInfo.icon}"></i></div><div><p class="text-[10px] font-black uppercase text-gray-400 leading-none mb-1">Método de Pago</p><p class="text-xs font-black text-brand-black uppercase">${mInfo.label}</p></div></div>${statusHtml}</div>${o.paymentId ? `<div class="mt-2 pt-2 border-t border-gray-100 text-[9px] text-gray-400 font-mono">Ref: ${o.paymentId}</div>` : ''}${mlBreakdownHtml}`;
+            let flexBannerHtml = '';
+            if (isFlex) {
+                flexBannerHtml = `
+                    <div class="mb-4 p-4 rounded-2xl bg-sky-50 border border-sky-300 text-sky-950 shadow-sm flex items-center justify-between">
+                        <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-xl bg-sky-600 text-white flex items-center justify-center text-lg font-black shrink-0">
+                                <i class="fa-solid fa-bolt"></i>
+                            </div>
+                            <div>
+                                <div class="flex items-center gap-2">
+                                    <span class="bg-sky-600 text-white text-[9px] font-black px-2 py-0.5 rounded shadow-2xs uppercase tracking-wider inline-flex items-center gap-1"><i class="fa-solid fa-bolt text-[8px]"></i> FLEX</span>
+                                    <span class="font-black text-xs uppercase text-sky-900 tracking-wider">Mercado Envíos Flex (Mismo Día)</span>
+                                </div>
+                                <p class="text-[11px] text-sky-800 font-medium mt-0.5">
+                                    Despacho prioritario el mismo día con mensajería urbana (Despacho Bogotá).
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            paymentSection.innerHTML = `${cancelBannerHtml}${fullBannerHtml}${flexBannerHtml}<div class="flex justify-between items-start"><div class="flex items-center gap-3"><div class="w-10 h-10 rounded-xl bg-slate-50 flex items-center justify-center ${mInfo.color} text-lg"><i class="${mInfo.icon}"></i></div><div><p class="text-[10px] font-black uppercase text-gray-400 leading-none mb-1">Método de Pago</p><p class="text-xs font-black text-brand-black uppercase">${mInfo.label}</p></div></div>${statusHtml}</div>${o.paymentId ? `<div class="mt-2 pt-2 border-t border-gray-100 text-[9px] text-gray-400 font-mono">Ref: ${o.paymentId}</div>` : ''}${mlBreakdownHtml}`;
             paymentSection.classList.remove('hidden');
         }
 
@@ -770,8 +832,11 @@ export async function viewOrderDetail(orderId) {
 
                 const itemHasAllNoSerial = itemAllNoSerial && totalUnits > 0;
 
-                const isUnlinked = isExternalOrUnknownProduct(item.id) || !item.sku || item.isLinkedToCatalog === false;
-                const isManuallyLinked = item.isLinkedToCatalog === true || Boolean(item.linkedAt && item.sku);
+                const localProd = (editProductsCache || []).find(p => p.id === item.id) || null;
+                const effectiveSku = item.sku || localProd?.sku || '';
+
+                const isUnlinked = isExternalOrUnknownProduct(item.id) || !effectiveSku || item.isLinkedToCatalog === false;
+                const isManuallyLinked = item.isLinkedToCatalog === true || Boolean(item.linkedAt && effectiveSku);
 
                 let linkProductHtml = '';
                 if (canLinkProduct) {
@@ -790,7 +855,7 @@ export async function viewOrderDetail(orderId) {
                     } else {
                         linkProductHtml = `
                             <div class="mt-1 flex items-center gap-2 flex-wrap">
-                                <span class="text-[9px] font-bold text-gray-500 font-mono">SKU: <span class="text-brand-black font-black">${item.sku || 'N/A'}</span></span>
+                                <span class="text-[9px] font-bold text-gray-500 font-mono">SKU: <span class="text-brand-black font-black">${effectiveSku || 'N/A'}</span></span>
                                 ${isManuallyLinked ? `<span class="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 text-[8px] font-black uppercase flex items-center gap-1"><i class="fa-solid fa-circle-check text-emerald-600"></i> Enlazado a Catalogo</span>` : ''}
                                 <button type="button" onclick="window.openLinkProductModal('${orderId}', ${idx})" class="text-[9px] font-bold text-brand-cyan hover:text-brand-black underline cursor-pointer ml-1">
                                     ${isManuallyLinked ? 'Cambiar enlace' : 'Vincular a catalogo'}
@@ -798,8 +863,8 @@ export async function viewOrderDetail(orderId) {
                             </div>
                         `;
                     }
-                } else if (item.sku) {
-                    linkProductHtml = `<div class="mt-1 text-[9px] font-bold text-gray-500 font-mono">SKU: <span class="text-brand-black font-black">${item.sku}</span></div>`;
+                } else if (effectiveSku) {
+                    linkProductHtml = `<div class="mt-1 text-[9px] font-bold text-gray-500 font-mono">SKU: <span class="text-brand-black font-black">${effectiveSku}</span></div>`;
                 }
 
                 return `

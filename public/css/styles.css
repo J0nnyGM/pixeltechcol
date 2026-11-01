@@ -37,6 +37,7 @@
     --color-yellow-50: oklch(98.7% 0.026 102.212);
     --color-yellow-100: oklch(97.3% 0.071 103.193);
     --color-yellow-200: oklch(94.5% 0.129 101.54);
+    --color-yellow-300: oklch(90.5% 0.182 98.111);
     --color-yellow-400: oklch(85.2% 0.199 91.936);
     --color-yellow-500: oklch(79.5% 0.184 86.047);
     --color-yellow-600: oklch(68.1% 0.162 75.834);
@@ -81,8 +82,12 @@
     --color-sky-50: oklch(97.7% 0.013 236.62);
     --color-sky-100: oklch(95.1% 0.026 236.824);
     --color-sky-200: oklch(90.1% 0.058 230.902);
+    --color-sky-300: oklch(82.8% 0.111 230.318);
     --color-sky-600: oklch(58.8% 0.158 241.966);
     --color-sky-700: oklch(50% 0.134 242.749);
+    --color-sky-800: oklch(44.3% 0.11 240.79);
+    --color-sky-900: oklch(39.1% 0.09 240.876);
+    --color-sky-950: oklch(29.3% 0.066 243.157);
     --color-blue-50: oklch(97% 0.014 254.604);
     --color-blue-100: oklch(93.2% 0.032 255.585);
     --color-blue-200: oklch(88.2% 0.059 254.128);
@@ -2432,6 +2437,9 @@
   .border-sky-200 {
     border-color: var(--color-sky-200);
   }
+  .border-sky-300 {
+    border-color: var(--color-sky-300);
+  }
   .border-slate-100 {
     border-color: var(--color-slate-100);
   }
@@ -2519,6 +2527,9 @@
   .border-yellow-200 {
     border-color: var(--color-yellow-200);
   }
+  .border-yellow-300 {
+    border-color: var(--color-yellow-300);
+  }
   .border-yellow-400 {
     border-color: var(--color-yellow-400);
   }
@@ -2557,6 +2568,9 @@
   }
   .bg-\[\#FFE600\] {
     background-color: #FFE600;
+  }
+  .bg-\[\#FFE600\]\/20 {
+    background-color: color-mix(in oklab, #FFE600 20%, transparent);
   }
   .bg-amber-50 {
     background-color: var(--color-amber-50);
@@ -3145,6 +3159,9 @@
   }
   .bg-sky-50 {
     background-color: var(--color-sky-50);
+  }
+  .bg-sky-600 {
+    background-color: var(--color-sky-600);
   }
   .bg-slate-50 {
     background-color: var(--color-slate-50);
@@ -4386,6 +4403,15 @@
   }
   .text-sky-700 {
     color: var(--color-sky-700);
+  }
+  .text-sky-800 {
+    color: var(--color-sky-800);
+  }
+  .text-sky-900 {
+    color: var(--color-sky-900);
+  }
+  .text-sky-950 {
+    color: var(--color-sky-950);
   }
   .text-slate-100 {
     color: var(--color-slate-100);

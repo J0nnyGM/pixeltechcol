@@ -128,12 +128,12 @@ export {
 };
 
 // ==========================================
-// 💥 LIMPIEZA EFICIENTE DE CACHÉ (PRESERVANDO INDEXEDDB)
+// LIMPIEZA EFICIENTE DE CACHE
 // ==========================================
-export async function clearAllAppDataAndReload(preserveAuth = true) {
-    console.log("🧹 [Caché] Limpiando almacenamiento de localStorage y descargando archivos nuevos del servidor...");
+export async function clearAllAppDataAndReload(preserveAuth = true, clearIndexedDB = false) {
+    console.log("Limpiando almacenamiento de cache y descargando archivos nuevos del servidor...");
 
-    // 1. Preservar sesión de usuario (Firebase Auth) y versión de caché
+    // 1. Preservar sesion de usuario (Firebase Auth) y version de cache
     const authKeys = {};
     if (preserveAuth) {
         try {
@@ -146,20 +146,24 @@ export async function clearAllAppDataAndReload(preserveAuth = true) {
         } catch (e) {}
     }
 
-    // 2. Destruir localStorage legacy y sessionStorage (Liberando la cuota de 5MB)
+    // 2. Destruir localStorage y sessionStorage
     try { localStorage.clear(); } catch (e) {}
     try { sessionStorage.clear(); } catch (e) {}
 
-    // Restaurar credenciales de sesión y versión de caché
+    // Restaurar credenciales de sesion
     if (preserveAuth) {
         Object.keys(authKeys).forEach(k => {
             try { localStorage.setItem(k, authKeys[k]); } catch (e) {}
         });
     }
 
-    // 3. 🛡️ IMPORTANTE: MANTENER INDEXEDDB (PixelTechAdminDB)
-    // Conservar IndexedDB evita borrar los timestamps lastSync, permitiendo a Firebase 
-    // hacer Delta Syncs de solo lo cambiado y ahorrando miles de lecturas en Firestore.
+    // 3. Limpiar IndexedDB si se solicita explícitamente para forzar re-sincronización total
+    if (clearIndexedDB) {
+        try {
+            const req = indexedDB.deleteDatabase('PixelTechAdminDB');
+            await new Promise(r => { req.onsuccess = r; req.onerror = r; setTimeout(r, 400); });
+        } catch (e) {}
+    }
 
     // 4. Borrar Cache Storage de Service Workers (Descarga archivos JS/HTML/CSS frescos)
     try {
@@ -169,7 +173,7 @@ export async function clearAllAppDataAndReload(preserveAuth = true) {
         }
     } catch (e) {}
 
-    // 5. Desregistrar Service Workers para actualizar la aplicación en vivo
+    // 5. Desregistrar Service Workers para actualizar la aplicacion en vivo
     try {
         if ('serviceWorker' in navigator) {
             const registrations = await navigator.serviceWorker.getRegistrations();
@@ -179,7 +183,7 @@ export async function clearAllAppDataAndReload(preserveAuth = true) {
         }
     } catch (e) {}
 
-    // 6. Recargar la página limpia con timestamp único
+    // 6. Recargar la pagina limpia con timestamp unico
     const newUrl = new URL(window.location.href);
     newUrl.searchParams.set('refresh', Date.now().toString());
     window.location.replace(newUrl.toString());

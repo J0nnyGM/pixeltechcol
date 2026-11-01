@@ -100,6 +100,12 @@
                     </button>
                 </div>
 
+                <button id="btn-refresh-orders" onclick="window.forceCleanRefreshGlobal ? window.forceCleanRefreshGlobal() : location.reload()"
+                    title="Actualizar pedidos y limpiar cache"
+                    class="grow sm:grow-0 justify-center bg-white border border-gray-200 text-gray-700 hover:text-brand-black px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-100 transition-all flex items-center gap-2 transform active:scale-95 shadow-sm cursor-pointer">
+                    <i class="fa-solid fa-rotate"></i> <span class="hidden sm:inline">Actualizar</span>
+                </button>
+
                 <button id="btn-open-manual"
                     class="grow sm:grow-0 justify-center bg-brand-black text-white px-6 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-brand-cyan hover:text-brand-black hover:shadow-lg transition-all flex items-center gap-2 transform active:scale-95">
                     <i class="fa-solid fa-plus"></i> Nueva Venta
@@ -673,9 +679,9 @@
     <script type="module">
         import '../js/admin-guard.js';
         import { db, collection, getDocs, orderBy, query, limit, auth, doc, getDoc, where, onSnapshot, startAfter } from '../js/firebase-init.js';
-        import { loadAdminSidebar } from '../js/admin-ui.js?v=2.0.0';
-        import { initManualSale, openManualSaleModal } from '../js/manual-sale.js?v=1.0.7';
-        import '../js/order-actions.js?v=1.1.9';
+        import { loadAdminSidebar } from '../js/admin-ui.js?v=2.0.1';
+        import { initManualSale, openManualSaleModal } from '../js/manual-sale.js?v=1.0.8';
+        import '../js/order-actions.js?v=1.2.0';
 
         loadAdminSidebar();
 
@@ -2159,12 +2165,25 @@
             let channelBadge = '';
             const mlStore = getOrderMLStore(o);
             const isFull = Boolean(o.isFull || o.isMlFull || o.logisticType === 'fulfillment');
+            const isFlex = Boolean(
+                o.shippingType === 'FLEX' ||
+                o.logisticType === 'self_service' ||
+                (Number(o.mlShippingBonus) > 0) ||
+                o.shippingCarrier === 'DESPACHOBOGOTA' ||
+                o.shippingData?.carrier === 'DESPACHOBOGOTA' ||
+                o.trackingNumber === 'urban' ||
+                o.shippingMethod === 'self_service'
+            );
 
             if (mlStore !== null) {
                 const storeName = mlStoreNames[mlStore] || `MELI ${mlStore}`;
                 const shortLabel = storeName.length > 20 ? (storeName.substring(0, 18) + '…') : storeName;
-                const fullBadge = isFull ? '<span class="text-[8px] font-black px-1.5 py-0.5 rounded shadow-2xs bg-emerald-600 text-white ml-1 tracking-wider inline-block">FULL</span>' : '';
-                channelBadge = `<div class="inline-flex items-center gap-1"><span class="inline-flex items-center gap-1 text-[8px] font-black px-2 py-0.5 rounded shadow-2xs bg-[#FFE600] text-black border border-yellow-400 whitespace-nowrap tracking-tight" title="MercadoLibre - ${storeName} (Tienda ${mlStore})"><i class="fa-solid fa-handshake text-[9px]"></i> ${shortLabel}</span>${fullBadge}</div>`;
+                const shippingBadge = isFull 
+                    ? '<span class="text-[8px] font-black px-1.5 py-0.5 rounded shadow-2xs bg-emerald-600 text-white ml-1 tracking-wider inline-block">FULL</span>' 
+                    : (isFlex 
+                        ? '<span class="text-[8px] font-black px-1.5 py-0.5 rounded shadow-2xs bg-sky-600 text-white ml-1 tracking-wider inline-flex items-center gap-0.5" title="Mercado Envíos Flex"><i class="fa-solid fa-bolt text-[7px]"></i> FLEX</span>' 
+                        : '');
+                channelBadge = `<div class="inline-flex items-center gap-1"><span class="inline-flex items-center gap-1 text-[8px] font-black px-2 py-0.5 rounded shadow-2xs bg-[#FFE600] text-black border border-yellow-400 whitespace-nowrap tracking-tight" title="MercadoLibre - ${storeName} (Tienda ${mlStore})"><i class="fa-solid fa-handshake text-[9px]"></i> ${shortLabel}</span>${shippingBadge}</div>`;
             } else if (isTienda) {
                 channelBadge = `<span class="text-[8px] font-black px-2 py-0.5 rounded shadow-2xs bg-cyan-50 text-cyan-800 border border-cyan-200">WEB</span>`;
             } else {

@@ -589,7 +589,7 @@ els.btnSubmit.addEventListener('click', async (e) => {
                 userToken: String(token),
                 shippingCost: Number(currentShippingCost),
                 shippingType: currentShippingType,
-                items: cart.map(i => ({ id: i.id, quantity: i.quantity, color: i.color || "", capacity: i.capacity || "" })),
+                items: cart.map(i => ({ id: i.id, quantity: i.quantity, color: i.color || "", capacity: i.capacity || "", sku: i.sku || "", isLinkedToCatalog: true })),
                 extraData: {
                     userName: els.name.value,
                     clientDoc: els.idNumber.value, 
@@ -654,7 +654,7 @@ els.btnSubmit.addEventListener('click', async (e) => {
                 shippingCost: Number(currentShippingCost),
                 shippingType: currentShippingType,
                 paymentMethod: selectedPaymentMethod,
-                items: cart.map(i => ({ id: i.id, quantity: i.quantity, color: i.color || "", capacity: i.capacity || "" })),
+                items: cart.map(i => ({ id: i.id, quantity: i.quantity, color: i.color || "", capacity: i.capacity || "", sku: i.sku || "", isLinkedToCatalog: true })),
                 extraData: {
                     userName: els.name.value,
                     clientDoc: els.idNumber.value, 
@@ -724,7 +724,7 @@ els.btnSubmit.addEventListener('click', async (e) => {
                 userToken: String(token),
                 shippingCost: Number(currentShippingCost),
                 shippingType: currentShippingType,
-                items: cart.map(i => ({ id: i.id, quantity: i.quantity, color: i.color || "", capacity: i.capacity || "" })),
+                items: cart.map(i => ({ id: i.id, quantity: i.quantity, color: i.color || "", capacity: i.capacity || "", sku: i.sku || "", isLinkedToCatalog: true })),
                 extraData: {
                     userName: els.name.value,
                     clientDoc: els.idNumber.value, 
@@ -787,7 +787,7 @@ async function processCODOrder(billData, shouldSaveAddress, isFirstAddress) {
 
         const payload = {
             userToken: String(userToken),
-            items: cart.map(i => ({ id: i.id, quantity: i.quantity, color: i.color || "", capacity: i.capacity || "" })),
+            items: cart.map(i => ({ id: i.id, quantity: i.quantity, color: i.color || "", capacity: i.capacity || "", sku: i.sku || "", isLinkedToCatalog: true })),
             shippingCost: currentShippingCost,
             shippingType: currentShippingType,
             paymentMethod: selectedPaymentMethod, 

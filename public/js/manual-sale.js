@@ -702,7 +702,7 @@ function addManualItemRow() {
                 </div>
             </div>
         </div>
-        <input type="hidden" class="p-id"><input type="hidden" class="p-img"><input type="hidden" class="p-max-stock">`;
+        <input type="hidden" class="p-id"><input type="hidden" class="p-img"><input type="hidden" class="p-max-stock"><input type="hidden" class="p-sku">`;
     
     document.getElementById('manual-items-container').appendChild(div);
     
@@ -740,6 +740,8 @@ function setupProductSearch(row) {
 
     searchInput.addEventListener('input', (e) => {
         row.querySelector('.p-id').value = "";
+        const pSku = row.querySelector('.p-sku');
+        if (pSku) pSku.value = "";
         const badge = row.querySelector('.p-product-stock-badge');
         if (badge) badge.classList.add('hidden');
         if (preview) preview.innerHTML = `<i class="fa-solid fa-box text-gray-300 text-sm"></i>`;
@@ -818,6 +820,8 @@ function setupProductSearch(row) {
 function selectProductForRow(row, product) {
     if (!product) return;
     row.querySelector('.p-id').value = product.id;
+    const pSku = row.querySelector('.p-sku');
+    if (pSku) pSku.value = product.sku || '';
     row.querySelector('.p-search').value = product.name;
     const imgUrl = product.mainImage || product.image || (product.images && product.images[0] ? product.images[0] : "");
     row.querySelector('.p-img').value = imgUrl;
@@ -1293,6 +1297,8 @@ async function saveOrder() {
             const catalogPrice = parseFloat(priceInput.dataset.catalogPrice) || 0;
             const isManualCustom = priceInput.dataset.customPrice === 'true';
 
+            const itemSku = row.querySelector('.p-sku')?.value || '';
+
             items.push({
                 id, 
                 name: prodName, 
@@ -1302,7 +1308,9 @@ async function saveOrder() {
                 quantity: qty, 
                 image: row.querySelector('.p-img').value, 
                 color: colorEl?.value || null, 
-                capacity: capEl?.value || null
+                capacity: capEl?.value || null,
+                sku: itemSku,
+                isLinkedToCatalog: true
             });
         }
     });

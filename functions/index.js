@@ -125,3 +125,7 @@ exports.fixMLOrderLink = fixLinkOrderModule.fixMLOrderLink;
 // Arreglo de secuencia y consecutivos de remisiones y ordenes
 const fixOrderSequenceModule = require('./fix-order-sequence');
 exports.fixOrderSequence = fixOrderSequenceModule.runFixOrderSequence;
+
+// Arreglo de deduccion indebida de envio en ordenes Flex de MercadoLibre
+const fixFlexOrdersModule = require('./fix-flex-orders');
+exports.fixFlexOrders = fixFlexOrdersModule.runFixFlexOrders;

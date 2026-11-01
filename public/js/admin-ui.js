@@ -182,8 +182,11 @@ export function loadAdminSidebar(userRole = null) {
                 ${generateNavHTML()}
             </nav>
 
-            <div class="p-4 border-t border-gray-800 bg-black/20 mb-16 md:mb-0">
-                <button id="btn-logout-global" class="w-full flex items-center justify-center gap-2 py-3 text-xs font-black uppercase tracking-widest text-gray-500 hover:text-brand-red hover:bg-red-500/10 rounded-xl transition-all duration-300 group">
+            <div class="p-4 border-t border-gray-800 bg-black/20 mb-16 md:mb-0 space-y-2">
+                <button id="btn-force-refresh-global" class="w-full flex items-center justify-center gap-2 py-2.5 text-xs font-bold uppercase tracking-wider text-gray-400 hover:text-brand-cyan hover:bg-brand-cyan/10 rounded-xl transition-all duration-300">
+                    <i class="fa-solid fa-rotate"></i> Actualizar Sistema
+                </button>
+                <button id="btn-logout-global" class="w-full flex items-center justify-center gap-2 py-2.5 text-xs font-black uppercase tracking-widest text-gray-500 hover:text-brand-red hover:bg-red-500/10 rounded-xl transition-all duration-300 group">
                     <i class="fa-solid fa-right-from-bracket group-hover:rotate-180 transition-transform duration-500"></i> Cerrar Sesión
                 </button>
             </div>
@@ -333,11 +336,26 @@ export function loadAdminSidebar(userRole = null) {
         });
     }
 
+    const btnForceRefresh = document.getElementById('btn-force-refresh-global');
+    if (btnForceRefresh) {
+        btnForceRefresh.addEventListener('click', async () => {
+            btnForceRefresh.disabled = true;
+            btnForceRefresh.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Actualizando...';
+            if (newWorker) newWorker.postMessage({ type: 'SKIP_WAITING' });
+            await clearAllAppDataAndReload(true, true);
+        });
+    }
+
+    window.forceCleanRefreshGlobal = async () => {
+        if (newWorker) newWorker.postMessage({ type: 'SKIP_WAITING' });
+        await clearAllAppDataAndReload(true, true);
+    };
+
     if (btnUpdate) {
         btnUpdate.addEventListener('click', async () => {
             btnUpdate.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Reiniciando sistema e IndexedDB...';
             if (newWorker) newWorker.postMessage({ type: 'SKIP_WAITING' });
-            await clearAllAppDataAndReload(true);
+            await clearAllAppDataAndReload(true, true);
         });
     }
 }

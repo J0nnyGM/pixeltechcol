@@ -410,46 +410,60 @@ async function findProductByEAN(db, eanToFind) {
 /**
  * OBTENER COSTO DE ENVÍO VENDEDOR DESDE API SHIPMENTS DE MERCADOLIBRE
  */
-async function getMLShipmentCost(shippingId, token, db = null, storeDocName = 'mercadolibre') {
+async function getMLShipmentCost(shippingId, token, db = null, storeDocName = 'mercadolibre', rawShipment = null) {
     if (!shippingId || !token) return 0;
     try {
-        // 1. Prioridad: Consultar el endpoint oficial de desglose de costos (/shipments/{id}/costs)
+        // 1. REGLA CRITICA ENVIOS FLEX (self_service):
+        // En Mercado Envios Flex, la entrega la hace el vendedor con logistica propia (Despacho Bogota / urbano).
+        // MercadoLibre NO le descuenta costo de envio al vendedor en su cuenta; por el contrario, le da una bonificacion.
+        // Si el envio es self_service (Flex), el costo cobrado por ML al vendedor es estrictamente $0.
+        let sData = rawShipment;
+        if (!sData) {
+            try {
+                sData = await fetchML(`/shipments/${shippingId}`, token, db, storeDocName);
+            } catch (sErr) {
+                console.warn(`[${storeDocName}] Error consultando shipment ${shippingId}:`, sErr.message);
+            }
+        }
+
+        if (sData) {
+            if (sData.logistic_type === 'self_service') {
+                console.log(`[${storeDocName}] Envio Flex detectado (${shippingId}): Costo Vendedor ML = $0`);
+                return 0;
+            }
+
+            // Si el envio no es gratuito para el comprador y fue pagado por el
+            if (sData.shipping_option) {
+                const isFreeForBuyer = sData.shipping_option.free_shipping || false;
+                if (!isFreeForBuyer && (!sData.cost_components || sData.cost_components.length === 0)) {
+                    console.log(`[${storeDocName}] Envio a cargo del comprador (${shippingId}): Costo Vendedor ML = $0`);
+                    return 0;
+                }
+            }
+        }
+
+        // 2. Para envios estandar (Mercado Envios colecta, drop_off, xd_drop_off), consultar desglose oficial /costs
         try {
             const costsData = await fetchML(`/shipments/${shippingId}/costs`, token, db, storeDocName);
             if (costsData) {
                 if (Array.isArray(costsData.senders) && costsData.senders.length > 0) {
                     const sender = costsData.senders[0];
                     if (typeof sender.cost === 'number') {
-                        console.log(` [${storeDocName}] Costo oficial Vendedor ML desde /costs (${shippingId}): $${sender.cost}`);
+                        console.log(`[${storeDocName}] Costo oficial Vendedor ML desde /costs (${shippingId}): $${sender.cost}`);
                         return Math.max(0, Math.round(sender.cost));
                     }
                 }
                 if (costsData.receiver && typeof costsData.receiver.cost === 'number' && costsData.receiver.cost > 0 && (!costsData.senders || costsData.senders.length === 0)) {
-                    console.log(` [${storeDocName}] Envío asumido totalmente por el comprador (${shippingId}): Costo Vendedor = $0`);
+                    console.log(`[${storeDocName}] Envio asumido totalmente por el comprador (${shippingId}): Costo Vendedor = $0`);
                     return 0;
                 }
             }
         } catch (costsErr) {
-            // Continuar con fallback detallado si /costs no está disponible
+            // Continuar con fallback detallado si /costs no esta disponible
         }
 
-        // 2. Fallback a la información general del envío (/shipments/{id})
-        const sData = await fetchML(`/shipments/${shippingId}`, token, db, storeDocName);
+        // 3. Fallback a los campos del shipment general
         if (sData) {
-            if (sData.logistic_type === 'self_service') {
-                console.log(` Envío Flex detectado (${shippingId}): Costo Vendedor ML = $0`);
-                return 0;
-            }
-
-            // Si el envío no es gratuito para el comprador y fue pagado por él
-            if (sData.shipping_option) {
-                const isFreeForBuyer = sData.shipping_option.free_shipping || false;
-                if (!isFreeForBuyer && (!sData.cost_components || sData.cost_components.length === 0)) {
-                    console.log(` Envío a cargo del comprador (${shippingId}): Costo Vendedor ML = $0`);
-                    return 0;
-                }
-            }
-
             let cost = 0;
             if (sData.shipping_option) {
                 if (typeof sData.shipping_option.list_cost === 'number' && sData.shipping_option.list_cost > 0) {
@@ -465,7 +479,7 @@ async function getMLShipmentCost(shippingId, token, db = null, storeDocName = 'm
             if (!cost && sData.snapshot && typeof sData.snapshot.cost === 'number' && sData.snapshot.cost > 0) cost = sData.snapshot.cost;
             if (!cost && typeof sData.cost === 'number' && sData.cost > 0) cost = sData.cost;
 
-            console.log(` Costo de Envío Vendedor ML (${shippingId}): $${cost}`);
+            console.log(`[${storeDocName}] Costo de Envio Vendedor ML (${shippingId}): $${cost}`);
             return Number(cost) || 0;
         }
     } catch (err) {
@@ -1100,9 +1114,19 @@ function createWebhookHandler({
 
                 let sellerShippingCost = 0;
                 if (orderData.shipping && orderData.shipping.id) {
-                    sellerShippingCost = await getMLShipmentCost(orderData.shipping.id, ML_TOKEN, db, storeDocName);
+                    sellerShippingCost = await getMLShipmentCost(orderData.shipping.id, ML_TOKEN, db, storeDocName, rawShipment);
                 } else if (orderData.shipping && Number(orderData.shipping.cost) > 0) {
                     sellerShippingCost = Math.round(Number(orderData.shipping.cost));
+                }
+                if (
+                    rawShipment?.logistic_type === 'self_service' ||
+                    orderData.shipping?.logistic_type === 'self_service' ||
+                    buyerInfo?.carrier === 'DESPACHOBOGOTA' ||
+                    existingOrder.logisticType === 'self_service' ||
+                    existingOrder.shippingType === 'FLEX' ||
+                    orderData.shipping?.shipping_mode === 'self_service'
+                ) {
+                    sellerShippingCost = 0;
                 }
 
                 let mlShippingBonus = extractMLShippingBonus(orderData, rawShipment);
@@ -1331,9 +1355,17 @@ function createWebhookHandler({
 
             let sellerShippingCost = 0;
             if (orderData.shipping && orderData.shipping.id) {
-                sellerShippingCost = await getMLShipmentCost(orderData.shipping.id, ML_TOKEN, db, storeDocName);
+                sellerShippingCost = await getMLShipmentCost(orderData.shipping.id, ML_TOKEN, db, storeDocName, rawShipment);
             } else if (orderData.shipping && Number(orderData.shipping.cost) > 0) {
                 sellerShippingCost = Math.round(Number(orderData.shipping.cost));
+            }
+            if (
+                rawShipment?.logistic_type === 'self_service' ||
+                orderData.shipping?.logistic_type === 'self_service' ||
+                buyerInfo?.carrier === 'DESPACHOBOGOTA' ||
+                orderData.shipping?.shipping_mode === 'self_service'
+            ) {
+                sellerShippingCost = 0;
             }
 
             let mlShippingBonus = extractMLShippingBonus(orderData, rawShipment);
@@ -2357,7 +2389,10 @@ async function syncAndValidateMLOrder(orderId, db, isSecondValidation = false, m
                     taxes = getMLTaxesAmount(mlOrderData);
 
                     if (mlOrderData.shipping && mlOrderData.shipping.id) {
-                        shipping = await getMLShipmentCost(mlOrderData.shipping.id, token, db, storeDoc);
+                        try {
+                            rawShipment = await fetchML(`/shipments/${mlOrderData.shipping.id}`, token, db, storeDoc);
+                        } catch (sErr) {}
+                        shipping = await getMLShipmentCost(mlOrderData.shipping.id, token, db, storeDoc, rawShipment);
                     }
 
                     if (Array.isArray(mlOrderData.payments)) {
@@ -2381,12 +2416,6 @@ async function syncAndValidateMLOrder(orderId, db, isSecondValidation = false, m
                         billingInfo = await fetchML(`/orders/${rawMLId}/billing_info`, token, db, storeDoc);
                     } catch (bErr) {}
 
-                    if (mlOrderData.shipping && mlOrderData.shipping.id) {
-                        try {
-                            rawShipment = await fetchML(`/shipments/${mlOrderData.shipping.id}`, token, db, storeDoc);
-                        } catch (sErr) {}
-                    }
-
                     bonus = extractMLShippingBonus(mlOrderData, rawShipment);
                     isCancelledInML = isOrderCancelled(mlOrderData, rawShipment);
                     if (mlOrderData.cancel_detail) cancelDetail = mlOrderData.cancel_detail;
@@ -2401,6 +2430,23 @@ async function syncAndValidateMLOrder(orderId, db, isSecondValidation = false, m
                 console.warn(`No se pudo consultar API ML para orden ${currentOrderId}:`, mlErr.message);
             }
         }
+    }
+
+    // Regla Flex: Envio self_service jamas descuenta costo de envio al vendedor
+    const isFlexOrder = Boolean(
+        (rawShipment && rawShipment.logistic_type === 'self_service') ||
+        ord.logisticType === 'self_service' ||
+        ord.shippingType === 'FLEX' ||
+        (mlOrderData?.shipping && mlOrderData.shipping.logistic_type === 'self_service') ||
+        ord.shippingCarrier === 'DESPACHOBOGOTA' ||
+        ord.shippingData?.carrier === 'DESPACHOBOGOTA' ||
+        ord.trackingNumber === 'urban' ||
+        ord.shippingMethod === 'self_service' ||
+        bonus > 0 ||
+        (Number(ord.mlShippingBonus) > 0)
+    );
+    if (isFlexOrder) {
+        shipping = 0;
     }
 
     const netAmount = Math.max(0, Math.round(gross - fee - shipping + bonus - taxes));
@@ -2436,6 +2482,11 @@ async function syncAndValidateMLOrder(orderId, db, isSecondValidation = false, m
         items: updatedItems,
         updatedAt: admin.firestore.FieldValue.serverTimestamp()
     };
+
+    if (isFlexOrder) {
+        orderUpdates.logisticType = 'self_service';
+        orderUpdates.shippingType = 'FLEX';
+    }
 
     if (isSecondValidation) {
         orderUpdates.mlValidationCount = 2;
