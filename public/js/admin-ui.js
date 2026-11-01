@@ -173,9 +173,6 @@ export function loadAdminSidebar(userRole = null) {
                     <img src="../img/logo.webp" alt="PixelTech" class="h-10 md:h-12 w-auto relative z-10 drop-shadow-lg">
                 </div>
                 <p class="text-[9px] text-gray-500 font-black uppercase tracking-[0.3em] mt-3">Admin Panel | <span class="text-brand-cyan">${effectiveRole}</span></p>
-                <button id="btn-update-app" class="hidden w-full flex items-center justify-center gap-2 py-3 mt-5 text-xs font-black uppercase tracking-widest text-brand-cyan bg-brand-cyan/10 border border-brand-cyan/30 hover:bg-brand-cyan hover:text-brand-black rounded-xl transition-all duration-300 shadow-[0_0_15px_rgba(0,174,199,0.3)]">
-                    <i class="fa-solid fa-cloud-arrow-down fa-bounce"></i> Actualizar App
-                </button>
             </div>
 
             <nav id="admin-sidebar-nav" class="flex-grow p-4 mt-2 overflow-y-auto sidebar-scroll pb-24 md:pb-8">
@@ -183,8 +180,8 @@ export function loadAdminSidebar(userRole = null) {
             </nav>
 
             <div class="p-4 border-t border-gray-800 bg-black/20 mb-16 md:mb-0 space-y-2">
-                <button id="btn-force-refresh-global" class="w-full flex items-center justify-center gap-2 py-2.5 text-xs font-bold uppercase tracking-wider text-gray-400 hover:text-brand-cyan hover:bg-brand-cyan/10 rounded-xl transition-all duration-300">
-                    <i class="fa-solid fa-rotate"></i> Actualizar Sistema
+                <button id="btn-update-app" class="hidden w-full flex items-center justify-center gap-2 py-2.5 text-xs font-black uppercase tracking-widest text-brand-cyan bg-brand-cyan/10 border border-brand-cyan/30 hover:bg-brand-cyan hover:text-brand-black rounded-xl transition-all duration-300 shadow-[0_0_15px_rgba(0,174,199,0.3)] animate-pulse">
+                    <i class="fa-solid fa-cloud-arrow-down fa-bounce"></i> Actualizar Sistema
                 </button>
                 <button id="btn-logout-global" class="w-full flex items-center justify-center gap-2 py-2.5 text-xs font-black uppercase tracking-widest text-gray-500 hover:text-brand-red hover:bg-red-500/10 rounded-xl transition-all duration-300 group">
                     <i class="fa-solid fa-right-from-bracket group-hover:rotate-180 transition-transform duration-500"></i> Cerrar Sesión
@@ -321,28 +318,38 @@ export function loadAdminSidebar(userRole = null) {
         navigator.serviceWorker.register('/service-worker.js', { updateViaCache: 'none' }).then(reg => {
             reg.update().catch(err => console.warn('Verificación de actualización SW omitida:', err));
             if (reg.waiting) showUpdateButton(reg.waiting);
-            if (reg.installing) reg.installing.addEventListener('statechange', (e) => { if (e.target.state === 'installed') showUpdateButton(e.target); });
+            if (reg.installing) {
+                reg.installing.addEventListener('statechange', (e) => {
+                    if (e.target.state === 'installed' && navigator.serviceWorker.controller) {
+                        showUpdateButton(e.target);
+                    }
+                });
+            }
             reg.addEventListener('updatefound', () => {
                 const newWorkerInstalling = reg.installing;
                 if (!newWorkerInstalling) return; 
-                newWorkerInstalling.addEventListener('statechange', (e) => { if (e.target.state === 'installed') showUpdateButton(e.target); });
+                newWorkerInstalling.addEventListener('statechange', (e) => {
+                    if (e.target.state === 'installed' && navigator.serviceWorker.controller) {
+                        showUpdateButton(e.target);
+                    }
+                });
             });
         }).catch(err => {
             console.warn('Registro de Service Worker omitido:', err);
         });
+
+        // Revalidar actualizaciones silenciosamente cuando el usuario enfoca la pestaña
+        window.addEventListener('focus', () => {
+            navigator.serviceWorker.getRegistration().then(reg => {
+                if (reg) reg.update().catch(() => {});
+            });
+        });
+
         let refreshing;
         navigator.serviceWorker.addEventListener('controllerchange', () => {
-            if (refreshing) return; refreshing = true; window.location.reload();
-        });
-    }
-
-    const btnForceRefresh = document.getElementById('btn-force-refresh-global');
-    if (btnForceRefresh) {
-        btnForceRefresh.addEventListener('click', async () => {
-            btnForceRefresh.disabled = true;
-            btnForceRefresh.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Actualizando...';
-            if (newWorker) newWorker.postMessage({ type: 'SKIP_WAITING' });
-            await clearAllAppDataAndReload(true, true);
+            if (refreshing) return; 
+            refreshing = true; 
+            window.location.reload();
         });
     }
 
@@ -353,7 +360,8 @@ export function loadAdminSidebar(userRole = null) {
 
     if (btnUpdate) {
         btnUpdate.addEventListener('click', async () => {
-            btnUpdate.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Reiniciando sistema e IndexedDB...';
+            btnUpdate.disabled = true;
+            btnUpdate.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin mr-2"></i> Actualizando Sistema...';
             if (newWorker) newWorker.postMessage({ type: 'SKIP_WAITING' });
             await clearAllAppDataAndReload(true, true);
         });

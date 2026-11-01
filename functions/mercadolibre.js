@@ -1118,14 +1118,15 @@ function createWebhookHandler({
                 } else if (orderData.shipping && Number(orderData.shipping.cost) > 0) {
                     sellerShippingCost = Math.round(Number(orderData.shipping.cost));
                 }
-                if (
+                const isFlexOrder = Boolean(
                     rawShipment?.logistic_type === 'self_service' ||
                     orderData.shipping?.logistic_type === 'self_service' ||
                     buyerInfo?.carrier === 'DESPACHOBOGOTA' ||
                     existingOrder.logisticType === 'self_service' ||
                     existingOrder.shippingType === 'FLEX' ||
                     orderData.shipping?.shipping_mode === 'self_service'
-                ) {
+                );
+                if (isFlexOrder) {
                     sellerShippingCost = 0;
                 }
 
@@ -1180,7 +1181,11 @@ function createWebhookHandler({
                 const hasShippingStatusDiff = (rawShipment?.status && existingOrder.shippingStatus !== rawShipment.status);
                 const hasFullDiff = orderIsFull && (!existingOrder.isFull || !existingOrder.isMlFull);
 
-                if (hasFinancialDiff || hasDocDiff || hasTrackingDiff || hasShippingStatusDiff || hasFullDiff) {
+                const willTransitionToDelivered = rawShipment?.status === 'delivered' && existingOrder.status !== 'ENTREGADO' && existingOrder.status !== 'CANCELADO' && existingOrder.status !== 'CANCELACION_PENDIENTE' && !existingOrder.cancellationPendingConfirm;
+                const willTransitionToDispatched = (rawShipment?.status === 'shipped' || rawShipment?.status === 'in_transit') && existingOrder.status !== 'DESPACHADO' && existingOrder.status !== 'ENTREGADO' && existingOrder.status !== 'CANCELADO' && existingOrder.status !== 'CANCELACION_PENDIENTE' && !existingOrder.cancellationPendingConfirm;
+                const hasStatusTransition = willTransitionToDelivered || willTransitionToDispatched;
+
+                if (hasFinancialDiff || hasDocDiff || hasTrackingDiff || hasShippingStatusDiff || hasFullDiff || hasStatusTransition) {
                     const netDiff = netAmount - oldNet;
                     const priceRatio = grossTotal > 0 ? (netAmount / grossTotal) : 1;
 
@@ -1207,12 +1212,37 @@ function createWebhookHandler({
                         if (rawShipment?.status === 'delivered' && existingOrder.status !== 'ENTREGADO' && existingOrder.status !== 'CANCELADO') {
                             updates.status = 'ENTREGADO';
                             updates.statusDetail = 'ENTREGADO_FULFILLMENT';
+                            updates.deliveredAt = admin.firestore.FieldValue.serverTimestamp();
                         } else if ((rawShipment?.status === 'shipped' || rawShipment?.status === 'in_transit') && existingOrder.status !== 'DESPACHADO' && existingOrder.status !== 'ENTREGADO' && existingOrder.status !== 'CANCELADO') {
                             updates.status = 'DESPACHADO';
                             updates.statusDetail = 'DESPACHADO_FULFILLMENT';
+                            updates.dispatchedAt = admin.firestore.FieldValue.serverTimestamp();
+                            updates.shippedAt = admin.firestore.FieldValue.serverTimestamp();
                         } else if (existingOrder.status === 'PENDIENTE') {
                             updates.status = 'ALISTADO';
                             updates.statusDetail = 'FULFILLMENT_ML';
+                        }
+                    } else if (existingOrder.status !== 'CANCELADO' && existingOrder.status !== 'CANCELACION_PENDIENTE' && !existingOrder.cancellationPendingConfirm) {
+                        if (isFlexOrder) {
+                            updates.shippingType = 'FLEX';
+                            updates.logisticType = 'self_service';
+                        }
+
+                        if (rawShipment?.status === 'delivered' && existingOrder.status !== 'ENTREGADO') {
+                            updates.status = 'ENTREGADO';
+                            updates.statusDetail = isFlexOrder ? 'ENTREGADO_FLEX' : 'ENTREGADO_COLECTA';
+                            updates.deliveredAt = admin.firestore.FieldValue.serverTimestamp();
+                        } else if ((rawShipment?.status === 'shipped' || rawShipment?.status === 'in_transit') && existingOrder.status !== 'DESPACHADO' && existingOrder.status !== 'ENTREGADO') {
+                            updates.status = 'DESPACHADO';
+                            updates.statusDetail = isFlexOrder ? 'DESPACHADO_FLEX_AUTO' : 'DESPACHADO_COLECTA_AUTO';
+                            updates.dispatchedAt = admin.firestore.FieldValue.serverTimestamp();
+                            updates.shippedAt = admin.firestore.FieldValue.serverTimestamp();
+                            if (!existingOrder.shippingCarrier) {
+                                updates.shippingCarrier = isFlexOrder ? 'Mercado Envíos Flex' : (rawShipment?.tracking_method || 'Mercado Envíos Colecta');
+                            }
+                            if (!existingOrder.shippingTracking && rawShipment?.tracking_number) {
+                                updates.shippingTracking = rawShipment.tracking_number;
+                            }
                         }
                     }
 
@@ -1685,7 +1715,9 @@ function createWebhookHandler({
                             ? (rawShipment?.status === 'delivered'
                                 ? 'ENTREGADO'
                                 : (rawShipment?.status === 'shipped' || rawShipment?.status === 'in_transit' ? 'DESPACHADO' : 'ALISTADO'))
-                            : 'PENDIENTE');
+                            : (rawShipment?.status === 'delivered'
+                                ? 'ENTREGADO'
+                                : (rawShipment?.status === 'shipped' || rawShipment?.status === 'in_transit' ? 'DESPACHADO' : 'PENDIENTE')));
 
                     const orderStatusDetail = isNewOrderCancelled
                         ? 'CANCELADO_ML_PENDIENTE_CONFIRMAR'
@@ -1693,7 +1725,11 @@ function createWebhookHandler({
                             ? (rawShipment?.status === 'delivered'
                                 ? 'ENTREGADO_FULFILLMENT'
                                 : (rawShipment?.status === 'shipped' || rawShipment?.status === 'in_transit' ? 'DESPACHADO_FULFILLMENT' : 'FULFILLMENT_ML'))
-                            : 'PENDIENTE_ALISTAMIENTO');
+                            : (rawShipment?.status === 'delivered'
+                                ? (rawShipment?.logistic_type === 'self_service' ? 'ENTREGADO_FLEX' : 'ENTREGADO_COLECTA')
+                                : (rawShipment?.status === 'shipped' || rawShipment?.status === 'in_transit'
+                                    ? (rawShipment?.logistic_type === 'self_service' ? 'DESPACHADO_FLEX_AUTO' : 'DESPACHADO_COLECTA_AUTO')
+                                    : 'PENDIENTE_ALISTAMIENTO')));
 
                     const orderRef = db.collection('orders').doc(orderId);
                     t.set(orderRef, {
@@ -2535,12 +2571,37 @@ async function syncAndValidateMLOrder(orderId, db, isSecondValidation = false, m
         if (rawShipment?.status === 'delivered' && ord.status !== 'ENTREGADO' && ord.status !== 'CANCELADO') {
             orderUpdates.status = 'ENTREGADO';
             orderUpdates.statusDetail = 'ENTREGADO_FULFILLMENT';
+            orderUpdates.deliveredAt = admin.firestore.FieldValue.serverTimestamp();
         } else if ((rawShipment?.status === 'shipped' || rawShipment?.status === 'in_transit') && ord.status !== 'DESPACHADO' && ord.status !== 'ENTREGADO' && ord.status !== 'CANCELADO') {
             orderUpdates.status = 'DESPACHADO';
             orderUpdates.statusDetail = 'DESPACHADO_FULFILLMENT';
+            orderUpdates.dispatchedAt = admin.firestore.FieldValue.serverTimestamp();
+            orderUpdates.shippedAt = admin.firestore.FieldValue.serverTimestamp();
         } else if (ord.status === 'PENDIENTE') {
             orderUpdates.status = 'ALISTADO';
             orderUpdates.statusDetail = 'FULFILLMENT_ML';
+        }
+    } else if (!isCancelledInML && ord.status !== 'CANCELADO' && ord.status !== 'CANCELACION_PENDIENTE' && !ord.cancellationPendingConfirm) {
+        if (isFlexOrder) {
+            orderUpdates.shippingType = 'FLEX';
+            orderUpdates.logisticType = 'self_service';
+        }
+
+        if (rawShipment?.status === 'delivered' && ord.status !== 'ENTREGADO') {
+            orderUpdates.status = 'ENTREGADO';
+            orderUpdates.statusDetail = isFlexOrder ? 'ENTREGADO_FLEX' : 'ENTREGADO_COLECTA';
+            orderUpdates.deliveredAt = admin.firestore.FieldValue.serverTimestamp();
+        } else if ((rawShipment?.status === 'shipped' || rawShipment?.status === 'in_transit') && ord.status !== 'DESPACHADO' && ord.status !== 'ENTREGADO') {
+            orderUpdates.status = 'DESPACHADO';
+            orderUpdates.statusDetail = isFlexOrder ? 'DESPACHADO_FLEX_AUTO' : 'DESPACHADO_COLECTA_AUTO';
+            orderUpdates.dispatchedAt = admin.firestore.FieldValue.serverTimestamp();
+            orderUpdates.shippedAt = admin.firestore.FieldValue.serverTimestamp();
+            if (!ord.shippingCarrier) {
+                orderUpdates.shippingCarrier = isFlexOrder ? 'Mercado Envíos Flex' : (rawShipment?.tracking_method || 'Mercado Envíos Colecta');
+            }
+            if (!ord.shippingTracking && rawShipment?.tracking_number) {
+                orderUpdates.shippingTracking = rawShipment.tracking_number;
+            }
         }
     }
 
