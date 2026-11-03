@@ -677,25 +677,30 @@ export async function viewOrderDetail(orderId) {
 
             let fullBannerHtml = '';
             if (isFull) {
-                const isCancelledFull = o.status === 'CANCELADO' || o.cancellationPendingConfirm || o.status === 'CANCELACION_PENDIENTE' || o.mlCancelled;
+                const isPendingFullCancel = (o.cancellationPendingConfirm || o.status === 'CANCELACION_PENDIENTE');
+                const isCancelledFull = o.status === 'CANCELADO' || isPendingFullCancel || o.mlCancelled;
                 fullBannerHtml = `
-                    <div class="mb-4 p-4 rounded-2xl ${isCancelledFull ? 'bg-rose-50 border border-rose-300 text-rose-950' : 'bg-emerald-50 border border-emerald-300 text-emerald-950'} shadow-sm flex items-center justify-between">
+                    <div class="mb-4 p-4 rounded-2xl ${isCancelledFull ? 'bg-amber-50 border border-amber-300 text-amber-950' : 'bg-emerald-50 border border-emerald-300 text-emerald-950'} shadow-sm flex items-center justify-between flex-wrap gap-3">
                         <div class="flex items-center gap-3">
-                            <div class="w-10 h-10 rounded-xl ${isCancelledFull ? 'bg-rose-600' : 'bg-emerald-600'} text-white flex items-center justify-center text-lg font-black shrink-0">
+                            <div class="w-10 h-10 rounded-xl ${isCancelledFull ? 'bg-amber-600' : 'bg-emerald-600'} text-white flex items-center justify-center text-lg font-black shrink-0">
                                 <i class="fa-solid ${isCancelledFull ? 'fa-ban' : 'fa-truck-ramp-box'}"></i>
                             </div>
                             <div>
                                 <div class="flex items-center gap-2">
-                                    <span class="${isCancelledFull ? 'bg-rose-600' : 'bg-emerald-600'} text-white text-[9px] font-black px-2 py-0.5 rounded shadow-2xs uppercase tracking-wider">FULL</span>
-                                    <span class="font-black text-xs uppercase ${isCancelledFull ? 'text-rose-900' : 'text-emerald-900'} tracking-wider">${isCancelledFull ? 'Mercado Envíos Full - Cancelado en ML' : 'Mercado Envíos Full'}</span>
+                                    <span class="${isCancelledFull ? 'bg-amber-600' : 'bg-emerald-600'} text-white text-[9px] font-black px-2 py-0.5 rounded shadow-2xs uppercase tracking-wider">FULL</span>
+                                    <span class="font-black text-xs uppercase ${isCancelledFull ? 'text-amber-900' : 'text-emerald-900'} tracking-wider">${isCancelledFull ? 'Mercado Envíos Full - Cancelado en ML' : 'Mercado Envíos Full'}</span>
                                 </div>
-                                <p class="text-[11px] ${isCancelledFull ? 'text-rose-800' : 'text-emerald-800'} font-medium mt-0.5">
+                                <p class="text-[11px] ${isCancelledFull ? 'text-amber-800' : 'text-emerald-800'} font-medium mt-0.5">
                                     ${isCancelledFull 
-                                        ? 'Venta cancelada gestionada 100% por Mercado Libre Full. El stock y la devolución física son administrados por Mercado Libre.' 
+                                        ? 'Venta cancelada gestionada 100% por Mercado Libre Full. El stock y la devolución son administrados por Mercado Libre (no afecta inventario de bodega).' 
                                         : 'Despachado directamente desde el centro de distribución de MercadoLibre. Alistamiento y seriales no requeridos.'}
                                 </p>
                             </div>
                         </div>
+                        ${isPendingFullCancel ? `
+                        <button type="button" onclick="window.confirmFullOrderCancellation('${orderId}')" class="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow transition flex items-center gap-1.5 active:scale-95 cursor-pointer shrink-0">
+                            <i class="fa-solid fa-check"></i> Cancelar Full (0 Retorno Stock)
+                        </button>` : ''}
                     </div>
                 `;
             }
@@ -1336,17 +1341,6 @@ async function safeAdjustStock(id, delta, color, capacity, reason = null, detail
 // ==========================================================================
 export async function confirmOrderCancellation(orderId) {
     if (!orderId) return;
-    const confirmMsg = 
-        "Confirmar Retención de Pedido Cancelado:\n\n" +
-        "¿Confirmas que este pedido NO fue despachado ni entregado a la transportadora y fue retenido en bodega?\n\n" +
-        "Al confirmar:\n" +
-        "• La orden pasará a estado CANCELADO.\n" +
-        "• Los seriales asignados volverán a quedar disponibles en inventario para otra venta.\n" +
-        "• La información de seriales y productos se conservará en el pedido para auditoría.\n" +
-        "• El stock volverá a quedar cuadrado en bodega.\n\n" +
-        "¿Deseas continuar?";
-
-    if (!confirm(confirmMsg)) return;
 
     try {
         const oSnap = await getDoc(doc(db, "orders", orderId));
@@ -1356,8 +1350,26 @@ export async function confirmOrderCancellation(orderId) {
         }
 
         const o = oSnap.data();
-        const userName = auth.currentUser?.displayName || auth.currentUser?.email || 'Usuario';
         const isFullOrder = Boolean(o.isFull || o.isMlFull || o.logisticType === 'fulfillment');
+
+        // Si es orden FULL, delegar al flujo seguro de Full sin solicitar retención de bodega ni alterar inventario local
+        if (isFullOrder) {
+            return await confirmFullOrderCancellation(orderId);
+        }
+
+        const confirmMsg = 
+            "Confirmar Retención de Pedido Cancelado:\n\n" +
+            "¿Confirmas que este pedido NO fue despachado ni entregado a la transportadora y fue retenido en bodega?\n\n" +
+            "Al confirmar:\n" +
+            "• La orden pasará a estado CANCELADO.\n" +
+            "• Los seriales asignados volverán a quedar disponibles en inventario para otra venta.\n" +
+            "• La información de seriales y productos se conservará en el pedido para auditoría.\n" +
+            "• El stock volverá a quedar cuadrado en bodega.\n\n" +
+            "¿Deseas continuar?";
+
+        if (!confirm(confirmMsg)) return;
+
+        const userName = auth.currentUser?.displayName || auth.currentUser?.email || 'Usuario';
 
         // 1. Liberar seriales legítimos a AVAILABLE (sin borrar información en el pedido)
         try {
@@ -1390,12 +1402,7 @@ export async function confirmOrderCancellation(orderId) {
 
         // 2. Revertir stock a bodega si estaba descontado
         let shouldReturnStock = false;
-        if (isFullOrder) {
-            // REGLA CRITICA: En ordenes FULL el inventario se gestiona en las bodegas de Mercado Libre.
-            // NUNCA devolver stock a la bodega local para evitar corrupcion de inventario (stock fantasma).
-            console.log(`[Cancelación] Orden #${orderId} es FULL. Omitiendo retorno de stock a bodega física.`);
-            shouldReturnStock = false;
-        } else if (o.isStockDeducted && o.items && o.items.length > 0) {
+        if (o.isStockDeducted && o.items && o.items.length > 0) {
             shouldReturnStock = confirm(
                 "GESTIÓN DE STOCK EN CANCELACIÓN DE MERCADOLIBRE:\n\n" +
                 "¿Deseas reingresar las unidades de este pedido al inventario de bodega?\n\n" +
@@ -1446,7 +1453,7 @@ export async function confirmOrderCancellation(orderId) {
             cancellationConfirmed: true,
             cancellationConfirmedBy: userName,
             cancellationConfirmedAt: serverTimestamp(),
-            cancellationRetainedInWarehouse: !isFullOrder,
+            cancellationRetainedInWarehouse: true,
             cancelledWithoutStockReturn: !shouldReturnStock,
             paymentStatus: 'REFUNDED',
             isStockDeducted: false,
@@ -1454,10 +1461,7 @@ export async function confirmOrderCancellation(orderId) {
         });
 
         clearDraftSerials(orderId);
-        const successMsg = isFullOrder 
-            ? "Cancelación de orden FULL procesada correctamente. Stock administrado por Mercado Libre." 
-            : "Cancelación confirmada exitosamente. Seriales liberados a inventario disponible y registro preservado.";
-        showActionToast(successMsg, "success");
+        showActionToast("Cancelación confirmada exitosamente. Seriales liberados a inventario disponible y registro preservado.", "success");
 
         const modal = getEl('order-modal');
         if (modal && !modal.classList.contains('hidden')) {
@@ -1473,6 +1477,261 @@ export async function confirmOrderCancellation(orderId) {
     } catch (err) {
         console.error("Error confirmando cancelación:", err);
         alert("Error al confirmar la cancelación: " + err.message);
+    }
+}
+
+// ==========================================================================
+// CANCELACIÓN INDIVIDUAL DE PEDIDOS MERCADO ENVÍOS FULL (CERO RETORNO A BODEGA)
+// ==========================================================================
+export async function confirmFullOrderCancellation(orderId) {
+    if (!orderId) return;
+
+    try {
+        const oSnap = await getDoc(doc(db, "orders", orderId));
+        if (!oSnap.exists()) {
+            alert("No se encontró el pedido en la base de datos.");
+            return;
+        }
+
+        const o = oSnap.data();
+        const ordNum = o.internalOrderNumber || orderId;
+
+        const confirmMsg = 
+            `Confirmar Cancelación de Pedido Mercado Envíos FULL #${ordNum}:\n\n` +
+            "Este pedido es gestionado directamente por Mercado Libre Full.\n\n" +
+            "Garantía de Inventario:\n" +
+            "• NO se devolverá ni sumará ninguna unidad a la bodega física local (0 retorno).\n" +
+            "• El inventario de bodega se mantiene intacto y sin descuadres.\n" +
+            "• La orden pasará a estado CANCELADO y se cerrará la alerta pendiente.\n\n" +
+            "¿Deseas confirmar la cancelación de este pedido Full?";
+
+        if (!confirm(confirmMsg)) return;
+
+        const userName = auth.currentUser?.displayName || auth.currentUser?.email || 'Administrador';
+
+        // 1. Liberar seriales por si acaso tuviera alguno asignado erróneamente
+        try {
+            const linkedSerials = await getDocs(query(collection(db, "product_serials"), where("orderId", "==", orderId)));
+            if (!linkedSerials.empty) {
+                const batchSerials = writeBatch(db);
+                linkedSerials.forEach(d => {
+                    const data = d.data();
+                    if (isRegularizedSerial(data)) {
+                        batchSerials.delete(d.ref);
+                    } else {
+                        batchSerials.update(d.ref, {
+                            status: 'AVAILABLE',
+                            orderId: null,
+                            orderInternalNumber: null,
+                            clientName: null,
+                            clientPhone: null,
+                            dispatchedAt: null,
+                            returnedAt: serverTimestamp(),
+                            updatedAt: serverTimestamp(),
+                            notes: 'Liberado por cancelación de orden Full'
+                        });
+                    }
+                });
+                await batchSerials.commit();
+            }
+        } catch (errSerials) {
+            console.warn("Error liberando seriales en confirmFullOrderCancellation:", errSerials);
+        }
+
+        // 2. IMPORTANTE: CERO MODIFICACIÓN AL STOCK DE BODEGA LOCAL.
+        // Las órdenes FULL tienen su inventario en las bodegas de Mercado Libre.
+
+        // 3. Reversar contabilidad / tesorería si aplica
+        try {
+            const refundAmount = Number(o.netAmount) || Number(o.amountPaid) || Number(o.total) || 0;
+            if (refundAmount > 0 && o.paymentAccountId) {
+                const accRef = doc(db, "accounts", o.paymentAccountId);
+                const accSnap = await getDoc(accRef);
+                if (accSnap.exists()) {
+                    const curBal = Number(accSnap.data().balance) || 0;
+                    await updateDoc(accRef, { balance: Math.max(0, curBal - refundAmount) });
+
+                    const expenseRef = doc(collection(db, "expenses"));
+                    await setDoc(expenseRef, {
+                        amount: refundAmount,
+                        category: "Cancelaciones / Anulaciones",
+                        description: `Reverso por cancelación de orden Full #${ordNum}`,
+                        paymentMethod: accSnap.data().name || o.paymentMethod || 'MercadoLibre',
+                        supplierName: o.userName || 'Cliente ML',
+                        date: serverTimestamp(),
+                        createdAt: serverTimestamp(),
+                        type: 'EXPENSE',
+                        orderId: orderId
+                    });
+                }
+            }
+        } catch (accErr) {
+            console.warn("Error ajustando tesorería en cancelación Full:", accErr);
+        }
+
+        // 4. Actualizar el documento de la orden
+        await updateDoc(doc(db, "orders", orderId), {
+            status: 'CANCELADO',
+            statusDetail: 'CANCELADO_FULL_AUTOMATICO',
+            cancellationPendingConfirm: false,
+            cancellationConfirmed: true,
+            cancellationConfirmedBy: userName,
+            cancellationConfirmedAt: serverTimestamp(),
+            cancellationRetainedInWarehouse: false,
+            cancelledWithoutStockReturn: true,
+            isStockDeducted: false,
+            paymentStatus: 'REFUNDED',
+            updatedAt: serverTimestamp()
+        });
+
+        clearDraftSerials(orderId);
+        showActionToast(`Orden Full #${ordNum} cancelada exitosamente sin modificar inventario local.`, "success");
+
+        const modal = getEl('order-modal');
+        if (modal && !modal.classList.contains('hidden')) {
+            modal.classList.add('hidden');
+        }
+
+        if (window.SmartAdminOrdersSync && typeof window.SmartAdminOrdersSync.syncAndRender === 'function') {
+            window.SmartAdminOrdersSync.syncAndRender();
+        } else {
+            if (typeof window.reCalcularFiltroLocal === 'function') window.reCalcularFiltroLocal();
+            if (typeof window.renderOrdersFromMemory === 'function') window.renderOrdersFromMemory();
+        }
+    } catch (err) {
+        console.error("Error confirmando cancelación Full:", err);
+        alert("Error al confirmar la cancelación Full: " + err.message);
+    }
+}
+
+// ==========================================================================
+// CANCELACIÓN MASIVA SEGURA DE TODAS LAS ÓRDENES FULL PENDIENTES (0 RETORNO)
+// ==========================================================================
+export async function cancelAllPendingFullOrders() {
+    try {
+        const userName = auth.currentUser?.displayName || auth.currentUser?.email || 'Administrador';
+
+        const pendingMap = new Map();
+
+        // 1. Buscar en memoria local si existe
+        if (Array.isArray(window.adminOrdersCache)) {
+            window.adminOrdersCache.forEach(o => {
+                const isFull = Boolean(o.isFull || o.isMlFull || o.logisticType === 'fulfillment');
+                const isPending = (o.cancellationPendingConfirm === true || o.status === 'CANCELACION_PENDIENTE');
+                if (isFull && isPending && o.status !== 'CANCELADO') {
+                    pendingMap.set(o.id, o);
+                }
+            });
+        }
+
+        // 2. Consultar en vivo en Firestore
+        try {
+            const q1 = query(collection(db, "orders"), where("status", "==", "CANCELACION_PENDIENTE"));
+            const s1 = await getDocs(q1);
+            s1.forEach(d => {
+                const o = { id: d.id, ...d.data() };
+                const isFull = Boolean(o.isFull || o.isMlFull || o.logisticType === 'fulfillment');
+                if (isFull && o.status !== 'CANCELADO') {
+                    pendingMap.set(d.id, o);
+                }
+            });
+
+            const q2 = query(collection(db, "orders"), where("cancellationPendingConfirm", "==", true));
+            const s2 = await getDocs(q2);
+            s2.forEach(d => {
+                const o = { id: d.id, ...d.data() };
+                const isFull = Boolean(o.isFull || o.isMlFull || o.logisticType === 'fulfillment');
+                if (isFull && o.status !== 'CANCELADO') {
+                    pendingMap.set(d.id, o);
+                }
+            });
+        } catch (fetchErr) {
+            console.warn("Consulta Firestore para órdenes Full:", fetchErr);
+        }
+
+        const pendingList = Array.from(pendingMap.values());
+        if (pendingList.length === 0) {
+            if (typeof showActionToast === 'function') {
+                showActionToast("No hay órdenes de Mercado Envíos Full pendientes de cancelación.", "info");
+            } else {
+                alert("No hay órdenes de Mercado Envíos Full pendientes de cancelación.");
+            }
+            return;
+        }
+
+        const listPreview = pendingList.map(o => `#${o.internalOrderNumber || o.id.slice(0, 8)}`).join(', ');
+        const confirmMsg = 
+            `CANCELACIÓN MASIVA SEGURA DE PEDIDOS FULL (${pendingList.length} pedidos):\n\n` +
+            `Pedidos encontrados: ${listPreview}\n\n` +
+            "Garantía de Inventario:\n" +
+            "• Mercado Libre administra el stock físico en sus almacenes Full.\n" +
+            "• CERO (0) unidades retornarán a la bodega física local (inventario local intacto).\n" +
+            "• Todas las órdenes pasarán a estado CANCELADO de inmediato.\n\n" +
+            `¿Deseas cancelar los ${pendingList.length} pedidos Full ahora?`;
+
+        if (!confirm(confirmMsg)) return;
+
+        let batch = writeBatch(db);
+        let batchCount = 0;
+
+        for (const o of pendingList) {
+            const ordRef = doc(db, "orders", o.id);
+            batch.update(ordRef, {
+                status: 'CANCELADO',
+                statusDetail: 'CANCELADO_FULL_AUTOMATICO',
+                cancellationPendingConfirm: false,
+                cancellationConfirmed: true,
+                cancellationConfirmedBy: userName,
+                cancellationConfirmedAt: serverTimestamp(),
+                cancellationRetainedInWarehouse: false,
+                cancelledWithoutStockReturn: true,
+                isStockDeducted: false,
+                paymentStatus: 'REFUNDED',
+                updatedAt: serverTimestamp()
+            });
+
+            // Actualizar objeto en memoria si existe
+            o.status = 'CANCELADO';
+            o.cancellationPendingConfirm = false;
+            o.cancellationConfirmed = true;
+            o.isStockDeducted = false;
+            o.cancelledWithoutStockReturn = true;
+
+            clearDraftSerials(o.id);
+            batchCount++;
+
+            if (batchCount >= 400) {
+                await batch.commit();
+                batch = writeBatch(db);
+                batchCount = 0;
+            }
+        }
+
+        if (batchCount > 0) {
+            await batch.commit();
+        }
+
+        const msg = `¡Éxito! Se cancelaron ${pendingList.length} orden(es) Full de forma segura. El inventario local no fue alterado.`;
+        if (typeof showActionToast === 'function') {
+            showActionToast(msg, "success", 5000);
+        } else {
+            alert(msg);
+        }
+
+        const modal = getEl('order-modal');
+        if (modal && !modal.classList.contains('hidden')) {
+            modal.classList.add('hidden');
+        }
+
+        if (window.SmartAdminOrdersSync && typeof window.SmartAdminOrdersSync.syncAndRender === 'function') {
+            window.SmartAdminOrdersSync.syncAndRender();
+        } else {
+            if (typeof window.reCalcularFiltroLocal === 'function') window.reCalcularFiltroLocal();
+            if (typeof window.renderOrdersFromMemory === 'function') window.renderOrdersFromMemory();
+        }
+    } catch (err) {
+        console.error("Error en cancelAllPendingFullOrders:", err);
+        alert("Error al cancelar órdenes Full pendientes: " + err.message);
     }
 }
 
@@ -4108,6 +4367,8 @@ export async function processBulkDispatch() {
 
 // --- EXPORTAR AL WINDOW ---
 window.confirmOrderCancellation = confirmOrderCancellation;
+window.confirmFullOrderCancellation = confirmFullOrderCancellation;
+window.cancelAllPendingFullOrders = cancelAllPendingFullOrders;
 window.reportCancellationConflict = reportCancellationConflict;
 window.generateLabels = generateLabels;
 window.openBulkPaymentModal = openBulkPaymentModal;

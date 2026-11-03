@@ -681,7 +681,7 @@
         import { db, collection, getDocs, orderBy, query, limit, auth, doc, getDoc, where, onSnapshot, startAfter } from '../js/firebase-init.js';
         import { loadAdminSidebar } from '../js/admin-ui.js?v=2.0.1';
         import { initManualSale, openManualSaleModal } from '../js/manual-sale.js?v=1.0.8';
-        import '../js/order-actions.js?v=1.3.2';
+        import '../js/order-actions.js?v=1.3.3';
 
         loadAdminSidebar();
 
@@ -1444,13 +1444,19 @@
                 const cutoffDateToday = new Date(now);
                 cutoffDateToday.setHours(hours, minutes, 0, 0);
 
-                const cancelPendingOrders = [];
+                const cancelPendingWarehouseOrders = [];
+                const cancelPendingFullOrders = [];
                 const todayOrders = [];
                 const tomorrowOrders = [];
 
                 pageItems.forEach(o => {
+                    const isFull = Boolean(o.isFull || o.isMlFull || o.logisticType === 'fulfillment');
                     if (o.cancellationPendingConfirm || o.status === 'CANCELACION_PENDIENTE') {
-                        cancelPendingOrders.push(o);
+                        if (isFull) {
+                            cancelPendingFullOrders.push(o);
+                        } else {
+                            cancelPendingWarehouseOrders.push(o);
+                        }
                         return;
                     }
                     const orderDate = getOrderDate(o) || new Date();
@@ -1459,9 +1465,27 @@
                     else todayOrders.push(o);
                 });
 
-                if (cancelPendingOrders.length > 0) {
+                if (cancelPendingFullOrders.length > 0) {
+                    htmlBuffer += `
+                        <tr class="bg-amber-100/90 border-b-2 border-amber-300">
+                            <td colspan="8" class="py-2.5 px-4 md:px-6">
+                                <div class="flex items-center justify-between flex-wrap gap-2 text-amber-950">
+                                    <div class="flex items-center gap-2.5">
+                                        <div class="p-1 bg-amber-200 rounded-lg text-amber-800"><i class="fa-solid fa-truck-ramp-box text-xs"></i></div>
+                                        <span class="text-[10px] font-black uppercase tracking-widest">Mercado Envíos Full: ${cancelPendingFullOrders.length} Cancelación(es) en ML pendientes (Stock gestionado por ML, 0 retorno a bodega)</span>
+                                    </div>
+                                    <button onclick="window.cancelAllPendingFullOrders()" class="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-[9px] uppercase tracking-wider rounded-lg shadow-xs flex items-center gap-1 active:scale-95 transition cursor-pointer">
+                                        <i class="fa-solid fa-check-double"></i> Cancelar Todas Full (${cancelPendingFullOrders.length}) sin alterar stock
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>`;
+                    cancelPendingFullOrders.forEach(o => { htmlBuffer += renderRow(o); });
+                }
+
+                if (cancelPendingWarehouseOrders.length > 0) {
                     htmlBuffer += `<tr class="bg-rose-100/90 border-b-2 border-rose-300"><td colspan="8" class="py-2.5 px-4 md:px-6"><div class="flex items-center gap-2.5 text-rose-900"><div class="p-1 bg-rose-200 rounded-lg text-rose-700 animate-pulse"><i class="fa-solid fa-triangle-exclamation text-xs"></i></div><span class="text-[10px] font-black uppercase tracking-widest">Atencion Urgente: Cancelados en MercadoLibre (Confirmar Retencion para liberar seriales)</span></div></td></tr>`;
-                    cancelPendingOrders.forEach(o => { htmlBuffer += renderRow(o); });
+                    cancelPendingWarehouseOrders.forEach(o => { htmlBuffer += renderRow(o); });
                 }
                 if (todayOrders.length > 0) {
                     htmlBuffer += `<tr class="bg-emerald-50/70 border-b border-emerald-100 fade-in"><td colspan="8" class="py-2.5 px-4 md:px-6"><div class="flex items-center gap-2.5 text-emerald-800"><div class="p-1 bg-emerald-100 rounded-lg"><i class="fa-solid fa-truck-fast text-xs"></i></div><span class="text-[10px] font-black uppercase tracking-widest">Prioridad: Despachar Hoy (Antes de ${cutoffTimeStr})</span></div></td></tr>`;
@@ -1983,12 +2007,17 @@
         // --- RENDER DE FILA VISUAL OPTIMIZADA Y COMPACTA ---
         function renderRow(o) {
             const isTienda = o.source === 'TIENDA' || o.source === 'TIENDA_WEB';
+            const isFull = Boolean(o.isFull || o.isMlFull || o.logisticType === 'fulfillment');
             const isCancelPending = o.cancellationPendingConfirm || o.status === 'CANCELACION_PENDIENTE';
             
             // Estado Logístico Separado y Preciso
             let logPill = '';
             if (isCancelPending) {
-                logPill = `<span class="inline-flex items-center gap-1.5 bg-rose-600 text-white border border-rose-700 text-[9px] font-black uppercase px-2.5 py-1 rounded-full shadow-md animate-pulse whitespace-nowrap"><i class="fa-solid fa-triangle-exclamation text-[10px]"></i> Cancelado ML (Confirmar Retención)</span>`;
+                if (isFull) {
+                    logPill = `<span class="inline-flex items-center gap-1.5 bg-amber-100 text-amber-900 border border-amber-300 text-[9px] font-black uppercase px-2.5 py-1 rounded-full shadow-2xs whitespace-nowrap"><i class="fa-solid fa-truck-ramp-box text-[9px]"></i> Cancelado Full (ML)</span>`;
+                } else {
+                    logPill = `<span class="inline-flex items-center gap-1.5 bg-rose-600 text-white border border-rose-700 text-[9px] font-black uppercase px-2.5 py-1 rounded-full shadow-md animate-pulse whitespace-nowrap"><i class="fa-solid fa-triangle-exclamation text-[10px]"></i> Cancelado ML (Confirmar Retención)</span>`;
+                }
             } else if (o.status === 'PAGADO') {
                 logPill = `<span class="inline-flex items-center gap-1.5 bg-rose-50 text-rose-700 border border-rose-200 text-[9px] font-black uppercase px-2.5 py-1 rounded-full shadow-2xs animate-pulse whitespace-nowrap"><span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span> Por Alistar (Urgente)</span>`;
             } else if (o.status === 'PENDIENTE') {
@@ -2164,7 +2193,6 @@
             // Distintivo de canal inteligente (MercadoLibre, Tienda Web o Manual)
             let channelBadge = '';
             const mlStore = getOrderMLStore(o);
-            const isFull = Boolean(o.isFull || o.isMlFull || o.logisticType === 'fulfillment');
             const isFlex = Boolean(
                 o.shippingType === 'FLEX' ||
                 o.logisticType === 'self_service' ||
@@ -2201,15 +2229,32 @@
                 </span>
             ` : '');
 
-            // Botón de confirmación directa de cancelación en bodega
-            const cancelConfirmBtn = isCancelPending ? `
-                <button onclick="window.confirmOrderCancellation('${o.id}')" title="Confirmar Retención en Bodega y Liberar Seriales" class="h-8 px-2.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-black text-[9px] uppercase tracking-wider shadow-sm flex items-center gap-1 active:scale-95 transition">
-                    <i class="fa-solid fa-hand text-xs"></i> Confirmar Retención
-                </button>
-            ` : '';
+            // Botón de confirmación directa de cancelación
+            let cancelConfirmBtn = '';
+            if (isCancelPending) {
+                if (isFull) {
+                    cancelConfirmBtn = `
+                        <button onclick="window.confirmFullOrderCancellation('${o.id}')" title="Confirmar Cancelación Full (Stock administrado por ML, 0 retorno a bodega)" class="h-8 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-black text-[9px] uppercase tracking-wider shadow-sm flex items-center gap-1 active:scale-95 transition">
+                            <i class="fa-solid fa-check text-xs"></i> Cancelar Full
+                        </button>
+                    `;
+                } else {
+                    cancelConfirmBtn = `
+                        <button onclick="window.confirmOrderCancellation('${o.id}')" title="Confirmar Retención en Bodega y Liberar Seriales" class="h-8 px-2.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-black text-[9px] uppercase tracking-wider shadow-sm flex items-center gap-1 active:scale-95 transition">
+                            <i class="fa-solid fa-hand text-xs"></i> Confirmar Retención
+                        </button>
+                    `;
+                }
+            }
+
+            const rowBgClass = (isCancelPending && !isFull)
+                ? 'bg-rose-50/90 border-l-4 border-rose-600 hover:bg-rose-100/90'
+                : (isCancelPending && isFull)
+                    ? 'bg-amber-50/80 border-l-4 border-amber-500 hover:bg-amber-100/80'
+                    : 'hover:bg-slate-50/80';
 
             return `
-                <tr class="${isCancelPending ? 'bg-rose-50/90 border-l-4 border-rose-600 hover:bg-rose-100/90' : 'hover:bg-slate-50/80'} transition border-b border-gray-100 group fade-in">
+                <tr class="${rowBgClass} transition border-b border-gray-100 group fade-in">
                     <td class="px-4 py-3.5 text-center">
                         <input type="checkbox" class="order-cb cursor-pointer w-4 h-4 rounded text-brand-cyan focus:ring-brand-cyan border-gray-300" value="${o.id}">
                     </td>
