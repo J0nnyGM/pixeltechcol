@@ -3,7 +3,7 @@ import { db, collection, query, where, orderBy, limit, auth, doc, getDoc, getDoc
 import { loadAdminSidebar } from './admin-ui.js?v=2.0.0';
 import { initManualSale, openManualSaleModal } from './manual-sale.js?v=1.0.7';
 import { AdminStore } from './admin-store.js';
-import './order-actions.js?v=1.1.7';
+import './order-actions.js?v=1.3.2';
 
 // Estado global del dashboard
 let currentRole = 'admin';

@@ -526,6 +526,7 @@ export async function viewOrderDetail(orderId) {
         safeSetText('modal-order-date', formatOrderDateStr(o));
 
         const badge = getEl('modal-order-status-badge');
+        if (badge) {
             let bText = o.status || 'PENDIENTE';
             let bClass = 'bg-yellow-100 text-yellow-700 border-yellow-200';
             if ((o.cancellationPendingConfirm || o.status === 'CANCELACION_PENDIENTE') && !isFull) {
