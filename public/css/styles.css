@@ -83,6 +83,7 @@
     --color-sky-100: oklch(95.1% 0.026 236.824);
     --color-sky-200: oklch(90.1% 0.058 230.902);
     --color-sky-300: oklch(82.8% 0.111 230.318);
+    --color-sky-500: oklch(68.5% 0.169 237.323);
     --color-sky-600: oklch(58.8% 0.158 241.966);
     --color-sky-700: oklch(50% 0.134 242.749);
     --color-sky-800: oklch(44.3% 0.11 240.79);
@@ -2320,6 +2321,9 @@
       border-color: color-mix(in oklab, var(--color-emerald-500) 50%, transparent);
     }
   }
+  .border-emerald-700 {
+    border-color: var(--color-emerald-700);
+  }
   .border-gray-50 {
     border-color: var(--color-gray-50);
   }
@@ -2538,6 +2542,9 @@
   }
   .border-sky-300 {
     border-color: var(--color-sky-300);
+  }
+  .border-sky-700 {
+    border-color: var(--color-sky-700);
   }
   .border-slate-100 {
     border-color: var(--color-slate-100);
@@ -3031,6 +3038,12 @@
   .bg-emerald-100 {
     background-color: var(--color-emerald-100);
   }
+  .bg-emerald-100\/60 {
+    background-color: color-mix(in srgb, oklch(95% 0.052 163.051) 60%, transparent);
+    @supports (color: color-mix(in lab, red, red)) {
+      background-color: color-mix(in oklab, var(--color-emerald-100) 60%, transparent);
+    }
+  }
   .bg-emerald-100\/90 {
     background-color: color-mix(in srgb, oklch(95% 0.052 163.051) 90%, transparent);
     @supports (color: color-mix(in lab, red, red)) {
@@ -3300,6 +3313,9 @@
   }
   .bg-sky-50 {
     background-color: var(--color-sky-50);
+  }
+  .bg-sky-200 {
+    background-color: var(--color-sky-200);
   }
   .bg-sky-600 {
     background-color: var(--color-sky-600);
@@ -5189,6 +5205,12 @@
   .ring-emerald-500 {
     --tw-ring-color: var(--color-emerald-500);
   }
+  .ring-emerald-500\/30 {
+    --tw-ring-color: color-mix(in srgb, oklch(69.6% 0.17 162.48) 30%, transparent);
+    @supports (color: color-mix(in lab, red, red)) {
+      --tw-ring-color: color-mix(in oklab, var(--color-emerald-500) 30%, transparent);
+    }
+  }
   .ring-emerald-500\/50 {
     --tw-ring-color: color-mix(in srgb, oklch(69.6% 0.17 162.48) 50%, transparent);
     @supports (color: color-mix(in lab, red, red)) {
@@ -5211,6 +5233,15 @@
     --tw-ring-color: color-mix(in srgb, oklch(63.7% 0.237 25.331) 40%, transparent);
     @supports (color: color-mix(in lab, red, red)) {
       --tw-ring-color: color-mix(in oklab, var(--color-red-500) 40%, transparent);
+    }
+  }
+  .ring-sky-500 {
+    --tw-ring-color: var(--color-sky-500);
+  }
+  .ring-sky-500\/30 {
+    --tw-ring-color: color-mix(in srgb, oklch(68.5% 0.169 237.323) 30%, transparent);
+    @supports (color: color-mix(in lab, red, red)) {
+      --tw-ring-color: color-mix(in oklab, var(--color-sky-500) 30%, transparent);
     }
   }
   .ring-slate-400 {

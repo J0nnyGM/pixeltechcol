@@ -407,11 +407,14 @@
 
                             <!-- CASO B: PRODUCTO CON VARIANTES (COLOR / CAPACIDAD) -->
                             <div id="box-variants-count" class="bg-white border-2 border-gray-200 rounded-3xl p-5 hidden space-y-3">
-                                <div class="flex items-center justify-between">
+                                <div class="flex items-center justify-between flex-wrap gap-2">
                                     <span class="text-xs font-black uppercase tracking-wider text-brand-black">
                                         <i class="fa-solid fa-palette mr-1.5 text-brand-cyan"></i> Conteo Físico por Variante
                                     </span>
-                                    <span class="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Ajuste por Color/Capacidad</span>
+                                    <button type="button" onclick="window.setVariantsCountToSerialsCount()" id="btn-variants-match-serials"
+                                        class="hidden text-[10px] font-black uppercase tracking-wider px-2.5 py-1 bg-brand-cyan/10 text-brand-cyan hover:bg-brand-cyan/20 border border-brand-cyan/30 rounded-xl transition cursor-pointer">
+                                        <i class="fa-solid fa-barcode mr-1"></i> Igualar al número de seriales (<span id="variants-serials-counter">0</span>)
+                                    </button>
                                 </div>
 
                                 <div class="overflow-x-auto border border-gray-200 rounded-2xl max-h-72 overflow-y-auto no-scrollbar">
@@ -823,7 +826,7 @@
     </div>
 
     <!-- Scripts -->
-    <script type="module" src="../js/admin-sync-inventory.js?v=1.4.3"></script>
+    <script type="module" src="../js/admin-sync-inventory.js?v=1.4.4"></script>
     <script type="module" src="../js/admin-guard.js"></script>
 </body>
 

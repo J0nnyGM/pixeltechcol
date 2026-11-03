@@ -863,6 +863,14 @@ function createWebhookHandler({
     return async (req, res) => {
         const db = admin.firestore();
 
+        res.set('Access-Control-Allow-Origin', '*');
+        res.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+        res.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
+        if (req.method === 'OPTIONS') {
+            return res.status(204).send('');
+        }
+
         try {
             // --- AUTO-VINCULACIÓN OAUTH POR CÓDIGO DE AUTORIZACIÓN (?code=...) ---
             const authCode = req.query.code;

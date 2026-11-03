@@ -1165,6 +1165,32 @@ window.setSimpleCountToSerialsCount = () => {
     }
 };
 
+window.setVariantsCountToSerialsCount = () => {
+    const activeSerials = currentProductSerials.filter(s => s.auditState !== 'REMOVED');
+    if (activeSerials.length === 0) return;
+
+    variantRowsState.forEach(row => {
+        const countForVar = activeSerials.filter(s => 
+            (s.color || '') === row.color && 
+            (s.capacity || '') === row.capacity
+        ).length;
+        row.physicalStock = countForVar;
+    });
+
+    currentPhysicalTotalStock = variantRowsState.reduce((sum, r) => sum + r.physicalStock, 0);
+
+    // Si hay seriales sin color o capacidad asignada, asignarlos a la primera variante para preservar el total
+    if (currentPhysicalTotalStock < activeSerials.length && variantRowsState.length > 0) {
+        const diff = activeSerials.length - currentPhysicalTotalStock;
+        variantRowsState[0].physicalStock += diff;
+        currentPhysicalTotalStock = activeSerials.length;
+    }
+
+    renderVariantsTable();
+    updateGlobalStockMetrics();
+    updateFifoCalculations();
+};
+
 // =========================================================================
 // 7. CONTROL DE CONTEO EN PRODUCTOS CON VARIANTES
 // =========================================================================
@@ -1326,6 +1352,14 @@ async function loadProductSerialsFromFirestore(productId) {
         if (btnMatch) {
             btnMatch.classList.toggle('hidden', currentProductSerials.length === 0);
         }
+        const btnMatchVariants = document.getElementById('btn-variants-match-serials');
+        const counterVarSpan = document.getElementById('variants-serials-counter');
+        if (btnMatchVariants) {
+            btnMatchVariants.classList.toggle('hidden', currentProductSerials.length === 0);
+        }
+        if (counterVarSpan) {
+            counterVarSpan.textContent = currentProductSerials.length;
+        }
 
         // Detectar si hay descuadre histórico (Stock numérico en 0 pero con seriales disponibles)
         const mismatchBanner = document.getElementById('modal-mismatch-banner');
@@ -1459,9 +1493,11 @@ window.restoreAllSerials = () => {
 function updateSerialsSummaryCounter() {
     const badge = document.getElementById('serials-summary-badge');
     const counterSpan = document.getElementById('simple-serials-counter');
+    const counterVarSpan = document.getElementById('variants-serials-counter');
     const active = currentProductSerials.filter(s => s.auditState !== 'REMOVED').length;
     if (badge) badge.textContent = `${active} seriales verificados`;
     if (counterSpan) counterSpan.textContent = active;
+    if (counterVarSpan) counterVarSpan.textContent = active;
 }
 
 // =========================================================================
@@ -1875,7 +1911,24 @@ async function handleSubmitSync() {
                 return;
             }
         } else {
-            alert(`Aviso de Descuadre: Tienes más seriales verificados (${activeSerials.length}) que el stock físico total (${finalPhysicalStock}). Ajusta el conteo de stock o retira los seriales que ya no existan en la sede.`);
+            const extraSerials = activeSerials.length - finalPhysicalStock;
+            const adjustChoice = confirm(
+                `AVISO DE DESCUADRE ENTRE SERIALES Y STOCK:\n\n` +
+                `- Conteo Físico total indicado: ${finalPhysicalStock} unidad(es).\n` +
+                `- Seriales verificados en lista: ${activeSerials.length} serial(es).\n` +
+                `- Hay ${extraSerials} serial(es) más en sistema que el stock físico contado.\n\n` +
+                `¿Deseas igualar automáticamente el Conteo Físico a ${activeSerials.length} para que coincida con los seriales verificados?\n\n` +
+                `• ACEPTAR: Sí, tengo los ${activeSerials.length} productos físicamente (subir conteo a ${activeSerials.length}).\n` +
+                `• CANCELAR: No, solo hay ${finalPhysicalStock} unidades físicas (en la columna derecha de seriales debes retirar los ${extraSerials} que ya no existen).`
+            );
+            if (adjustChoice) {
+                if (!hasVariants) {
+                    window.setSimpleCountToSerialsCount();
+                } else {
+                    window.setVariantsCountToSerialsCount();
+                }
+                alert(`Conteo físico actualizado a ${currentPhysicalTotalStock} unidad(es). Ahora puedes pulsar "Guardar y Sincronizar Inventario".`);
+            }
             return;
         }
     } else if (activeSerials.length === 0 && finalPhysicalStock > 0) {

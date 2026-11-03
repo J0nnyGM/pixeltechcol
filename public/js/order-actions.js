@@ -977,7 +977,7 @@ export async function viewOrderDetail(orderId) {
 
                         input.addEventListener('change', function(e) {
                             clearTimeout(debounceTimer);
-                            let val = this.value.trim().toUpperCase();
+                            let val = this.value.trim().toUpperCase().replace(/[\/\\;\s]+$/, '');
                             this.value = val;
                             if (!val) {
                                 updateInputStyle(this, '');
@@ -2265,7 +2265,7 @@ export async function saveAlistamiento(onSuccess) {
             const qty = item.quantity || 1;
             const inputs = document.querySelectorAll(`.sn-input[data-item-index="${idx}"]`);
             const sns = Array.from(inputs).map(i => {
-                const val = i.value.trim().toUpperCase();
+                const val = i.value.trim().toUpperCase().replace(/[\/\\;\s]+$/, '');
                 return isNoSerial(val) ? 'SIN-SERIAL' : val;
             });
 
@@ -4460,6 +4460,90 @@ window.openMercadoLibreLabel = function(orderId) {
 };
 
 // ==========================================================================
+// IMPORTACIÓN MANUAL DE PEDIDOS DESDE MERCADOLIBRE (CONSOLA O INTERFAZ)
+// ==========================================================================
+window.importMercadoLibreOrder = async function(orderIdInput, storeNumber = 1) {
+    if (!orderIdInput) {
+        const errorMsg = "Debes proporcionar el ID del pedido de MercadoLibre (ej: importMercadoLibreOrder('2000001234567890') o importMercadoLibreOrder('2000001234567890', 2))";
+        console.warn(errorMsg);
+        alert(errorMsg);
+        return;
+    }
+
+    const strId = String(orderIdInput).trim();
+    let targetStore = Number(storeNumber) || 1;
+
+    // Detectar prefijo de tienda si se pasó en el string
+    if (strId.toUpperCase().startsWith('ML3-') || strId.toUpperCase().startsWith('ML3_')) {
+        targetStore = 3;
+    } else if (strId.toUpperCase().startsWith('ML2-') || strId.toUpperCase().startsWith('ML2_')) {
+        targetStore = 2;
+    } else if (strId.toUpperCase().startsWith('ML-') || strId.toUpperCase().startsWith('ML1-')) {
+        targetStore = 1;
+    }
+
+    const cleanId = strId.replace(/\D/g, '');
+    if (!cleanId) {
+        console.error("No se encontraron dígitos en el ID del pedido:", orderIdInput);
+        alert("El ID del pedido debe contener números válidos.");
+        return;
+    }
+
+    const webhookUrls = {
+        1: "https://us-central1-pixeltechcol.cloudfunctions.net/mercadolibreWebhook",
+        2: "https://us-central1-pixeltechcol.cloudfunctions.net/mercadolibreStore2Webhook",
+        3: "https://us-central1-pixeltechcol.cloudfunctions.net/mercadolibreStore3Webhook"
+    };
+
+    const targetUrl = webhookUrls[targetStore] || webhookUrls[1];
+    const fullEndpoint = `${targetUrl}?topic=orders_v2&resource=/orders/${cleanId}`;
+
+    console.log(`[Import ML] Conectando con MercadoLibre para importar orden #${cleanId} (Tienda ${targetStore})...`);
+    if (typeof showActionToast === 'function') {
+        showActionToast(`Importando pedido #${cleanId} desde MercadoLibre (Tienda ${targetStore})...`, 'info', 4000);
+    }
+
+    try {
+        const res = await fetch(fullEndpoint, {
+            method: 'GET',
+            headers: { 'Accept': 'text/plain, application/json' }
+        });
+
+        const textResponse = await res.text();
+        console.log(`[Import ML] Respuesta de Cloud Function:`, textResponse);
+
+        if (res.ok) {
+            const successMsg = `¡Pedido #${cleanId} importado exitosamente desde MercadoLibre (Tienda ${targetStore})!`;
+            if (typeof showActionToast === 'function') {
+                showActionToast(successMsg, 'success', 5000);
+            } else {
+                alert(successMsg);
+            }
+            if (window.SmartAdminOrdersSync && typeof window.SmartAdminOrdersSync.syncAndRender === 'function') {
+                window.SmartAdminOrdersSync.syncAndRender();
+            }
+            return textResponse;
+        } else {
+            throw new Error(textResponse || `Error HTTP ${res.status}`);
+        }
+    } catch (err) {
+        console.warn(`[Import ML] Petición directa reportó: ${err.message}. Reintentando vía POST background...`);
+        try {
+            await fetch(fullEndpoint, { method: 'POST', mode: 'no-cors' });
+            console.log(`[Import ML] Petición enviada al webhook en segundo plano. La orden se procesará en Firestore en unos segundos.`);
+            if (typeof showActionToast === 'function') {
+                showActionToast(`Solicitud enviada para orden #${cleanId}. Procesando en segundo plano...`, 'info', 4000);
+            }
+        } catch (postErr) {
+            console.error(`[Import ML] Error importando orden #${cleanId}:`, postErr);
+            alert(`Error importando orden: ${postErr.message}`);
+        }
+    }
+};
+
+window.importarPedidoML = window.importMercadoLibreOrder;
+
+// ==========================================================================
 // VINCULACION / ENLACE DE PRODUCTOS SIN SKU A CATALOGO LOCAL
 // ==========================================================================
 window.linkModalState = {
@@ -4527,8 +4611,13 @@ window.openLinkProductModal = async function(orderId, itemIndex) {
     if (itemPriceEl) itemPriceEl.textContent = formatCurrency(item.price || 0);
     if (itemQtyEl) itemQtyEl.textContent = `x${item.quantity || 1}`;
 
+    const isAlreadyDeducted = Boolean(item.stockDeducted) || (Boolean(orderData.isStockDeducted) && Boolean(item.isLinkedToCatalog));
+
     if (branchSelectEl) branchSelectEl.value = defaultBranch;
-    if (deductCheckboxEl) deductCheckboxEl.checked = !item.stockDeducted;
+    if (deductCheckboxEl) {
+        deductCheckboxEl.checked = !isAlreadyDeducted;
+        deductCheckboxEl.disabled = isAlreadyDeducted;
+    }
 
     // Resetear buscador y seleccion
     const searchInput = getEl('link-product-search');
@@ -4735,10 +4824,13 @@ window.confirmLinkProduct = async function() {
         const targetCapacity = (combo && combo.capacity) ? String(combo.capacity) : (currentItem.capacity || "");
         const targetImage = product.mainImage || product.image || currentItem.image || "";
 
+        const isAlreadyDeducted = Boolean(currentItem.stockDeducted) || (Boolean(orderData.isStockDeducted) && Boolean(currentItem.isLinkedToCatalog));
+        const effectivelyShouldDeduct = shouldDeduct && !isAlreadyDeducted;
+
         let stockDeductedInThisAttempt = false;
 
-        // Si se solicito descontar inventario, invocar adjustStock
-        if (shouldDeduct) {
+        // Si se solicito descontar inventario y el item NO habia sido descontado antes, invocar adjustStock
+        if (effectivelyShouldDeduct) {
             try {
                 await adjustStock(
                     product.id,

@@ -3,7 +3,7 @@ import { db, collection, query, where, orderBy, limit, auth, doc, getDoc, getDoc
 import { loadAdminSidebar } from './admin-ui.js?v=2.0.0';
 import { initManualSale, openManualSaleModal } from './manual-sale.js?v=1.0.7';
 import { AdminStore } from './admin-store.js';
-import './order-actions.js?v=1.3.3';
+import './order-actions.js?v=1.3.4';
 
 // Estado global del dashboard
 let currentRole = 'admin';
@@ -789,45 +789,49 @@ function subscribeDashboardData(role) {
             orderBy("createdAt", "desc")
         );
 
+        let ordersDebounceTimer = null;
         unsubscribeOrders = onSnapshot(qOrders, snap => {
-            ordersCache = [];
-            let urgentTodayCount = 0;
-            let tomorrowCount = 0;
-            let alistadoCount = 0;
+            if (ordersDebounceTimer) clearTimeout(ordersDebounceTimer);
+            ordersDebounceTimer = setTimeout(() => {
+                ordersCache = [];
+                let urgentTodayCount = 0;
+                let tomorrowCount = 0;
+                let alistadoCount = 0;
 
-            const cutoffToday = new Date();
-            cutoffToday.setHours(14, 0, 0, 0); // 2:00 PM
+                const cutoffToday = new Date();
+                cutoffToday.setHours(14, 0, 0, 0); // 2:00 PM
 
-            snap.forEach(d => {
-                const o = { id: d.id, ...d.data() };
-                ordersCache.push(o);
+                snap.forEach(d => {
+                    const o = { id: d.id, ...d.data() };
+                    ordersCache.push(o);
 
-                const oDate = o.createdAt?.toDate ? o.createdAt.toDate() : (o.createdAt?.seconds ? new Date(o.createdAt.seconds * 1000) : new Date(o.createdAt || Date.now()));
-                const isCreatedToday = oDate.toDateString() === now.toDateString();
-                const isFull = Boolean(o.isFull || o.isMlFull || o.logisticType === 'fulfillment');
+                    const oDate = o.createdAt?.toDate ? o.createdAt.toDate() : (o.createdAt?.seconds ? new Date(o.createdAt.seconds * 1000) : new Date(o.createdAt || Date.now()));
+                    const isCreatedToday = oDate.toDateString() === now.toDateString();
+                    const isFull = Boolean(o.isFull || o.isMlFull || o.logisticType === 'fulfillment');
 
-                if (o.status === 'ALISTADO') {
-                    alistadoCount++;
-                } else if (!isFull) {
-                    if (isCreatedToday && oDate > cutoffToday) {
-                        tomorrowCount++;
-                    } else {
-                        urgentTodayCount++;
+                    if (o.status === 'ALISTADO') {
+                        alistadoCount++;
+                    } else if (!isFull) {
+                        if (isCreatedToday && oDate > cutoffToday) {
+                            tomorrowCount++;
+                        } else {
+                            urgentTodayCount++;
+                        }
                     }
-                }
-            });
+                });
 
-            // Actualizar tarjetas de conteo
-            const elUrgent = document.getElementById('stat-packing-urgent');
-            if (elUrgent) elUrgent.textContent = urgentTodayCount;
+                // Actualizar tarjetas de conteo
+                const elUrgent = document.getElementById('stat-packing-urgent');
+                if (elUrgent) elUrgent.textContent = urgentTodayCount;
 
-            const elTomorrow = document.getElementById('stat-packing-tomorrow');
-            if (elTomorrow) elTomorrow.textContent = tomorrowCount;
+                const elTomorrow = document.getElementById('stat-packing-tomorrow');
+                if (elTomorrow) elTomorrow.textContent = tomorrowCount;
 
-            const elDispatch = document.getElementById('stat-dispatch');
-            if (elDispatch) elDispatch.textContent = alistadoCount;
+                const elDispatch = document.getElementById('stat-dispatch');
+                if (elDispatch) elDispatch.textContent = alistadoCount;
 
-            filterAndRenderOrders();
+                filterAndRenderOrders();
+            }, 120);
         }, err => console.error("[Dashboard] Error leyendo pedidos en vivo:", err));
     }
 }

@@ -144,6 +144,9 @@
                             <option value="ALL">Todos los Canales</option>
                             <option value="WEB">Tienda Web / Directa</option>
                             <option value="ML_ALL" id="opt-filter-ml-all" class="hidden">Todo MercadoLibre</option>
+                            <option value="ML_FLEX" id="opt-filter-ml-flex" class="hidden">MercadoLibre Flex</option>
+                            <option value="ML_COLECTA" id="opt-filter-ml-colecta" class="hidden">MercadoLibre Colecta</option>
+                            <option value="ML_FULL" id="opt-filter-ml-full" class="hidden">MercadoLibre Full</option>
                             <option value="ML_1" id="opt-filter-ml1" class="hidden">MercadoLibre 1</option>
                             <option value="ML_2" id="opt-filter-ml2" class="hidden">MercadoLibre 2</option>
                             <option value="ML_3" id="opt-filter-ml3" class="hidden">MercadoLibre 3</option>
@@ -681,7 +684,7 @@
         import { db, collection, getDocs, orderBy, query, limit, auth, doc, getDoc, where, onSnapshot, startAfter } from '../js/firebase-init.js';
         import { loadAdminSidebar } from '../js/admin-ui.js?v=2.0.1';
         import { initManualSale, openManualSaleModal } from '../js/manual-sale.js?v=1.0.8';
-        import '../js/order-actions.js?v=1.3.3';
+        import '../js/order-actions.js?v=1.3.4';
 
         loadAdminSidebar();
 
@@ -717,11 +720,52 @@
             return 1;
         }
 
+        function isOrderFull(o) {
+            if (!o) return false;
+            return Boolean(o.isFull || o.isMlFull || o.logisticType === 'fulfillment' || o.shippingType === 'FULL');
+        }
+        window.isOrderFull = isOrderFull;
+
+        function isOrderFlex(o) {
+            if (!o) return false;
+            return Boolean(
+                o.shippingType === 'FLEX' ||
+                o.logisticType === 'self_service' ||
+                (Number(o.mlShippingBonus) > 0) ||
+                o.shippingCarrier === 'DESPACHOBOGOTA' ||
+                o.shippingData?.carrier === 'DESPACHOBOGOTA' ||
+                o.trackingNumber === 'urban' ||
+                o.shippingMethod === 'self_service'
+            );
+        }
+        window.isOrderFlex = isOrderFlex;
+
+        function isOrderColecta(o) {
+            if (!o) return false;
+            const mlStore = getOrderMLStore(o);
+            return mlStore !== null && !isOrderFull(o) && !isOrderFlex(o);
+        }
+        window.isOrderColecta = isOrderColecta;
+
+        function getActionableSortWeight(o) {
+            const isCancel = Boolean(o.cancellationPendingConfirm || o.status === 'CANCELACION_PENDIENTE');
+            const isFull = isOrderFull(o);
+            if (isCancel && !isFull) return 0; // Urgente retención en bodega
+            if (isOrderFlex(o)) return 1;      // Flex de primeras
+            if (!isFull) return 2;             // Colecta y bodega local de segundas
+            if (isCancel && isFull) return 3;  // Cancelados de Full
+            return 4;                          // Full siempre al final de la lista
+        }
+        window.getActionableSortWeight = getActionableSortWeight;
+
         function matchesChannelFilter(order, channelKey) {
             if (!channelKey || channelKey === 'ALL') return true;
             const mlStore = getOrderMLStore(order);
             if (channelKey === 'WEB') return mlStore === null;
             if (channelKey === 'ML_ALL') return mlStore !== null;
+            if (channelKey === 'ML_FLEX') return isOrderFlex(order);
+            if (channelKey === 'ML_COLECTA') return isOrderColecta(order);
+            if (channelKey === 'ML_FULL') return isOrderFull(order);
             if (channelKey === 'ML_1') return mlStore === 1;
             if (channelKey === 'ML_2') return mlStore === 2;
             if (channelKey === 'ML_3') return mlStore === 3;
@@ -730,6 +774,9 @@
 
         function updateChannelFilterUI() {
             const optAll = document.getElementById('opt-filter-ml-all');
+            const optFlex = document.getElementById('opt-filter-ml-flex');
+            const optColecta = document.getElementById('opt-filter-ml-colecta');
+            const optFull = document.getElementById('opt-filter-ml-full');
             const opt1 = document.getElementById('opt-filter-ml1');
             const opt2 = document.getElementById('opt-filter-ml2');
             const opt3 = document.getElementById('opt-filter-ml3');
@@ -750,6 +797,18 @@
             if (optAll) {
                 if (hasAnyML) optAll.classList.remove('hidden');
                 else optAll.classList.add('hidden');
+            }
+            if (optFlex) {
+                if (hasAnyML) optFlex.classList.remove('hidden');
+                else optFlex.classList.add('hidden');
+            }
+            if (optColecta) {
+                if (hasAnyML) optColecta.classList.remove('hidden');
+                else optColecta.classList.add('hidden');
+            }
+            if (optFull) {
+                if (hasAnyML) optFull.classList.remove('hidden');
+                else optFull.classList.add('hidden');
             }
 
             if (opt1) {
@@ -783,7 +842,7 @@
             if (currentChannelFilter === 'ML_1' && !isStore1Active) currentChannelFilter = 'ALL';
             if (currentChannelFilter === 'ML_2' && !isStore2Active) currentChannelFilter = 'ALL';
             if (currentChannelFilter === 'ML_3' && !isStore3Active) currentChannelFilter = 'ALL';
-            if (currentChannelFilter === 'ML_ALL' && !hasAnyML) currentChannelFilter = 'ALL';
+            if (['ML_ALL', 'ML_FLEX', 'ML_COLECTA', 'ML_FULL'].includes(currentChannelFilter) && !hasAnyML) currentChannelFilter = 'ALL';
 
             if (selectEl && selectEl.value !== currentChannelFilter) {
                 selectEl.value = currentChannelFilter;
@@ -811,17 +870,24 @@
                 const countAll = currentTabOrders.length;
                 const countWeb = currentTabOrders.filter(o => getOrderMLStore(o) === null).length;
                 const countMLAll = currentTabOrders.filter(o => getOrderMLStore(o) !== null).length;
+                const countMLFlex = currentTabOrders.filter(o => isOrderFlex(o)).length;
+                const countMLColecta = currentTabOrders.filter(o => isOrderColecta(o)).length;
+                const countMLFull = currentTabOrders.filter(o => isOrderFull(o)).length;
                 const countML1 = currentTabOrders.filter(o => getOrderMLStore(o) === 1).length;
                 const countML2 = currentTabOrders.filter(o => getOrderMLStore(o) === 2).length;
                 const countML3 = currentTabOrders.filter(o => getOrderMLStore(o) === 3).length;
 
-                const makePill = (key, label, count, icon, isMeli = false) => {
+                const makePill = (key, label, count, icon, type = 'NORMAL') => {
                     const isSelected = currentChannelFilter === key;
                     let styleClass = '';
                     if (isSelected) {
-                        if (isMeli) {
+                        if (type === 'FLEX') {
+                            styleClass = 'bg-sky-600 text-white border-sky-700 font-black shadow-sm ring-2 ring-sky-500/30';
+                        } else if (type === 'FULL') {
+                            styleClass = 'bg-emerald-600 text-white border-emerald-700 font-black shadow-sm ring-2 ring-emerald-500/30';
+                        } else if (type === 'COLECTA' || type === 'ML') {
                             styleClass = 'bg-[#FFE600] text-black border-yellow-400 font-black shadow-sm ring-2 ring-yellow-400/30';
-                        } else if (key === 'WEB') {
+                        } else if (type === 'WEB') {
                             styleClass = 'bg-cyan-600 text-white border-cyan-700 font-black shadow-sm ring-2 ring-cyan-500/30';
                         } else {
                             styleClass = 'bg-slate-900 text-white border-slate-950 font-black shadow-sm ring-2 ring-slate-700/30';
@@ -829,36 +895,43 @@
                     } else {
                         styleClass = 'bg-white text-slate-600 hover:bg-slate-100 hover:text-brand-black border-slate-200 shadow-2xs font-bold';
                     }
+                    const badgeBg = isSelected 
+                        ? ((type === 'COLECTA' || type === 'ML') ? 'bg-black/15 text-black' : 'bg-white/20 text-white') 
+                        : 'bg-slate-100 text-slate-500';
+
                     return `
                         <button type="button" onclick="window.setChannelFilter('${key}')"
                             class="px-3 py-1.5 rounded-xl text-[9px] uppercase tracking-wider transition-all flex items-center gap-1.5 shrink-0 border cursor-pointer active:scale-95 ${styleClass}">
                             <i class="${icon} text-[10px]"></i>
                             <span>${label}</span>
-                            <span class="px-1.5 py-0.2 rounded-full text-[8px] font-black ${isSelected ? (isMeli ? 'bg-black/15 text-black' : 'bg-white/20 text-white') : 'bg-slate-100 text-slate-500'}">${count}</span>
+                            <span class="px-1.5 py-0.2 rounded-full text-[8px] font-black ${badgeBg}">${count}</span>
                         </button>
                     `;
                 };
 
-                let pillsHtml = makePill('ALL', 'Todos', countAll, 'fa-solid fa-layer-group', false);
-                pillsHtml += makePill('WEB', 'Web / Convencional', countWeb, 'fa-solid fa-globe', false);
+                let pillsHtml = makePill('ALL', 'Todos', countAll, 'fa-solid fa-layer-group', 'ALL');
+                pillsHtml += makePill('WEB', 'Web / Convencional', countWeb, 'fa-solid fa-globe', 'WEB');
 
                 if (hasAnyML) {
-                    pillsHtml += makePill('ML_ALL', 'Todo MercadoLibre', countMLAll, 'fa-solid fa-handshake', true);
+                    pillsHtml += makePill('ML_ALL', 'Todo ML', countMLAll, 'fa-solid fa-handshake', 'ML');
+                    pillsHtml += makePill('ML_FLEX', 'Flex', countMLFlex, 'fa-solid fa-bolt', 'FLEX');
+                    pillsHtml += makePill('ML_COLECTA', 'Colecta', countMLColecta, 'fa-solid fa-truck-fast', 'COLECTA');
+                    pillsHtml += makePill('ML_FULL', 'Full', countMLFull, 'fa-solid fa-truck-ramp-box', 'FULL');
                 }
 
                 if (isStore1Active) {
                     const name1 = mlStoreNames[1] || 'MercadoLibre 1';
-                    pillsHtml += makePill('ML_1', name1, countML1, 'fa-solid fa-store', true);
+                    pillsHtml += makePill('ML_1', name1, countML1, 'fa-solid fa-store', 'ML');
                 }
 
                 if (isStore2Active) {
                     const name2 = mlStoreNames[2] || 'MercadoLibre 2';
-                    pillsHtml += makePill('ML_2', name2, countML2, 'fa-solid fa-store', true);
+                    pillsHtml += makePill('ML_2', name2, countML2, 'fa-solid fa-store', 'ML');
                 }
 
                 if (isStore3Active) {
                     const name3 = mlStoreNames[3] || 'MercadoLibre 3';
-                    pillsHtml += makePill('ML_3', name3, countML3, 'fa-solid fa-store', true);
+                    pillsHtml += makePill('ML_3', name3, countML3, 'fa-solid fa-store', 'ML');
                 }
 
                 pillsContainer.innerHTML = pillsHtml;
@@ -871,7 +944,9 @@
             updateChannelFilterUI();
             const searchVal = document.getElementById('search-input')?.value.trim() || '';
             if (searchVal.length > 0) {
-                document.getElementById('search-input').dispatchEvent(new Event('input'));
+                if (typeof window.renderFilteredSearchResults === 'function') {
+                    window.renderFilteredSearchResults(searchVal);
+                }
             } else {
                 renderOrdersFromMemory();
             }
@@ -1262,7 +1337,15 @@
                 }
             },
 
+            syncDebounceTimer: null,
             syncAndRender() {
+                if (this.syncDebounceTimer) clearTimeout(this.syncDebounceTimer);
+                this.syncDebounceTimer = setTimeout(() => {
+                    this._doSyncAndRender();
+                }, 150);
+            },
+
+            _doSyncAndRender() {
                 // Preservar cualquier orden añadida manualmente a runtimeMap (por búsquedas directas)
                 Object.keys(this.runtimeMap).forEach(id => {
                     if (!this.actionableMap[id] && !this.recentMap[id] && !this.olderMap[id]) {
@@ -1407,7 +1490,7 @@
                 if (searchVal.length === 0) {
                     renderOrdersFromMemory(); 
                 } else {
-                    searchInput.dispatchEvent(new Event('input'));
+                    renderFilteredSearchResults(searchVal);
                 }
                 renderRafId = null;
             });
@@ -1437,6 +1520,7 @@
             let htmlBuffer = '';
 
             // Separación por Prioridades Logísticas (Solo en 'ACTIONABLE')
+            // Orden estricto requerido: Flex de primero, Colecta y bodega local de segundo, Full SIEMPRE al final
             if (currentFilter === 'ACTIONABLE') {
                 const cutoffTimeStr = globalConfig.cutoffTime || "14:00";
                 const now = new Date();
@@ -1445,26 +1529,72 @@
                 cutoffDateToday.setHours(hours, minutes, 0, 0);
 
                 const cancelPendingWarehouseOrders = [];
+                const flexOrders = [];
+                const colectaTodayOrders = [];
+                const colectaTomorrowOrders = [];
+                const fullOrders = [];
                 const cancelPendingFullOrders = [];
-                const todayOrders = [];
-                const tomorrowOrders = [];
 
                 pageItems.forEach(o => {
-                    const isFull = Boolean(o.isFull || o.isMlFull || o.logisticType === 'fulfillment');
-                    if (o.cancellationPendingConfirm || o.status === 'CANCELACION_PENDIENTE') {
-                        if (isFull) {
-                            cancelPendingFullOrders.push(o);
-                        } else {
-                            cancelPendingWarehouseOrders.push(o);
-                        }
+                    const isFull = isOrderFull(o);
+                    const isFlex = isOrderFlex(o);
+                    const isCancel = Boolean(o.cancellationPendingConfirm || o.status === 'CANCELACION_PENDIENTE');
+
+                    if (isCancel) {
+                        if (isFull) cancelPendingFullOrders.push(o);
+                        else cancelPendingWarehouseOrders.push(o);
                         return;
                     }
+
+                    if (isFlex) {
+                        flexOrders.push(o);
+                        return;
+                    }
+
+                    if (isFull) {
+                        fullOrders.push(o);
+                        return;
+                    }
+
+                    // Colecta / Bodega local / Web
                     const orderDate = getOrderDate(o) || new Date();
                     const isToday = orderDate.toDateString() === now.toDateString();
-                    if (isToday && orderDate > cutoffDateToday) tomorrowOrders.push(o);
-                    else todayOrders.push(o);
+                    if (isToday && orderDate > cutoffDateToday) {
+                        colectaTomorrowOrders.push(o);
+                    } else {
+                        colectaTodayOrders.push(o);
+                    }
                 });
 
+                // 1. Cancelaciones de bodega que requieren retención urgente
+                if (cancelPendingWarehouseOrders.length > 0) {
+                    htmlBuffer += `<tr class="bg-rose-100/90 border-b-2 border-rose-300"><td colspan="8" class="py-2.5 px-4 md:px-6"><div class="flex items-center gap-2.5 text-rose-900"><div class="p-1 bg-rose-200 rounded-lg text-rose-700 animate-pulse"><i class="fa-solid fa-triangle-exclamation text-xs"></i></div><span class="text-[10px] font-black uppercase tracking-widest">Atención Urgente: Cancelados en MercadoLibre (Confirmar Retención para no despachar)</span></div></td></tr>`;
+                    cancelPendingWarehouseOrders.forEach(o => { htmlBuffer += renderRow(o); });
+                }
+
+                // 2. FLEX (SIEMPRE PRIMERO)
+                if (flexOrders.length > 0) {
+                    htmlBuffer += `<tr class="bg-sky-50 border-b-2 border-sky-200 fade-in"><td colspan="8" class="py-2.5 px-4 md:px-6"><div class="flex items-center gap-2.5 text-sky-900"><div class="p-1 bg-sky-200 rounded-lg text-sky-700"><i class="fa-solid fa-bolt text-xs"></i></div><span class="text-[10px] font-black uppercase tracking-widest">Mercado Envíos Flex (${flexOrders.length}): Despacho Urgente Hoy Mismo (Moto / Ruta Express)</span></div></td></tr>`;
+                    flexOrders.forEach(o => { htmlBuffer += renderRow(o); });
+                }
+
+                // 3. COLECTA Y DESPACHOS DE BODEGA LOCAL (SEGUNDO)
+                if (colectaTodayOrders.length > 0) {
+                    htmlBuffer += `<tr class="bg-emerald-50/70 border-b border-emerald-100 fade-in"><td colspan="8" class="py-2.5 px-4 md:px-6"><div class="flex items-center gap-2.5 text-emerald-800"><div class="p-1 bg-emerald-100 rounded-lg"><i class="fa-solid fa-truck-fast text-xs"></i></div><span class="text-[10px] font-black uppercase tracking-widest">Colecta y Bodega Local: Despachar Hoy (Antes de ${cutoffTimeStr})</span></div></td></tr>`;
+                    colectaTodayOrders.forEach(o => { htmlBuffer += renderRow(o); });
+                }
+                if (colectaTomorrowOrders.length > 0) {
+                    htmlBuffer += `<tr class="bg-blue-50/70 border-b border-blue-100 fade-in"><td colspan="8" class="py-2.5 px-4 md:px-6"><div class="flex items-center gap-2.5 text-blue-800"><div class="p-1 bg-blue-100 rounded-lg"><i class="fa-solid fa-clock text-xs"></i></div><span class="text-[10px] font-black uppercase tracking-widest">Colecta y Bodega Local: Despachar Mañana (Después de ${cutoffTimeStr})</span></div></td></tr>`;
+                    colectaTomorrowOrders.forEach(o => { htmlBuffer += renderRow(o); });
+                }
+
+                // 4. FULL (SIEMPRE AL FINAL DE LA LISTA)
+                if (fullOrders.length > 0) {
+                    htmlBuffer += `<tr class="bg-emerald-100/60 border-t-2 border-b-2 border-emerald-300 fade-in"><td colspan="8" class="py-2.5 px-4 md:px-6"><div class="flex items-center gap-2.5 text-emerald-950"><div class="p-1 bg-emerald-200 rounded-lg text-emerald-800"><i class="fa-solid fa-truck-ramp-box text-xs"></i></div><span class="text-[10px] font-black uppercase tracking-widest">Mercado Envíos Full (${fullOrders.length}): Gestionado por MercadoLibre en sus bodegas (No requiere empaque local)</span></div></td></tr>`;
+                    fullOrders.forEach(o => { htmlBuffer += renderRow(o); });
+                }
+
+                // 5. Cancelaciones de Full (al final junto a Full)
                 if (cancelPendingFullOrders.length > 0) {
                     htmlBuffer += `
                         <tr class="bg-amber-100/90 border-b-2 border-amber-300">
@@ -1472,7 +1602,7 @@
                                 <div class="flex items-center justify-between flex-wrap gap-2 text-amber-950">
                                     <div class="flex items-center gap-2.5">
                                         <div class="p-1 bg-amber-200 rounded-lg text-amber-800"><i class="fa-solid fa-truck-ramp-box text-xs"></i></div>
-                                        <span class="text-[10px] font-black uppercase tracking-widest">Mercado Envíos Full: ${cancelPendingFullOrders.length} Cancelación(es) en ML pendientes (Stock gestionado por ML, 0 retorno a bodega)</span>
+                                        <span class="text-[10px] font-black uppercase tracking-widest">Mercado Envíos Full: ${cancelPendingFullOrders.length} Cancelación(es) en ML pendientes (Stock en ML, 0 retorno a bodega)</span>
                                     </div>
                                     <button onclick="window.cancelAllPendingFullOrders()" class="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-[9px] uppercase tracking-wider rounded-lg shadow-xs flex items-center gap-1 active:scale-95 transition cursor-pointer">
                                         <i class="fa-solid fa-check-double"></i> Cancelar Todas Full (${cancelPendingFullOrders.length}) sin alterar stock
@@ -1481,19 +1611,6 @@
                             </td>
                         </tr>`;
                     cancelPendingFullOrders.forEach(o => { htmlBuffer += renderRow(o); });
-                }
-
-                if (cancelPendingWarehouseOrders.length > 0) {
-                    htmlBuffer += `<tr class="bg-rose-100/90 border-b-2 border-rose-300"><td colspan="8" class="py-2.5 px-4 md:px-6"><div class="flex items-center gap-2.5 text-rose-900"><div class="p-1 bg-rose-200 rounded-lg text-rose-700 animate-pulse"><i class="fa-solid fa-triangle-exclamation text-xs"></i></div><span class="text-[10px] font-black uppercase tracking-widest">Atencion Urgente: Cancelados en MercadoLibre (Confirmar Retencion para liberar seriales)</span></div></td></tr>`;
-                    cancelPendingWarehouseOrders.forEach(o => { htmlBuffer += renderRow(o); });
-                }
-                if (todayOrders.length > 0) {
-                    htmlBuffer += `<tr class="bg-emerald-50/70 border-b border-emerald-100 fade-in"><td colspan="8" class="py-2.5 px-4 md:px-6"><div class="flex items-center gap-2.5 text-emerald-800"><div class="p-1 bg-emerald-100 rounded-lg"><i class="fa-solid fa-truck-fast text-xs"></i></div><span class="text-[10px] font-black uppercase tracking-widest">Prioridad: Despachar Hoy (Antes de ${cutoffTimeStr})</span></div></td></tr>`;
-                    todayOrders.forEach(o => { htmlBuffer += renderRow(o); });
-                }
-                if (tomorrowOrders.length > 0) {
-                    htmlBuffer += `<tr class="bg-blue-50/70 border-b border-blue-100 fade-in"><td colspan="8" class="py-2.5 px-4 md:px-6"><div class="flex items-center gap-2.5 text-blue-800"><div class="p-1 bg-blue-100 rounded-lg"><i class="fa-solid fa-clock text-xs"></i></div><span class="text-[10px] font-black uppercase tracking-widest">Despachar Mañana (Después de ${cutoffTimeStr})</span></div></td></tr>`;
-                    tomorrowOrders.forEach(o => { htmlBuffer += renderRow(o); });
                 }
             } else {
                 pageItems.forEach(o => { htmlBuffer += renderRow(o); });
@@ -1601,9 +1718,9 @@
 
             if (currentFilter === 'ACTIONABLE') {
                 baseList.sort((a, b) => {
-                    const aPending = (a.cancellationPendingConfirm || a.status === 'CANCELACION_PENDIENTE') ? 1 : 0;
-                    const bPending = (b.cancellationPendingConfirm || b.status === 'CANCELACION_PENDIENTE') ? 1 : 0;
-                    if (aPending !== bPending) return bPending - aPending;
+                    const weightA = getActionableSortWeight(a);
+                    const weightB = getActionableSortWeight(b);
+                    if (weightA !== weightB) return weightA - weightB;
                     return (getOrderTimestamp(b) || 0) - (getOrderTimestamp(a) || 0);
                 });
             }
@@ -1635,14 +1752,68 @@
             currentOrdersPage = 1;
             const searchVal = document.getElementById('search-input')?.value.trim() || '';
             if (searchVal.length > 0) {
-                document.getElementById('search-input').dispatchEvent(new Event('input'));
+                renderFilteredSearchResults(searchVal);
             } else {
                 renderOrdersFromMemory();
             }
         };
-        
 
-        // --- BUSCADOR INSTANTÁNEO E INTELIGENTE EN SERVIDOR Y MEMORIA ---
+        // --- RENDERIZADO FLUIDO Y REACTIVO DE BÚSQUEDA (SIN RE-CONSULTAS EN BUCLE) ---
+        function renderFilteredSearchResults(valRaw) {
+            const val = (valRaw || '').trim();
+            const valLower = val.toLowerCase();
+            const tableBody = document.getElementById('orders-table-body');
+            if (!tableBody) return 0;
+
+            if (val.length === 0) {
+                renderOrdersFromMemory();
+                return 0;
+            }
+
+            let results = adminOrdersCache.filter(o => matchesSearchTerm(o, valLower));
+
+            if (currentDateFilter !== 'ALL') {
+                results = results.filter(o => matchesDateFilter(o, currentDateFilter));
+            }
+
+            if (currentChannelFilter !== 'ALL') {
+                results = results.filter(o => matchesChannelFilter(o, currentChannelFilter));
+            }
+
+            if (currentFilter === 'ACTIONABLE') {
+                results.sort((a, b) => {
+                    const weightA = getActionableSortWeight(a);
+                    const weightB = getActionableSortWeight(b);
+                    if (weightA !== weightB) return weightA - weightB;
+                    return (getOrderTimestamp(b) || 0) - (getOrderTimestamp(a) || 0);
+                });
+            } else {
+                results.sort(compareOrdersDescending);
+            }
+
+            if (results.length > 0) {
+                let searchHtml = `<tr class="bg-brand-cyan/10 border-b border-brand-cyan/20"><td colspan="8" class="py-2.5 px-4 md:px-6"><div class="flex items-center justify-between w-full text-[10px] font-black uppercase text-brand-black tracking-widest"><span><i class="fa-solid fa-search text-brand-cyan mr-2"></i> ${results.length} Coincidencia(s)</span><span class="text-[9px] text-slate-500 font-bold lowercase">Búsqueda rápida en tiempo real</span></div></td></tr>`;
+                results.slice(0, ORDERS_PAGE_SIZE).forEach(o => { searchHtml += renderRow(o); });
+                tableBody.innerHTML = searchHtml;
+                updatePaginationControls(1, Math.min(results.length, ORDERS_PAGE_SIZE), results.length);
+                const btnNext = document.getElementById('btn-next-page');
+                const btnPrev = document.getElementById('btn-prev-page');
+                if (btnNext) btnNext.disabled = true;
+                if (btnPrev) btnPrev.disabled = true;
+            } else {
+                tableBody.innerHTML = `<tr><td colspan="8" class="p-8 text-center text-xs text-gray-500 font-bold uppercase"><i class="fa-solid fa-magnifying-glass mr-2 text-brand-cyan"></i> No se encontraron coincidencias locales para "${val}". Buscando en la base de datos...</td></tr>`;
+                updatePaginationControls(0, 0, 0);
+            }
+
+            if (typeof window.updateBulkActionBar === 'function') {
+                window.updateBulkActionBar();
+            }
+
+            return results.length;
+        }
+        window.renderFilteredSearchResults = renderFilteredSearchResults;
+
+        // --- BUSCADOR INTELIGENTE EN SERVIDOR (SIN PARPADEO Y CON MERGE ATÓMICO) ---
         const searchInput = document.getElementById('search-input');
         let searchDebounceTimer = null;
 
@@ -1658,16 +1829,7 @@
 
             try {
                 const ordersRef = collection(db, "orders");
-                let finalDocs = [];
-                const addedIds = new Set();
-
-                // 0. Incluir las órdenes que ya tenemos en memoria local que coincidan
-                adminOrdersCache.filter(o => matchesSearchTerm(o, valLower)).forEach(o => {
-                    if (!addedIds.has(o.id)) {
-                        addedIds.add(o.id);
-                        finalDocs.push(o);
-                    }
-                });
+                let newDocsFound = false;
 
                 const normalizeOrderDoc = (id, data) => {
                     const item = { id, ...data };
@@ -1687,12 +1849,11 @@
 
                 const addResultsFromSnapshot = (snap) => {
                     snap.forEach(d => {
-                        const item = normalizeOrderDoc(d.id, d.data());
-                        SmartAdminOrdersSync.runtimeMap[d.id] = item;
-                        SmartAdminOrdersSync.olderMap[d.id] = item;
-                        if (matchesSearchTerm(item, val) && !addedIds.has(d.id)) {
-                            addedIds.add(d.id);
-                            finalDocs.push(item);
+                        if (!SmartAdminOrdersSync.runtimeMap[d.id]) {
+                            const item = normalizeOrderDoc(d.id, d.data());
+                            SmartAdminOrdersSync.runtimeMap[d.id] = item;
+                            SmartAdminOrdersSync.olderMap[d.id] = item;
+                            newDocsFound = true;
                         }
                     });
                 };
@@ -1707,17 +1868,14 @@
                     `ML3-${val}`
                 ];
                 for (const cId of candidateIds) {
-                    if (addedIds.has(cId)) continue;
+                    if (SmartAdminOrdersSync.runtimeMap[cId]) continue;
                     try {
                         const docSnap = await getDoc(doc(db, "orders", cId));
                         if (docSnap.exists()) {
                             const item = normalizeOrderDoc(docSnap.id, docSnap.data());
                             SmartAdminOrdersSync.runtimeMap[docSnap.id] = item;
                             SmartAdminOrdersSync.olderMap[docSnap.id] = item;
-                            if (matchesSearchTerm(item, val) && !addedIds.has(docSnap.id)) {
-                                addedIds.add(docSnap.id);
-                                finalDocs.push(item);
-                            }
+                            newDocsFound = true;
                         }
                     } catch (err) {}
                 }
@@ -1738,23 +1896,25 @@
 
                 // 3. Buscar directamente por Cédula / NIT / Documento en Firestore
                 const cleanDoc = val.replace(/[\.\s\-]/g, '');
-                const docCandidates = Array.from(new Set([val, cleanDoc])).filter(Boolean);
-                for (const dVal of docCandidates) {
-                    const docQueries = [
-                        query(ordersRef, where("buyerInfo.document", "==", dVal), limit(100)),
-                        query(ordersRef, where("clientDoc", "==", dVal), limit(100)),
-                        query(ordersRef, where("shippingData.clientDoc", "==", dVal), limit(100)),
-                        query(ordersRef, where("billingInfo.document", "==", dVal), limit(100))
-                    ];
-                    for (const qDoc of docQueries) {
-                        try {
-                            const snapDoc = await getDocs(qDoc);
-                            addResultsFromSnapshot(snapDoc);
-                        } catch (e) {}
+                if (cleanDoc.length >= 5) {
+                    const docCandidates = Array.from(new Set([val, cleanDoc])).filter(Boolean);
+                    for (const dVal of docCandidates) {
+                        const docQueries = [
+                            query(ordersRef, where("buyerInfo.document", "==", dVal), limit(50)),
+                            query(ordersRef, where("clientDoc", "==", dVal), limit(50)),
+                            query(ordersRef, where("shippingData.clientDoc", "==", dVal), limit(50)),
+                            query(ordersRef, where("billingInfo.document", "==", dVal), limit(50))
+                        ];
+                        for (const qDoc of docQueries) {
+                            try {
+                                const snapDoc = await getDocs(qDoc);
+                                addResultsFromSnapshot(snapDoc);
+                            } catch (e) {}
+                        }
                     }
                 }
 
-                // 4. Buscar directamente por Teléfono en Firestore (con y sin código 57)
+                // 4. Buscar directamente por Teléfono en Firestore
                 const digits = val.replace(/\D/g, '');
                 if (digits.length >= 7) {
                     const phoneCandidates = Array.from(new Set([
@@ -1764,9 +1924,9 @@
                     ])).filter(Boolean);
                     for (const pVal of phoneCandidates) {
                         const phoneQueries = [
-                            query(ordersRef, where("buyerInfo.phone", "==", pVal), limit(100)),
-                            query(ordersRef, where("phone", "==", pVal), limit(100)),
-                            query(ordersRef, where("shippingData.phone", "==", pVal), limit(100))
+                            query(ordersRef, where("buyerInfo.phone", "==", pVal), limit(50)),
+                            query(ordersRef, where("phone", "==", pVal), limit(50)),
+                            query(ordersRef, where("shippingData.phone", "==", pVal), limit(50))
                         ];
                         for (const qPhone of phoneQueries) {
                             try {
@@ -1778,148 +1938,59 @@
                 }
 
                 // 5. Buscar directamente por IDs de MercadoLibre (Order ID, Pack ID, Shipping ID)
-                const mlQueries = [
-                    query(ordersRef, where("mlOrderId", "==", val), limit(50)),
-                    query(ordersRef, where("pack_id", "==", val), limit(50)),
-                    query(ordersRef, where("shippingId", "==", val), limit(50))
-                ];
-                for (const qMl of mlQueries) {
-                    try {
-                        const snapMl = await getDocs(qMl);
-                        addResultsFromSnapshot(snapMl);
-                    } catch (e) {}
-                }
-
-                // 6. Cruce con colección USERS (Encontrar cliente por nombre y traer TODAS sus órdenes)
-                try {
-                    const usersRef = collection(db, "users");
-                    const userQueries = [
-                        query(usersRef, where("name", ">=", val.toUpperCase()), where("name", "<=", val.toUpperCase() + "\uf8ff"), limit(20)),
-                        query(usersRef, where("name", ">=", val), where("name", "<=", val + "\uf8ff"), limit(20)),
-                        query(usersRef, where("userName", ">=", val.toUpperCase()), where("userName", "<=", val.toUpperCase() + "\uf8ff"), limit(20)),
-                        query(usersRef, where("email", "==", val.toLowerCase()), limit(10))
+                if (val.length >= 5) {
+                    const mlQueries = [
+                        query(ordersRef, where("mlOrderId", "==", val), limit(50)),
+                        query(ordersRef, where("pack_id", "==", val), limit(50)),
+                        query(ordersRef, where("shippingId", "==", val), limit(50))
                     ];
-                    const relatedDocs = new Set();
-                    const relatedPhones = new Set();
-                    const relatedUserIds = new Set();
-
-                    for (const uq of userQueries) {
+                    for (const qMl of mlQueries) {
                         try {
-                            const uSnap = await getDocs(uq);
-                            uSnap.forEach(ud => {
-                                const u = ud.data();
-                                if (ud.id) relatedUserIds.add(ud.id);
-                                if (u.document) relatedDocs.add(u.document);
-                                if (u.phone) relatedPhones.add(u.phone);
-                            });
-                        } catch (err) {}
-                    }
-
-                    for (const uDoc of relatedDocs) {
-                        try {
-                            const sDoc = await getDocs(query(ordersRef, where("buyerInfo.document", "==", uDoc), limit(100)));
-                            addResultsFromSnapshot(sDoc);
-                            const sDoc2 = await getDocs(query(ordersRef, where("clientDoc", "==", uDoc), limit(100)));
-                            addResultsFromSnapshot(sDoc2);
-                        } catch (err) {}
-                    }
-                    for (const uPh of relatedPhones) {
-                        try {
-                            const sPh = await getDocs(query(ordersRef, where("buyerInfo.phone", "==", uPh), limit(100)));
-                            addResultsFromSnapshot(sPh);
-                        } catch (err) {}
-                    }
-                    for (const uId of relatedUserIds) {
-                        try {
-                            const sUid = await getDocs(query(ordersRef, where("userId", "==", uId), limit(100)));
-                            addResultsFromSnapshot(sUid);
-                        } catch (err) {}
-                    }
-                } catch (e) {
-                    console.warn("User cross-reference search error:", e);
-                }
-
-                // 7. Búsqueda por Nombre / Prefijo en orders
-                const nameWords = val.split(/\s+/).filter(w => w.length >= 2);
-                const prefixCandidates = new Set();
-                prefixCandidates.add(val);
-                prefixCandidates.add(val.toUpperCase());
-                prefixCandidates.add(val.toLowerCase());
-                nameWords.forEach(w => {
-                    prefixCandidates.add(w.toUpperCase());
-                    prefixCandidates.add(w.charAt(0).toUpperCase() + w.slice(1).toLowerCase());
-                });
-
-                for (const pfx of prefixCandidates) {
-                    const nameQueries = [
-                        query(ordersRef, where("buyerInfo.name", ">=", pfx), where("buyerInfo.name", "<=", pfx + "\uf8ff"), limit(100)),
-                        query(ordersRef, where("userName", ">=", pfx), where("userName", "<=", pfx + "\uf8ff"), limit(100)),
-                        query(ordersRef, where("shippingData.name", ">=", pfx), where("shippingData.name", "<=", pfx + "\uf8ff"), limit(100)),
-                        query(ordersRef, where("buyerInfo.name", "==", pfx), limit(100)),
-                        query(ordersRef, where("userName", "==", pfx), limit(100))
-                    ];
-                    for (const qn of nameQueries) {
-                        try {
-                            const snap = await getDocs(qn);
-                            addResultsFromSnapshot(snap);
+                            const snapMl = await getDocs(qMl);
+                            addResultsFromSnapshot(snapMl);
                         } catch (e) {}
                     }
                 }
 
-                // 8. Escaneo histórico en bloques si aún hay pocos resultados
-                // (Permite encontrar por productos, notas, ciudades o seriales no indexables)
-                if (finalDocs.length < 50 && lastVisibleServerDoc) {
-                    let fetches = 0;
-                    while (lastVisibleServerDoc && fetches < 12) {
-                        fetches++;
-                        const fetchedMore = await fetchOlderOrdersFromServer();
-                        const matches = adminOrdersCache.filter(o => matchesSearchTerm(o, valLower));
-                        matches.forEach(m => {
-                            if (!addedIds.has(m.id)) {
-                                addedIds.add(m.id);
-                                finalDocs.push(m);
-                            }
-                        });
-                        if (!fetchedMore) break;
-                    }
+                // 6. Cruce con colección USERS (Encontrar cliente por nombre)
+                if (val.length >= 3 && isNaN(val)) {
+                    try {
+                        const usersRef = collection(db, "users");
+                        const userQueries = [
+                            query(usersRef, where("name", ">=", val.toUpperCase()), where("name", "<=", val.toUpperCase() + "\uf8ff"), limit(10)),
+                            query(usersRef, where("name", ">=", val), where("name", "<=", val + "\uf8ff"), limit(10)),
+                            query(usersRef, where("email", "==", val.toLowerCase()), limit(5))
+                        ];
+                        const relatedDocs = new Set();
+                        for (const uq of userQueries) {
+                            try {
+                                const uSnap = await getDocs(uq);
+                                uSnap.forEach(ud => {
+                                    const u = ud.data();
+                                    if (u.document) relatedDocs.add(u.document);
+                                });
+                            } catch (err) {}
+                        }
+                        for (const uDoc of relatedDocs) {
+                            try {
+                                const sDoc = await getDocs(query(ordersRef, where("buyerInfo.document", "==", uDoc), limit(50)));
+                                addResultsFromSnapshot(sDoc);
+                            } catch (err) {}
+                        }
+                    } catch (e) {}
                 }
 
-                SmartAdminOrdersSync.updateGlobalArray();
-                SmartAdminOrdersSync.saveToStorage();
-
-                tableBody.innerHTML = "";
-
-                if (currentDateFilter !== 'ALL') {
-                    finalDocs = finalDocs.filter(o => matchesDateFilter(o, currentDateFilter));
+                // 7. Si hubo nuevos documentos, actualizar RAM y re-renderizar suavemente
+                if (newDocsFound) {
+                    SmartAdminOrdersSync.updateGlobalArray();
+                    SmartAdminOrdersSync.saveToStorage();
                 }
 
-                if (currentChannelFilter !== 'ALL') {
-                    finalDocs = finalDocs.filter(o => matchesChannelFilter(o, currentChannelFilter));
-                }
-
-                if (finalDocs.length > 0) {
-                    finalDocs.sort(compareOrdersDescending);
-                    let serverHtml = `<tr class="bg-gray-800 text-white"><td colspan="8" class="py-3 px-4 md:px-6"><div class="flex items-center justify-between w-full text-[10px] font-black uppercase tracking-widest"><span><i class="fa-solid fa-cloud text-brand-cyan mr-2"></i> ${finalDocs.length} Resultado(s) Encontrado(s)</span><span class="text-[9px] text-gray-400 font-bold lowercase">Orden cronológico de remisión garantizado</span></div></td></tr>`;
-                    finalDocs.forEach(o => { serverHtml += renderRow(o); });
-
-                    if (lastVisibleServerDoc) {
-                        serverHtml += `<tr class="bg-slate-100 border-t border-slate-200"><td colspan="8" class="py-3 px-4 text-center"><button type="button" onclick="window.searchDeeperServer('${encodeURIComponent(val)}')" class="inline-flex items-center gap-2 text-xs font-bold text-brand-cyan hover:text-brand-black transition cursor-pointer px-4 py-1.5 rounded-lg hover:bg-slate-200"><i class="fa-solid fa-cloud-arrow-down"></i> Buscar en más órdenes antiguas del servidor...</button></td></tr>`;
-                    }
-
-                    tableBody.innerHTML = serverHtml;
-                    updatePaginationControls(1, finalDocs.length, finalDocs.length);
-                    const btnNext = document.getElementById('btn-next-page');
-                    const btnPrev = document.getElementById('btn-prev-page');
-                    if (btnNext) btnNext.disabled = true;
-                    if (btnPrev) btnPrev.disabled = true;
-                } else {
-                    tableBody.innerHTML = `<tr><td colspan="8" class="p-10 text-center text-xs text-red-500 font-bold uppercase">No se encontró la orden con ID, Código, Cliente o Producto: "${val}".</td></tr>`;
-                    updatePaginationControls(0, 0, 0);
-                }
+                renderFilteredSearchResults(val);
 
             } catch (e) {
                 console.error("Error buscando en servidor:", e);
-                renderOrdersFromMemory();
+                renderFilteredSearchResults(val);
             }
         }
         window.performServerSearch = performServerSearch;
@@ -1940,8 +2011,6 @@
 
         searchInput.addEventListener('input', function (e) {
             const val = this.value.trim();
-            const valLower = val.toLowerCase();
-            const tableBody = document.getElementById('orders-table-body');
 
             if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
 
@@ -1951,37 +2020,14 @@
                 return;
             }
 
-            // 1. FILTRO INSTANTÁNEO EN MEMORIA RAM (0ms de latencia)
-            let results = adminOrdersCache.filter(o => matchesSearchTerm(o, valLower));
+            // 1. FILTRO INSTANTÁNEO EN MEMORIA RAM (0ms de latencia, sin parpadeo)
+            const localMatchesCount = renderFilteredSearchResults(val);
 
-            if (currentDateFilter !== 'ALL') {
-                results = results.filter(o => matchesDateFilter(o, currentDateFilter));
-            }
-
-            if (currentChannelFilter !== 'ALL') {
-                results = results.filter(o => matchesChannelFilter(o, currentChannelFilter));
-            }
-
-            if (results.length > 0) {
-                results.sort(compareOrdersDescending);
-                let searchHtml = `<tr class="bg-brand-cyan/10 border-b border-brand-cyan/20"><td colspan="8" class="py-2.5 px-4 md:px-6"><div class="flex items-center justify-between w-full text-[10px] font-black uppercase text-brand-black tracking-widest"><span><i class="fa-solid fa-search text-brand-cyan mr-2"></i> ${results.length} Coincidencia(s) en Memoria</span><span class="text-[9px] text-slate-500 font-bold lowercase">Buscando también en la nube...</span></div></td></tr>`;
-                results.slice(0, ORDERS_PAGE_SIZE).forEach(o => { searchHtml += renderRow(o); });
-                tableBody.innerHTML = searchHtml;
-                updatePaginationControls(1, Math.min(results.length, ORDERS_PAGE_SIZE), results.length);
-                const btnNext = document.getElementById('btn-next-page');
-                const btnPrev = document.getElementById('btn-prev-page');
-                if (btnNext) btnNext.disabled = true;
-                if (btnPrev) btnPrev.disabled = true;
-            } else {
-                tableBody.innerHTML = `<tr><td colspan="8" class="p-8 text-center"><i class="fa-solid fa-cloud-arrow-down fa-bounce text-brand-cyan mr-2"></i> Buscando "${val}" en toda la base de datos...</td></tr>`;
-                updatePaginationControls(0, 0, 0);
-            }
-
-            // 2. DISPARAR BÚSQUEDA EXHAUSTIVA EN SERVIDOR TRAS 350MS
+            // 2. DISPARAR BÚSQUEDA EN SERVIDOR TRAS 450MS SOLO SI HAY POCOS RESULTADOS
             if (val.length >= 2) {
                 searchDebounceTimer = setTimeout(() => {
-                    performServerSearch(val, results.length === 0);
-                }, 350);
+                    performServerSearch(val, localMatchesCount === 0);
+                }, 450);
             }
         });
 
