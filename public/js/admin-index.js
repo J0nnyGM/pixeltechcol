@@ -1020,7 +1020,6 @@ function renderOrderRow(o, role) {
                  String(o.id).startsWith('ML2-') ||
                  String(o.id).startsWith('ML3-');
 
-    const isFull = Boolean(o.isFull || o.isMlFull || o.logisticType === 'fulfillment');
     const isFlex = Boolean(
         o.shippingType === 'FLEX' ||
         o.logisticType === 'self_service' ||
@@ -1179,7 +1178,6 @@ function renderOrderMobileCard(o, role) {
                  String(o.id).startsWith('ML2-') ||
                  String(o.id).startsWith('ML3-');
 
-    const isFull = Boolean(o.isFull || o.isMlFull || o.logisticType === 'fulfillment');
     const isFlex = Boolean(
         o.shippingType === 'FLEX' ||
         o.logisticType === 'self_service' ||
