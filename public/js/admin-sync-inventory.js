@@ -75,6 +75,10 @@ const PAGE_SIZE = 18;
 
 // Mapa de productos auditados { [productId]: timestamp/Date }
 let auditedProductIdsMap = {};
+// Historial completo de auditorías por producto { [productId]: Date[] }
+let productAuditHistoryMap = {};
+// Período de auditoría activo (por defecto la semana actual empezando el lunes)
+let activeAuditRange = null;
 
 // Estado del producto en sincronización activa
 let currentProduct = null;
@@ -85,18 +89,83 @@ let currentProductSerials = []; // [{ id, serialNumber, color, capacity, status,
 
 const normalize = (str) => str ? str.toString().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim() : "";
 
+const cleanNumber = (val) => {
+    if (val === null || val === undefined) return 0;
+    if (typeof val === 'number') return isNaN(val) ? 0 : val;
+    let s = String(val).trim();
+    if (!s) return 0;
+
+    // Quitar símbolo de moneda, espacios y caracteres no numéricos
+    s = s.replace(/[^\d.,-]/g, '');
+    if (!s || s === '-') return 0;
+
+    // Normalizar separadores de miles y decimales
+    if (s.includes('.') && s.includes(',')) {
+        if (s.lastIndexOf(',') > s.lastIndexOf('.')) {
+            // Formato estándar es-CO: 1.000.000,50
+            s = s.replace(/\./g, '').replace(',', '.');
+        } else {
+            // Formato en-US: 1,000,000.50
+            s = s.replace(/,/g, '');
+        }
+    } else if (s.includes('.')) {
+        const parts = s.split('.');
+        // Más de un punto (ej: 1.000.000) o un punto seguido de exactamente 3 dígitos (ej: 50.000, 1.000)
+        if (parts.length > 2 || (parts.length === 2 && parts[1].length === 3)) {
+            s = s.replace(/\./g, '');
+        }
+    } else if (s.includes(',')) {
+        const parts = s.split(',');
+        if (parts.length > 2 || (parts.length === 2 && parts[1].length === 3)) {
+            s = s.replace(/,/g, '');
+        } else {
+            s = s.replace(',', '.');
+        }
+    }
+
+    const num = parseFloat(s);
+    return isNaN(num) ? 0 : num;
+};
+
+const formatCOP = (val) => {
+    const num = cleanNumber(val);
+    return '$ ' + new Intl.NumberFormat('es-CO', {
+        maximumFractionDigits: 0
+    }).format(num);
+};
+
+const formatNumberWithThousands = (val) => {
+    const num = Math.round(cleanNumber(val));
+    if (num === 0) return '';
+    return new Intl.NumberFormat('es-CO', { maximumFractionDigits: 0 }).format(num);
+};
+
 // =========================================================================
 // 2.1 HELPERS DE ESTADO DE AUDITORÍA SEMANAL
 // =========================================================================
 
-// Obtiene el rango exacto de la semana actual (Lunes 00:00:00 a Domingo 23:59:59)
-function getCurrentWeekRange() {
-    const now = new Date();
-    const day = now.getDay(); // 0: Domingo, 1: Lunes, ...
+// =========================================================================
+// 2.1 GESTIÓN Y SELECCIÓN DEL PERÍODO DE AUDITORÍA
+// =========================================================================
+
+function parseLocalDate(dateStr) {
+    if (!dateStr) return new Date();
+    if (dateStr instanceof Date) return dateStr;
+    if (typeof dateStr === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+        const parts = dateStr.split('-').map(Number);
+        return new Date(parts[0], parts[1] - 1, parts[2]);
+    }
+    return new Date(dateStr);
+}
+
+// Obtiene el rango exacto de la semana que contiene a la fecha dada (Lunes 00:00:00 a Domingo 23:59:59)
+function getWeekRangeForDate(d = new Date()) {
+    const target = parseLocalDate(d);
+    const day = target.getDay(); // 0: Domingo, 1: Lunes, ...
     const diffToMonday = (day === 0 ? -6 : 1) - day;
     
-    const monday = new Date(now);
-    monday.setDate(now.getDate() + diffToMonday);
+    const monday = new Date(target);
+    monday.setDate(target.getDate() + diffToMonday);
     monday.setHours(0, 0, 0, 0);
 
     const sunday = new Date(monday);
@@ -106,10 +175,22 @@ function getCurrentWeekRange() {
     return { start: monday, end: sunday };
 }
 
-function getWeekFormattedLabel() {
-    const { start, end } = getCurrentWeekRange();
+// Obtiene el rango de la semana actual (empieza el lunes por defecto)
+function getCurrentWeekRange() {
+    return getWeekRangeForDate(new Date());
+}
+
+function formatRangeLabel(start, end) {
     const opt = { day: 'numeric', month: 'short' };
-    return `${start.toLocaleDateString('es-CO', opt)} - ${end.toLocaleDateString('es-CO', opt)} ${end.getFullYear()}`;
+    return `Lun ${start.toLocaleDateString('es-CO', opt)} - Dom ${end.toLocaleDateString('es-CO', opt)} ${end.getFullYear()}`;
+}
+
+function formatDateToISO(d) {
+    const date = parseLocalDate(d);
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
 }
 
 function getWeekKey(d = new Date()) {
@@ -131,53 +212,163 @@ function parseAuditDate(val) {
     return (d && !isNaN(d.getTime())) ? d : null;
 }
 
-// Determina si el producto fue auditado explícitamente en la semana en curso
-function checkIsAuditedThisWeek(p) {
+// Inicializa el período de auditoría por defecto en la semana actual que inicia el lunes
+function initAuditPeriod() {
+    const current = getCurrentWeekRange();
+    activeAuditRange = {
+        ...current,
+        isCurrent: true,
+        label: formatRangeLabel(current.start, current.end),
+        weekKey: getWeekKey(current.start)
+    };
+
+    const inputCal = document.getElementById('input-audit-calendar');
+    if (inputCal) {
+        inputCal.value = formatDateToISO(new Date());
+    }
+
+    updateAuditPeriodUI();
+}
+
+function updateAuditPeriodUI() {
+    if (!activeAuditRange) return;
+
+    const weekLabel = document.getElementById('label-audit-selected-week');
+    const weekBadge = document.getElementById('badge-audit-week');
+    const kpiPendingLabel = document.getElementById('kpi-pending-label');
+    const kpiAuditedLabel = document.getElementById('kpi-audited-label');
+
+    if (weekLabel) {
+        const prefix = activeAuditRange.isCurrent ? 'Semana Actual' : 'Semana Histórica';
+        weekLabel.textContent = `${prefix} (${activeAuditRange.label})`;
+    }
+
+    if (weekBadge) {
+        if (activeAuditRange.isCurrent) {
+            weekBadge.className = "flex items-center gap-2 bg-slate-100 border border-gray-200 rounded-2xl px-3.5 py-2 text-xs font-bold text-gray-700 transition";
+        } else {
+            weekBadge.className = "flex items-center gap-2 bg-amber-50 border border-amber-300 rounded-2xl px-3.5 py-2 text-xs font-bold text-amber-800 transition shadow-xs";
+        }
+    }
+
+    // Etiquetas dinámicas de tarjetas KPI
+    if (kpiPendingLabel) {
+        kpiPendingLabel.textContent = activeAuditRange.isCurrent ? "Faltan Esta Semana" : "Faltan en el Período";
+    }
+    if (kpiAuditedLabel) {
+        kpiAuditedLabel.textContent = activeAuditRange.isCurrent ? "Auditados Esta Semana" : "Auditados en el Período";
+    }
+}
+
+window.handleAuditCalendarChange = (val) => {
+    if (!val) {
+        window.setAuditPeriodFromDate(new Date());
+        return;
+    }
+    const d = parseLocalDate(val);
+    window.setAuditPeriodFromDate(d);
+};
+
+window.setAuditPeriodFromDate = (d) => {
+    const targetDate = parseLocalDate(d);
+    const range = getWeekRangeForDate(targetDate);
+    const current = getCurrentWeekRange();
+    const isCurrent = range.start.getTime() === current.start.getTime();
+
+    activeAuditRange = {
+        ...range,
+        isCurrent,
+        label: formatRangeLabel(range.start, range.end),
+        weekKey: getWeekKey(range.start)
+    };
+
+    const inputCal = document.getElementById('input-audit-calendar');
+    if (inputCal && (!inputCal.value || targetDate)) {
+        inputCal.value = formatDateToISO(targetDate);
+    }
+
+    updateAuditPeriodUI();
+    currentPage = 1;
+    applyFilters();
+};
+
+window.resetAuditToCurrentWeek = () => {
+    window.setAuditPeriodFromDate(new Date());
+};
+
+// Determina si el producto fue auditado en el período activo (semana actual o semana histórica seleccionada)
+function checkIsAuditedInActivePeriod(p) {
     if (!p) return false;
-    const currentWeekKey = getWeekKey(new Date());
-    if (p.lastInventoryAuditWeek && p.lastInventoryAuditWeek === currentWeekKey) {
+    if (!activeAuditRange) return false;
+    const { start, end } = activeAuditRange;
+
+    // 1. Revisar historial completo de auditorías
+    const history = productAuditHistoryMap[p.id] || [];
+    for (const d of history) {
+        if (d >= start && d <= end) return true;
+    }
+
+    // 2. Si es la semana actual, revisar clave de semana guardada
+    if (activeAuditRange.isCurrent) {
+        const currentWeekKey = getWeekKey(new Date());
+        if (p.lastInventoryAuditWeek && p.lastInventoryAuditWeek === currentWeekKey) {
+            return true;
+        }
+    }
+
+    // 3. Revisar última auditoría registrada en el producto o mapa de auditorías
+    const auditVal = p.lastInventoryAudit || auditedProductIdsMap[p.id];
+    const auditDate = parseAuditDate(auditVal);
+    if (auditDate && auditDate >= start && auditDate <= end) {
         return true;
     }
 
-    const auditVal = p.lastInventoryAudit || auditedProductIdsMap[p.id];
-    const auditDate = parseAuditDate(auditVal);
-    if (!auditDate) return false;
-
-    const { start, end } = getCurrentWeekRange();
-    return auditDate >= start && auditDate <= end;
+    return false;
 }
 
-// Devuelve los detalles de auditoría para renderizado visual
-function getAuditStatusDetails(p) {
-    const auditVal = p.lastInventoryAudit || auditedProductIdsMap[p.id];
-    const auditDate = parseAuditDate(auditVal);
+// Alias para retrocompatibilidad
+function checkIsAuditedThisWeek(p) {
+    return checkIsAuditedInActivePeriod(p);
+}
 
-    if (!auditDate) {
+// Devuelve los detalles de auditoría para renderizado visual según el período activo
+function getAuditStatusDetails(p) {
+    if (p && p.status === 'deactivated') {
+        const auditVal = p.lastInventoryAudit || auditedProductIdsMap[p.id];
+        const auditDate = parseAuditDate(auditVal);
+        const formattedDate = auditDate ? auditDate.toLocaleDateString('es-CO', { day: '2-digit', month: 'short' }) : 'Previamente';
         return {
-            auditedThisWeek: false,
-            badgeHtml: `<span class="px-2 py-0.5 bg-amber-500/15 text-amber-700 border border-amber-500/30 rounded-md text-[9px] font-black uppercase tracking-wider flex items-center gap-1">
-                          <i class="fa-regular fa-clock text-[9px]"></i> Pendiente Semana
+            auditedThisWeek: true,
+            isDeactivated: true,
+            badgeHtml: `<span class="px-2 py-0.5 bg-slate-100 text-slate-700 border border-slate-300 rounded-md text-[9px] font-black uppercase tracking-wider flex items-center gap-1">
+                          <i class="fa-solid fa-ban text-[9px] text-slate-500"></i> Auditado Desactivado
                         </span>`,
-            subtextHtml: `<span class="text-amber-600 font-sans text-[10px] font-bold"><i class="fa-regular fa-clock mr-1 text-[9px]"></i>Sin auditar</span>`,
+            subtextHtml: `<span class="text-slate-500 font-sans text-[10px] font-bold"><i class="fa-solid fa-circle-minus mr-1 text-[9px]"></i>Discontinuado (${formattedDate})</span>`,
             buttonText: 'Auditar',
-            buttonIcon: 'fa-arrows-rotate',
-            buttonClass: 'bg-brand-black hover:bg-brand-cyan hover:text-brand-black'
+            buttonIcon: 'fa-rotate-left',
+            buttonClass: 'bg-slate-700 hover:bg-slate-800'
         };
     }
 
-    const { start, end } = getCurrentWeekRange();
-    const isThisWeek = auditDate >= start && auditDate <= end;
+    const isAuditedInPeriod = checkIsAuditedInActivePeriod(p);
+    const auditVal = p.lastInventoryAudit || auditedProductIdsMap[p.id];
+    const auditDate = parseAuditDate(auditVal);
 
-    const now = new Date();
-    const isToday = auditDate.toDateString() === now.toDateString();
-    const timeStr = auditDate.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
-    const formattedDate = isToday ? `Hoy, ${timeStr}` : auditDate.toLocaleDateString('es-CO', { day: '2-digit', month: 'short' });
+    if (isAuditedInPeriod) {
+        const history = productAuditHistoryMap[p.id] || [];
+        const matchDate = history.find(d => d >= activeAuditRange.start && d <= activeAuditRange.end) || auditDate;
 
-    if (isThisWeek) {
+        const now = new Date();
+        const isToday = matchDate && matchDate.toDateString() === now.toDateString();
+        const timeStr = matchDate ? matchDate.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' }) : '';
+        const formattedDate = isToday ? `Hoy, ${timeStr}` : (matchDate ? matchDate.toLocaleDateString('es-CO', { day: '2-digit', month: 'short' }) : 'Auditado');
+
+        const periodLabel = activeAuditRange?.isCurrent ? 'Esta Semana' : 'en Período';
+
         return {
             auditedThisWeek: true,
             badgeHtml: `<span class="px-2 py-0.5 bg-emerald-500/15 text-emerald-700 border border-emerald-500/30 rounded-md text-[9px] font-black uppercase tracking-wider flex items-center gap-1">
-                          <i class="fa-solid fa-circle-check text-[9px]"></i> Auditado Esta Semana
+                          <i class="fa-solid fa-circle-check text-[9px]"></i> Auditado ${periodLabel}
                         </span>`,
             subtextHtml: `<span class="text-emerald-600 font-sans text-[10px] font-bold"><i class="fa-solid fa-calendar-check mr-1 text-[9px]"></i>Auditado: ${formattedDate}</span>`,
             buttonText: 'Reauditar',
@@ -185,12 +376,19 @@ function getAuditStatusDetails(p) {
             buttonClass: 'bg-slate-900 hover:bg-emerald-600'
         };
     } else {
+        const periodLabel = activeAuditRange?.isCurrent ? 'Semana' : 'Período';
+        let lastAuditSubtext = 'Sin auditar en este período';
+        if (auditDate) {
+            const lastFormatted = auditDate.toLocaleDateString('es-CO', { day: '2-digit', month: 'short' });
+            lastAuditSubtext = `Última: ${lastFormatted}`;
+        }
+
         return {
             auditedThisWeek: false,
             badgeHtml: `<span class="px-2 py-0.5 bg-amber-500/15 text-amber-700 border border-amber-500/30 rounded-md text-[9px] font-black uppercase tracking-wider flex items-center gap-1">
-                          <i class="fa-solid fa-rotate text-[9px]"></i> Requiere Auditoría
+                          <i class="fa-regular fa-clock text-[9px]"></i> Pendiente ${periodLabel}
                         </span>`,
-            subtextHtml: `<span class="text-gray-500 font-sans text-[10px] font-bold"><i class="fa-solid fa-clock-rotate-left mr-1 text-[9px]"></i>Última: ${formattedDate} (Sem. anterior)</span>`,
+            subtextHtml: `<span class="text-amber-600 font-sans text-[10px] font-bold"><i class="fa-regular fa-clock mr-1 text-[9px]"></i>${lastAuditSubtext}</span>`,
             buttonText: 'Auditar',
             buttonIcon: 'fa-arrows-rotate',
             buttonClass: 'bg-brand-black hover:bg-brand-cyan hover:text-brand-black'
@@ -206,10 +404,14 @@ async function loadAuditedProductsFromLogs() {
         snap.forEach(d => {
             const data = d.data();
             // REGLA ESTRICTA: Solo contar auditorías físicas de inventario (type === 'SYNC_AUDIT')
-            // Ignora compras, ventas, cambios de stock automáticos y ediciones regulares del catálogo
             if (data.productId && data.type === 'SYNC_AUDIT') {
                 const ts = parseAuditDate(data.timestamp || data.createdAtISO);
                 if (ts) {
+                    if (!productAuditHistoryMap[data.productId]) {
+                        productAuditHistoryMap[data.productId] = [];
+                    }
+                    productAuditHistoryMap[data.productId].push(ts);
+
                     const currentTs = parseAuditDate(auditedProductIdsMap[data.productId]);
                     if (!currentTs || ts.getTime() > currentTs.getTime()) {
                         auditedProductIdsMap[data.productId] = ts;
@@ -238,19 +440,20 @@ function highlightActiveKpiCard() {
     const cardAll = document.getElementById('card-filter-all');
     const cardPending = document.getElementById('card-filter-pending');
     const cardAudited = document.getElementById('card-filter-audited');
+    const cardDeactivated = document.getElementById('card-filter-deactivated');
 
-    if (!cardAll || !cardPending || !cardAudited) return;
+    if (cardAll) cardAll.classList.remove('ring-4', 'ring-brand-cyan/40', 'bg-cyan-50/40');
+    if (cardPending) cardPending.classList.remove('ring-4', 'ring-amber-400/40', 'bg-amber-50/40');
+    if (cardAudited) cardAudited.classList.remove('ring-4', 'ring-emerald-400/40', 'bg-emerald-50/40');
+    if (cardDeactivated) cardDeactivated.classList.remove('ring-4', 'ring-slate-400/40', 'bg-slate-100');
 
-    // Resetear estilos de resaltado
-    cardAll.classList.remove('ring-4', 'ring-brand-cyan/40', 'bg-cyan-50/40');
-    cardPending.classList.remove('ring-4', 'ring-amber-400/40', 'bg-amber-50/40');
-    cardAudited.classList.remove('ring-4', 'ring-emerald-400/40', 'bg-emerald-50/40');
-
-    if (activeFilter === 'pending_audit') {
+    if (activeFilter === 'pending_audit' && cardPending) {
         cardPending.classList.add('ring-4', 'ring-amber-400/40', 'bg-amber-50/40');
-    } else if (activeFilter === 'audited') {
+    } else if (activeFilter === 'audited' && cardAudited) {
         cardAudited.classList.add('ring-4', 'ring-emerald-400/40', 'bg-emerald-50/40');
-    } else if (activeFilter === 'all') {
+    } else if (activeFilter === 'deactivated' && cardDeactivated) {
+        cardDeactivated.classList.add('ring-4', 'ring-slate-400/40', 'bg-slate-100');
+    } else if (activeFilter === 'all' && cardAll) {
         cardAll.classList.add('ring-4', 'ring-brand-cyan/40', 'bg-cyan-50/40');
     }
 }
@@ -259,6 +462,7 @@ function highlightActiveKpiCard() {
 // 3. INICIALIZACIÓN Y SUSCRIPCIÓN AL CATÁLOGO
 // =========================================================================
 async function initApp() {
+    initAuditPeriod();
     initSearchAndFilters();
     initModalEvents();
 
@@ -271,6 +475,12 @@ async function initApp() {
             if (p.lastInventoryAudit) {
                 const d = parseAuditDate(p.lastInventoryAudit);
                 if (d) {
+                    if (!productAuditHistoryMap[p.id]) {
+                        productAuditHistoryMap[p.id] = [];
+                    }
+                    if (!productAuditHistoryMap[p.id].some(t => t.getTime() === d.getTime())) {
+                        productAuditHistoryMap[p.id].push(d);
+                    }
                     const existing = parseAuditDate(auditedProductIdsMap[p.id]);
                     if (!existing || d.getTime() > existing.getTime()) {
                         auditedProductIdsMap[p.id] = d;
@@ -379,11 +589,27 @@ function applyFilters() {
             ? p.combinations.reduce((acc, c) => acc + (Number(c.stock) || 0), 0)
             : (Number(p.stock) || 0);
 
+        const isDeactivated = p.status === 'deactivated';
+        const hasSearch = term.length > 0;
+
+        // Regla: Los productos desactivados SOLO se muestran si se seleccionó el filtro 'deactivated' O si hay un término de búsqueda activo
+        if (isDeactivated && filterType !== 'deactivated' && !hasSearch) {
+            return false;
+        }
+        if (filterType === 'deactivated' && !isDeactivated) {
+            return false;
+        }
+
         const isAuditedThisWeek = checkIsAuditedThisWeek(p);
 
-        // Filtro por Estado de Auditoría Semanal
-        if (filterType === 'pending_audit' && isAuditedThisWeek) return false;
-        if (filterType === 'audited' && !isAuditedThisWeek) return false;
+        // Filtro por Estado de Auditoría Semanal / Período
+        if (filterType === 'pending_audit' && (isAuditedThisWeek || isDeactivated)) return false;
+        if (filterType === 'audited' && (!isAuditedThisWeek || isDeactivated)) return false;
+
+        // Filtro por Costo FIFO
+        const prodCost = cleanNumber(p.lastPurchaseCost || p.costPrice || p.cost || p.fifoCost || 0);
+        if (filterType === 'without_fifo_cost' && prodCost > 0) return false;
+        if (filterType === 'with_fifo_cost' && prodCost <= 0) return false;
 
         // Filtro por tipo de producto y stock
         if (filterType === 'with_variants' && !hasVariants) return false;
@@ -392,7 +618,7 @@ function applyFilters() {
         if (filterType === 'zero_stock' && stock > 0) return false;
 
         // Filtro por texto
-        if (term) {
+        if (hasSearch) {
             const searchStr = normalize(`${p.name || ''} ${p.sku || ''} ${p.brand || ''} ${p.category || ''} ${p.subcategory || ''}`);
             if (!searchStr.includes(term)) {
                 // Verificar si coincide con algún SKU de variantes
@@ -414,29 +640,30 @@ function applyFilters() {
 
 function updateCounters() {
     const total = allProducts.length;
-    const auditedThisWeek = allProducts.filter(p => checkIsAuditedThisWeek(p)).length;
-    const pendingThisWeek = Math.max(0, total - auditedThisWeek);
-    const percent = total > 0 ? Math.round((auditedThisWeek / total) * 100) : 0;
+    const deactivatedCount = allProducts.filter(p => p.status === 'deactivated').length;
+    const auditableProducts = allProducts.filter(p => p.status !== 'deactivated');
+    const auditedCount = auditableProducts.filter(p => checkIsAuditedInActivePeriod(p)).length;
+    const pendingCount = Math.max(0, auditableProducts.length - auditedCount);
+    const percent = auditableProducts.length > 0 ? Math.round((auditedCount / auditableProducts.length) * 100) : 0;
 
-    // Actualizar KPI Cards de Auditoría Semanal
+    // Actualizar KPI Cards de Auditoría
     const kpiTotal = document.getElementById('kpi-total-products');
     const kpiPending = document.getElementById('kpi-pending-products');
     const kpiAudited = document.getElementById('kpi-audited-products');
+    const kpiDeactivated = document.getElementById('kpi-deactivated-products');
     const progressText = document.getElementById('audit-progress-text');
     const progressBar = document.getElementById('audit-progress-bar');
-    const weekRangeText = document.getElementById('audit-week-range-text');
 
     if (kpiTotal) kpiTotal.textContent = total;
-    if (kpiPending) kpiPending.textContent = pendingThisWeek;
-    if (kpiAudited) kpiAudited.textContent = auditedThisWeek;
+    if (kpiPending) kpiPending.textContent = pendingCount;
+    if (kpiAudited) kpiAudited.textContent = auditedCount;
+    if (kpiDeactivated) kpiDeactivated.textContent = deactivatedCount;
 
-    const weekLabel = getWeekFormattedLabel();
-    if (weekRangeText) {
-        weekRangeText.textContent = weekLabel;
-    }
+    const rangeLabel = activeAuditRange?.label || '';
+    const periodDesc = activeAuditRange?.isCurrent ? 'esta semana' : 'en período';
 
     if (progressText) {
-        progressText.textContent = `${percent}% (${auditedThisWeek} de ${total} productos)`;
+        progressText.textContent = `${percent}% (${auditedCount} de ${auditableProducts.length} ${periodDesc})`;
     }
     if (progressBar) {
         progressBar.style.width = `${percent}%`;
@@ -447,8 +674,11 @@ function updateCounters() {
     if (info) {
         const activeFilter = document.getElementById('filter-type-select')?.value || 'all';
         let filterLabel = 'todos los productos';
-        if (activeFilter === 'pending_audit') filterLabel = `pendientes esta semana (${weekLabel})`;
-        else if (activeFilter === 'audited') filterLabel = `auditados esta semana (${weekLabel})`;
+        if (activeFilter === 'pending_audit') filterLabel = `pendientes en período (${rangeLabel})`;
+        else if (activeFilter === 'audited') filterLabel = `auditados en período (${rangeLabel})`;
+        else if (activeFilter === 'deactivated') filterLabel = 'auditados por desactivado (discontinuados)';
+        else if (activeFilter === 'without_fifo_cost') filterLabel = 'sin costo FIFO asignado';
+        else if (activeFilter === 'with_fifo_cost') filterLabel = 'con costo FIFO asignado';
         else if (activeFilter === 'with_stock') filterLabel = 'con stock';
         else if (activeFilter === 'zero_stock') filterLabel = 'sin stock';
         else if (activeFilter === 'with_variants') filterLabel = 'con variantes';
@@ -535,18 +765,25 @@ function renderCatalogGrid() {
             ? 'bg-emerald-50 text-emerald-600 border-emerald-200' 
             : 'bg-rose-50 text-rose-600 border-rose-200';
 
+        const prodFifoCost = cleanNumber(prod.lastPurchaseCost || prod.costPrice || prod.cost || prod.fifoCost || 0);
+
         const typeBadge = hasVariants
             ? `<span class="px-2 py-0.5 bg-brand-cyan/10 text-brand-cyan border border-brand-cyan/20 rounded-md text-[9px] font-black uppercase tracking-wider">${prod.combinations.length} Variantes</span>`
             : `<span class="px-2 py-0.5 bg-slate-100 text-gray-600 border border-gray-200 rounded-md text-[9px] font-black uppercase tracking-wider">Simple</span>`;
 
-        const sideStripe = audit.auditedThisWeek
-            ? 'border-l-[6px] border-l-emerald-500 border-gray-200 hover:border-emerald-500'
-            : 'border-l-[6px] border-l-amber-400 border-gray-200 hover:border-amber-400';
+        let sideStripe = 'border-l-[6px] border-l-amber-400 border-gray-200 hover:border-amber-400';
+        if (audit.isDeactivated) {
+            sideStripe = 'border-l-[6px] border-l-slate-400 border-gray-200 hover:border-slate-500';
+        } else if (audit.auditedThisWeek) {
+            sideStripe = 'border-l-[6px] border-l-emerald-500 border-gray-200 hover:border-emerald-500';
+        }
+
+        const imgOpacityClass = audit.isDeactivated ? 'opacity-60 grayscale' : '';
 
         return `
             <div class="bg-white border-2 ${sideStripe} rounded-3xl p-5 shadow-xs hover:shadow-lg transition-all flex flex-col justify-between group">
                 <div class="flex items-start gap-3.5 mb-4">
-                    <img src="${img}" alt="${prod.name}" class="w-16 h-16 object-contain rounded-2xl bg-slate-50 p-1.5 border border-gray-100 shrink-0 group-hover:scale-105 transition">
+                    <img src="${img}" alt="${prod.name}" class="w-16 h-16 object-contain rounded-2xl bg-slate-50 p-1.5 border border-gray-100 shrink-0 group-hover:scale-105 transition ${imgOpacityClass}">
                     <div class="flex-grow min-w-0">
                         <div class="flex items-center gap-1.5 mb-1.5 flex-wrap">
                             <span class="text-[9px] font-black uppercase text-gray-400">${brand}</span>
@@ -569,9 +806,14 @@ function renderCatalogGrid() {
                         <span class="px-2.5 py-1 rounded-xl text-xs font-mono font-black border ${stockBadgeClass} inline-block">
                             ${totalStock} ud(s)
                         </span>
-                        <div class="flex items-center gap-1.5 mt-1 text-[9px] font-bold text-gray-400">
+                        <div class="flex items-center gap-1.5 mt-1 text-[9px] font-bold text-gray-400 flex-wrap">
                             <span>Bodega: <strong class="text-brand-black">${bodegaStock}</strong></span>
                             ${fullStock > 0 ? `<span class="text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded font-black border border-amber-200">Full: ${fullStock}</span>` : ''}
+                        </div>
+                        <div class="mt-1">
+                            ${prodFifoCost > 0 
+                                ? `<span class="text-[9px] font-mono font-bold text-gray-600 block">FIFO: <strong class="text-brand-black font-black">${formatCOP(prodFifoCost)}</strong></span>` 
+                                : `<span class="text-[8px] font-mono font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 inline-block">Sin Costo FIFO</span>`}
                         </div>
                     </div>
 
@@ -645,25 +887,54 @@ async function openSyncModal(prod) {
         : 'Producto Simple';
 
     // Badge de estado de auditoría en la cabecera del modal
-    const isThisWeek = checkIsAuditedThisWeek(prod);
+    const isAuditedInActive = checkIsAuditedInActivePeriod(prod);
     const auditVal = prod.lastInventoryAudit || auditedProductIdsMap[prod.id];
     const auditDate = parseAuditDate(auditVal);
     const auditBadge = document.getElementById('modal-product-audit-badge');
+    const periodLabel = activeAuditRange?.isCurrent ? 'Esta Semana' : 'en Período';
+
     if (auditBadge) {
-        if (isThisWeek && auditDate) {
-            const timeStr = auditDate.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
-            auditBadge.innerHTML = `<i class="fa-solid fa-circle-check mr-1 text-[8px]"></i> Auditado Esta Semana (${timeStr})`;
+        if (isAuditedInActive) {
+            const history = productAuditHistoryMap[prod.id] || [];
+            const matchDate = history.find(d => d >= activeAuditRange.start && d <= activeAuditRange.end) || auditDate;
+            const timeStr = matchDate ? matchDate.toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' }) : '';
+            const dateStr = matchDate ? matchDate.toLocaleDateString('es-CO', { day: '2-digit', month: 'short' }) : '';
+            auditBadge.innerHTML = `<i class="fa-solid fa-circle-check mr-1 text-[8px]"></i> Auditado ${periodLabel} (${dateStr} ${timeStr})`.trim();
             auditBadge.className = "text-[9px] font-black uppercase tracking-widest text-emerald-400 bg-emerald-400/20 px-2 py-0.5 rounded-md border border-emerald-400/30 inline-flex items-center";
             auditBadge.classList.remove('hidden');
         } else if (auditDate) {
             const opt = { day: '2-digit', month: 'short' };
-            auditBadge.innerHTML = `<i class="fa-solid fa-clock-rotate-left mr-1 text-[8px]"></i> Pendiente Esta Semana (Última: ${auditDate.toLocaleDateString('es-CO', opt)})`;
+            auditBadge.innerHTML = `<i class="fa-solid fa-clock-rotate-left mr-1 text-[8px]"></i> Pendiente ${periodLabel} (Última: ${auditDate.toLocaleDateString('es-CO', opt)})`;
             auditBadge.className = "text-[9px] font-black uppercase tracking-widest text-amber-400 bg-amber-400/20 px-2 py-0.5 rounded-md border border-amber-400/30 inline-flex items-center";
             auditBadge.classList.remove('hidden');
         } else {
-            auditBadge.innerHTML = `<i class="fa-regular fa-clock mr-1 text-[8px]"></i> Pendiente Esta Semana (Sin auditar)`;
+            auditBadge.innerHTML = `<i class="fa-regular fa-clock mr-1 text-[8px]"></i> Pendiente ${periodLabel} (Sin auditar)`;
             auditBadge.className = "text-[9px] font-black uppercase tracking-widest text-amber-400 bg-amber-400/20 px-2 py-0.5 rounded-md border border-amber-400/30 inline-flex items-center";
             auditBadge.classList.remove('hidden');
+        }
+    }
+
+    // Estado del producto en el selector y badge del modal
+    const currentProdStatus = prod.status || 'active';
+    const statusSelect = document.getElementById('sync-product-status-select');
+    if (statusSelect) {
+        statusSelect.value = currentProdStatus;
+    }
+
+    const statusBadge = document.getElementById('modal-product-status-badge');
+    if (statusBadge) {
+        if (currentProdStatus === 'deactivated') {
+            statusBadge.innerHTML = `<i class="fa-solid fa-ban mr-1 text-[8px]"></i> Desactivado`;
+            statusBadge.className = "text-[9px] font-black uppercase tracking-widest text-slate-300 bg-slate-700/60 px-2 py-0.5 rounded-md border border-slate-500/50 inline-flex items-center";
+            statusBadge.classList.remove('hidden');
+        } else if (currentProdStatus === 'draft') {
+            statusBadge.innerHTML = `<i class="fa-solid fa-circle mr-1 text-[8px] text-amber-400"></i> Borrador`;
+            statusBadge.className = "text-[9px] font-black uppercase tracking-widest text-amber-300 bg-amber-500/20 px-2 py-0.5 rounded-md border border-amber-400/30 inline-flex items-center";
+            statusBadge.classList.remove('hidden');
+        } else {
+            statusBadge.innerHTML = `<i class="fa-solid fa-circle mr-1 text-[8px] text-emerald-400"></i> Activo`;
+            statusBadge.className = "text-[9px] font-black uppercase tracking-widest text-emerald-300 bg-emerald-500/20 px-2 py-0.5 rounded-md border border-emerald-400/30 inline-flex items-center";
+            statusBadge.classList.remove('hidden');
         }
     }
 
@@ -694,17 +965,32 @@ async function openSyncModal(prod) {
                 }).join('');
         }
 
+        // Preparar estado de Costo FIFO
+        const currentFifoCost = cleanNumber(prod.lastPurchaseCost || prod.costPrice || prod.cost || prod.fifoCost || 0);
+        const inputFifoCost = document.getElementById('input-product-fifo-cost');
+        if (inputFifoCost) {
+            inputFifoCost.value = currentFifoCost > 0 ? formatNumberWithThousands(currentFifoCost) : '';
+        }
+
+        const propagateContainer = document.getElementById('btn-propagate-variant-cost-container');
+        if (propagateContainer) {
+            propagateContainer.classList.toggle('hidden', !hasVariants);
+        }
+
         // Configurar filas de variantes
         variantRowsState = prod.combinations.map((c, idx) => {
             const key = `${c.color || ''}__${c.capacity || ''}__${idx}`;
             const sysStock = Number(c.stock) || 0;
+            const varCost = cleanNumber(c.cost || c.lastPurchaseCost || c.unitCost || currentFifoCost || 0);
             return {
                 key,
                 color: c.color || '',
                 capacity: c.capacity || '',
                 sku: c.sku || `${prod.sku || 'SKU'}-${idx+1}`,
                 systemStock: sysStock,
-                physicalStock: sysStock // Inicializa igual al sistema
+                physicalStock: sysStock, // Inicializa igual al sistema
+                price: cleanNumber(c.price || prod.price || 0),
+                fifoCost: varCost
             };
         });
 
@@ -722,6 +1008,17 @@ async function openSyncModal(prod) {
             serialInputCol.classList.add('sm:col-span-12');
         }
 
+        const currentFifoCost = cleanNumber(prod.lastPurchaseCost || prod.costPrice || prod.cost || prod.fifoCost || 0);
+        const inputFifoCost = document.getElementById('input-product-fifo-cost');
+        if (inputFifoCost) {
+            inputFifoCost.value = currentFifoCost > 0 ? formatNumberWithThousands(currentFifoCost) : '';
+        }
+
+        const propagateContainer = document.getElementById('btn-propagate-variant-cost-container');
+        if (propagateContainer) {
+            propagateContainer.classList.add('hidden');
+        }
+
         currentSystemTotalStock = Number(prod.stock) || 0;
         currentPhysicalTotalStock = currentSystemTotalStock;
 
@@ -730,6 +1027,7 @@ async function openSyncModal(prod) {
     }
 
     updateGlobalStockMetrics();
+    updateFifoCalculations();
 
     // Cargar seriales actuales desde Firestore
     await loadProductSerialsFromFirestore(prod.id);
@@ -772,6 +1070,76 @@ function updateGlobalStockMetrics() {
     }
 }
 
+function updateFifoCalculations() {
+    if (!currentProduct) return;
+
+    const inputFifoCost = document.getElementById('input-product-fifo-cost');
+    const baseCost = cleanNumber(inputFifoCost?.value || 0);
+
+    const hasVariants = Array.isArray(currentProduct.combinations) && currentProduct.combinations.length > 0;
+    const sellingPrice = cleanNumber(currentProduct.price || 0);
+
+    // Valuación total de existencias físicas en sede
+    let totalValuation = 0;
+    if (hasVariants && variantRowsState.length > 0) {
+        totalValuation = variantRowsState.reduce((sum, r) => {
+            const costToUse = r.fifoCost > 0 ? r.fifoCost : baseCost;
+            return sum + (r.physicalStock * costToUse);
+        }, 0);
+    } else {
+        totalValuation = currentPhysicalTotalStock * baseCost;
+    }
+
+    // Utilidad y Margen unitario sobre precio de venta base
+    const unitProfit = sellingPrice - baseCost;
+    const marginPct = sellingPrice > 0 ? (unitProfit / sellingPrice) * 100 : 0;
+
+    // Actualizar elementos del DOM
+    const elValuation = document.getElementById('kpi-product-total-valuation');
+    const elValUnits = document.getElementById('kpi-valuation-units');
+    const elValCost = document.getElementById('kpi-valuation-unit-cost');
+    const elSellPrice = document.getElementById('kpi-product-selling-price');
+    const elUnitProfit = document.getElementById('kpi-product-unit-profit');
+    const elMargin = document.getElementById('kpi-product-profit-margin');
+    const badgeCostStatus = document.getElementById('badge-fifo-cost-status');
+    const fifoBadgeHeader = document.getElementById('modal-product-fifo-badge');
+
+    if (elValuation) elValuation.textContent = formatCOP(totalValuation);
+    if (elValUnits) elValUnits.textContent = currentPhysicalTotalStock;
+    if (elValCost) elValCost.textContent = formatCOP(baseCost);
+
+    if (elSellPrice) elSellPrice.textContent = formatCOP(sellingPrice);
+    if (elUnitProfit) {
+        elUnitProfit.textContent = `${unitProfit >= 0 ? '+' : ''}${formatCOP(unitProfit)}`;
+        elUnitProfit.className = `font-mono font-black text-xs sm:text-sm ${unitProfit >= 0 ? 'text-emerald-600' : 'text-rose-600'}`;
+    }
+    if (elMargin) {
+        elMargin.textContent = `${marginPct.toFixed(1)}%`;
+        elMargin.className = `font-mono font-black text-xs sm:text-sm ${marginPct >= 0 ? 'text-emerald-600' : 'text-rose-600'}`;
+    }
+
+    if (badgeCostStatus) {
+        if (baseCost > 0) {
+            badgeCostStatus.textContent = "Costo Asignado";
+            badgeCostStatus.className = "px-2.5 py-1 rounded-xl text-[9px] font-mono font-black uppercase tracking-wider bg-emerald-50 text-emerald-600 border border-emerald-200 shrink-0";
+        } else {
+            badgeCostStatus.textContent = "Sin Costo";
+            badgeCostStatus.className = "px-2.5 py-1 rounded-xl text-[9px] font-mono font-black uppercase tracking-wider bg-amber-50 text-amber-600 border border-amber-200 shrink-0";
+        }
+    }
+
+    if (fifoBadgeHeader) {
+        if (baseCost > 0) {
+            fifoBadgeHeader.textContent = `Costo FIFO: ${formatCOP(baseCost)}`;
+            fifoBadgeHeader.className = "text-[9px] font-black uppercase tracking-widest text-cyan-300 bg-cyan-400/20 px-2 py-0.5 rounded-md border border-cyan-400/30 inline-flex items-center";
+        } else {
+            fifoBadgeHeader.textContent = "Sin Costo FIFO";
+            fifoBadgeHeader.className = "text-[9px] font-black uppercase tracking-widest text-amber-400 bg-amber-400/20 px-2 py-0.5 rounded-md border border-amber-400/30 inline-flex items-center";
+        }
+        fifoBadgeHeader.classList.remove('hidden');
+    }
+}
+
 // =========================================================================
 // 6. CONTROL DE CONTEO EN PRODUCTOS SIMPLES
 // =========================================================================
@@ -783,6 +1151,7 @@ window.stepSimpleCount = (step) => {
     input.value = val;
     currentPhysicalTotalStock = val;
     updateGlobalStockMetrics();
+    updateFifoCalculations();
 };
 
 window.setSimpleCountToSerialsCount = () => {
@@ -792,6 +1161,7 @@ window.setSimpleCountToSerialsCount = () => {
         input.value = activeSerials.length;
         currentPhysicalTotalStock = activeSerials.length;
         updateGlobalStockMetrics();
+        updateFifoCalculations();
     }
 };
 
@@ -814,6 +1184,8 @@ function renderVariantsTable() {
             (s.capacity || '') === row.capacity
         ).length;
 
+        const varCostVal = row.fifoCost > 0 ? formatNumberWithThousands(row.fifoCost) : '';
+
         return `
             <tr class="hover:bg-slate-50 transition">
                 <td class="p-3">
@@ -824,15 +1196,25 @@ function renderVariantsTable() {
                 <td class="p-3 text-center font-mono text-sm">${row.systemStock}</td>
                 <td class="p-3 text-center">
                     <div class="inline-flex items-center justify-center gap-1.5">
-                        <button type="button" onclick="window.stepVariantCount(${idx}, -1)" class="w-7 h-7 rounded-lg bg-slate-100 hover:bg-slate-200 text-brand-black font-bold flex items-center justify-center transition">
+                        <button type="button" onclick="window.stepVariantCount(${idx}, -1)" class="w-7 h-7 rounded-lg bg-slate-100 hover:bg-slate-200 text-brand-black font-bold flex items-center justify-center transition cursor-pointer">
                             <i class="fa-solid fa-minus text-[10px]"></i>
                         </button>
                         <input type="number" min="0" value="${row.physicalStock}" 
                             onchange="window.updateVariantCountInput(${idx}, this.value)"
-                            class="w-16 text-center font-mono font-black text-sm bg-slate-50 border border-gray-300 rounded-lg py-1 text-brand-black outline-none focus:border-brand-cyan">
-                        <button type="button" onclick="window.stepVariantCount(${idx}, 1)" class="w-7 h-7 rounded-lg bg-slate-100 hover:bg-slate-200 text-brand-black font-bold flex items-center justify-center transition">
+                            class="count-input w-16 text-center font-mono font-black text-sm bg-slate-50 border border-gray-300 rounded-lg py-1 text-brand-black outline-none focus:border-brand-cyan">
+                        <button type="button" onclick="window.stepVariantCount(${idx}, 1)" class="w-7 h-7 rounded-lg bg-slate-100 hover:bg-slate-200 text-brand-black font-bold flex items-center justify-center transition cursor-pointer">
                             <i class="fa-solid fa-plus text-[10px]"></i>
                         </button>
+                    </div>
+                </td>
+                <td class="p-3 text-center">
+                    <div class="relative w-28 mx-auto">
+                        <span class="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 font-mono text-[10px] font-bold">$</span>
+                        <input type="text" value="${varCostVal}" placeholder="0"
+                            oninput="window.updateVariantFifoCostInput(${idx}, this.value)"
+                            onblur="window.formatVariantFifoCostInput(${idx}, this)"
+                            onfocus="this.select()"
+                            class="count-input w-full text-right font-mono font-bold text-xs bg-slate-50 border border-gray-300 rounded-lg pl-5 pr-2 py-1 text-brand-black outline-none focus:border-brand-cyan shadow-2xs">
                     </div>
                 </td>
                 <td class="p-3 text-center">
@@ -866,9 +1248,39 @@ window.updateVariantCountInput = (idx, value) => {
     renderVariantsTable();
 };
 
+window.updateVariantFifoCostInput = (idx, value) => {
+    if (!variantRowsState[idx]) return;
+    variantRowsState[idx].fifoCost = cleanNumber(value);
+    updateFifoCalculations();
+};
+
+window.formatVariantFifoCostInput = (idx, inputEl) => {
+    if (!variantRowsState[idx]) return;
+    const num = cleanNumber(inputEl.value);
+    variantRowsState[idx].fifoCost = num;
+    inputEl.value = num > 0 ? formatNumberWithThousands(num) : '';
+    updateFifoCalculations();
+};
+
+window.propagateFifoCostToAllVariants = () => {
+    const inputFifoCost = document.getElementById('input-product-fifo-cost');
+    const baseCost = cleanNumber(inputFifoCost?.value || 0);
+    if (baseCost <= 0) {
+        alert("Por favor ingresa un Costo FIFO Unitario superior a 0 en el campo principal antes de copiarlo a las variantes.");
+        if (inputFifoCost) inputFifoCost.focus();
+        return;
+    }
+    variantRowsState.forEach(r => {
+        r.fifoCost = baseCost;
+    });
+    renderVariantsTable();
+    updateFifoCalculations();
+};
+
 function recalculateVariantsTotal() {
     currentPhysicalTotalStock = variantRowsState.reduce((sum, r) => sum + r.physicalStock, 0);
     updateGlobalStockMetrics();
+    updateFifoCalculations();
 }
 
 // =========================================================================
@@ -899,6 +1311,7 @@ async function loadProductSerialsFromFirestore(productId) {
             color: d.data().color || null,
             capacity: d.data().capacity || null,
             status: d.data().status,
+            unitCost: d.data().unitCost || 0,
             auditState: 'EXISTING', // 'EXISTING' | 'NEW' | 'REMOVED'
             supplierName: d.data().supplierName || ''
         }));
@@ -1103,6 +1516,24 @@ function initModalEvents() {
             if (isNaN(val) || val < 0) val = 0;
             currentPhysicalTotalStock = val;
             updateGlobalStockMetrics();
+            updateFifoCalculations();
+        });
+    }
+
+    const inputFifoCost = document.getElementById('input-product-fifo-cost');
+    if (inputFifoCost) {
+        inputFifoCost.addEventListener('input', () => {
+            updateFifoCalculations();
+        });
+
+        inputFifoCost.addEventListener('blur', (e) => {
+            const num = cleanNumber(e.target.value);
+            e.target.value = num > 0 ? formatNumberWithThousands(num) : '';
+            updateFifoCalculations();
+        });
+
+        inputFifoCost.addEventListener('focus', (e) => {
+            e.target.select();
         });
     }
 
@@ -1153,6 +1584,7 @@ function initModalEvents() {
             activeEl.id === 'serial-variant-select' ||
             activeEl.id === 'sync-reason-select' ||
             activeEl.id === 'input-simple-physical-stock' ||
+            activeEl.id === 'input-product-fifo-cost' ||
             activeEl.classList?.contains('count-input') ||
             activeEl.tagName === 'SELECT'
         )) {
@@ -1189,6 +1621,33 @@ function initModalEvents() {
 
     if (btnProcessBulk) {
         btnProcessBulk.addEventListener('click', processBulkSerials);
+    }
+
+    const prodStatusSelect = document.getElementById('sync-product-status-select');
+    if (prodStatusSelect) {
+        prodStatusSelect.addEventListener('change', (e) => {
+            const newSt = e.target.value;
+            const statusBadge = document.getElementById('modal-product-status-badge');
+            if (statusBadge) {
+                if (newSt === 'deactivated') {
+                    statusBadge.innerHTML = `<i class="fa-solid fa-ban mr-1 text-[8px]"></i> Desactivado`;
+                    statusBadge.className = "text-[9px] font-black uppercase tracking-widest text-slate-300 bg-slate-700/60 px-2 py-0.5 rounded-md border border-slate-500/50 inline-flex items-center";
+                    statusBadge.classList.remove('hidden');
+                } else if (newSt === 'draft') {
+                    statusBadge.innerHTML = `<i class="fa-solid fa-circle mr-1 text-[8px] text-amber-400"></i> Borrador`;
+                    statusBadge.className = "text-[9px] font-black uppercase tracking-widest text-amber-300 bg-amber-500/20 px-2 py-0.5 rounded-md border border-amber-400/30 inline-flex items-center";
+                    statusBadge.classList.remove('hidden');
+                } else {
+                    statusBadge.innerHTML = `<i class="fa-solid fa-circle mr-1 text-[8px] text-emerald-400"></i> Activo`;
+                    statusBadge.className = "text-[9px] font-black uppercase tracking-widest text-emerald-300 bg-emerald-500/20 px-2 py-0.5 rounded-md border border-emerald-400/30 inline-flex items-center";
+                    statusBadge.classList.remove('hidden');
+                }
+            }
+            if (newSt === 'deactivated') {
+                const reasonSel = document.getElementById('sync-reason-select');
+                if (reasonSel) reasonSel.value = 'Desactivación por Producto Discontinuado';
+            }
+        });
     }
 
     if (btnSubmit) {
@@ -1430,13 +1889,51 @@ async function handleSubmitSync() {
         if (!proceed) return;
     }
 
+    // Costo FIFO ingresado
+    const inputFifoCost = document.getElementById('input-product-fifo-cost');
+    const enteredFifoCost = cleanNumber(inputFifoCost?.value || 0);
+
+    if (enteredFifoCost <= 0 && finalPhysicalStock > 0) {
+        const proceedWithoutCost = confirm(
+            `AVISO DE COSTO FIFO:\n\n` +
+            `- No has establecido un Costo FIFO para este producto ($0 COP).\n` +
+            `- Sin costo asignado, el sistema contable y de rentabilidad mostrará valuación de existencias en $0 y un margen de utilidad irreal del 100%.\n\n` +
+            `¿Deseas guardar de todas formas con Costo FIFO en $0, o prefieres regresar a asignarle un costo?`
+        );
+        if (!proceedWithoutCost) {
+            if (inputFifoCost) {
+                inputFifoCost.focus();
+                inputFifoCost.select();
+            }
+            return;
+        }
+    }
+
+    let finalValuation = 0;
+    if (hasVariants && variantRowsState.length > 0) {
+        finalValuation = variantRowsState.reduce((sum, r) => {
+            const cost = r.fifoCost > 0 ? r.fifoCost : enteredFifoCost;
+            return sum + (r.physicalStock * cost);
+        }, 0);
+    } else {
+        finalValuation = finalPhysicalStock * enteredFifoCost;
+    }
+
     // Resumen de confirmación
     const reason = reasonSelect?.value || 'Toma de Inventario Físico (Sede Principal)';
     const notes = notesInput?.value.trim() || 'Sin notas adicionales.';
+    const selectedStatus = document.getElementById('sync-product-status-select')?.value || currentProduct.status || 'active';
 
     let confirmMsg = `CONFIRMAR SINCRONIZACIÓN DE INVENTARIO FÍSICO:\n\n`;
     confirmMsg += `Producto: ${currentProduct.name}\n`;
+    if (selectedStatus !== (currentProduct.status || 'active')) {
+        confirmMsg += `Estado Catálogo: ${(currentProduct.status || 'active').toUpperCase()} -> ${selectedStatus.toUpperCase()}\n`;
+    }
     confirmMsg += `Stock Sistema: ${currentSystemTotalStock} -> Stock Físico: ${finalPhysicalStock} (${deltaTotal >= 0 ? '+' : ''}${deltaTotal})\n`;
+    confirmMsg += `Costo FIFO Unitario: ${formatCOP(enteredFifoCost)}\n`;
+    if (finalPhysicalStock > 0) {
+        confirmMsg += `Valoración Total en Sede: ${formatCOP(finalValuation)}\n`;
+    }
     
     if (activeSerials.length > 0) {
         confirmMsg += `\n- Unidades con serial verificado: ${activeSerials.length}`;
@@ -1451,7 +1948,8 @@ async function handleSubmitSync() {
         confirmMsg += `\n\nDesglose por Variante:\n`;
         variantRowsState.forEach(r => {
             const d = r.physicalStock - r.systemStock;
-            confirmMsg += ` - ${r.color || 'Estándar'} ${r.capacity || ''}: ${r.systemStock} -> ${r.physicalStock} (${d >= 0 ? '+' : ''}${d})\n`;
+            const vCost = r.fifoCost > 0 ? r.fifoCost : enteredFifoCost;
+            confirmMsg += ` - ${r.color || 'Estándar'} ${r.capacity || ''}: ${r.systemStock} -> ${r.physicalStock} (${d >= 0 ? '+' : ''}${d}) | Costo FIFO: ${formatCOP(vCost)}\n`;
         });
     }
 
@@ -1476,6 +1974,11 @@ async function handleSubmitSync() {
         const productRef = doc(db, "products", currentProduct.id);
         const productUpdateData = {
             stock: finalPhysicalStock,
+            status: selectedStatus,
+            lastPurchaseCost: enteredFifoCost,
+            costPrice: enteredFifoCost,
+            cost: enteredFifoCost,
+            fifoCost: enteredFifoCost,
             updatedAt: now,
             lastInventoryAudit: now,
             lastInventoryAuditWeek: weekKey,
@@ -1498,18 +2001,23 @@ async function handleSubmitSync() {
                     || variantRowsState[idx];
                 
                 const newVarStock = matchRow ? matchRow.physicalStock : (Number(comb.stock) || 0);
+                const varCost = (matchRow && matchRow.fifoCost > 0) ? matchRow.fifoCost : enteredFifoCost;
 
                 variantChangesForLog.push({
                     color: comb.color || 'Estándar',
                     capacity: comb.capacity || '',
                     before: Number(comb.stock) || 0,
                     after: newVarStock,
-                    delta: newVarStock - (Number(comb.stock) || 0)
+                    delta: newVarStock - (Number(comb.stock) || 0),
+                    fifoCost: varCost
                 });
 
                 const updatedComb = {
                     ...comb,
-                    stock: newVarStock
+                    stock: newVarStock,
+                    cost: varCost,
+                    lastPurchaseCost: varCost,
+                    unitCost: varCost
                 };
 
                 if (comb.branchStock || typeof comb.branchStock === 'object') {
@@ -1530,6 +2038,12 @@ async function handleSubmitSync() {
         // 2. Registrar nuevos seriales en product_serials
         addedSerials.forEach(s => {
             const sRef = doc(collection(db, "product_serials"));
+            let serCost = enteredFifoCost;
+            if (s.color || s.capacity) {
+                const matchRow = variantRowsState.find(r => r.color === (s.color || '') && r.capacity === (s.capacity || ''));
+                if (matchRow && matchRow.fifoCost > 0) serCost = matchRow.fifoCost;
+            }
+
             batch.set(sRef, {
                 serialNumber: s.serialNumber,
                 productId: currentProduct.id,
@@ -1539,12 +2053,27 @@ async function handleSubmitSync() {
                 color: s.color || null,
                 capacity: s.capacity || null,
                 status: 'AVAILABLE',
+                unitCost: serCost,
                 purchaseId: 'SYNC_AUDIT',
                 supplierName: 'Toma Física de Inventario',
                 verifiedAt: now,
                 createdAt: now,
                 updatedAt: now
             });
+        });
+
+        // 2.1 Backfill de seriales activos existentes que no tengan costo asignado
+        activeSerials.forEach(s => {
+            if (s.auditState === 'EXISTING' && (!s.unitCost || Number(s.unitCost) <= 0) && s.docRef) {
+                let serCost = enteredFifoCost;
+                if (s.color || s.capacity) {
+                    const matchRow = variantRowsState.find(r => r.color === (s.color || '') && r.capacity === (s.capacity || ''));
+                    if (matchRow && matchRow.fifoCost > 0) serCost = matchRow.fifoCost;
+                }
+                if (serCost > 0) {
+                    batch.update(s.docRef, { unitCost: serCost, updatedAt: now });
+                }
+            }
         });
 
         // 3. Actualizar seriales dados de baja
@@ -1568,6 +2097,8 @@ async function handleSubmitSync() {
             sku: currentProduct.sku || '',
             category: currentProduct.category || '',
             brand: currentProduct.brand || '',
+            beforeStatus: currentProduct.status || 'active',
+            afterStatus: selectedStatus,
             type: 'SYNC_AUDIT',
             weekKey: weekKey,
             reason: reason,
@@ -1575,7 +2106,10 @@ async function handleSubmitSync() {
             beforeStock: currentSystemTotalStock,
             afterStock: finalPhysicalStock,
             deltaStock: deltaTotal,
-            changeDetails: `Sincronización física de inventario: ${currentSystemTotalStock} -> ${finalPhysicalStock} (${deltaTotal >= 0 ? '+' : ''}${deltaTotal} uds)`,
+            fifoCostBefore: cleanNumber(currentProduct.lastPurchaseCost || currentProduct.costPrice || 0),
+            fifoCostAfter: enteredFifoCost,
+            totalValuation: finalValuation,
+            changeDetails: `Sincronización física de inventario: ${currentSystemTotalStock} -> ${finalPhysicalStock} (${deltaTotal >= 0 ? '+' : ''}${deltaTotal} uds) | Costo FIFO: $${enteredFifoCost.toLocaleString('es-CO')}${selectedStatus !== (currentProduct.status || 'active') ? ` | Estado: ${selectedStatus}` : ''}`,
             variantChanges: variantChangesForLog,
             serialsAdded: addedSerials.map(s => s.serialNumber),
             serialsRemoved: removedSerials.map(s => s.serialNumber),
@@ -1588,20 +2122,34 @@ async function handleSubmitSync() {
         // Ejecutar Batch atómico
         await batch.commit();
 
-        // Actualizar estado de auditoría local inmediato para actualización instantánea de interfaz
+        // Actualizar estado local inmediato para reactividad de interfaz
         if (currentProduct) {
             currentProduct.lastInventoryAudit = new Date();
             currentProduct.lastInventoryAuditWeek = weekKey;
             currentProduct.stock = finalPhysicalStock;
+            currentProduct.status = selectedStatus;
+            currentProduct.lastPurchaseCost = enteredFifoCost;
+            currentProduct.costPrice = enteredFifoCost;
+            currentProduct.cost = enteredFifoCost;
+            currentProduct.fifoCost = enteredFifoCost;
             if (currentProduct.branchStock) {
                 currentProduct.branchStock.bodega = finalPhysicalStock;
             }
             auditedProductIdsMap[currentProduct.id] = new Date();
+            if (!productAuditHistoryMap[currentProduct.id]) {
+                productAuditHistoryMap[currentProduct.id] = [];
+            }
+            productAuditHistoryMap[currentProduct.id].push(new Date());
             const prodInAll = allProducts.find(p => p.id === currentProduct.id);
             if (prodInAll) {
                 prodInAll.lastInventoryAudit = new Date();
                 prodInAll.lastInventoryAuditWeek = weekKey;
                 prodInAll.stock = finalPhysicalStock;
+                prodInAll.status = selectedStatus;
+                prodInAll.lastPurchaseCost = enteredFifoCost;
+                prodInAll.costPrice = enteredFifoCost;
+                prodInAll.cost = enteredFifoCost;
+                prodInAll.fifoCost = enteredFifoCost;
                 if (prodInAll.branchStock) {
                     prodInAll.branchStock.bodega = finalPhysicalStock;
                 }
@@ -1611,7 +2159,13 @@ async function handleSubmitSync() {
             }
         }
 
-        alert("Sincronización de inventario completada con éxito.\nLos datos de stock, variantes y seriales ya están actualizados en el sistema.");
+        try {
+            await AdminStore.forceSyncProducts();
+        } catch (e) {
+            console.warn("Aviso al forzar sincronización con AdminStore:", e);
+        }
+
+        alert("Sincronización de inventario completada con éxito.\nLos datos de stock, costo FIFO, valuación, variantes y seriales ya están actualizados en el sistema.");
         closeSyncModal();
         applyFilters();
 
@@ -1643,6 +2197,381 @@ window.forceSyncInventory = async () => {
         if (btn) {
             btn.disabled = false;
             btn.innerHTML = oldHtml;
+        }
+    }
+};
+
+// =========================================================================
+// 8. ANULACIÓN DE PEDIDOS PRE-INVENTARIO (SIN RETORNO DE STOCK)
+// =========================================================================
+let currentPreCancelOrder = null;
+
+window.openPreInventoryCancelModal = () => {
+    const modal = document.getElementById('modal-pre-inventory-cancel');
+    if (!modal) return;
+    currentPreCancelOrder = null;
+
+    const input = document.getElementById('input-pre-cancel-search');
+    if (input) input.value = '';
+
+    const errorEl = document.getElementById('pre-cancel-search-error');
+    if (errorEl) {
+        errorEl.textContent = '';
+        errorEl.classList.add('hidden');
+    }
+
+    const previewBox = document.getElementById('box-pre-cancel-order-preview');
+    if (previewBox) previewBox.classList.add('hidden');
+
+    modal.classList.remove('hidden');
+
+    setTimeout(() => {
+        if (input) {
+            input.focus();
+            input.select();
+        }
+    }, 100);
+};
+
+window.closePreInventoryCancelModal = () => {
+    const modal = document.getElementById('modal-pre-inventory-cancel');
+    if (modal) modal.classList.add('hidden');
+    currentPreCancelOrder = null;
+};
+
+// Listener para disparar búsqueda con tecla Enter
+document.addEventListener('DOMContentLoaded', () => {
+    const searchInput = document.getElementById('input-pre-cancel-search');
+    if (searchInput) {
+        searchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                window.searchOrderForPreCancel();
+            }
+        });
+    }
+});
+
+window.searchOrderForPreCancel = async () => {
+    const input = document.getElementById('input-pre-cancel-search');
+    const errorEl = document.getElementById('pre-cancel-search-error');
+    const previewBox = document.getElementById('box-pre-cancel-order-preview');
+    const btnSearch = document.getElementById('btn-pre-cancel-search');
+
+    if (!input || !errorEl || !previewBox) return;
+
+    const rawTerm = input.value.trim();
+    if (!rawTerm) {
+        errorEl.textContent = 'Por favor ingresa un número de orden o ID.';
+        errorEl.classList.remove('hidden');
+        previewBox.classList.add('hidden');
+        return;
+    }
+
+    errorEl.classList.add('hidden');
+    const oldBtnHtml = btnSearch ? btnSearch.innerHTML : '';
+    if (btnSearch) {
+        btnSearch.disabled = true;
+        btnSearch.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Buscando...';
+    }
+
+    try {
+        let foundDoc = null;
+
+        // 1. Búsqueda directa por ID de documento en Firestore
+        try {
+            const directSnap = await getDoc(doc(db, "orders", rawTerm));
+            if (directSnap.exists()) {
+                foundDoc = { id: directSnap.id, ...directSnap.data() };
+            }
+        } catch (e) {}
+
+        // 2. Si no se encontró por ID directo, buscar por internalOrderNumber (ej: #1045 o 1045)
+        if (!foundDoc) {
+            const numClean = rawTerm.replace('#', '').trim();
+            const numParsed = Number(numClean);
+            
+            // Buscar por internalOrderNumber como string o number
+            let q1 = query(collection(db, "orders"), where("internalOrderNumber", "==", numClean), limit(1));
+            let s1 = await getDocs(q1);
+            if (!s1.empty) {
+                foundDoc = { id: s1.docs[0].id, ...s1.docs[0].data() };
+            } else if (!isNaN(numParsed) && numParsed > 0) {
+                let q2 = query(collection(db, "orders"), where("internalOrderNumber", "==", numParsed), limit(1));
+                let s2 = await getDocs(q2);
+                if (!s2.empty) {
+                    foundDoc = { id: s2.docs[0].id, ...s2.docs[0].data() };
+                }
+            }
+        }
+
+        // 3. Buscar por mlOrderId
+        if (!foundDoc) {
+            let q3 = query(collection(db, "orders"), where("mlOrderId", "==", rawTerm), limit(1));
+            let s3 = await getDocs(q3);
+            if (!s3.empty) {
+                foundDoc = { id: s3.docs[0].id, ...s3.docs[0].data() };
+            }
+        }
+
+        if (!foundDoc) {
+            errorEl.textContent = `No se encontró ningún pedido con el identificador "${rawTerm}". Verifica el número.`;
+            errorEl.classList.remove('hidden');
+            previewBox.classList.add('hidden');
+            return;
+        }
+
+        currentPreCancelOrder = foundDoc;
+
+        // Renderizar vista previa de la orden encontrada
+        const numEl = document.getElementById('prev-order-number');
+        const sourceEl = document.getElementById('prev-order-source');
+        const statusEl = document.getElementById('prev-order-status');
+        const clientEl = document.getElementById('prev-order-client');
+        const dateEl = document.getElementById('prev-order-date');
+        const totalEl = document.getElementById('prev-order-total');
+        const itemsListEl = document.getElementById('prev-order-items-list');
+        const boxTreasury = document.getElementById('box-pre-cancel-treasury');
+
+        if (numEl) numEl.textContent = foundDoc.internalOrderNumber ? `#${foundDoc.internalOrderNumber}` : `#${foundDoc.id.slice(0, 8)}`;
+        if (sourceEl) sourceEl.textContent = foundDoc.source || foundDoc.channel || 'Manual';
+        
+        const isCancelled = foundDoc.status === 'CANCELADO';
+        if (statusEl) {
+            statusEl.textContent = foundDoc.status || 'PENDIENTE';
+            statusEl.className = isCancelled 
+                ? 'px-2.5 py-1 bg-rose-100 border border-rose-200 rounded-xl text-[10px] font-black uppercase text-rose-700'
+                : 'px-2.5 py-1 bg-amber-100 border border-amber-200 rounded-xl text-[10px] font-black uppercase text-amber-700';
+        }
+
+        if (clientEl) clientEl.textContent = foundDoc.userName || foundDoc.customerName || (foundDoc.shippingAddress && foundDoc.shippingAddress.name) || 'Cliente sin nombre';
+        
+        let formattedDate = 'N/A';
+        const rawDate = foundDoc.createdAt || foundDoc.date;
+        if (rawDate) {
+            const d = rawDate.toDate ? rawDate.toDate() : new Date(rawDate);
+            formattedDate = d.toLocaleDateString('es-CO', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+        }
+        if (dateEl) dateEl.textContent = formattedDate;
+
+        const totalAmount = Number(foundDoc.total) || Number(foundDoc.amountPaid) || 0;
+        if (totalEl) totalEl.textContent = formatCOP(totalAmount);
+
+        // Renderizar items del pedido
+        const items = foundDoc.items || [];
+        if (itemsListEl) {
+            if (items.length === 0) {
+                itemsListEl.innerHTML = '<p class="text-xs text-gray-400 italic">Este pedido no tiene items registrados.</p>';
+            } else {
+                itemsListEl.innerHTML = items.map(it => {
+                    const variantText = `${it.color || ''} ${it.capacity ? '- ' + it.capacity : ''}`.trim();
+                    const qty = Number(it.quantity) || 1;
+                    return `
+                        <div class="flex items-center justify-between p-2.5 bg-white rounded-xl border border-gray-200 shadow-2xs text-xs">
+                            <div class="min-w-0 pr-2">
+                                <span class="font-black text-brand-black truncate block">${it.name || 'Producto'}</span>
+                                ${variantText ? `<span class="text-[10px] text-gray-400 font-bold block">${variantText}</span>` : ''}
+                                <span class="text-[9px] font-mono text-gray-400">SKU: ${it.sku || 'N/A'}</span>
+                            </div>
+                            <div class="text-right shrink-0">
+                                <span class="px-2 py-0.5 bg-slate-100 text-slate-700 rounded font-black text-xs">${qty} ud(s)</span>
+                                <span class="text-[9px] text-rose-500 font-bold block mt-0.5">Sin retorno</span>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            }
+        }
+
+        // Mostrar opción de tesorería si hay pago registrado
+        const hasPayment = (Number(foundDoc.amountPaid) > 0 || Number(foundDoc.total) > 0) && foundDoc.paymentAccountId;
+        if (boxTreasury) {
+            boxTreasury.classList.toggle('hidden', !hasPayment);
+            const chkTreasury = document.getElementById('chk-pre-cancel-treasury');
+            if (chkTreasury) chkTreasury.checked = false;
+        }
+
+        const btnExec = document.getElementById('btn-pre-cancel-execute');
+        if (btnExec) {
+            if (isCancelled) {
+                btnExec.disabled = true;
+                btnExec.classList.add('opacity-50', 'cursor-not-allowed');
+                btnExec.innerHTML = '<i class="fa-solid fa-check"></i> <span>Este Pedido ya se encuentra CANCELADO</span>';
+            } else {
+                btnExec.disabled = false;
+                btnExec.classList.remove('opacity-50', 'cursor-not-allowed');
+                btnExec.innerHTML = '<i class="fa-solid fa-ban"></i> <span>Anular Pedido Definitivamente (0 Retorno de Stock)</span>';
+            }
+        }
+
+        previewBox.classList.remove('hidden');
+
+    } catch (err) {
+        console.error("Error buscando pedido:", err);
+        errorEl.textContent = 'Error al consultar la base de datos: ' + (err.message || err);
+        errorEl.classList.remove('hidden');
+    } finally {
+        if (btnSearch) {
+            btnSearch.disabled = false;
+            btnSearch.innerHTML = oldBtnHtml;
+        }
+    }
+};
+
+window.confirmAndExecutePreCancel = async () => {
+    if (!currentPreCancelOrder) return;
+    const order = currentPreCancelOrder;
+
+    if (order.status === 'CANCELADO') {
+        alert("Este pedido ya está marcado como CANCELADO.");
+        return;
+    }
+
+    const releaseSerials = document.getElementById('chk-pre-cancel-serials')?.checked ?? true;
+    const reverseTreasury = document.getElementById('chk-pre-cancel-treasury')?.checked ?? false;
+    const reasonText = document.getElementById('input-pre-cancel-reason')?.value.trim() || 'Anulación por Regularización Pre-Inventario Físico (Sin Retorno de Stock)';
+
+    let msg = `CONFIRMAR ANULACIÓN PRE-INVENTARIO:\n\n`;
+    msg += `Pedido: ${order.internalOrderNumber ? '#' + order.internalOrderNumber : order.id}\n`;
+    msg += `Cliente: ${order.userName || 'Cliente'}\n\n`;
+    msg += `GARANTÍA DE STOCK:\n`;
+    msg += `• 0 unidades volverán a bodega. El stock de los productos NO SE MODIFICARÁ.\n`;
+    if (releaseSerials) {
+        msg += `• Los seriales asignados a este pedido volverán a quedar disponibles en bodega.\n`;
+    } else {
+        msg += `• Los seriales mantendrán su estado actual.\n`;
+    }
+    if (reverseTreasury) {
+        msg += `• Se restará el valor pagado de la cuenta de tesorería asociada.\n`;
+    }
+    msg += `\n¿Confirmas anular este pedido con estas condiciones?`;
+
+    if (!confirm(msg)) return;
+
+    const btnExec = document.getElementById('btn-pre-cancel-execute');
+    const oldBtnHtml = btnExec ? btnExec.innerHTML : '';
+    if (btnExec) {
+        btnExec.disabled = true;
+        btnExec.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Anulando Pedido...';
+    }
+
+    try {
+        const batch = writeBatch(db);
+        const now = serverTimestamp();
+        const nowISO = new Date().toISOString();
+        const adminEmail = currentUser?.email || 'admin@pixeltechcol.com';
+
+        // 1. Actualizar Orden a CANCELADO sin retorno de stock
+        const orderRef = doc(db, "orders", order.id);
+        const orderUpdateData = {
+            status: 'CANCELADO',
+            isStockDeducted: false,
+            cancelledWithoutStockReturn: true,
+            preInventoryCancelled: true,
+            cancelReason: reasonText,
+            cancelledAt: now,
+            cancelledBy: adminEmail,
+            cancellationConfirmed: true,
+            cancellationPendingConfirm: false,
+            updatedAt: now
+        };
+        batch.update(orderRef, orderUpdateData);
+
+        // 2. Anular remisión vinculada si existe
+        try {
+            const remRef = doc(db, "remissions", order.id);
+            const remSnap = await getDoc(remRef);
+            if (remSnap.exists()) {
+                batch.update(remRef, { status: 'CANCELADO', updatedAt: now });
+            }
+        } catch (e) {}
+
+        // 3. Seriales vinculados a la orden
+        let serialsProcessed = [];
+        if (releaseSerials) {
+            try {
+                const serialsQuery = query(collection(db, "product_serials"), where("orderId", "==", order.id));
+                const serialsSnap = await getDocs(serialsQuery);
+                serialsSnap.forEach(sDoc => {
+                    const serData = sDoc.data();
+                    serialsProcessed.push(serData.serialNumber || sDoc.id);
+                    batch.update(sDoc.ref, {
+                        status: 'AVAILABLE',
+                        orderId: null,
+                        orderInternalNumber: null,
+                        clientName: null,
+                        clientPhone: null,
+                        dispatchedAt: null,
+                        returnedAt: now,
+                        updatedAt: now,
+                        notes: `Liberado por anulación pre-inventario del pedido #${order.internalOrderNumber || order.id.slice(0, 8)}`
+                    });
+                });
+            } catch (errSerials) {
+                console.warn("Aviso al liberar seriales de pedido pre-inventario:", errSerials);
+            }
+        }
+
+        // 4. Reversar tesorería si el admin lo marcó explícitamente
+        if (reverseTreasury && order.paymentAccountId) {
+            try {
+                const accRef = doc(db, "accounts", order.paymentAccountId);
+                const accSnap = await getDoc(accRef);
+                if (accSnap.exists()) {
+                    const amountPaid = Number(order.amountPaid) || Number(order.total) || 0;
+                    const curBal = Number(accSnap.data().balance) || 0;
+                    batch.update(accRef, { balance: Math.max(0, curBal - amountPaid) });
+
+                    const expRef = doc(collection(db, "expenses"));
+                    batch.set(expRef, {
+                        amount: amountPaid,
+                        category: "Anulación Pre-Inventario",
+                        description: `Reverso por anulación pre-inventario de Orden #${order.internalOrderNumber || order.id.slice(0, 8)}`,
+                        paymentMethod: accSnap.data().name || order.paymentMethod || 'Manual',
+                        supplierName: order.userName || "Cliente",
+                        date: now,
+                        createdAt: now,
+                        type: 'EXPENSE',
+                        orderId: order.id,
+                        isRefund: true
+                    });
+                }
+            } catch (accErr) {
+                console.warn("Aviso al reversar tesorería:", accErr);
+            }
+        }
+
+        // 5. Registrar en inventory_audit_logs para trazabilidad inmutable
+        const auditLogRef = doc(collection(db, "inventory_audit_logs"));
+        batch.set(auditLogRef, {
+            type: 'PRE_INVENTORY_ORDER_CANCEL',
+            orderId: order.id,
+            internalOrderNumber: order.internalOrderNumber || 'N/A',
+            clientName: order.userName || 'N/A',
+            orderTotal: Number(order.total) || 0,
+            items: order.items || [],
+            serialsReleased: serialsProcessed,
+            reason: reasonText,
+            adminEmail: adminEmail,
+            adminName: currentUser?.displayName || 'Administrador',
+            notes: 'Pedido anulado sin retorno de stock por regularización física previa.',
+            timestamp: now,
+            createdAtISO: nowISO
+        });
+
+        // Ejecutar Batch atómico
+        await batch.commit();
+
+        alert(`Pedido #${order.internalOrderNumber || order.id.slice(0, 8)} anulado con éxito.\n\nEl stock de bodega se mantuvo 100% intacto y no fue alterado.`);
+        window.closePreInventoryCancelModal();
+
+    } catch (err) {
+        console.error("Error al ejecutar anulación pre-inventario:", err);
+        alert("Error al anular el pedido: " + (err.message || err));
+    } finally {
+        if (btnExec) {
+            btnExec.disabled = false;
+            btnExec.innerHTML = oldBtnHtml;
         }
     }
 };

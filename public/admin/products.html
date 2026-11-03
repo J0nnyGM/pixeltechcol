@@ -94,6 +94,9 @@
                         <button onclick="filterByTab('draft')" id="tab-draft" class="tab-btn shrink-0 px-3.5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider bg-white text-gray-500 border border-gray-200 hover:text-brand-cyan hover:border-brand-cyan transition-all hover:-translate-y-0.5 shadow-2xs">
                             <i class="fa-solid fa-circle text-[7px] text-amber-400 mr-1"></i> Borradores
                         </button>
+                        <button onclick="filterByTab('deactivated')" id="tab-deactivated" class="tab-btn shrink-0 px-3.5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider bg-white text-gray-500 border border-gray-200 hover:text-slate-700 hover:border-slate-400 transition-all hover:-translate-y-0.5 shadow-2xs">
+                            <i class="fa-solid fa-circle-minus text-[7px] text-slate-400 mr-1"></i> Desactivados
+                        </button>
                         <button onclick="filterByTab('lowstock')" id="tab-lowstock" class="tab-btn shrink-0 px-3.5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider bg-white text-gray-500 border border-gray-200 hover:text-brand-red hover:border-brand-red transition-all hover:-translate-y-0.5 shadow-2xs">
                             <i class="fa-solid fa-circle-exclamation text-brand-red mr-1"></i> Stock Bajo (≤ 5)
                         </button>
@@ -322,7 +325,7 @@
         </div>
     </div>
 
-    <script type="module" src="../js/admin-inventory.js?v=1.1.0"></script>
+    <script type="module" src="../js/admin-inventory.js?v=1.2.0"></script>
     <script type="module" src="../js/admin-guard.js"></script>
 </body>
 

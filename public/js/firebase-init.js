@@ -139,7 +139,7 @@ export async function clearAllAppDataAndReload(preserveAuth = true, clearIndexed
         try {
             for (let i = 0; i < localStorage.length; i++) {
                 const key = localStorage.key(i);
-                if (key && (key.startsWith('firebase:authUser') || key.includes('firebase') || key === 'pixeltech_cache_version')) {
+                if (key && (key.startsWith('firebase:authUser') || key.includes('firebase') || key === 'pixeltech_cache_version' || key === 'pixeltech_app_version')) {
                     authKeys[key] = localStorage.getItem(key);
                 }
             }

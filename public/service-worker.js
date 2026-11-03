@@ -1,4 +1,4 @@
-const CACHE_NAME = 'pixeltech-shell-v11.06';
+const CACHE_NAME = 'pixeltech-shell-v11.07';
 
 // Archivos vitales para que la app arranque sin internet
 const urlsToCache = [
@@ -32,6 +32,15 @@ self.addEventListener('activate', (event) => {
           }
         })
       );
+    }).then(() => {
+      return self.clients.matchAll({ includeUncontrolled: true, type: 'window' }).then((clients) => {
+        clients.forEach((client) => {
+          client.postMessage({
+            type: 'VERSION_UPDATE',
+            version: CACHE_NAME.replace('pixeltech-shell-', '')
+          });
+        });
+      });
     })
   );
   self.clients.claim();
@@ -146,10 +155,15 @@ self.addEventListener('fetch', (event) => {
   );
 });
 
-// --- ESCUCHAR LA ORDEN DE ACTUALIZACIÓN MANUAL ---
+// --- ESCUCHAR LA ORDEN DE ACTUALIZACION MANUAL Y CONSULTAS ---
 self.addEventListener('message', (event) => {
-  // 🔥 AQUÍ SÍ SE EJECUTA: Solo cuando el admin-ui.js manda el mensaje al hacer clic en el botón
   if (event.data && event.data.type === 'SKIP_WAITING') {
     self.skipWaiting();
+  }
+  if (event.data && event.data.type === 'GET_VERSION') {
+    const version = CACHE_NAME.replace('pixeltech-shell-', '');
+    if (event.ports && event.ports[0]) {
+      event.ports[0].postMessage({ version });
+    }
   }
 });

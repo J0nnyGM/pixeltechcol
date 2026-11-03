@@ -1060,20 +1060,56 @@ function createWebhookHandler({
                     const existingOrder = orderCheck.data();
                     const isCancelled = isOrderCancelled(orderData, rawShipment);
 
+                    const isFullOrder = Boolean(
+                        (rawShipment && rawShipment.logistic_type === 'fulfillment') ||
+                        (orderData.shipping && orderData.shipping.logistic_type === 'fulfillment') ||
+                        (Array.isArray(orderData.tags) && orderData.tags.includes('fulfillment'))
+                    );
+                    const orderIsFull = isFullOrder || Boolean(existingOrder.isFull || existingOrder.isMlFull || existingOrder.logisticType === 'fulfillment');
+
                     if (isCancelled && existingOrder.status !== 'CANCELADO') {
                         if (existingOrder.cancellationConfirmed) {
                             return sendOk("OK: Cancellation already confirmed");
                         }
-                        if (existingOrder.status === 'CANCELACION_PENDIENTE' && existingOrder.cancellationPendingConfirm) {
-                            return sendOk("OK: Already marked for cancellation confirmation");
-                        }
-                        console.log(`[ML] Orden de ${storeTitle} ${orderId} fue cancelada en MercadoLibre. Marcando CANCELACION_PENDIENTE para confirmar retencion en bodega (estado previo: ${existingOrder.status || 'PENDIENTE'}).`);
-                        
+
                         const cancelReason = orderData.cancel_detail?.requested_by 
                             ? `Cancelado por ${orderData.cancel_detail.requested_by} en MercadoLibre (${orderData.cancel_detail.description || orderData.cancel_detail.code || 'Solicitud de comprador'})` 
                             : (rawShipment?.status === 'cancelled' 
                                 ? 'Envio cancelado en MercadoLibre' 
                                 : 'Cancelado por el comprador o plataforma en MercadoLibre');
+
+                        // REGLA CRITICA: En ordenes FULL el paquete y el stock estan en las bodegas de Mercado Libre.
+                        // No se requiere retencion fisica ni confirmacion en bodega local. Se cancela directamente en automatico.
+                        if (orderIsFull) {
+                            console.log(`[ML FULL] Orden de ${storeTitle} ${orderId} fue cancelada en MercadoLibre. Pasando directamente a CANCELADO (Full gestiona su propio stock).`);
+                            await db.collection('orders').doc(orderId).update({
+                                status: 'CANCELADO',
+                                statusDetail: 'CANCELADO_FULL_AUTOMATICO',
+                                isFull: true,
+                                isMlFull: true,
+                                logisticType: 'fulfillment',
+                                shippingType: 'FULL',
+                                cancellationPendingConfirm: false,
+                                cancellationConfirmed: true,
+                                cancellationConfirmedAt: admin.firestore.FieldValue.serverTimestamp(),
+                                mlCancelled: true,
+                                mlStatus: orderData.status || 'cancelled',
+                                shippingStatus: rawShipment?.status || existingOrder.shippingStatus || 'cancelled',
+                                cancellationRequestedAt: admin.firestore.FieldValue.serverTimestamp(),
+                                cancellationReason: cancelReason,
+                                cancellationPreviousStatus: existingOrder.status || 'ALISTADO',
+                                isStockDeducted: false,
+                                paymentStatus: 'REFUNDED',
+                                updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                            });
+
+                            return sendOk("OK: Full order cancelled automatically without requiring warehouse confirmation");
+                        }
+
+                        if (existingOrder.status === 'CANCELACION_PENDIENTE' && existingOrder.cancellationPendingConfirm) {
+                            return sendOk("OK: Already marked for cancellation confirmation");
+                        }
+                        console.log(`[ML] Orden de ${storeTitle} ${orderId} fue cancelada en MercadoLibre. Marcando CANCELACION_PENDIENTE para confirmar retencion en bodega (estado previo: ${existingOrder.status || 'PENDIENTE'}).`);
 
                         await db.collection('orders').doc(orderId).update({
                             status: 'CANCELACION_PENDIENTE',
@@ -1089,13 +1125,6 @@ function createWebhookHandler({
 
                         return sendOk("OK: Marked for cancellation confirmation");
                     }
-
-                const isFullOrder = Boolean(
-                    (rawShipment && rawShipment.logistic_type === 'fulfillment') ||
-                    (orderData.shipping && orderData.shipping.logistic_type === 'fulfillment') ||
-                    (Array.isArray(orderData.tags) && orderData.tags.includes('fulfillment'))
-                );
-                const orderIsFull = isFullOrder || Boolean(existingOrder.isFull || existingOrder.isMlFull || existingOrder.logisticType === 'fulfillment');
 
                 let billingInfo = null;
                 try {
@@ -1566,7 +1595,7 @@ function createWebhookHandler({
                                 let combo = newCombinations[p.variantIndex];
                                 if (!combo.branchStock) combo.branchStock = {};
 
-                                const branchToDeduct = (isFullOrder && combo.branchStock['full'] !== undefined && Number(combo.branchStock['full']) > 0) ? 'full' : 'bodega';
+                                const branchToDeduct = isFullOrder ? 'full' : 'bodega';
 
                                 let currentBranchStock = combo.branchStock[branchToDeduct] !== undefined
                                     ? (Number(combo.branchStock[branchToDeduct]) || 0)
@@ -1599,7 +1628,7 @@ function createWebhookHandler({
                                 let combo = newCombinations[bestComboIdx];
                                 if (!combo.branchStock) combo.branchStock = {};
 
-                                const branchToDeduct = (isFullOrder && combo.branchStock['full'] !== undefined && Number(combo.branchStock['full']) > 0) ? 'full' : 'bodega';
+                                const branchToDeduct = isFullOrder ? 'full' : 'bodega';
 
                                 let currentBranchStock = combo.branchStock[branchToDeduct] !== undefined
                                     ? (Number(combo.branchStock[branchToDeduct]) || 0)
@@ -1617,7 +1646,7 @@ function createWebhookHandler({
                                     }
                                 });
                             } else {
-                                const branchToDeduct = (isFullOrder && rootBranchStock['full'] !== undefined && Number(rootBranchStock['full']) > 0) ? 'full' : 'bodega';
+                                const branchToDeduct = isFullOrder ? 'full' : 'bodega';
 
                                 let currentBranchStock = rootBranchStock[branchToDeduct] !== undefined
                                     ? (Number(rootBranchStock[branchToDeduct]) || 0)
@@ -1710,7 +1739,7 @@ function createWebhookHandler({
 
                     const isNewOrderCancelled = isOrderCancelled(orderData, rawShipment);
                     const orderInitialStatus = isNewOrderCancelled
-                        ? 'CANCELACION_PENDIENTE'
+                        ? (isFullOrder ? 'CANCELADO' : 'CANCELACION_PENDIENTE')
                         : (isFullOrder
                             ? (rawShipment?.status === 'delivered'
                                 ? 'ENTREGADO'
@@ -1720,7 +1749,7 @@ function createWebhookHandler({
                                 : (rawShipment?.status === 'shipped' || rawShipment?.status === 'in_transit' ? 'DESPACHADO' : 'PENDIENTE')));
 
                     const orderStatusDetail = isNewOrderCancelled
-                        ? 'CANCELADO_ML_PENDIENTE_CONFIRMAR'
+                        ? (isFullOrder ? 'CANCELADO_FULL_AUTOMATICO' : 'CANCELADO_ML_PENDIENTE_CONFIRMAR')
                         : (isFullOrder
                             ? (rawShipment?.status === 'delivered'
                                 ? 'ENTREGADO_FULFILLMENT'
@@ -1789,7 +1818,9 @@ function createWebhookHandler({
                         isMlFull: isFullOrder,
                         logisticType: isFullOrder ? 'fulfillment' : (rawShipment?.logistic_type || orderData.shipping?.logistic_type || 'default'),
                         shippingType: isFullOrder ? 'FULL' : (rawShipment?.logistic_type === 'self_service' ? 'FLEX' : 'STANDARD'),
-                        cancellationPendingConfirm: isNewOrderCancelled ? true : false,
+                        cancellationPendingConfirm: (isNewOrderCancelled && !isFullOrder) ? true : false,
+                        cancellationConfirmed: (isNewOrderCancelled && isFullOrder) ? true : false,
+                        cancellationConfirmedAt: (isNewOrderCancelled && isFullOrder) ? admin.firestore.FieldValue.serverTimestamp() : null,
                         mlCancelled: isNewOrderCancelled ? true : false,
                         cancellationReason: isNewOrderCancelled 
                             ? (orderData.cancel_detail?.requested_by 
@@ -2144,8 +2175,207 @@ exports.getLabel = async (req, res) => {
 };
 
 // ============================================================================
-// 5. ACTUALIZACIÓN DE STOCK EN MERCADOLIBRE POR SKU
+// 5. ACTUALIZACIÓN DE STOCK EN MERCADOLIBRE POR SKU (MULTIORIGEN & OMISIÓN DE FULL)
 // ============================================================================
+
+/**
+ * Actualiza el stock de una bodega de vendedor (seller_warehouse) en MercadoLibre
+ * utilizando la API de User Products (Multi-Warehouse / Multiorigen).
+ */
+async function updateStockViaUserProduct(userProductId, qty, currentToken, db, storeDocName, itemId, variationId, cleanSKU) {
+    if (!userProductId) return false;
+
+    try {
+        let upRes = await fetch(`https://api.mercadolibre.com/user-products/${userProductId}/stock`, {
+            headers: { 'Authorization': `Bearer ${currentToken}` }
+        });
+
+        if (upRes.status === 401 && db) {
+            currentToken = await refreshMLAccessToken(db, storeDocName);
+            upRes = await fetch(`https://api.mercadolibre.com/user-products/${userProductId}/stock`, {
+                headers: { 'Authorization': `Bearer ${currentToken}` }
+            });
+        }
+
+        if (!upRes.ok) {
+            const errTxt = await upRes.text();
+            console.error(` [${storeDocName}] Error consultando GET user-products/${userProductId}/stock:`, errTxt);
+            return false;
+        }
+
+        const upData = await upRes.json();
+        const locations = Array.isArray(upData.locations) ? upData.locations : [];
+
+        // Buscar ubicaciones de tipo seller_warehouse (bodega del vendedor)
+        const sellerLocations = locations.filter(l => l.type === 'seller_warehouse');
+
+        // Si ya tiene exactamente ese stock en seller_warehouse, no hace falta llamar PUT
+        if (sellerLocations.length > 0 && sellerLocations.every(l => l.quantity === qty)) {
+            console.log(` [${storeDocName}] Stock ya está en ${qty} en seller_warehouse para user-product ${userProductId} (item ${itemId}, SKU ${cleanSKU})`);
+            return true;
+        }
+
+        const xVersion = upRes.headers.get('x-version') || '1';
+        let targetLocations = [];
+
+        if (sellerLocations.length > 0) {
+            targetLocations = sellerLocations.map(loc => {
+                const itemObj = { quantity: qty };
+                if (loc.store_id) itemObj.store_id = loc.store_id;
+                if (loc.network_node_id) itemObj.network_node_id = loc.network_node_id;
+                return itemObj;
+            });
+        } else if (locations.length > 0) {
+            // Si no tiene explícitamente type seller_warehouse, usar todas las que no sean meli_facility
+            const nonMeli = locations.filter(l => l.type !== 'meli_facility');
+            targetLocations = nonMeli.map(loc => {
+                const itemObj = { quantity: qty };
+                if (loc.store_id) itemObj.store_id = loc.store_id;
+                if (loc.network_node_id) itemObj.network_node_id = loc.network_node_id;
+                return itemObj;
+            });
+        }
+
+        if (targetLocations.length === 0) {
+            targetLocations.push({ quantity: qty });
+        }
+
+        let putRes = await fetch(`https://api.mercadolibre.com/user-products/${userProductId}/stock/type/seller_warehouse`, {
+            method: 'PUT',
+            headers: {
+                'Authorization': `Bearer ${currentToken}`,
+                'Content-Type': 'application/json',
+                'x-version': xVersion
+            },
+            body: JSON.stringify({ locations: targetLocations })
+        });
+
+        if (putRes.status === 401 && db) {
+            currentToken = await refreshMLAccessToken(db, storeDocName);
+            putRes = await fetch(`https://api.mercadolibre.com/user-products/${userProductId}/stock/type/seller_warehouse`, {
+                method: 'PUT',
+                headers: {
+                    'Authorization': `Bearer ${currentToken}`,
+                    'Content-Type': 'application/json',
+                    'x-version': xVersion
+                },
+                body: JSON.stringify({ locations: targetLocations })
+            });
+        }
+
+        // Si da 409 Conflict por concurrencia de versión, reintentar con la nueva versión
+        if (putRes.status === 409) {
+            const retryGet = await fetch(`https://api.mercadolibre.com/user-products/${userProductId}/stock`, {
+                headers: { 'Authorization': `Bearer ${currentToken}` }
+            });
+            if (retryGet.ok) {
+                const newVersion = retryGet.headers.get('x-version') || '1';
+                putRes = await fetch(`https://api.mercadolibre.com/user-products/${userProductId}/stock/type/seller_warehouse`, {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': `Bearer ${currentToken}`,
+                        'Content-Type': 'application/json',
+                        'x-version': newVersion
+                    },
+                    body: JSON.stringify({ locations: targetLocations })
+                });
+            }
+        }
+
+        if (putRes.ok) {
+            console.log(` [${storeDocName}] Stock multiorigen actualizado a ${qty} en user-product ${userProductId} (item ${itemId}${variationId ? ` var ${variationId}` : ''}, SKU: ${cleanSKU})`);
+            return true;
+        } else {
+            const errTxt = await putRes.text();
+            console.error(` [${storeDocName}] Error en PUT user-products/${userProductId}/stock/type/seller_warehouse:`, errTxt);
+            return false;
+        }
+    } catch (err) {
+        console.error(` [${storeDocName}] Excepción en updateStockViaUserProduct (${userProductId}):`, err);
+        return false;
+    }
+}
+
+/**
+ * Actualiza el stock de una variación usando el endpoint clásico de items.
+ */
+async function updateStockLegacyVariation(itemId, variationId, qty, currentToken, db, storeDocName, cleanSKU) {
+    try {
+        let putRes = await fetch(`https://api.mercadolibre.com/items/${itemId}/variations/${variationId}`, {
+            method: 'PUT',
+            headers: {
+                'Authorization': `Bearer ${currentToken}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ available_quantity: qty })
+        });
+
+        if (putRes.status === 401 && db) {
+            currentToken = await refreshMLAccessToken(db, storeDocName);
+            putRes = await fetch(`https://api.mercadolibre.com/items/${itemId}/variations/${variationId}`, {
+                method: 'PUT',
+                headers: {
+                    'Authorization': `Bearer ${currentToken}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ available_quantity: qty })
+            });
+        }
+
+        if (putRes.ok) {
+            console.log(` [${storeDocName}] Stock clásico actualizado a ${qty} en item ${itemId} var ${variationId} (SKU: ${cleanSKU})`);
+            return true;
+        } else {
+            const errBody = await putRes.text();
+            console.error(` [${storeDocName}] Error actualizando variación clásica ML ${itemId}/${variationId}:`, errBody);
+            return false;
+        }
+    } catch (e) {
+        console.error(` [${storeDocName}] Excepción en updateStockLegacyVariation:`, e);
+        return false;
+    }
+}
+
+/**
+ * Actualiza el stock de un item simple usando el endpoint clásico de items.
+ */
+async function updateStockLegacySimple(itemId, qty, currentToken, db, storeDocName, cleanSKU) {
+    try {
+        let putRes = await fetch(`https://api.mercadolibre.com/items/${itemId}`, {
+            method: 'PUT',
+            headers: {
+                'Authorization': `Bearer ${currentToken}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ available_quantity: qty })
+        });
+
+        if (putRes.status === 401 && db) {
+            currentToken = await refreshMLAccessToken(db, storeDocName);
+            putRes = await fetch(`https://api.mercadolibre.com/items/${itemId}`, {
+                method: 'PUT',
+                headers: {
+                    'Authorization': `Bearer ${currentToken}`,
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ available_quantity: qty })
+            });
+        }
+
+        if (putRes.ok) {
+            console.log(` [${storeDocName}] Stock clásico actualizado a ${qty} en item ${itemId} (SKU: ${cleanSKU})`);
+            return true;
+        } else {
+            const errBody = await putRes.text();
+            console.error(` [${storeDocName}] Error actualizando item simple clásico ML ${itemId}:`, errBody);
+            return false;
+        }
+    } catch (e) {
+        console.error(` [${storeDocName}] Excepción en updateStockLegacySimple:`, e);
+        return false;
+    }
+}
+
 async function updateMLStockBySKU(db, storeDocName, sku, newStock) {
     if (!sku) return { success: false, reason: "Sin SKU" };
     const cleanSKU = String(sku).trim();
@@ -2187,6 +2417,23 @@ async function updateMLStockBySKU(db, storeDocName, sku, newStock) {
             try {
                 const item = await fetchML(`/items/${itemId}`, currentToken, db, storeDocName);
 
+                // 1. OMITIR PUBLICACIONES EN FULL (Fulfillment)
+                const isFull = Boolean(
+                    item.shipping?.logistic_type === 'fulfillment' ||
+                    item.logistic_type === 'fulfillment' ||
+                    (Array.isArray(item.tags) && item.tags.includes('fulfillment'))
+                );
+                if (isFull) {
+                    console.log(` [${storeDocName}] Item ${itemId} (${item.title || cleanSKU}) es de logística FULL (fulfillment). Se omite sincronización de stock local.`);
+                    continue;
+                }
+
+                // 2. Omitir publicaciones cerradas o inactivas
+                if (item.status === 'closed' || item.status === 'inactive') {
+                    console.log(` [${storeDocName}] Item ${itemId} (${cleanSKU}) está en estado ${item.status}. Se omite.`);
+                    continue;
+                }
+
                 if (item.variations && item.variations.length > 0) {
                     const matchingVars = item.variations.filter(v => {
                         if (v.seller_custom_field && String(v.seller_custom_field).trim().toUpperCase() === cleanSKU.toUpperCase()) return true;
@@ -2198,72 +2445,36 @@ async function updateMLStockBySKU(db, storeDocName, sku, newStock) {
                     });
 
                     for (const v of matchingVars) {
-                        if (v.available_quantity !== qty) {
-                            let putRes = await fetch(`https://api.mercadolibre.com/items/${itemId}/variations/${v.id}`, {
-                                method: 'PUT',
-                                headers: {
-                                    'Authorization': `Bearer ${currentToken}`,
-                                    'Content-Type': 'application/json'
-                                },
-                                body: JSON.stringify({ available_quantity: qty })
-                            });
+                        const upId = v.user_product_id || item.user_product_id;
+                        let updated = false;
 
-                            if (putRes.status === 401) {
-                                try {
-                                    currentToken = await refreshMLAccessToken(db, storeDocName);
-                                    putRes = await fetch(`https://api.mercadolibre.com/items/${itemId}/variations/${v.id}`, {
-                                        method: 'PUT',
-                                        headers: {
-                                            'Authorization': `Bearer ${currentToken}`,
-                                            'Content-Type': 'application/json'
-                                        },
-                                        body: JSON.stringify({ available_quantity: qty })
-                                    });
-                                } catch (rErr) {}
-                            }
-
-                            if (putRes.ok) {
-                                updatedCount++;
-                                console.log(` [${storeDocName}] Stock actualizado a ${qty} en item ${itemId} var ${v.id} (SKU: ${cleanSKU})`);
-                            } else {
-                                const errBody = await putRes.text();
-                                console.error(` [${storeDocName}] Error actualizando variación ML ${itemId}/${v.id}:`, errBody);
-                            }
+                        // Si tiene user_product_id (Multi-Warehouse), actualizar mediante User Products
+                        if (upId) {
+                            updated = await updateStockViaUserProduct(upId, qty, currentToken, db, storeDocName, itemId, v.id, cleanSKU);
                         }
+
+                        // Si no tiene user_product_id o falló UP, intentar el endpoint clásico de variación
+                        if (!updated && v.available_quantity !== qty) {
+                            updated = await updateStockLegacyVariation(itemId, v.id, qty, currentToken, db, storeDocName, cleanSKU);
+                        }
+
+                        if (updated) updatedCount++;
                     }
                 } else {
-                    if (item.available_quantity !== qty) {
-                        let putRes = await fetch(`https://api.mercadolibre.com/items/${itemId}`, {
-                            method: 'PUT',
-                            headers: {
-                                'Authorization': `Bearer ${currentToken}`,
-                                'Content-Type': 'application/json'
-                            },
-                            body: JSON.stringify({ available_quantity: qty })
-                        });
+                    const upId = item.user_product_id;
+                    let updated = false;
 
-                        if (putRes.status === 401) {
-                            try {
-                                currentToken = await refreshMLAccessToken(db, storeDocName);
-                                putRes = await fetch(`https://api.mercadolibre.com/items/${itemId}`, {
-                                    method: 'PUT',
-                                    headers: {
-                                        'Authorization': `Bearer ${currentToken}`,
-                                        'Content-Type': 'application/json'
-                                    },
-                                    body: JSON.stringify({ available_quantity: qty })
-                                });
-                            } catch (rErr) {}
-                        }
-
-                        if (putRes.ok) {
-                            updatedCount++;
-                            console.log(` [${storeDocName}] Stock actualizado a ${qty} en item ${itemId} (SKU: ${cleanSKU})`);
-                        } else {
-                            const errBody = await putRes.text();
-                            console.error(` [${storeDocName}] Error actualizando item simple ML ${itemId}:`, errBody);
-                        }
+                    // Si tiene user_product_id (Multi-Warehouse), actualizar mediante User Products
+                    if (upId) {
+                        updated = await updateStockViaUserProduct(upId, qty, currentToken, db, storeDocName, itemId, null, cleanSKU);
                     }
+
+                    // Si no tiene user_product_id o falló UP, intentar el endpoint clásico de item simple
+                    if (!updated && item.available_quantity !== qty) {
+                        updated = await updateStockLegacySimple(itemId, qty, currentToken, db, storeDocName, cleanSKU);
+                    }
+
+                    if (updated) updatedCount++;
                 }
             } catch (itemErr) {
                 console.error(`Error procesando item ${itemId} en ${storeDocName}:`, itemErr);
@@ -2532,16 +2743,48 @@ async function syncAndValidateMLOrder(orderId, db, isSecondValidation = false, m
         orderUpdates.mlValidationDiff = netDiff;
     }
 
+    const isFullOrder = Boolean(
+        ord.isFull || ord.isMlFull || ord.logisticType === 'fulfillment' ||
+        (rawShipment && rawShipment.logistic_type === 'fulfillment') ||
+        (mlOrderData?.shipping && mlOrderData.shipping.logistic_type === 'fulfillment') ||
+        (Array.isArray(mlOrderData?.tags) && mlOrderData.tags.includes('fulfillment'))
+    );
+
+    if (isFullOrder) {
+        orderUpdates.isFull = true;
+        orderUpdates.isMlFull = true;
+        orderUpdates.logisticType = 'fulfillment';
+        orderUpdates.shippingType = 'FULL';
+    }
+
     if (isCancelledInML && ord.status !== 'CANCELADO' && !ord.cancellationConfirmed) {
-        orderUpdates.cancellationPendingConfirm = true;
-        orderUpdates.mlCancelled = true;
-        orderUpdates.mlStatus = mlOrderData?.status || 'cancelled';
-        orderUpdates.cancellationRequestedAt = admin.firestore.FieldValue.serverTimestamp();
-        orderUpdates.cancellationReason = cancelDetail?.requested_by 
-            ? `Cancelado por ${cancelDetail.requested_by} en MercadoLibre (${cancelDetail.description || cancelDetail.code || 'Solicitud de comprador'})` 
-            : (rawShipment?.status === 'cancelled' ? 'Envio cancelado en MercadoLibre' : 'Cancelado por el comprador o plataforma en MercadoLibre');
-        orderUpdates.cancellationPreviousStatus = ord.status || 'PENDIENTE';
-        orderUpdates.status = 'CANCELACION_PENDIENTE';
+        if (isFullOrder) {
+            console.log(`[ML FULL REVALIDATION] Orden ${ord.id} cancelada en MercadoLibre. Marcando CANCELADO directo (Full gestiona el stock de forma autonoma).`);
+            orderUpdates.status = 'CANCELADO';
+            orderUpdates.statusDetail = 'CANCELADO_FULL_AUTOMATICO';
+            orderUpdates.cancellationPendingConfirm = false;
+            orderUpdates.cancellationConfirmed = true;
+            orderUpdates.cancellationConfirmedAt = admin.firestore.FieldValue.serverTimestamp();
+            orderUpdates.mlCancelled = true;
+            orderUpdates.mlStatus = mlOrderData?.status || 'cancelled';
+            orderUpdates.cancellationRequestedAt = admin.firestore.FieldValue.serverTimestamp();
+            orderUpdates.cancellationReason = cancelDetail?.requested_by 
+                ? `Cancelado por ${cancelDetail.requested_by} en MercadoLibre (${cancelDetail.description || cancelDetail.code || 'Solicitud de comprador'})` 
+                : (rawShipment?.status === 'cancelled' ? 'Envio cancelado en MercadoLibre' : 'Cancelado por el comprador o plataforma en MercadoLibre');
+            orderUpdates.cancellationPreviousStatus = ord.status || 'PENDIENTE';
+            orderUpdates.isStockDeducted = false;
+            orderUpdates.paymentStatus = 'REFUNDED';
+        } else {
+            orderUpdates.cancellationPendingConfirm = true;
+            orderUpdates.mlCancelled = true;
+            orderUpdates.mlStatus = mlOrderData?.status || 'cancelled';
+            orderUpdates.cancellationRequestedAt = admin.firestore.FieldValue.serverTimestamp();
+            orderUpdates.cancellationReason = cancelDetail?.requested_by 
+                ? `Cancelado por ${cancelDetail.requested_by} en MercadoLibre (${cancelDetail.description || cancelDetail.code || 'Solicitud de comprador'})` 
+                : (rawShipment?.status === 'cancelled' ? 'Envio cancelado en MercadoLibre' : 'Cancelado por el comprador o plataforma en MercadoLibre');
+            orderUpdates.cancellationPreviousStatus = ord.status || 'PENDIENTE';
+            orderUpdates.status = 'CANCELACION_PENDIENTE';
+        }
     }
 
     if (buyerInfo) {
@@ -2555,18 +2798,7 @@ async function syncAndValidateMLOrder(orderId, db, isSecondValidation = false, m
         if (rawShipment.status) orderUpdates.shippingStatus = rawShipment.status;
     }
 
-    const isFullOrder = Boolean(
-        ord.isFull || ord.isMlFull || ord.logisticType === 'fulfillment' ||
-        (rawShipment && rawShipment.logistic_type === 'fulfillment') ||
-        (mlOrderData?.shipping && mlOrderData.shipping.logistic_type === 'fulfillment') ||
-        (Array.isArray(mlOrderData?.tags) && mlOrderData.tags.includes('fulfillment'))
-    );
-
     if (isFullOrder && !isCancelledInML) {
-        orderUpdates.isFull = true;
-        orderUpdates.isMlFull = true;
-        orderUpdates.logisticType = 'fulfillment';
-        orderUpdates.shippingType = 'FULL';
 
         if (rawShipment?.status === 'delivered' && ord.status !== 'ENTREGADO' && ord.status !== 'CANCELADO') {
             orderUpdates.status = 'ENTREGADO';

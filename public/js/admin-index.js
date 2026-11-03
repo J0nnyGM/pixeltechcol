@@ -976,7 +976,8 @@ function filterAndRenderOrders() {
 // Renderiza una fila de la tabla de pedidos (Desktop)
 function renderOrderRow(o, role) {
     const isWeb = o.source === 'TIENDA' || o.source === 'TIENDA_WEB';
-    const isCancelPending = o.cancellationPendingConfirm || o.status === 'CANCELACION_PENDIENTE';
+    const isFull = Boolean(o.isFull || o.isMlFull || o.logisticType === 'fulfillment');
+    const isCancelPending = (o.cancellationPendingConfirm || o.status === 'CANCELACION_PENDIENTE') && !isFull;
     const total = Number(o.total) || 0;
     const paid = Number(o.amountPaid) || 0;
     const refunded = Number(o.refundedAmount) || 0;
@@ -991,6 +992,9 @@ function renderOrderRow(o, role) {
     if (isCancelPending) {
         sClass = 'bg-rose-600 text-white border-rose-700 font-black animate-pulse';
         sText = 'CANCELADO ML';
+    } else if (o.status === 'CANCELADO' || (isFull && (o.cancellationPendingConfirm || o.status === 'CANCELACION_PENDIENTE'))) {
+        sClass = 'bg-red-50 text-red-700 border-red-200';
+        sText = 'Cancelado';
     } else if (o.status === 'PENDIENTE') { sClass = 'bg-yellow-50 text-yellow-700 border-yellow-200'; sText = 'Por Alistar'; }
     else if (o.status === 'ALISTADO') { sClass = 'bg-cyan-50 text-brand-cyan border-brand-cyan/20'; sText = 'Alistado'; }
     else if (o.status === 'PAGADO') { sClass = 'bg-rose-50 text-rose-600 border-rose-200 font-black animate-pulse'; sText = 'PAGADO URGENTE'; }
@@ -1133,7 +1137,8 @@ function renderOrderRow(o, role) {
 // Renderiza una tarjeta de pedido para vista movil (< md)
 function renderOrderMobileCard(o, role) {
     const isWeb = o.source === 'TIENDA' || o.source === 'TIENDA_WEB';
-    const isCancelPending = o.cancellationPendingConfirm || o.status === 'CANCELACION_PENDIENTE';
+    const isFull = Boolean(o.isFull || o.isMlFull || o.logisticType === 'fulfillment');
+    const isCancelPending = (o.cancellationPendingConfirm || o.status === 'CANCELACION_PENDIENTE') && !isFull;
     const total = Number(o.total) || 0;
     const paid = Number(o.amountPaid) || 0;
     const refunded = Number(o.refundedAmount) || 0;
@@ -1146,6 +1151,9 @@ function renderOrderMobileCard(o, role) {
     if (isCancelPending) {
         sClass = 'bg-rose-600 text-white border-rose-700 font-black animate-pulse';
         sText = 'CANCELADO ML';
+    } else if (o.status === 'CANCELADO' || (isFull && (o.cancellationPendingConfirm || o.status === 'CANCELACION_PENDIENTE'))) {
+        sClass = 'bg-red-50 text-red-700 border-red-200';
+        sText = 'Cancelado';
     } else if (o.status === 'PENDIENTE') { sClass = 'bg-yellow-50 text-yellow-700 border-yellow-200'; sText = 'Por Alistar'; }
     else if (o.status === 'ALISTADO') { sClass = 'bg-cyan-50 text-brand-cyan border-brand-cyan/20'; sText = 'Alistado'; }
     else if (o.status === 'PAGADO') { sClass = 'bg-rose-50 text-rose-600 border-rose-200 font-black animate-pulse'; sText = 'PAGADO URGENTE'; }
@@ -1461,16 +1469,113 @@ window.scrollToOrdersTable = () => {
     if (table) table.scrollIntoView({ behavior: 'smooth', block: 'start' });
 };
 
-// Version de PWA
-function initVersionBadge() {
-    if ('caches' in window) {
-        caches.keys().then(keys => {
-            const cacheName = keys.find(k => k.startsWith('pixeltech-shell-v'));
-            if (cacheName) {
-                const version = cacheName.replace('pixeltech-shell-', '');
-                const badge = document.getElementById('app-version-badge');
-                if (badge) badge.textContent = version;
+// Version de PWA y aplicacion
+async function initVersionBadge() {
+    const badge = document.getElementById('app-version-badge');
+    if (!badge) return;
+
+    const setVersion = (ver) => {
+        if (!ver || typeof ver !== 'string') return;
+        const cleanVer = ver.trim().startsWith('v') ? ver.trim() : `v${ver.trim()}`;
+        badge.textContent = cleanVer;
+        try {
+            localStorage.setItem('pixeltech_app_version', cleanVer);
+        } catch (e) {}
+    };
+
+    // 1. Mostrar versión guardada de inmediato (0ms de retraso)
+    try {
+        const cached = localStorage.getItem('pixeltech_app_version');
+        if (cached) setVersion(cached);
+    } catch (e) {}
+
+    // 2. Escuchar mensajes del Service Worker activo (actualizaciones en vivo)
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.addEventListener('message', (event) => {
+            if (event.data && event.data.type === 'VERSION_UPDATE' && event.data.version) {
+                setVersion(event.data.version);
             }
         });
     }
+
+    // 3. Consultar activamente a través de Cache Storage
+    const detectFromCache = async () => {
+        if (!('caches' in window)) return false;
+        try {
+            const keys = await caches.keys();
+            const shellKeys = keys.filter(k => k.startsWith('pixeltech-shell-v'));
+            if (shellKeys.length > 0) {
+                shellKeys.sort().reverse();
+                const ver = shellKeys[0].replace('pixeltech-shell-', '');
+                setVersion(ver);
+                return true;
+            }
+        } catch (e) {}
+        return false;
+    };
+
+    // 4. Consultar al Service Worker activo vía MessageChannel
+    const detectFromWorker = () => {
+        return new Promise((resolve) => {
+            if (!navigator.serviceWorker || !navigator.serviceWorker.controller) {
+                return resolve(false);
+            }
+            try {
+                const messageChannel = new MessageChannel();
+                messageChannel.port1.onmessage = (event) => {
+                    if (event.data && event.data.version) {
+                        setVersion(event.data.version);
+                        resolve(true);
+                    } else {
+                        resolve(false);
+                    }
+                };
+                navigator.serviceWorker.controller.postMessage({ type: 'GET_VERSION' }, [messageChannel.port2]);
+                setTimeout(() => resolve(false), 500);
+            } catch (e) {
+                resolve(false);
+            }
+        });
+    };
+
+    // 5. Fallback directo: Leer la definición de CACHE_NAME en service-worker.js
+    const detectFromFile = async () => {
+        try {
+            const res = await fetch('/service-worker.js', { cache: 'no-cache' });
+            if (res.ok) {
+                const text = await res.text();
+                const match = text.match(/CACHE_NAME\s*=\s*['"]pixeltech-shell-(v[^'"]+)['"]/);
+                if (match && match[1]) {
+                    setVersion(match[1]);
+                    return true;
+                }
+            }
+        } catch (e) {}
+        return false;
+    };
+
+    // Ejecución en cascada con fallbacks
+    const fromCache = await detectFromCache();
+    if (!fromCache) {
+        const fromWorker = await detectFromWorker();
+        if (!fromWorker) {
+            await detectFromFile();
+        }
+    }
+
+    // Revalidación periódica ligera mientras el Service Worker termina de instalarse
+    let retries = 0;
+    const retryInterval = setInterval(async () => {
+        retries++;
+        const ok = await detectFromCache();
+        if (ok || retries >= 4) {
+            clearInterval(retryInterval);
+            if (!ok) await detectFromFile();
+        }
+    }, 1500);
+}
+
+// Iniciar de inmediato si el DOM ya está listo
+if (document.readyState !== 'loading') {
+    initVersionBadge();
 }

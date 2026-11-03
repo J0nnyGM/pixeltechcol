@@ -526,10 +526,9 @@ export async function viewOrderDetail(orderId) {
         safeSetText('modal-order-date', formatOrderDateStr(o));
 
         const badge = getEl('modal-order-status-badge');
-        if (badge) {
             let bText = o.status || 'PENDIENTE';
             let bClass = 'bg-yellow-100 text-yellow-700 border-yellow-200';
-            if (o.cancellationPendingConfirm || o.status === 'CANCELACION_PENDIENTE') {
+            if ((o.cancellationPendingConfirm || o.status === 'CANCELACION_PENDIENTE') && !isFull) {
                 bText = 'CANCELACION EN ML';
                 bClass = 'bg-rose-600 text-white border-rose-700 animate-pulse font-black shadow-md';
             } else if (o.status === 'ALISTADO') bClass = 'bg-blue-100 text-blue-700 border-blue-200';
@@ -537,7 +536,10 @@ export async function viewOrderDetail(orderId) {
             else if (o.status === 'PAGADO') bClass = 'bg-green-100 text-green-700 border-green-200'; 
             else if (o.status === 'DEVOLUCION_PARCIAL') bClass = 'bg-orange-100 text-orange-700 border-orange-200';
             else if (o.status === 'DEVUELTO') bClass = 'bg-purple-100 text-purple-700 border-purple-200';
-            else if (['CANCELADO', 'RECHAZADO'].includes(o.status)) bClass = 'bg-red-100 text-red-700 border-red-200';
+            else if (['CANCELADO', 'RECHAZADO'].includes(o.status) || (isFull && (o.cancellationPendingConfirm || o.status === 'CANCELACION_PENDIENTE'))) {
+                bText = 'CANCELADO';
+                bClass = 'bg-red-100 text-red-700 border-red-200';
+            }
 
             let extraShippingBadge = '';
             if (isFull) {
@@ -647,7 +649,7 @@ export async function viewOrderDetail(orderId) {
             }
 
             let cancelBannerHtml = '';
-            if (o.cancellationPendingConfirm || o.status === 'CANCELACION_PENDIENTE') {
+            if ((o.cancellationPendingConfirm || o.status === 'CANCELACION_PENDIENTE') && !isFull) {
                 cancelBannerHtml = `
                     <div class="mb-4 p-4 rounded-2xl bg-rose-50 border-2 border-rose-500 text-rose-950 shadow-md animate-in fade-in">
                         <div class="flex items-center justify-between border-b border-rose-200 pb-2 mb-2">
@@ -674,19 +676,22 @@ export async function viewOrderDetail(orderId) {
 
             let fullBannerHtml = '';
             if (isFull) {
+                const isCancelledFull = o.status === 'CANCELADO' || o.cancellationPendingConfirm || o.status === 'CANCELACION_PENDIENTE' || o.mlCancelled;
                 fullBannerHtml = `
-                    <div class="mb-4 p-4 rounded-2xl bg-emerald-50 border border-emerald-300 text-emerald-950 shadow-sm flex items-center justify-between">
+                    <div class="mb-4 p-4 rounded-2xl ${isCancelledFull ? 'bg-rose-50 border border-rose-300 text-rose-950' : 'bg-emerald-50 border border-emerald-300 text-emerald-950'} shadow-sm flex items-center justify-between">
                         <div class="flex items-center gap-3">
-                            <div class="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center text-lg font-black shrink-0">
-                                <i class="fa-solid fa-truck-ramp-box"></i>
+                            <div class="w-10 h-10 rounded-xl ${isCancelledFull ? 'bg-rose-600' : 'bg-emerald-600'} text-white flex items-center justify-center text-lg font-black shrink-0">
+                                <i class="fa-solid ${isCancelledFull ? 'fa-ban' : 'fa-truck-ramp-box'}"></i>
                             </div>
                             <div>
                                 <div class="flex items-center gap-2">
-                                    <span class="bg-emerald-600 text-white text-[9px] font-black px-2 py-0.5 rounded shadow-2xs uppercase tracking-wider">FULL</span>
-                                    <span class="font-black text-xs uppercase text-emerald-900 tracking-wider">Mercado Envíos Full</span>
+                                    <span class="${isCancelledFull ? 'bg-rose-600' : 'bg-emerald-600'} text-white text-[9px] font-black px-2 py-0.5 rounded shadow-2xs uppercase tracking-wider">FULL</span>
+                                    <span class="font-black text-xs uppercase ${isCancelledFull ? 'text-rose-900' : 'text-emerald-900'} tracking-wider">${isCancelledFull ? 'Mercado Envíos Full - Cancelado en ML' : 'Mercado Envíos Full'}</span>
                                 </div>
-                                <p class="text-[11px] text-emerald-800 font-medium mt-0.5">
-                                    Despachado directamente desde el centro de distribución de MercadoLibre. Alistamiento y seriales no requeridos.
+                                <p class="text-[11px] ${isCancelledFull ? 'text-rose-800' : 'text-emerald-800'} font-medium mt-0.5">
+                                    ${isCancelledFull 
+                                        ? 'Venta cancelada gestionada 100% por Mercado Libre Full. El stock y la devolución física son administrados por Mercado Libre.' 
+                                        : 'Despachado directamente desde el centro de distribución de MercadoLibre. Alistamiento y seriales no requeridos.'}
                                 </p>
                             </div>
                         </div>
@@ -1153,7 +1158,18 @@ export async function viewOrderDetail(orderId) {
 // ANULAR ORDEN MANUAL/ONLINE (ADMIN)
 // ==========================================================================
 async function cancelManualOrder(order) {
-    if (!confirm("ATENCIÓN ADMINISTRADOR \n\n¿Estás seguro de ANULAR esta venta?\n\n- Los productos regresarán automáticamente al inventario (si fueron descontados).\n- El dinero se restará de la cuenta de tesorería (si aplica).\n- La orden quedará como CANCELADA.\n\nEsta acción es irreversible.")) return;
+    if (!confirm("ATENCIÓN ADMINISTRADOR:\n\n¿Estás seguro de ANULAR esta venta?\n\n- La orden pasará a estado CANCELADO.\n- El dinero se reversará en tesorería (si aplica).\n\nEsta acción es irreversible.")) return;
+
+    let shouldReturnStock = true;
+    const hasItems = order.items && order.items.length > 0;
+    if (hasItems) {
+        shouldReturnStock = confirm(
+            "GESTIÓN DE STOCK AL ANULAR:\n\n" +
+            "¿Deseas devolver las unidades de este pedido al inventario de bodega?\n\n" +
+            "- ACEPTAR: SÍ, devolver unidades al inventario (Cancelación normal).\n" +
+            "- CANCELAR: NO devolver unidades (Selecciona esto si el pedido es anterior a la toma física de inventario y las unidades ya fueron contadas)."
+        );
+    }
 
     const btn = getEl('btn-cancel-action');
     if(btn) { btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i>'; btn.disabled = true; }
@@ -1203,9 +1219,12 @@ async function cancelManualOrder(order) {
             const updateObj = {
                 status: 'CANCELADO',
                 isStockDeducted: false,
+                cancelledWithoutStockReturn: !shouldReturnStock,
                 paymentStatus: oData.amountPaid > 0 ? 'REFUNDED' : 'CANCELLED',
                 refundedAmount: (oData.refundedAmount || 0) + (oData.amountPaid || 0),
-                cancelReason: 'Anulada por Administrador',
+                cancelReason: shouldReturnStock 
+                    ? 'Anulada por Administrador (Con retorno de stock)' 
+                    : 'Anulada por Administrador sin retorno de stock (Pre-Inventario Físico)',
                 updatedAt: serverTimestamp()
             };
             if (oData.requiresInvoice) {
@@ -1218,7 +1237,7 @@ async function cancelManualOrder(order) {
             }
         });
 
-        if (isStockDeducted && order.items && order.items.length > 0) {
+        if (shouldReturnStock && isStockDeducted && order.items && order.items.length > 0) {
             const ordNum = order.internalOrderNumber || order.id;
             for (const item of order.items) {
                 await safeAdjustStock(item.id, item.quantity, item.color, item.capacity, 'DEVOLUCION_CANCELACION', `Devolución por anulación del pedido #${ordNum}`);
@@ -1337,6 +1356,7 @@ export async function confirmOrderCancellation(orderId) {
 
         const o = oSnap.data();
         const userName = auth.currentUser?.displayName || auth.currentUser?.email || 'Usuario';
+        const isFullOrder = Boolean(o.isFull || o.isMlFull || o.logisticType === 'fulfillment');
 
         // 1. Liberar seriales legítimos a AVAILABLE (sin borrar información en el pedido)
         try {
@@ -1368,11 +1388,25 @@ export async function confirmOrderCancellation(orderId) {
         }
 
         // 2. Revertir stock a bodega si estaba descontado
-        if (o.isStockDeducted && o.items && o.items.length > 0) {
-            const ordNum = o.internalOrderNumber || orderId;
-            for (const item of o.items) {
-                const qty = Number(item.quantity) || 1;
-                await safeAdjustStock(item.id, qty, item.color, item.capacity, 'DEVOLUCION_CANCELACION', `Devolución por confirmación de cancelación del pedido #${ordNum}`);
+        let shouldReturnStock = false;
+        if (isFullOrder) {
+            // REGLA CRITICA: En ordenes FULL el inventario se gestiona en las bodegas de Mercado Libre.
+            // NUNCA devolver stock a la bodega local para evitar corrupcion de inventario (stock fantasma).
+            console.log(`[Cancelación] Orden #${orderId} es FULL. Omitiendo retorno de stock a bodega física.`);
+            shouldReturnStock = false;
+        } else if (o.isStockDeducted && o.items && o.items.length > 0) {
+            shouldReturnStock = confirm(
+                "GESTIÓN DE STOCK EN CANCELACIÓN DE MERCADOLIBRE:\n\n" +
+                "¿Deseas reingresar las unidades de este pedido al inventario de bodega?\n\n" +
+                "- ACEPTAR: SÍ, devolver unidades al inventario (flujo habitual).\n" +
+                "- CANCELAR: NO devolver unidades (Selecciona esto si el pedido es anterior a la toma física de inventario y las unidades ya fueron contadas)."
+            );
+            if (shouldReturnStock) {
+                const ordNum = o.internalOrderNumber || orderId;
+                for (const item of o.items) {
+                    const qty = Number(item.quantity) || 1;
+                    await safeAdjustStock(item.id, qty, item.color, item.capacity, 'DEVOLUCION_CANCELACION', `Devolución por confirmación de cancelación del pedido #${ordNum}`);
+                }
             }
         }
 
@@ -1411,14 +1445,18 @@ export async function confirmOrderCancellation(orderId) {
             cancellationConfirmed: true,
             cancellationConfirmedBy: userName,
             cancellationConfirmedAt: serverTimestamp(),
-            cancellationRetainedInWarehouse: true,
+            cancellationRetainedInWarehouse: !isFullOrder,
+            cancelledWithoutStockReturn: !shouldReturnStock,
             paymentStatus: 'REFUNDED',
             isStockDeducted: false,
             updatedAt: serverTimestamp()
         });
 
         clearDraftSerials(orderId);
-        showActionToast("Cancelación confirmada exitosamente. Seriales liberados a inventario disponible y registro preservado.", "success");
+        const successMsg = isFullOrder 
+            ? "Cancelación de orden FULL procesada correctamente. Stock administrado por Mercado Libre." 
+            : "Cancelación confirmada exitosamente. Seriales liberados a inventario disponible y registro preservado.";
+        showActionToast(successMsg, "success");
 
         const modal = getEl('order-modal');
         if (modal && !modal.classList.contains('hidden')) {

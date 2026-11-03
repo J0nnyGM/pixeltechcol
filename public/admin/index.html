@@ -90,7 +90,13 @@
                     <div class="flex items-center gap-3 mb-2 flex-wrap">
                         <span id="role-pill-badge" class="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-slate-100 text-brand-black border border-gray-200 shadow-2xs">Cargando rol...</span>
                         <span id="header-today-date" class="text-xs font-bold text-gray-400">...</span>
-                        <span id="app-version-badge" class="bg-brand-cyan/10 text-brand-cyan border border-brand-cyan/20 text-[9px] font-black px-2 py-0.5 rounded uppercase tracking-widest" title="Versión instalada">v--</span>
+                        <span id="app-version-badge" class="bg-brand-cyan/10 text-brand-cyan border border-brand-cyan/20 text-[9px] font-black px-2 py-0.5 rounded uppercase tracking-widest" title="Versión instalada">v11.10</span>
+                        <script>
+                            try {
+                                const _v = localStorage.getItem('pixeltech_app_version');
+                                if (_v) document.getElementById('app-version-badge').textContent = _v;
+                            } catch(e) {}
+                        </script>
                     </div>
                     <h1 class="text-3xl md:text-4xl font-black text-brand-black tracking-tighter uppercase leading-none" id="header-role-name">Panel de Control</h1>
                     <p class="text-xs text-gray-400 font-bold tracking-wide mt-1" id="header-role-desc">Cargando métricas de tu área...</p>
@@ -401,6 +407,6 @@
         </div>
     </div>
 
-    <script type="module" src="../js/admin-index.js?v=2.0.6"></script>
+    <script type="module" src="../js/admin-index.js?v=2.0.7"></script>
 </body>
 </html>

@@ -129,3 +129,7 @@ exports.fixOrderSequence = fixOrderSequenceModule.runFixOrderSequence;
 // Arreglo de deduccion indebida de envio en ordenes Flex de MercadoLibre
 const fixFlexOrdersModule = require('./fix-flex-orders');
 exports.fixFlexOrders = fixFlexOrdersModule.runFixFlexOrders;
+
+// Restitucion de inventario en bodega por ventas Full de MercadoLibre
+const fixFullInventoryModule = require('./fix-full-inventory');
+exports.fixFullInventory = fixFullInventoryModule.runFixFullInventory;

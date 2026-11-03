@@ -202,9 +202,9 @@ function extractCategories() {
         }
     });
 
-    // 3. Contar productos por categoría
+    // 3. Contar productos por categoría (excluyendo desactivados del contador general)
     map.forEach((item, normCat) => {
-        item.count = adminProductsCache.filter(p => normalizeText(getCategoryName(p)) === normCat).length;
+        item.count = adminProductsCache.filter(p => p.status !== 'deactivated' && normalizeText(getCategoryName(p)) === normCat).length;
     });
 
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name, 'es'));
@@ -212,7 +212,7 @@ function extractCategories() {
 
 function extractSubcategories() {
     const map = new Map();
-    let pool = adminProductsCache;
+    let pool = adminProductsCache.filter(p => p.status !== 'deactivated');
     if (selectedCategory) {
         pool = pool.filter(p => normalizeText(getCategoryName(p)) === normalizeText(selectedCategory));
     }
@@ -270,7 +270,7 @@ function extractSubcategories() {
 
 function extractBrands() {
     const map = new Map();
-    adminProductsCache.forEach(p => {
+    adminProductsCache.filter(p => p.status !== 'deactivated').forEach(p => {
         const br = getBrandName(p);
         if (!br) return;
         const norm = normalizeText(br);
@@ -318,7 +318,7 @@ function renderDropdownOptions(type, searchFilter = '') {
 
     let items = [];
     let currentSelected = '';
-    let totalAll = adminProductsCache.length;
+    let totalAll = adminProductsCache.filter(p => p.status !== 'deactivated').length;
 
     if (type === 'category') {
         items = categoriesList;
@@ -327,7 +327,7 @@ function renderDropdownOptions(type, searchFilter = '') {
         items = subcategoriesList;
         currentSelected = selectedSubcategory;
         if (selectedCategory) {
-            totalAll = adminProductsCache.filter(p => normalizeText(getCategoryName(p)) === normalizeText(selectedCategory)).length;
+            totalAll = adminProductsCache.filter(p => p.status !== 'deactivated' && normalizeText(getCategoryName(p)) === normalizeText(selectedCategory)).length;
         }
     } else if (type === 'brand') {
         items = brandsList;
@@ -517,15 +517,25 @@ function renderViewFromMemory() {
         const prodBrand = getBrandName(p);
 
         // 1. Buscador inteligente (Nombre, SKU, Marca, Categoría, Subcategoría, Descripción)
-        if (searchWords.length > 0) {
+        const hasSearch = searchWords.length > 0;
+        if (hasSearch) {
             const searchable = normalizeText(`${p.name || ''} ${prodBrand} ${p.sku || ''} ${prodCategory} ${prodSubcategory} ${p.description || ''} ${p.searchStr || ''}`);
             const matchesAll = searchWords.every(w => searchable.includes(w));
             if (!matchesAll) return false;
         }
 
+        // Regla: Los productos desactivados SOLO se muestran si se seleccionó la pestaña 'deactivated' O si hay un término de búsqueda activo
+        const isDeactivated = p.status === 'deactivated';
+        if (isDeactivated && currentFilterType !== 'deactivated' && !hasSearch) {
+            return false;
+        }
+        if (currentFilterType === 'deactivated' && !isDeactivated) {
+            return false;
+        }
+
         // 2. Pestañas de estado rápido
         if (currentFilterType === 'active' && p.status !== 'active') return false;
-        if (currentFilterType === 'draft' && p.status === 'active') return false;
+        if (currentFilterType === 'draft' && (p.status === 'active' || isDeactivated)) return false;
         if (currentFilterType === 'lowstock' && (realStock <= 0 || realStock > 5)) return false;
         if (currentFilterType === 'out_of_stock' && realStock > 0) return false;
         if (currentFilterType === 'discount' && !hasDiscount) return false;
@@ -771,10 +781,16 @@ function renderRowHTML(product, index) {
 
     const img = product.mainImage || product.image || (product.images ? product.images[0] : 'https://placehold.co/100?text=Sin+Foto');
     const isActive = product.status === 'active';
+    const isDeactivated = product.status === 'deactivated';
     
-    let statusBadge = isActive 
-        ? `<span class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-50 text-emerald-600 border border-emerald-100"><div class="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.4)]"></div> Activo</span>`
-        : `<span class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-50 text-amber-600 border border-amber-100"><div class="w-2 h-2 rounded-full bg-amber-500"></div> Borrador</span>`;
+    let statusBadge = '';
+    if (isActive) {
+        statusBadge = `<span class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-50 text-emerald-600 border border-emerald-100"><div class="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.4)]"></div> Activo</span>`;
+    } else if (isDeactivated) {
+        statusBadge = `<span class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-slate-100 text-slate-600 border border-slate-200"><div class="w-2 h-2 rounded-full bg-slate-400"></div> Desactivado</span>`;
+    } else {
+        statusBadge = `<span class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-50 text-amber-600 border border-amber-100"><div class="w-2 h-2 rounded-full bg-amber-500"></div> Borrador</span>`;
+    }
     
     let priceDisplay = `<span class="text-base font-black text-gray-800">$${(product.price || 0).toLocaleString('es-CO')}</span>`;
     if (product.originalPrice && product.price < product.originalPrice) {
@@ -783,8 +799,18 @@ function renderRowHTML(product, index) {
         priceDisplay = `<div class="flex flex-col"><span class="text-[10px] text-gray-300 line-through font-bold">$${product.originalPrice.toLocaleString('es-CO')}</span><span class="text-base font-black text-brand-red">$${product.price.toLocaleString('es-CO')}</span></div>`;
     }
 
-    const toggleIcon = isActive ? 'fa-eye-slash' : 'fa-eye';
-    const toggleColor = isActive ? 'hover:text-amber-500 hover:border-amber-500' : 'hover:text-emerald-500 hover:border-emerald-500';
+    let toggleIcon = 'fa-eye';
+    let toggleColor = 'hover:text-emerald-500 hover:border-emerald-500';
+    let toggleTitle = 'Activar Producto';
+    if (isActive) {
+        toggleIcon = 'fa-eye-slash';
+        toggleColor = 'hover:text-amber-500 hover:border-amber-500';
+        toggleTitle = 'Ocultar o Desactivar';
+    } else if (isDeactivated) {
+        toggleIcon = 'fa-rotate-left';
+        toggleColor = 'hover:text-cyan-600 hover:border-cyan-500';
+        toggleTitle = 'Reactivar Producto';
+    }
 
     const nameHtml = canEdit
         ? `<p class="font-black text-brand-black text-sm mb-1 leading-tight group-hover:text-brand-cyan transition-colors cursor-pointer" onclick="window.location.href='edit-product.html?id=${product.id}'">${product.name}</p>`
@@ -803,7 +829,7 @@ function renderRowHTML(product, index) {
             ${canEdit ? `
                 <button onclick="openDiscountModal('${product.id}')" title="Descuentos" class="w-10 h-10 rounded-xl bg-white border border-gray-200 text-gray-400 hover:text-purple-600 hover:border-purple-500 transition shadow-sm flex items-center justify-center hover:-translate-y-1"><i class="fa-solid fa-tags"></i></button>
                 <button onclick="window.location.href='edit-product.html?id=${product.id}'" title="Editar Producto" class="w-10 h-10 rounded-xl bg-white border border-gray-200 text-gray-400 hover:text-brand-cyan hover:border-brand-cyan transition shadow-sm flex items-center justify-center hover:-translate-y-1"><i class="fa-solid fa-pen"></i></button>
-                <button onclick="toggleProductStatus('${product.id}', '${product.status}')" title="Cambiar Estado" class="w-10 h-10 rounded-xl bg-white border border-gray-200 text-gray-400 ${toggleColor} transition shadow-sm flex items-center justify-center hover:-translate-y-1">
+                <button onclick="toggleProductStatus('${product.id}', '${product.status}')" title="${toggleTitle}" class="w-10 h-10 rounded-xl bg-white border border-gray-200 text-gray-400 ${toggleColor} transition shadow-sm flex items-center justify-center hover:-translate-y-1">
                     <i class="fa-solid ${toggleIcon}"></i>
                 </button>
             ` : ''}
@@ -893,13 +919,40 @@ window.addEventListener('inventoryTransferCompleted', async (e) => {
 // =============================================================================
 
 window.toggleProductStatus = async (id, currentStatus) => {
-    const isActivating = currentStatus !== 'active';
-    const newStatus = isActivating ? 'active' : 'draft';
-    
-    if (confirm(`¿Deseas ${isActivating ? 'publicar' : 'ocultar'} este producto?`)) {
-        try {
-            await updateDoc(doc(db, "products", id), { status: newStatus, updatedAt: new Date() });
-        } catch (error) { alert("Error al cambiar estado."); }
+    let newStatus = 'active';
+
+    if (currentStatus === 'active') {
+        const choice = confirm('¿Deseas pasar este producto a BORRADOR (Aceptar) o DESACTIVARLO como discontinuado (Cancelar)?\n\n- Aceptar: Borrador (Oculto temporal)\n- Cancelar: Continuar a confirmación de Desactivar');
+        if (choice) {
+            newStatus = 'draft';
+            if (confirm('¿Confirmas pasar este producto a Borrador?')) {
+                try {
+                    await updateDoc(doc(db, "products", id), { status: newStatus, updatedAt: new Date() });
+                } catch (error) { alert("Error al cambiar estado."); }
+            }
+        } else {
+            if (confirm('¿Confirmas DESACTIVAR este producto como discontinuado?\nSolo se mostrará en búsquedas directas o en la pestaña Desactivados.')) {
+                newStatus = 'deactivated';
+                try {
+                    await updateDoc(doc(db, "products", id), { status: newStatus, updatedAt: new Date() });
+                } catch (error) { alert("Error al cambiar estado."); }
+            }
+        }
+    } else if (currentStatus === 'deactivated') {
+        if (confirm('¿Deseas REACTIVAR este producto discontinuado a ACTIVO en la tienda?')) {
+            newStatus = 'active';
+            try {
+                await updateDoc(doc(db, "products", id), { status: newStatus, updatedAt: new Date() });
+            } catch (error) { alert("Error al cambiar estado."); }
+        }
+    } else {
+        // Borrador -> Activo
+        if (confirm('¿Deseas PUBLICAR este producto en la tienda (Activo)?')) {
+            newStatus = 'active';
+            try {
+                await updateDoc(doc(db, "products", id), { status: newStatus, updatedAt: new Date() });
+            } catch (error) { alert("Error al cambiar estado."); }
+        }
     }
 };
 
