@@ -1042,9 +1042,11 @@ function createWebhookHandler({
                 // Los pedidos con fecha previa a la auditoria física ya fueron liquidados/contados en bodega.
                 // Si ML actualiza su estado (ej: entregado dias despues), se descarta inmediatamente
                 // para evitar creaciones no deseadas, confusion en el panel y descuadres de stock.
-                const rawDateCreated = orderData.date_created ? new Date(orderData.date_created) : null;
+                const rawDateCreated = orderData.date_created ? new Date(orderData.date_created) : new Date();
                 const inventoryCutoffDate = new Date('2026-10-30T23:28:30.000Z');
-                if (rawDateCreated && rawDateCreated <= inventoryCutoffDate) {
+                const isHistoricalPreAudit = Boolean(orderData.date_created && rawDateCreated <= inventoryCutoffDate);
+
+                if (isHistoricalPreAudit) {
                     console.log(`[ML PRE-CORTE] Orden #${rawOrderId} creada en ML (${orderData.date_created}) es previa al corte de inventario (2026-10-30T23:28:30Z). Omitiendo procesamiento.`);
                     return sendOk(`OK: Orden historica pre-corte ${orderId} (${orderData.date_created}) ignorada.`);
                 }
@@ -1594,15 +1596,7 @@ function createWebhookHandler({
                     }
                 }
 
-                const rawDateCreated = orderData.date_created ? new Date(orderData.date_created) : new Date();
-                const inventoryCutoffDate = new Date('2026-10-30T23:28:30.000Z');
-                const isHistoricalPreAudit = Boolean(rawDateCreated <= inventoryCutoffDate);
-
                 const shouldDeductStock = orderData.status !== 'cancelled' && !isHistoricalPreAudit;
-
-                if (isHistoricalPreAudit) {
-                    console.log(`[ML PRE-CORTE] Orden ${orderId} creada en ML (${orderData.date_created}) es anterior al corte de inventario (2026-10-30T23:28:30Z). Omitiendo deduccion de stock actual y preservando fecha original.`);
-                }
 
                 if (shouldDeductStock) {
                     if (accDoc) {

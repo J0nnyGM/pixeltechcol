@@ -154,7 +154,7 @@
                         <i class="fa-solid fa-chevron-down absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-[10px] pointer-events-none"></i>
                     </div>
                     <div class="relative w-full sm:w-auto">
-                        <i class="fa-solid fa-search absolute left-4 top-1/2 -translate-y-1/2 text-brand-black text-xs"></i>
+                        <i id="search-input-icon" class="fa-solid fa-search absolute left-4 top-1/2 -translate-y-1/2 text-brand-black text-xs"></i>
                         <input type="text" id="search-input" placeholder="Buscar por # Orden o Cliente..."
                             class="w-full md:w-64 pl-10 pr-4 py-3 rounded-xl border border-gray-200 text-xs font-bold outline-none focus:border-brand-cyan transition bg-white shadow-sm text-brand-black">
                     </div>
@@ -1643,6 +1643,30 @@
 
         // --- CAMBIO DE PÁGINA INTELIGENTE Y CONTINUO ---
         window.changeOrdersPage = async (direction) => {
+            const searchInput = document.getElementById('search-input');
+            const searchVal = searchInput ? searchInput.value.trim() : '';
+
+            if (searchVal.length > 0) {
+                if (direction === -1) {
+                    if (currentOrdersPage > 1) {
+                        currentOrdersPage--;
+                        renderFilteredSearchResults(searchVal, lastServerSearchedTerm === searchVal);
+                        document.querySelector('main')?.scrollTo({ top: 0, behavior: 'smooth' });
+                    }
+                    return;
+                }
+                if (direction === 1) {
+                    const results = adminOrdersCache.filter(o => matchesSearchTerm(o, searchVal.toLowerCase()));
+                    const totalPages = Math.ceil(results.length / ORDERS_PAGE_SIZE) || 1;
+                    if (currentOrdersPage < totalPages) {
+                        currentOrdersPage++;
+                        renderFilteredSearchResults(searchVal, lastServerSearchedTerm === searchVal);
+                        document.querySelector('main')?.scrollTo({ top: 0, behavior: 'smooth' });
+                    }
+                    return;
+                }
+            }
+
             if (direction === -1) {
                 if (currentOrdersPage > 1) {
                     currentOrdersPage--;
@@ -1758,8 +1782,11 @@
             }
         };
 
-        // --- RENDERIZADO FLUIDO Y REACTIVO DE BÚSQUEDA (SIN RE-CONSULTAS EN BUCLE) ---
-        function renderFilteredSearchResults(valRaw) {
+        // --- RENDERIZADO FLUIDO Y REACTIVO DE BÚSQUEDA (CON PAGINACIÓN Y ESTADO) ---
+        let lastServerSearchedTerm = '';
+        let isSearchingServer = false;
+
+        function renderFilteredSearchResults(valRaw, fromServer = false) {
             const val = (valRaw || '').trim();
             const valLower = val.toLowerCase();
             const tableBody = document.getElementById('orders-table-body');
@@ -1791,17 +1818,29 @@
                 results.sort(compareOrdersDescending);
             }
 
-            if (results.length > 0) {
-                let searchHtml = `<tr class="bg-brand-cyan/10 border-b border-brand-cyan/20"><td colspan="8" class="py-2.5 px-4 md:px-6"><div class="flex items-center justify-between w-full text-[10px] font-black uppercase text-brand-black tracking-widest"><span><i class="fa-solid fa-search text-brand-cyan mr-2"></i> ${results.length} Coincidencia(s)</span><span class="text-[9px] text-slate-500 font-bold lowercase">Búsqueda rápida en tiempo real</span></div></td></tr>`;
-                results.slice(0, ORDERS_PAGE_SIZE).forEach(o => { searchHtml += renderRow(o); });
+            const totalMatches = results.length;
+            const totalPages = Math.ceil(totalMatches / ORDERS_PAGE_SIZE) || 1;
+            if (currentOrdersPage > totalPages) currentOrdersPage = 1;
+
+            const startIndex = (currentOrdersPage - 1) * ORDERS_PAGE_SIZE;
+            const endIndex = Math.min(startIndex + ORDERS_PAGE_SIZE, totalMatches);
+            const pageItems = results.slice(startIndex, endIndex);
+
+            if (totalMatches > 0) {
+                const subtitle = fromServer
+                    ? '<span class="text-emerald-700 font-bold lowercase"><i class="fa-solid fa-database mr-1"></i> Búsqueda en toda la base de datos</span>'
+                    : '<span class="text-slate-500 font-bold lowercase">Búsqueda rápida en tiempo real</span>';
+
+                let searchHtml = `<tr class="bg-brand-cyan/10 border-b border-brand-cyan/20"><td colspan="8" class="py-2.5 px-4 md:px-6"><div class="flex items-center justify-between w-full text-[10px] font-black uppercase text-brand-black tracking-widest"><span><i class="fa-solid fa-search text-brand-cyan mr-2"></i> ${totalMatches} Coincidencia(s)</span>${subtitle}</div></td></tr>`;
+                pageItems.forEach(o => { searchHtml += renderRow(o); });
                 tableBody.innerHTML = searchHtml;
-                updatePaginationControls(1, Math.min(results.length, ORDERS_PAGE_SIZE), results.length);
+                updatePaginationControls(startIndex + 1, endIndex, totalMatches);
                 const btnNext = document.getElementById('btn-next-page');
                 const btnPrev = document.getElementById('btn-prev-page');
-                if (btnNext) btnNext.disabled = true;
-                if (btnPrev) btnPrev.disabled = true;
+                if (btnPrev) btnPrev.disabled = (currentOrdersPage <= 1);
+                if (btnNext) btnNext.disabled = (currentOrdersPage >= totalPages);
             } else {
-                tableBody.innerHTML = `<tr><td colspan="8" class="p-8 text-center text-xs text-gray-500 font-bold uppercase"><i class="fa-solid fa-magnifying-glass mr-2 text-brand-cyan"></i> No se encontraron coincidencias locales para "${val}". Buscando en la base de datos...</td></tr>`;
+                tableBody.innerHTML = `<tr><td colspan="8" class="p-8 text-center text-xs text-gray-500 font-bold uppercase"><i class="fa-solid fa-magnifying-glass mr-2 text-brand-cyan"></i> No se encontraron coincidencias para "${val}".</td></tr>`;
                 updatePaginationControls(0, 0, 0);
             }
 
@@ -1809,7 +1848,7 @@
                 window.updateBulkActionBar();
             }
 
-            return results.length;
+            return totalMatches;
         }
         window.renderFilteredSearchResults = renderFilteredSearchResults;
 
@@ -1818,13 +1857,25 @@
         let searchDebounceTimer = null;
 
         async function performServerSearch(valRaw, showLoading = true) {
-            const val = valRaw.trim();
+            const val = (valRaw || '').trim();
             if (val.length < 2) return;
+            if (isSearchingServer) return;
+
             const valLower = val.toLowerCase();
+            const valUpper = val.toUpperCase();
+            const valTitle = val.split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+
+            isSearchingServer = true;
+            lastServerSearchedTerm = val;
+
+            const searchIcon = document.getElementById('search-input-icon');
+            if (searchIcon) {
+                searchIcon.className = 'fa-solid fa-circle-notch fa-spin absolute left-4 top-1/2 -translate-y-1/2 text-brand-cyan text-xs';
+            }
 
             const tableBody = document.getElementById('orders-table-body');
             if (showLoading && tableBody) {
-                tableBody.innerHTML = `<tr><td colspan="8" class="p-8 text-center"><i class="fa-solid fa-cloud-arrow-down fa-bounce text-brand-cyan"></i> Buscando "${val}" en toda la base de datos...</td></tr>`;
+                tableBody.innerHTML = `<tr><td colspan="8" class="p-8 text-center text-xs font-bold text-gray-500 uppercase"><i class="fa-solid fa-cloud-arrow-down fa-bounce text-brand-cyan mr-2"></i> Buscando "${val}" en toda la base de datos...</td></tr>`;
             }
 
             try {
@@ -1848,6 +1899,7 @@
                 };
 
                 const addResultsFromSnapshot = (snap) => {
+                    if (!snap || !snap.forEach) return;
                     snap.forEach(d => {
                         if (!SmartAdminOrdersSync.runtimeMap[d.id]) {
                             const item = normalizeOrderDoc(d.id, d.data());
@@ -1858,11 +1910,20 @@
                     });
                 };
 
+                const executeQueriesSafe = async (queriesList) => {
+                    await Promise.allSettled(queriesList.map(async q => {
+                        try {
+                            const snap = await getDocs(q);
+                            addResultsFromSnapshot(snap);
+                        } catch (err) {}
+                    }));
+                };
+
                 // 1. Probar como Document ID exacto, minúscula, mayúscula y prefijos de MercadoLibre
                 const candidateIds = [
                     val,
-                    val.toLowerCase(),
-                    val.toUpperCase(),
+                    valLower,
+                    valUpper,
                     `ML-${val}`,
                     `ML2-${val}`,
                     `ML3-${val}`
@@ -1880,38 +1941,32 @@
                     } catch (err) {}
                 }
 
-                // 2. Si es numérico (o remisión con prefijo #), buscar por internalOrderNumber
+                // 2. Si es numérico (o remisión con prefijo #), buscar por internalOrderNumber y orderNumber
                 const cleanNum = val.replace(/^[#\s]+/, '').trim();
                 if (!isNaN(cleanNum) && cleanNum.length > 0) {
-                    const parsedNum = parseInt(cleanNum);
-                    try {
-                        const [snapNum, snapOrdNum] = await Promise.all([
-                            getDocs(query(ordersRef, where("internalOrderNumber", "==", parsedNum), limit(50))),
-                            getDocs(query(ordersRef, where("orderNumber", "==", parsedNum), limit(50)))
-                        ]);
-                        addResultsFromSnapshot(snapNum);
-                        addResultsFromSnapshot(snapOrdNum);
-                    } catch (err) {}
+                    const parsedNum = parseInt(cleanNum, 10);
+                    await executeQueriesSafe([
+                        query(ordersRef, where("internalOrderNumber", "==", parsedNum), limit(50)),
+                        query(ordersRef, where("orderNumber", "==", parsedNum), limit(50))
+                    ]);
                 }
 
                 // 3. Buscar directamente por Cédula / NIT / Documento en Firestore
                 const cleanDoc = val.replace(/[\.\s\-]/g, '');
-                if (cleanDoc.length >= 5) {
+                if (cleanDoc.length >= 5 && /^\d+$/.test(cleanDoc)) {
                     const docCandidates = Array.from(new Set([val, cleanDoc])).filter(Boolean);
+                    const docQueries = [];
                     for (const dVal of docCandidates) {
-                        const docQueries = [
+                        docQueries.push(
                             query(ordersRef, where("buyerInfo.document", "==", dVal), limit(50)),
                             query(ordersRef, where("clientDoc", "==", dVal), limit(50)),
                             query(ordersRef, where("shippingData.clientDoc", "==", dVal), limit(50)),
-                            query(ordersRef, where("billingInfo.document", "==", dVal), limit(50))
-                        ];
-                        for (const qDoc of docQueries) {
-                            try {
-                                const snapDoc = await getDocs(qDoc);
-                                addResultsFromSnapshot(snapDoc);
-                            } catch (e) {}
-                        }
+                            query(ordersRef, where("billingInfo.document", "==", dVal), limit(50)),
+                            query(ordersRef, where("customer.docNumber", "==", dVal), limit(50)),
+                            query(ordersRef, where("customer.document", "==", dVal), limit(50))
+                        );
                     }
+                    await executeQueriesSafe(docQueries);
                 }
 
                 // 4. Buscar directamente por Teléfono en Firestore
@@ -1922,75 +1977,149 @@
                         digits,
                         digits.startsWith('57') ? digits.slice(2) : '57' + digits
                     ])).filter(Boolean);
+                    const phoneQueries = [];
                     for (const pVal of phoneCandidates) {
-                        const phoneQueries = [
-                            query(ordersRef, where("buyerInfo.phone", "==", pVal), limit(50)),
-                            query(ordersRef, where("phone", "==", pVal), limit(50)),
-                            query(ordersRef, where("shippingData.phone", "==", pVal), limit(50))
-                        ];
-                        for (const qPhone of phoneQueries) {
-                            try {
-                                const snapPhone = await getDocs(qPhone);
-                                addResultsFromSnapshot(snapPhone);
-                            } catch (e) {}
-                        }
+                        phoneQueries.push(
+                            query(ordersRef, where("buyerInfo.phone", "==", pVal), limit(100)),
+                            query(ordersRef, where("phone", "==", pVal), limit(100)),
+                            query(ordersRef, where("shippingData.phone", "==", pVal), limit(100)),
+                            query(ordersRef, where("customer.phone", "==", pVal), limit(100))
+                        );
                     }
+                    await executeQueriesSafe(phoneQueries);
                 }
 
-                // 5. Buscar directamente por IDs de MercadoLibre (Order ID, Pack ID, Shipping ID)
+                // 5. Buscar directamente por IDs de MercadoLibre y Guías de Envío
                 if (val.length >= 5) {
                     const mlQueries = [
                         query(ordersRef, where("mlOrderId", "==", val), limit(50)),
                         query(ordersRef, where("pack_id", "==", val), limit(50)),
-                        query(ordersRef, where("shippingId", "==", val), limit(50))
+                        query(ordersRef, where("shippingId", "==", val), limit(50)),
+                        query(ordersRef, where("shippingTracking", "==", val), limit(50)),
+                        query(ordersRef, where("trackingNumber", "==", val), limit(50)),
+                        query(ordersRef, where("shippingData.shipmentId", "==", val), limit(50)),
+                        query(ordersRef, where("shippingData.guideNumber", "==", val), limit(50))
                     ];
-                    for (const qMl of mlQueries) {
-                        try {
-                            const snapMl = await getDocs(qMl);
-                            addResultsFromSnapshot(snapMl);
-                        } catch (e) {}
-                    }
+                    await executeQueriesSafe(mlQueries);
                 }
 
-                // 6. Cruce con colección USERS (Encontrar cliente por nombre)
-                if (val.length >= 3 && isNaN(val)) {
+                // 6. Buscar por Email
+                if (val.includes('@') && val.length >= 5) {
+                    const emailQueries = [
+                        query(ordersRef, where("buyerInfo.email", "==", valLower), limit(50)),
+                        query(ordersRef, where("customer.email", "==", valLower), limit(50)),
+                        query(ordersRef, where("clientEmail", "==", valLower), limit(50))
+                    ];
+                    await executeQueriesSafe(emailQueries);
+                }
+
+                // 7. BÚSQUEDA DIRECTA POR NOMBRE DE CLIENTE EN ORDERS (CRÍTICO)
+                if (val.length >= 3) {
+                    const nameVariations = Array.from(new Set([valUpper, valTitle, val])).filter(Boolean);
+                    const nameFields = [
+                        "buyerInfo.name",
+                        "clientName",
+                        "userName",
+                        "customer.name",
+                        "shippingData.name"
+                    ];
+                    const orderNameQueries = [];
+                    for (const nVar of nameVariations) {
+                        for (const fld of nameFields) {
+                            orderNameQueries.push(
+                                query(ordersRef, where(fld, ">=", nVar), where(fld, "<=", nVar + "\uf8ff"), limit(100))
+                            );
+                        }
+                    }
+                    await executeQueriesSafe(orderNameQueries);
+                }
+
+                // 8. CRUCE CON COLECCIÓN USERS (Por Nombre, Teléfono, Email o Documento)
+                if (val.length >= 3) {
                     try {
                         const usersRef = collection(db, "users");
                         const userQueries = [
-                            query(usersRef, where("name", ">=", val.toUpperCase()), where("name", "<=", val.toUpperCase() + "\uf8ff"), limit(10)),
-                            query(usersRef, where("name", ">=", val), where("name", "<=", val + "\uf8ff"), limit(10)),
-                            query(usersRef, where("email", "==", val.toLowerCase()), limit(5))
+                            query(usersRef, where("name", ">=", valUpper), where("name", "<=", valUpper + "\uf8ff"), limit(20)),
+                            query(usersRef, where("name", ">=", valTitle), where("name", "<=", valTitle + "\uf8ff"), limit(20)),
+                            query(usersRef, where("name", ">=", val), where("name", "<=", val + "\uf8ff"), limit(20)),
+                            query(usersRef, where("email", "==", valLower), limit(10))
                         ];
-                        const relatedDocs = new Set();
-                        for (const uq of userQueries) {
+                        const matchedUsers = [];
+                        await Promise.allSettled(userQueries.map(async uq => {
                             try {
                                 const uSnap = await getDocs(uq);
                                 uSnap.forEach(ud => {
-                                    const u = ud.data();
-                                    if (u.document) relatedDocs.add(u.document);
+                                    matchedUsers.push({ id: ud.id, ...ud.data() });
                                 });
                             } catch (err) {}
+                        }));
+
+                        const relatedUserIds = new Set();
+                        const relatedDocs = new Set();
+                        const relatedPhones = new Set();
+                        const relatedNames = new Set();
+
+                        matchedUsers.forEach(u => {
+                            if (u.id) relatedUserIds.add(u.id);
+                            if (u.document && u.document.trim().length >= 4) relatedDocs.add(u.document.trim());
+                            if (u.phone) {
+                                const pDig = u.phone.replace(/\D/g, '');
+                                if (pDig.length >= 7) relatedPhones.add(pDig);
+                            }
+                            if (u.name && u.name.trim().length >= 3) relatedNames.add(u.name.trim().toUpperCase());
+                        });
+
+                        const crossQueries = [];
+                        for (const uId of relatedUserIds) {
+                            crossQueries.push(
+                                query(ordersRef, where("userId", "==", uId), limit(100)),
+                                query(ordersRef, where("customer.id", "==", uId), limit(100))
+                            );
                         }
                         for (const uDoc of relatedDocs) {
-                            try {
-                                const sDoc = await getDocs(query(ordersRef, where("buyerInfo.document", "==", uDoc), limit(50)));
-                                addResultsFromSnapshot(sDoc);
-                            } catch (err) {}
+                            crossQueries.push(
+                                query(ordersRef, where("buyerInfo.document", "==", uDoc), limit(50)),
+                                query(ordersRef, where("clientDoc", "==", uDoc), limit(50)),
+                                query(ordersRef, where("customer.docNumber", "==", uDoc), limit(50))
+                            );
                         }
+                        for (const uPhone of relatedPhones) {
+                            crossQueries.push(
+                                query(ordersRef, where("phone", "==", uPhone), limit(100)),
+                                query(ordersRef, where("buyerInfo.phone", "==", uPhone), limit(100)),
+                                query(ordersRef, where("shippingData.phone", "==", uPhone), limit(100)),
+                                query(ordersRef, where("customer.phone", "==", uPhone), limit(100))
+                            );
+                        }
+                        for (const uName of relatedNames) {
+                            crossQueries.push(
+                                query(ordersRef, where("buyerInfo.name", ">=", uName), where("buyerInfo.name", "<=", uName + "\uf8ff"), limit(100)),
+                                query(ordersRef, where("clientName", ">=", uName), where("clientName", "<=", uName + "\uf8ff"), limit(100)),
+                                query(ordersRef, where("userName", ">=", uName), where("userName", "<=", uName + "\uf8ff"), limit(100))
+                            );
+                        }
+                        await executeQueriesSafe(crossQueries);
                     } catch (e) {}
                 }
 
-                // 7. Si hubo nuevos documentos, actualizar RAM y re-renderizar suavemente
+                // 9. Si hubo nuevos documentos, actualizar RAM y re-renderizar
                 if (newDocsFound) {
                     SmartAdminOrdersSync.updateGlobalArray();
                     SmartAdminOrdersSync.saveToStorage();
+                    updateTabBadgesAndKPIs();
                 }
 
-                renderFilteredSearchResults(val);
+                currentOrdersPage = 1;
+                renderFilteredSearchResults(val, true);
 
             } catch (e) {
                 console.error("Error buscando en servidor:", e);
-                renderFilteredSearchResults(val);
+                renderFilteredSearchResults(val, true);
+            } finally {
+                isSearchingServer = false;
+                if (searchIcon) {
+                    searchIcon.className = 'fa-solid fa-search absolute left-4 top-1/2 -translate-y-1/2 text-brand-black text-xs';
+                }
             }
         }
         window.performServerSearch = performServerSearch;
@@ -2020,10 +2149,11 @@
                 return;
             }
 
+            currentOrdersPage = 1;
             // 1. FILTRO INSTANTÁNEO EN MEMORIA RAM (0ms de latencia, sin parpadeo)
-            const localMatchesCount = renderFilteredSearchResults(val);
+            const localMatchesCount = renderFilteredSearchResults(val, false);
 
-            // 2. DISPARAR BÚSQUEDA EN SERVIDOR TRAS 450MS SOLO SI HAY POCOS RESULTADOS
+            // 2. DISPARAR BÚSQUEDA EN SERVIDOR TRAS 450MS
             if (val.length >= 2) {
                 searchDebounceTimer = setTimeout(() => {
                     performServerSearch(val, localMatchesCount === 0);
