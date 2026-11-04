@@ -1038,6 +1038,17 @@ function createWebhookHandler({
                 const rawOrderId = String(orderData.id);
                 const orderId = `${orderPrefix}${rawOrderId}`;
 
+                // --- FILTRO DE CORTE HISTORICO DE INVENTARIO (30 DE OCTUBRE 2026 23:28:30 UTC) ---
+                // Los pedidos con fecha previa a la auditoria física ya fueron liquidados/contados en bodega.
+                // Si ML actualiza su estado (ej: entregado dias despues), se descarta inmediatamente
+                // para evitar creaciones no deseadas, confusion en el panel y descuadres de stock.
+                const rawDateCreated = orderData.date_created ? new Date(orderData.date_created) : null;
+                const inventoryCutoffDate = new Date('2026-10-30T23:28:30.000Z');
+                if (rawDateCreated && rawDateCreated <= inventoryCutoffDate) {
+                    console.log(`[ML PRE-CORTE] Orden #${rawOrderId} creada en ML (${orderData.date_created}) es previa al corte de inventario (2026-10-30T23:28:30Z). Omitiendo procesamiento.`);
+                    return sendOk(`OK: Orden historica pre-corte ${orderId} (${orderData.date_created}) ignorada.`);
+                }
+
                 console.log(`[ML] RAW ML ORDER JSON (${orderId}):`, JSON.stringify(orderData));
 
                 let rawShipment = initialShipment;
@@ -1583,7 +1594,15 @@ function createWebhookHandler({
                     }
                 }
 
-                const shouldDeductStock = orderData.status !== 'cancelled';
+                const rawDateCreated = orderData.date_created ? new Date(orderData.date_created) : new Date();
+                const inventoryCutoffDate = new Date('2026-10-30T23:28:30.000Z');
+                const isHistoricalPreAudit = Boolean(rawDateCreated <= inventoryCutoffDate);
+
+                const shouldDeductStock = orderData.status !== 'cancelled' && !isHistoricalPreAudit;
+
+                if (isHistoricalPreAudit) {
+                    console.log(`[ML PRE-CORTE] Orden ${orderId} creada en ML (${orderData.date_created}) es anterior al corte de inventario (2026-10-30T23:28:30Z). Omitiendo deduccion de stock actual y preservando fecha original.`);
+                }
 
                 if (shouldDeductStock) {
                     if (accDoc) {
@@ -1706,6 +1725,8 @@ function createWebhookHandler({
                         amountPaid: combinedNetAmount,
                         totalDeductions: combinedDeductions,
                         isStockDeducted: shouldDeductStock,
+                        isHistoricalPreAudit: isHistoricalPreAudit,
+                        stockDeductionSkipped: isHistoricalPreAudit ? "Orden previa al corte de inventario (30 de octubre de 2026). No descuenta stock fisico." : null,
                         isFull: Boolean(isFullOrder || epData.isFull || epData.isMlFull),
                         isMlFull: Boolean(isFullOrder || epData.isFull || epData.isMlFull),
                         logisticType: isFullOrder ? 'fulfillment' : (epData.logisticType || 'default'),
@@ -1713,10 +1734,10 @@ function createWebhookHandler({
                         pack_id: orderData.pack_id ? String(orderData.pack_id) : (epData.pack_id || ""),
                         packOrderIds: admin.firestore.FieldValue.arrayUnion(String(orderData.id)),
                         mlValidationCount: 1,
-                        mlNeedsSecondValidation: true,
+                        mlNeedsSecondValidation: !isHistoricalPreAudit,
                         mlInitialValidatedAt: admin.firestore.FieldValue.serverTimestamp(),
-                        mlSecondValidationScheduledAt: admin.firestore.Timestamp.fromMillis(Date.now() + 5 * 60 * 1000),
-                        mlValidationStatus: 'PENDING_SECOND_VALIDATION',
+                        mlSecondValidationScheduledAt: !isHistoricalPreAudit ? admin.firestore.Timestamp.fromMillis(Date.now() + 5 * 60 * 1000) : null,
+                        mlValidationStatus: isHistoricalPreAudit ? 'COMPLETED_HISTORICAL' : 'PENDING_SECOND_VALIDATION',
                         updatedAt: admin.firestore.FieldValue.serverTimestamp()
                     });
 
@@ -1726,7 +1747,7 @@ function createWebhookHandler({
                             amount: combinedNetAmount,
                             grossAmount: combinedGross,
                             deductions: combinedDeductions,
-                            description: `VENTA ${storeTitle.toUpperCase()} #${existingPackDocSnap.id} (PAQUETE CONSOLIDADO ${combinedItems.length} ITEMS)`,
+                            description: `VENTA ${storeTitle.toUpperCase()} #${existingPackDocSnap.id} (PAQUETE CONSOLIDADO ${combinedItems.length} ITEMS)` + (isHistoricalPreAudit ? " [HISTORICO PRE-CORTE]" : ""),
                             updatedAt: admin.firestore.FieldValue.serverTimestamp()
                         }, { merge: true });
                     }
@@ -1738,10 +1759,12 @@ function createWebhookHandler({
                             grossAmount: grossTotal,
                             deductions: totalDeductions,
                             category: "Ingreso Ventas Online",
-                            description: `VENTA ${storeTitle.toUpperCase()} #${orderData.id}` + (totalDeductions > 0 ? ` (NETO: $${netAmount.toLocaleString('es-CO')})` : ""),
+                            description: `VENTA ${storeTitle.toUpperCase()} #${orderData.id}` + (totalDeductions > 0 ? ` (NETO: $${netAmount.toLocaleString('es-CO')})` : "") + (isHistoricalPreAudit ? " [HISTORICO PRE-CORTE]" : ""),
                             paymentMethod: accName, type: 'INCOME', orderId: orderId,
-                            supplierName: buyerInfo.name, date: admin.firestore.FieldValue.serverTimestamp(),
-                            createdAt: admin.firestore.FieldValue.serverTimestamp()
+                            supplierName: buyerInfo.name,
+                            date: admin.firestore.Timestamp.fromDate(rawDateCreated),
+                            createdAt: admin.firestore.Timestamp.fromDate(rawDateCreated),
+                            isHistoricalPreAudit: isHistoricalPreAudit
                         }, { merge: true });
                     }
 
@@ -1775,7 +1798,11 @@ function createWebhookHandler({
                         origin: 'MERCADOLIBRE',
                         salesChannel: 'MERCADOLIBRE',
                         orderType: 'MERCADOLIBRE',
-                        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                        createdAt: admin.firestore.Timestamp.fromDate(rawDateCreated),
+                        syncedAt: admin.firestore.FieldValue.serverTimestamp(),
+                        mlDateCreated: orderData.date_created || null,
+                        isHistoricalPreAudit: isHistoricalPreAudit,
+                        stockDeductionSkipped: isHistoricalPreAudit ? "Orden previa al corte de inventario (30 de octubre de 2026). No descuenta stock fisico." : null,
                         userId: userId,
                         userName: buyerInfo.name,
                         buyerInfo: {
@@ -1841,28 +1868,30 @@ function createWebhookHandler({
                         isStockDeducted: shouldDeductStock,
                         paymentAccountId: accId,
                         mlValidationCount: 1,
-                        mlNeedsSecondValidation: true,
+                        mlNeedsSecondValidation: !isHistoricalPreAudit,
                         mlInitialValidatedAt: admin.firestore.FieldValue.serverTimestamp(),
-                        mlSecondValidationScheduledAt: admin.firestore.Timestamp.fromMillis(Date.now() + 5 * 60 * 1000),
-                        mlValidationStatus: 'PENDING_SECOND_VALIDATION'
+                        mlSecondValidationScheduledAt: !isHistoricalPreAudit ? admin.firestore.Timestamp.fromMillis(Date.now() + 5 * 60 * 1000) : null,
+                        mlValidationStatus: isHistoricalPreAudit ? 'COMPLETED_HISTORICAL' : 'PENDING_SECOND_VALIDATION'
                     });
                 }
             });
 
-            // Registrar orden en la cola de validacion secundaria a los 5 minutos
-            try {
-                await db.collection('ml_pending_revalidations').doc(orderId).set({
-                    orderId: orderId,
-                    rawOrderId: rawOrderId,
-                    storeNumber: storeNumber,
-                    storeDocName: storeDocName,
-                    scheduledAt: admin.firestore.Timestamp.fromMillis(Date.now() + 5 * 60 * 1000),
-                    status: 'PENDING',
-                    attempts: 0,
-                    createdAt: admin.firestore.FieldValue.serverTimestamp()
-                }, { merge: true });
-            } catch (qErr) {
-                console.error(`[ML] Error registrando revalidacion secundaria para ${orderId}:`, qErr);
+            // Registrar orden en la cola de validacion secundaria a los 5 minutos (solo ordenes nuevas no historicas)
+            if (!isHistoricalPreAudit) {
+                try {
+                    await db.collection('ml_pending_revalidations').doc(orderId).set({
+                        orderId: orderId,
+                        rawOrderId: rawOrderId,
+                        storeNumber: storeNumber,
+                        storeDocName: storeDocName,
+                        scheduledAt: admin.firestore.Timestamp.fromMillis(Date.now() + 5 * 60 * 1000),
+                        status: 'PENDING',
+                        attempts: 0,
+                        createdAt: admin.firestore.FieldValue.serverTimestamp()
+                    }, { merge: true });
+                } catch (qErr) {
+                    console.error(`[ML] Error registrando revalidacion secundaria para ${orderId}:`, qErr);
+                }
             }
 
             console.log(`[ML] Orden ${orderId} (${storeTitle}) procesada y guardada correctamente.`);

@@ -4609,9 +4609,9 @@ window.openLinkProductModal = async function(orderId, itemIndex) {
     if (itemNameEl) itemNameEl.textContent = item.name || item.title || 'Producto';
     if (itemSkuEl) itemSkuEl.textContent = `SKU: ${item.sku || item.id || 'Sin SKU'}`;
     if (itemPriceEl) itemPriceEl.textContent = formatCurrency(item.price || 0);
-    if (itemQtyEl) itemQtyEl.textContent = `x${item.quantity || 1}`;
-
-    const isAlreadyDeducted = Boolean(item.stockDeducted) || (Boolean(orderData.isStockDeducted) && Boolean(item.isLinkedToCatalog));
+    const orderCreatedAt = orderData.createdAt?.toDate ? orderData.createdAt.toDate() : (orderData.createdAt?.seconds ? new Date(orderData.createdAt.seconds * 1000) : new Date(orderData.createdAt || 0));
+    const isPreAudit = Boolean(orderData.isHistoricalPreAudit) || (orderCreatedAt > 0 && orderCreatedAt <= new Date('2026-10-30T23:28:30.000Z'));
+    const isAlreadyDeducted = isPreAudit || Boolean(item.stockDeducted) || (Boolean(orderData.isStockDeducted) && Boolean(item.isLinkedToCatalog));
 
     if (branchSelectEl) branchSelectEl.value = defaultBranch;
     if (deductCheckboxEl) {
@@ -4824,8 +4824,10 @@ window.confirmLinkProduct = async function() {
         const targetCapacity = (combo && combo.capacity) ? String(combo.capacity) : (currentItem.capacity || "");
         const targetImage = product.mainImage || product.image || currentItem.image || "";
 
-        const isAlreadyDeducted = Boolean(currentItem.stockDeducted) || (Boolean(orderData.isStockDeducted) && Boolean(currentItem.isLinkedToCatalog));
-        const effectivelyShouldDeduct = shouldDeduct && !isAlreadyDeducted;
+        const orderCreatedAt = orderData.createdAt?.toDate ? orderData.createdAt.toDate() : (orderData.createdAt?.seconds ? new Date(orderData.createdAt.seconds * 1000) : new Date(orderData.createdAt || 0));
+        const isPreAudit = Boolean(orderData.isHistoricalPreAudit) || (orderCreatedAt > 0 && orderCreatedAt <= new Date('2026-10-30T23:28:30.000Z'));
+        const isAlreadyDeducted = isPreAudit || Boolean(currentItem.stockDeducted) || (Boolean(orderData.isStockDeducted) && Boolean(currentItem.isLinkedToCatalog));
+        const effectivelyShouldDeduct = !isPreAudit && shouldDeduct && !isAlreadyDeducted;
 
         let stockDeductedInThisAttempt = false;
 
@@ -4861,7 +4863,7 @@ window.confirmLinkProduct = async function() {
             mainImage: targetImage,
             thumbnail: targetImage,
             isLinkedToCatalog: true,
-            stockDeducted: shouldDeduct || Boolean(currentItem.stockDeducted),
+            stockDeducted: effectivelyShouldDeduct || Boolean(currentItem.stockDeducted),
             linkedAt: new Date().toISOString(),
             linkedBy: auth.currentUser?.email || 'admin',
             linkedBranch: selectedBranch
@@ -4869,7 +4871,9 @@ window.confirmLinkProduct = async function() {
 
         await updateDoc(orderRef, {
             items: items,
-            isStockDeducted: true,
+            isStockDeducted: isPreAudit ? false : true,
+            isHistoricalPreAudit: isPreAudit ? true : Boolean(orderData.isHistoricalPreAudit),
+            stockDeductionSkipped: isPreAudit ? "Orden previa al corte de inventario (30 de octubre de 2026). No descuenta stock fisico." : (orderData.stockDeductionSkipped || null),
             updatedAt: serverTimestamp()
         });
 
