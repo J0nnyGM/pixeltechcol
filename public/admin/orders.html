@@ -1637,7 +1637,11 @@
             if (btnPrev) btnPrev.disabled = (currentOrdersPage <= 1);
             if (btnNext) {
                 const hasMoreLocally = total > end;
-                btnNext.disabled = (!hasMoreLocally && !lastVisibleServerDoc);
+                const searchInput = document.getElementById('search-input');
+                const isSearching = Boolean(searchInput && searchInput.value.trim().length > 0);
+                // Solo las pestañas 'TODO' o 'ENVIADOS' sin búsqueda activa pueden cargar más historial del servidor
+                const canFetchMoreServer = !isSearching && (currentFilter === 'ALL' || currentFilter === 'DISPATCHED') && Boolean(lastVisibleServerDoc);
+                btnNext.disabled = (!hasMoreLocally && !canFetchMoreServer);
             }
         }
 
@@ -1646,6 +1650,7 @@
             const searchInput = document.getElementById('search-input');
             const searchVal = searchInput ? searchInput.value.trim() : '';
 
+            // 1. Navegación en modo búsqueda
             if (searchVal.length > 0) {
                 if (direction === -1) {
                     if (currentOrdersPage > 1) {
@@ -1667,6 +1672,7 @@
                 }
             }
 
+            // 2. Página anterior
             if (direction === -1) {
                 if (currentOrdersPage > 1) {
                     currentOrdersPage--;
@@ -1676,35 +1682,46 @@
                 return;
             }
 
+            // 3. Página siguiente
             if (direction === 1) {
                 const targetPage = currentOrdersPage + 1;
                 const targetStartIndex = (targetPage - 1) * ORDERS_PAGE_SIZE;
 
-                const btnNext = document.getElementById('btn-next-page');
-                const originalBtnHtml = btnNext ? btnNext.innerHTML : '';
-
-                // Mientras la RAM no tenga suficientes items para la página objetivo y queden datos en servidor, seguir cargando
-                while (filteredOrdersMemory.length <= targetStartIndex && lastVisibleServerDoc) {
-                    if (btnNext) {
-                        btnNext.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Cargando...';
-                        btnNext.disabled = true;
-                    }
-                    
-                    const success = await fetchOlderOrdersFromServer();
-                    reCalcularFiltroLocal();
-
-                    if (btnNext) btnNext.innerHTML = originalBtnHtml;
-
-                    if (!success) break;
+                // Si ya tenemos suficientes órdenes en memoria local, avanzar de inmediato (0ms de latencia)
+                if (filteredOrdersMemory.length > targetStartIndex) {
+                    currentOrdersPage = targetPage;
+                    renderOrdersFromMemory();
+                    document.querySelector('main')?.scrollTo({ top: 0, behavior: 'smooth' });
+                    return;
                 }
 
-                const maxPages = Math.ceil(filteredOrdersMemory.length / ORDERS_PAGE_SIZE) || 1;
-                if (targetPage <= maxPages && filteredOrdersMemory.length > targetStartIndex) {
+                // En pestañas como POR ATENDER (ACTIONABLE) o sin más servidor, no hay más órdenes
+                const canFetchMoreServer = (currentFilter === 'ALL' || currentFilter === 'DISPATCHED') && Boolean(lastVisibleServerDoc);
+                if (!canFetchMoreServer) {
+                    const btnNext = document.getElementById('btn-next-page');
+                    if (btnNext) btnNext.disabled = true;
+                    return;
+                }
+
+                // Solo para TODO o ENVIADOS: solicitar 1 bloque adicional del servidor
+                const btnNext = document.getElementById('btn-next-page');
+                const originalBtnHtml = btnNext ? btnNext.innerHTML : '';
+                if (btnNext) {
+                    btnNext.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Cargando...';
+                    btnNext.disabled = true;
+                }
+
+                const success = await fetchOlderOrdersFromServer();
+                reCalcularFiltroLocal();
+
+                if (btnNext) btnNext.innerHTML = originalBtnHtml;
+
+                if (filteredOrdersMemory.length > targetStartIndex) {
                     currentOrdersPage = targetPage;
                     renderOrdersFromMemory();
                     document.querySelector('main')?.scrollTo({ top: 0, behavior: 'smooth' });
                 } else {
-                    if (btnNext) btnNext.disabled = (!lastVisibleServerDoc && (currentOrdersPage * ORDERS_PAGE_SIZE) >= filteredOrdersMemory.length);
+                    if (btnNext) btnNext.disabled = true;
                 }
             }
         };
