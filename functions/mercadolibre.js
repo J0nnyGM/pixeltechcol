@@ -226,10 +226,32 @@ async function findProductInStore(db, item) {
             if (id.includes('EAN') || id.includes('GTIN') || id.includes('SKU') || id.includes('BARCODE') || id.includes('SELLER_SKU')) {
                 if (va.value_name) candidateCodes.push(String(va.value_name).trim());
             }
-            const name = (va.name || '').toLowerCase();
-            if (name.includes('color')) varColor = normalizeText(va.value_name || '');
-            if (name.includes('capacidad') || name.includes('tamaño') || name.includes('almacenamiento') || name.includes('memoria')) {
+            const attrId = (va.id || '').toUpperCase();
+            const attrName = (va.name || '').toLowerCase();
+            const isLightColor = attrId.includes('LIGHT') || attrName.includes('luz');
+            const isStrictColor = (attrId === 'COLOR' || attrName === 'color') && !isLightColor;
+
+            if (isStrictColor) {
+                varColor = normalizeText(va.value_name || '');
+            } else if (!varColor && attrName.includes('color') && !isLightColor) {
+                varColor = normalizeText(va.value_name || '');
+            }
+
+            if (attrName.includes('capacidad') || attrName.includes('tamaño') || attrName.includes('almacenamiento') || attrName.includes('memoria')) {
                 varCapacity = normalizeText(va.value_name || '');
+            }
+        }
+    }
+    // Fallback: si no hay color en variation_attributes, revisar attributes
+    if (!varColor && Array.isArray(item.item.attributes)) {
+        for (const attr of item.item.attributes) {
+            const attrId = (attr.id || '').toUpperCase();
+            const attrName = (attr.name || '').toLowerCase();
+            const isLightColor = attrId.includes('LIGHT') || attrName.includes('luz');
+            const isStrictColor = (attrId === 'COLOR' || attrName === 'color') && !isLightColor;
+            if (isStrictColor) {
+                varColor = normalizeText(attr.value_name || '');
+                break;
             }
         }
     }
@@ -299,6 +321,86 @@ async function findProductInStore(db, item) {
 
     // 2. Traer todos los productos para escaneo profundo de combinaciones y normalización
     const allProdsSnap = await db.collection('products').get();
+
+    // 2.A. PASADA 1: Búsqueda exacta por códigos normalizados (SKU, EAN, barcode, ref, code, mlVariationId, mlItemId)
+    // Coincidencia exacta de códigos SIEMPRE tiene máxima prioridad antes de coincidencias por texto/atributos
+    if (normCandidateCodes.length > 0) {
+        for (const doc of allProdsSnap.docs) {
+            const pData = doc.data();
+            const pId = doc.id;
+            const pImg = pData.mainImage || pData.image || (Array.isArray(pData.images) && pData.images[0]) || "";
+            const pName = pData.name || pData.title || '';
+
+            // Revisar combinaciones / variantes por código
+            if (Array.isArray(pData.combinations) && pData.combinations.length > 0) {
+                for (let idx = 0; idx < pData.combinations.length; idx++) {
+                    const comb = pData.combinations[idx];
+                    const combCodes = [comb.sku, comb.ean, comb.barcode, comb.ref, comb.code, comb.mlVariationId].filter(Boolean).map(normalizeCode);
+                    if (normCandidateCodes.some(nc => combCodes.includes(nc))) {
+                        const cImg = comb.image || pImg;
+                        return {
+                            docId: pId,
+                            isVariant: true,
+                            variantIndex: idx,
+                            name: pName,
+                            sku: comb.sku || pData.sku || '',
+                            color: comb.color || "",
+                            capacity: comb.capacity || "",
+                            image: cImg,
+                            productData: pData
+                        };
+                    }
+                }
+            }
+
+            // Revisar códigos del producto raíz normalizados
+            const rootCodes = [pData.sku, pData.ean, pData.barcode, pData.ref, pData.code, pData.mlItemId].filter(Boolean).map(normalizeCode);
+            if (normCandidateCodes.some(nc => rootCodes.includes(nc))) {
+                if (Array.isArray(pData.combinations) && pData.combinations.length > 0) {
+                    let matchedVarIdx = -1;
+                    if (varColor || varCapacity) {
+                        for (let cIdx = 0; cIdx < pData.combinations.length; cIdx++) {
+                            const comb = pData.combinations[cIdx];
+                            const cColor = normalizeText(comb.color || '');
+                            const cCap = normalizeText(comb.capacity || '');
+                            if ((!varColor || cColor === varColor) && (!varCapacity || cCap === varCapacity)) {
+                                matchedVarIdx = cIdx;
+                                break;
+                            }
+                        }
+                    }
+                    if (matchedVarIdx < 0 && pData.combinations.length === 1) {
+                        matchedVarIdx = 0;
+                    }
+                    if (matchedVarIdx >= 0) {
+                        const comb = pData.combinations[matchedVarIdx];
+                        return {
+                            docId: pId,
+                            isVariant: true,
+                            variantIndex: matchedVarIdx,
+                            name: pName,
+                            sku: comb.sku || pData.sku || '',
+                            color: comb.color || "",
+                            capacity: comb.capacity || "",
+                            image: comb.image || pImg,
+                            productData: pData
+                        };
+                    }
+                }
+
+                return { 
+                    docId: pId, 
+                    isVariant: false, 
+                    name: pName, 
+                    sku: pData.sku || '', 
+                    image: pImg, 
+                    productData: pData 
+                };
+            }
+        }
+    }
+
+    // 2.B. PASADA 2: Fallback únicamente si ningún producto o combinación coincidió por código
     let nameMatchFallback = null;
 
     for (const doc of allProdsSnap.docs) {
@@ -308,30 +410,11 @@ async function findProductInStore(db, item) {
         const pName = pData.name || pData.title || '';
         const pNameNorm = normalizeText(pName);
 
-        // A. Revisar combinaciones / variantes
-        if (Array.isArray(pData.combinations) && pData.combinations.length > 0) {
-            for (let idx = 0; idx < pData.combinations.length; idx++) {
-                const comb = pData.combinations[idx];
-                const combCodes = [comb.sku, comb.ean, comb.barcode, comb.ref, comb.code, comb.mlVariationId].filter(Boolean).map(normalizeCode);
-                
-                // Coincidencia por código de variante
-                if (normCandidateCodes.some(nc => combCodes.includes(nc))) {
-                    const cImg = comb.image || pImg;
-                    return {
-                        docId: pId,
-                        isVariant: true,
-                        variantIndex: idx,
-                        name: pName,
-                        sku: comb.sku || pData.sku || '',
-                        color: comb.color || "",
-                        capacity: comb.capacity || "",
-                        image: cImg,
-                        productData: pData
-                    };
-                }
-
-                // Coincidencia por color/capacidad si el nombre del producto coincide
-                if (itemTitle && pNameNorm && (itemTitle.includes(pNameNorm) || pNameNorm.includes(itemTitle))) {
+        if (itemTitle && pNameNorm && (itemTitle.includes(pNameNorm) || pNameNorm.includes(itemTitle))) {
+            // Revisar combinaciones si coincide por color/capacidad
+            if (Array.isArray(pData.combinations) && pData.combinations.length > 0) {
+                for (let idx = 0; idx < pData.combinations.length; idx++) {
+                    const comb = pData.combinations[idx];
                     const cColorNorm = normalizeText(comb.color || '');
                     const cCapNorm = normalizeText(comb.capacity || '');
                     const colorMatches = varColor ? (cColorNorm === varColor) : (!cColorNorm || itemTitle.includes(cColorNorm));
@@ -352,23 +435,8 @@ async function findProductInStore(db, item) {
                     }
                 }
             }
-        }
 
-        // B. Revisar códigos del producto raíz normalizados
-        const rootCodes = [pData.sku, pData.ean, pData.barcode, pData.ref, pData.code, pData.mlItemId].filter(Boolean).map(normalizeCode);
-        if (normCandidateCodes.some(nc => rootCodes.includes(nc))) {
-            return { 
-                docId: pId, 
-                isVariant: false, 
-                name: pName, 
-                sku: pData.sku || '', 
-                image: pImg, 
-                productData: pData 
-            };
-        }
-
-        // C. Fallback por coincidencia de nombre
-        if (itemTitle && pNameNorm) {
+            // Coincidencia exacta de nombre para producto simple
             if (itemTitle === pNameNorm) {
                 return { 
                     docId: pId, 
@@ -379,9 +447,10 @@ async function findProductInStore(db, item) {
                     productData: pData 
                 };
             }
+
             const itemHasPack = itemTitle.includes('pack') || itemTitle.includes('kit') || itemTitle.includes('unidades');
             const prodHasPack = pNameNorm.includes('pack') || pNameNorm.includes('kit') || pNameNorm.includes('unidades');
-            if (itemHasPack === prodHasPack && (itemTitle.includes(pNameNorm) || pNameNorm.includes(itemTitle))) {
+            if (itemHasPack === prodHasPack) {
                 if (!nameMatchFallback) {
                     nameMatchFallback = { 
                         docId: pId, 
