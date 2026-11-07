@@ -1161,24 +1161,139 @@ export async function viewOrderDetail(orderId) {
 }
 
 // ==========================================================================
-// ANULAR ORDEN MANUAL/ONLINE (ADMIN)
+// MODAL DE ANULACIÓN DE ORDEN MANUAL/ONLINE (ADMIN)
 // ==========================================================================
-async function cancelManualOrder(order) {
-    if (!confirm("ATENCIÓN ADMINISTRADOR:\n\n¿Estás seguro de ANULAR esta venta?\n\n- La orden pasará a estado CANCELADO.\n- El dinero se reversará en tesorería (si aplica).\n\nEsta acción es irreversible.")) return;
+let pendingCancelOrder = null;
 
-    let shouldReturnStock = true;
-    const hasItems = order.items && order.items.length > 0;
-    if (hasItems) {
-        shouldReturnStock = confirm(
-            "GESTIÓN DE STOCK AL ANULAR:\n\n" +
-            "¿Deseas devolver las unidades de este pedido al inventario de bodega?\n\n" +
-            "- ACEPTAR: SÍ, devolver unidades al inventario (Cancelación normal).\n" +
-            "- CANCELAR: NO devolver unidades (Selecciona esto si el pedido es anterior a la toma física de inventario y las unidades ya fueron contadas)."
-        );
+function injectCancelOrderModalHtml() {
+    if (getEl('cancel-order-modal')) return;
+    const html = `
+    <div id="cancel-order-modal" class="fixed inset-0 z-[110] hidden flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-xs">
+        <div class="relative bg-white w-full max-w-lg rounded-[2rem] shadow-2xl flex flex-col overflow-hidden animate-fadeIn">
+            <!-- Header -->
+            <div class="px-6 py-5 bg-rose-50 border-b border-rose-100 flex items-center justify-between">
+                <div class="flex items-center gap-2.5 text-rose-700">
+                    <div class="w-9 h-9 rounded-xl bg-rose-100 flex items-center justify-center text-rose-600 font-black shrink-0">
+                        <i class="fa-solid fa-ban text-sm"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-base font-black uppercase tracking-tight text-brand-black">Anular Venta / Pedido</h3>
+                        <p class="text-[10px] font-bold text-gray-500 uppercase" id="com-order-title">Orden #...</p>
+                    </div>
+                </div>
+                <button type="button" onclick="window.closeCancelOrderModal()" class="w-8 h-8 rounded-full bg-white text-gray-400 hover:text-gray-700 border border-gray-200 flex items-center justify-center transition cursor-pointer">
+                    <i class="fa-solid fa-xmark text-sm"></i>
+                </button>
+            </div>
+            
+            <!-- Body -->
+            <div class="p-6 space-y-4 text-xs">
+                <div class="p-4 bg-rose-50/60 rounded-xl border border-rose-100/80 text-rose-900">
+                    <p class="font-bold text-xs mb-1">¿Estás seguro de anular esta venta?</p>
+                    <ul class="list-disc list-inside text-[11px] space-y-1 text-rose-800 font-medium">
+                        <li>La orden cambiará permanentemente a estado <strong>CANCELADO</strong>.</li>
+                        <li>Si hubo dinero recibido en caja o cuentas, se reversará automáticamente en tesorería.</li>
+                    </ul>
+                </div>
+
+                <!-- Resumen de productos -->
+                <div>
+                    <span class="text-[9px] font-black uppercase text-gray-400 tracking-wider block mb-1.5">Productos en la orden</span>
+                    <div id="com-items-summary" class="bg-slate-50 border border-gray-100 rounded-xl p-3 max-h-36 overflow-y-auto custom-scroll space-y-1 text-[11px]">
+                    </div>
+                </div>
+
+                <!-- Checkbox Gestión de Stock -->
+                <div class="bg-gray-50 border border-gray-200 rounded-xl p-3.5">
+                    <label class="flex items-start gap-3 cursor-pointer select-none">
+                        <input type="checkbox" id="com-return-stock-checkbox" checked class="mt-0.5 w-4 h-4 text-emerald-600 border-gray-300 rounded focus:ring-emerald-500 cursor-pointer">
+                        <div>
+                            <div class="flex items-center gap-2">
+                                <span class="font-black text-xs text-brand-black">Devolver unidades al inventario de bodega</span>
+                                <span class="px-1.5 py-0.5 rounded text-[9px] font-black uppercase bg-emerald-100 text-emerald-700">Recomendado</span>
+                            </div>
+                            <p class="text-[10px] text-gray-500 mt-0.5 leading-snug">
+                                Reintegra automáticamente las cantidades al stock del catálogo. Desmarca únicamente si esta orden es histórica previa a la toma física de inventario.
+                            </p>
+                        </div>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Footer -->
+            <div class="px-6 py-4 bg-gray-50 border-t border-gray-100 flex items-center justify-end gap-2.5">
+                <button type="button" onclick="window.closeCancelOrderModal()" class="h-10 px-4 rounded-xl bg-white border border-gray-200 hover:bg-gray-100 text-gray-700 font-black text-xs uppercase tracking-wider transition cursor-pointer">
+                    No anular
+                </button>
+                <button type="button" id="com-btn-confirm" onclick="window.executeCancelManualOrder()" class="h-10 px-5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-black text-xs uppercase tracking-wider shadow transition flex items-center gap-2 cursor-pointer active:scale-95">
+                    <i class="fa-solid fa-ban"></i>
+                    <span>Confirmar Anulación</span>
+                </button>
+            </div>
+        </div>
+    </div>`;
+    document.body.insertAdjacentHTML('beforeend', html);
+}
+
+export function openCancelOrderModal(order) {
+    if (!order) return;
+    pendingCancelOrder = order;
+    injectCancelOrderModalHtml();
+
+    const ordNum = order.internalOrderNumber || (order.id ? order.id.slice(0, 8) : '---');
+    const clientName = order.userName || order.clientName || order.buyerInfo?.name || 'Cliente';
+    const titleEl = getEl('com-order-title');
+    if (titleEl) titleEl.textContent = `Orden #${ordNum} - ${clientName}`;
+
+    const itemsContainer = getEl('com-items-summary');
+    if (itemsContainer) {
+        if (order.items && order.items.length > 0) {
+            itemsContainer.innerHTML = order.items.map(it => {
+                const varLabel = [it.color, it.capacity].filter(Boolean).join(' / ');
+                return `<div class="flex justify-between items-center py-1 border-b border-gray-200/50 last:border-0">
+                    <span class="font-bold text-gray-800">${it.name || 'Producto'} ${varLabel ? `<span class="text-gray-500 font-normal">(${varLabel})</span>` : ''}</span>
+                    <span class="font-black text-brand-black px-2 py-0.5 bg-white border border-gray-200 rounded text-[10px]">x${it.quantity || 1}</span>
+                </div>`;
+            }).join('');
+        } else {
+            itemsContainer.innerHTML = '<p class="text-gray-400 italic">Esta orden no tiene productos listados.</p>';
+        }
     }
 
-    const btn = getEl('btn-cancel-action');
-    if(btn) { btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i>'; btn.disabled = true; }
+    // Por defecto SIEMPRE marcado devolver stock
+    const chk = getEl('com-return-stock-checkbox');
+    if (chk) chk.checked = true;
+
+    const btn = getEl('com-btn-confirm');
+    if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa-solid fa-ban"></i> <span>Confirmar Anulación</span>';
+    }
+
+    const modal = getEl('cancel-order-modal');
+    if (modal) modal.classList.remove('hidden');
+}
+
+export function closeCancelOrderModal() {
+    const modal = getEl('cancel-order-modal');
+    if (modal) modal.classList.add('hidden');
+    pendingCancelOrder = null;
+}
+
+window.openCancelOrderModal = openCancelOrderModal;
+window.closeCancelOrderModal = closeCancelOrderModal;
+
+window.executeCancelManualOrder = async function() {
+    const order = pendingCancelOrder;
+    if (!order) return;
+
+    const btn = getEl('com-btn-confirm');
+    if (btn) {
+        btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> <span>Procesando...</span>';
+        btn.disabled = true;
+    }
+
+    const shouldReturnStock = Boolean(getEl('com-return-stock-checkbox')?.checked);
 
     try {
         let isStockDeducted = false;
@@ -1258,10 +1373,8 @@ async function cancelManualOrder(order) {
                 linkedSerials.forEach(d => {
                     const data = d.data();
                     if (isRegularizedSerial(data)) {
-                        // Serial regularizado en alistamiento: se elimina para evitar asignarlo al producto incorrecto
                         batchSerials.delete(d.ref);
                     } else {
-                        // Serial legítimo de compras: vuelve a estar DISPONIBLE
                         batchSerials.update(d.ref, {
                             status: 'AVAILABLE',
                             orderId: null,
@@ -1281,15 +1394,28 @@ async function cancelManualOrder(order) {
         }
 
         clearDraftSerials(order.id);
-        alert("Venta anulada exitosamente. \nEl stock fue devuelto al catálogo (si corresponde) y el dinero fue revertido de la cuenta (si aplica).");
+        closeCancelOrderModal();
+        alert("Venta anulada exitosamente.\n" + (shouldReturnStock ? "El stock fue devuelto al catálogo" : "Stock no modificado") + " y el dinero fue revertido de la cuenta (si aplica).");
         getEl('order-modal').classList.add('hidden');
         currentOrderData = null;
 
+        if (typeof window.reCalcularFiltroLocal === 'function') window.reCalcularFiltroLocal();
+        if (typeof window.renderOrdersFromMemory === 'function') window.renderOrdersFromMemory();
+
     } catch (error) {
-        console.error(error); alert("Error al anular: " + error.message);
-        if(btn) { btn.innerHTML = '<i class="fa-solid fa-ban"></i> Anular Venta'; btn.disabled = false; }
+        console.error(error);
+        alert("Error al anular: " + error.message);
+        if (btn) {
+            btn.innerHTML = '<i class="fa-solid fa-ban"></i> <span>Confirmar Anulación</span>';
+            btn.disabled = false;
+        }
     }
+};
+
+async function cancelManualOrder(order) {
+    openCancelOrderModal(order);
 }
+window.cancelManualOrder = cancelManualOrder;
 
 // ==========================================================================
 // NUEVO: EDITAR ORDEN MANUAL (ADMIN) + 4x1000
@@ -1400,21 +1526,13 @@ export async function confirmOrderCancellation(orderId) {
             console.warn("Error liberando seriales en confirmOrderCancellation:", errSerials);
         }
 
-        // 2. Revertir stock a bodega si estaba descontado
-        let shouldReturnStock = false;
-        if (o.isStockDeducted && o.items && o.items.length > 0) {
-            shouldReturnStock = confirm(
-                "GESTIÓN DE STOCK EN CANCELACIÓN DE MERCADOLIBRE:\n\n" +
-                "¿Deseas reingresar las unidades de este pedido al inventario de bodega?\n\n" +
-                "- ACEPTAR: SÍ, devolver unidades al inventario (flujo habitual).\n" +
-                "- CANCELAR: NO devolver unidades (Selecciona esto si el pedido es anterior a la toma física de inventario y las unidades ya fueron contadas)."
-            );
-            if (shouldReturnStock) {
-                const ordNum = o.internalOrderNumber || orderId;
-                for (const item of o.items) {
-                    const qty = Number(item.quantity) || 1;
-                    await safeAdjustStock(item.id, qty, item.color, item.capacity, 'DEVOLUCION_CANCELACION', `Devolución por confirmación de cancelación del pedido #${ordNum}`);
-                }
+        // 2. Revertir stock a bodega si estaba descontado (el admin ya confirmó retención en bodega)
+        const shouldReturnStock = Boolean(o.isStockDeducted && o.items && o.items.length > 0);
+        if (shouldReturnStock) {
+            const ordNum = o.internalOrderNumber || orderId;
+            for (const item of o.items) {
+                const qty = Number(item.quantity) || 1;
+                await safeAdjustStock(item.id, qty, item.color, item.capacity, 'DEVOLUCION_CANCELACION', `Devolución por confirmación de cancelación del pedido #${ordNum}`);
             }
         }
 

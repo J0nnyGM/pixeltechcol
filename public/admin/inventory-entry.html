@@ -2173,52 +2173,59 @@
                             const initialStock = parseInt(pData.stock) || 0;
                             let baseStock = initialStock;
 
-                            // Paso A: Revertir ítems antiguos de esta compra
+                            // Calcular delta neto por cada variante / combinación entre ítems antiguos y nuevos de esta compra
                             const oldItemsForThis = oldItems.filter(i => i.id === pid);
-                            oldItemsForThis.forEach(oi => {
-                                const oQty = parseInt(oi.quantity) || 0;
-                                if (oi.color || oi.capacity) {
-                                    const cIdx = combinations.findIndex(c => 
-                                        (c.color || '') === (oi.color || '') && 
-                                        (c.capacity || '') === (oi.capacity || '')
-                                    );
-                                    if (cIdx >= 0) {
-                                        combinations[cIdx].stock = (parseInt(combinations[cIdx].stock) || 0) - oQty;
-                                        if (combinations[cIdx].stock < 0) combinations[cIdx].stock = 0;
-                                    }
-                                } else {
-                                    baseStock -= oQty;
-                                    if (baseStock < 0) baseStock = 0;
-                                }
-                            });
-
-                            // Paso B: Aplicar nuevos ítems
                             const newGroup = groupedItems[pid];
+                            const newUpdatesForThis = newGroup ? newGroup.updates : [];
+
+                            // Recopilar todas las llaves (color + capacidad) afectadas
+                            const variantKeys = new Set();
+                            oldItemsForThis.forEach(oi => variantKeys.add(`${oi.color || ''}__${oi.capacity || ''}`));
+                            newUpdatesForThis.forEach(nu => variantKeys.add(`${nu.selectedColor || ''}__${nu.selectedCap || ''}`));
+
                             let lastCost = pData.lastPurchaseCost || 0;
+
+                            if (variantKeys.size > 0 && combinations.length > 0) {
+                                variantKeys.forEach(vKey => {
+                                    const [vColor, vCap] = vKey.split('__');
+                                    const oldQty = oldItemsForThis
+                                        .filter(oi => (oi.color || '') === vColor && (oi.capacity || '') === vCap)
+                                        .reduce((sum, oi) => sum + (parseInt(oi.quantity) || 0), 0);
+                                    const newQty = newUpdatesForThis
+                                        .filter(nu => (nu.selectedColor || '') === vColor && (nu.selectedCap || '') === vCap)
+                                        .reduce((sum, nu) => sum + (parseInt(nu.qty) || 0), 0);
+                                    const deltaQty = newQty - oldQty;
+
+                                    const cIdx = combinations.findIndex(c => 
+                                        (c.color || '') === vColor && 
+                                        (c.capacity || '') === vCap
+                                    );
+
+                                    if (cIdx >= 0) {
+                                        // Aplicar delta neto al stock existente: si deltaQty == 0, el stock NO cambia
+                                        combinations[cIdx].stock = Math.max(0, (parseInt(combinations[cIdx].stock) || 0) + deltaQty);
+                                    } else if (newQty > 0) {
+                                        combinations.push({
+                                            color: vColor,
+                                            capacity: vCap,
+                                            stock: newQty,
+                                            price: pData.price || 0,
+                                            sku: `${pData.sku || ''}-${(vColor || '').substring(0,3)}-${vCap || ''}`.toUpperCase()
+                                        });
+                                    }
+                                });
+                            } else {
+                                // Producto sin combinaciones
+                                const oldQty = oldItemsForThis.reduce((sum, oi) => sum + (parseInt(oi.quantity) || 0), 0);
+                                const newQty = newUpdatesForThis.reduce((sum, nu) => sum + (parseInt(nu.qty) || 0), 0);
+                                const deltaQty = newQty - oldQty;
+                                baseStock = Math.max(0, baseStock + deltaQty);
+                            }
+
                             if (newGroup) {
                                 newGroup.updates.forEach(nu => {
                                     const unitCostBase = hasIvaGlobal ? Math.round(nu.unitCostEntered / 1.19) : nu.unitCostEntered;
                                     lastCost = unitCostBase;
-
-                                    if (nu.selectedColor || nu.selectedCap) {
-                                        const cIdx = combinations.findIndex(c => 
-                                            (c.color || '') === (nu.selectedColor || '') && 
-                                            (c.capacity || '') === (nu.selectedCap || '')
-                                        );
-                                        if (cIdx >= 0) {
-                                            combinations[cIdx].stock = (parseInt(combinations[cIdx].stock) || 0) + nu.qty;
-                                        } else {
-                                            combinations.push({
-                                                color: nu.selectedColor,
-                                                capacity: nu.selectedCap,
-                                                stock: nu.qty,
-                                                price: pData.price || 0,
-                                                sku: `${pData.sku || ''}-${(nu.selectedColor || '').substring(0,3)}-${nu.selectedCap || ''}`.toUpperCase()
-                                            });
-                                        }
-                                    } else {
-                                        baseStock += nu.qty;
-                                    }
                                 });
                             }
 
@@ -2299,20 +2306,31 @@
                             updatedAt: now
                         });
 
-                        // Reemplazar seriales disponibles previos por los nuevos
+                        // Reemplazar seriales disponibles previos por los nuevos sin duplicar seriales ya despachados
+                        const dispatchedOldSerials = new Set();
                         if (oldSerialsSnap && !oldSerialsSnap.empty) {
                             oldSerialsSnap.docs.forEach(d => {
-                                if (d.data().status === 'AVAILABLE') {
+                                const data = d.data();
+                                if (data.status === 'AVAILABLE') {
                                     transaction.delete(d.ref);
+                                } else {
+                                    // Conservar seriales vendidos/despachados
+                                    const sn = (data.serialNumber || '').trim();
+                                    if (sn) dispatchedOldSerials.add(sn);
                                 }
                             });
                         }
                         serialsToSave.forEach(s => {
+                            const cleanSn = (s.sn || '').trim();
+                            if (!cleanSn) return;
+                            // Si el serial ya fue despachado/vendido en esta u otra orden, NO crear duplicado en inventario disponible
+                            if (dispatchedOldSerials.has(cleanSn)) return;
+
                             const pSnap = productSnapsMap[s.pid];
                             const pData = pSnap && pSnap.exists() ? pSnap.data() : {};
                             const sRef = doc(collection(db, "product_serials"));
                             transaction.set(sRef, {
-                                serialNumber: s.sn,
+                                serialNumber: cleanSn,
                                 productId: s.pid,
                                 productName: s.productName,
                                 sku: pData.sku || '',
