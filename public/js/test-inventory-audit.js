@@ -760,7 +760,9 @@ function renderProductTimeline() {
 
         // Si está filtrado por variante, obtener el delta específico de esa variante
         let delta = typeof log.deltaStock === 'number' ? log.deltaStock : 0;
-        let variantStockText = `${log.beforeStock} ➔ ${log.afterStock}`;
+        let variantStockText = (typeof log.beforeStock === 'number' && typeof log.afterStock === 'number') 
+            ? `${log.beforeStock} ➔ ${log.afterStock}` 
+            : '';
 
         if (isVariantFiltered && Array.isArray(log.variantChanges) && log.variantChanges.length > 0) {
             const vMatch = log.variantChanges.find(v => getVariantKey(v.color, v.capacity) === productLogsState.selectedVariant);

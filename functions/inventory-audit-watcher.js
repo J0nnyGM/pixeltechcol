@@ -103,10 +103,22 @@ exports.watchInventoryChanges = onDocumentWritten("products/{productId}", async 
     let changeDetails = "";
     let relatedReference = "";
 
-    // A) Si el objeto actualizado trae una etiqueta explícita de origen
-    if (afterData.lastStockChangeReason) {
-        changeType = afterData.lastStockChangeReason;
-        changeDetails = afterData.lastStockChangeDetails || "";
+    // A) Si el objeto actualizado trae una etiqueta explícita de origen recién seteada
+    const hasFreshReason = afterData.lastStockChangeReason && (
+        !beforeData ||
+        beforeData.lastStockChangeReason !== afterData.lastStockChangeReason ||
+        beforeData.lastStockChangeDetails !== afterData.lastStockChangeDetails
+    );
+
+    if (hasFreshReason) {
+        // Regla de coherencia estricta: una venta nunca puede incrementar stock
+        if (deltaStock > 0 && afterData.lastStockChangeReason === "VENTA_PEDIDO") {
+            changeType = "AJUSTE_MANUAL";
+            changeDetails = `Ingreso/ajuste manual de inventario (+${deltaStock} uds)`;
+        } else {
+            changeType = afterData.lastStockChangeReason;
+            changeDetails = afterData.lastStockChangeDetails || "";
+        }
     } else {
         const nowMs = Date.now();
         const ninetySecsAgo = new Date(nowMs - 90000);
@@ -217,6 +229,18 @@ exports.watchInventoryChanges = onDocumentWritten("products/{productId}", async 
         }
     } catch (syncErr) {
         console.error("[Vigilante Inventario] Error sincronizando stock a MercadoLibre:", syncErr.message);
+    }
+
+    // 8. Limpiar etiquetas de motivo del documento para evitar contaminación en ediciones futuras
+    if (afterData.lastStockChangeReason || afterData.lastStockChangeDetails) {
+        try {
+            await event.data.after.ref.update({
+                lastStockChangeReason: admin.firestore.FieldValue.delete(),
+                lastStockChangeDetails: admin.firestore.FieldValue.delete()
+            });
+        } catch (cleanErr) {
+            console.warn("[InventoryWatcher] Error limpiando lastStockChangeReason:", cleanErr.message);
+        }
     }
 
     return null;
