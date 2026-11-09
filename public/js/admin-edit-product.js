@@ -32,8 +32,11 @@ priceInput.addEventListener('input', (e) => {
 
 function lockGlobalInputs() { 
     stockInput.readOnly = true;
-    stockInput.classList.add('bg-gray-100', 'text-gray-400', 'cursor-not-allowed');
-    stockLabel.innerHTML = "Stock Total <span class='text-xs text-amber-500 font-bold'>(Solo Entradas / Sync)</span>";
+    stockInput.classList.remove('text-brand-black', 'bg-gray-100', 'cursor-not-allowed');
+    stockInput.classList.add('bg-gray-50', 'text-gray-500', 'cursor-default');
+    if (stockLabel) stockLabel.innerHTML = "Stock Total <span class='text-[9px] text-gray-400 font-bold'>(Suma de combinaciones)</span>";
+    const help = document.getElementById('stock-help-text');
+    if (help) help.innerHTML = '<i class="fa-solid fa-calculator text-brand-cyan text-[9px]"></i> Calculado automáticamente según las cantidades en la tabla de abajo.';
 
     const skuInput = document.getElementById('p-sku');
     if(skuInput) {
@@ -44,10 +47,12 @@ function lockGlobalInputs() {
 }
 
 function unlockGlobalInputs() { 
-    // 🔥 El stock ya no es editable desde la edición de producto (solo mediante Entradas o Sincronización)
-    stockInput.readOnly = true;
-    stockInput.classList.add('bg-gray-100', 'text-gray-400', 'cursor-not-allowed');
-    stockLabel.innerHTML = "Stock Total <span class='text-xs text-amber-500 font-bold'>(Solo Entradas / Sync)</span>";
+    stockInput.readOnly = false;
+    stockInput.classList.remove('bg-gray-100', 'bg-gray-50', 'text-gray-400', 'text-gray-500', 'cursor-not-allowed', 'cursor-default');
+    stockInput.classList.add('text-brand-black');
+    if (stockLabel) stockLabel.innerHTML = "Stock Total";
+    const help = document.getElementById('stock-help-text');
+    if (help) help.innerHTML = '<i class="fa-solid fa-pen text-brand-cyan text-[9px]"></i> Puedes modificar la cantidad disponible directamente.';
 
     const skuInput = document.getElementById('p-sku');
     if(skuInput) {
@@ -390,9 +395,11 @@ function renderMatrix() {
             <td class="p-4"><input type="number" value="${prev.price}" onchange="updateMatrixData('${row.key}', 'price', this.value)" class="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs font-bold text-brand-cyan outline-none focus:border-brand-cyan"></td>
             
             <td class="p-4">
-                <input type="number" value="${prev.stock != null ? prev.stock : 0}" readonly disabled 
-                class="w-full bg-gray-100 border border-gray-200 rounded-lg p-2 text-xs font-bold text-gray-400 outline-none cursor-not-allowed"
-                title="El stock solo puede modificarse mediante Entradas o desde la Sincronización de Inventario">
+                <input type="number" min="0" value="${prev.stock != null ? prev.stock : 0}" 
+                oninput="updateMatrixData('${row.key}', 'stock', this.value)" 
+                onchange="updateMatrixData('${row.key}', 'stock', this.value)" 
+                class="w-full bg-white border border-gray-200 rounded-lg p-2 text-xs font-bold text-brand-black outline-none focus:border-brand-cyan"
+                placeholder="0">
             </td>`;
         tbody.appendChild(tr);
     });
@@ -401,16 +408,14 @@ function renderMatrix() {
 
 window.updateMatrixData = (key, field, val) => { 
     if(!matrixData[key]) matrixData[key]={}; 
-    if (field === 'stock') {
-        // Bloqueado en edición de producto: solo entradas o sincronización de inventario
-        return;
-    }
     if (field === 'sku') {
         matrixData[key][field] = val.toUpperCase();
+    } else if (field === 'stock') {
+        matrixData[key][field] = Math.max(0, parseInt(val) || 0);
+        recalcTotalStock();
     } else {
         matrixData[key][field] = Number(val);
     }
-    if (field === 'stock') recalcTotalStock();
 };
 
 function recalcTotalStock() {

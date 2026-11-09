@@ -277,13 +277,13 @@ export async function getAvailableSerialsForItem(item) {
 }
 window.getAvailableSerialsForItem = getAvailableSerialsForItem;
 
-window.toggleItemNoSerial = async (idx) => {
+window.toggleItemNoSerial = (idx) => {
     const inputs = Array.from(document.querySelectorAll(`.sn-input[data-item-index="${idx}"]`));
     if (!inputs || inputs.length === 0) return;
 
     const allCurrentlyNoSerial = inputs.every(inp => isNoSerial(inp.value));
 
-    // Si ya estaban marcados como SIN-SERIAL, simplemente los quitamos y limpiamos
+    // Si ya estaban marcados como SIN-SERIAL, los limpiamos
     if (allCurrentlyNoSerial) {
         inputs.forEach(inp => {
             inp.value = '';
@@ -292,93 +292,18 @@ window.toggleItemNoSerial = async (idx) => {
         });
         const lbl = document.getElementById(`label-noserial-${idx}`);
         if (lbl) lbl.textContent = 'Marcar Sin Serial (N/A)';
-        if (currentOrderId) saveDraftSerials(currentOrderId);
-        return;
-    }
-
-    // Obtener ítem de la orden
-    const item = (currentOrderData?.items || [])[idx];
-    if (!item) return;
-    const totalUnits = item.quantity || inputs.length || 1;
-
-    const btn = document.getElementById(`btn-toggle-noserial-${idx}`);
-    const originalBtnHtml = btn ? btn.innerHTML : '';
-    if (btn) btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin text-[8px]"></i> Consultando...';
-
-    try {
-        const availableDocs = await getAvailableSerialsForItem(item);
-        const availableCount = availableDocs.length;
-
-        // REGLA: Si el sistema SÍ tiene seriales registrados, NO se permite sacar sin código
-        if (availableCount >= totalUnits) {
-            alert(
-                `BLOQUEO DE DESPACHO:\n\n` +
-                `El producto "${item.name}" tiene ${availableCount} serial(es) disponible(s) en el sistema.\n\n` +
-                `Todo producto debe salir con código. Solo se permite despachar sin serial si el sistema NO lo tiene.`
-            );
-            return;
-        }
-
-        // Si el sistema no tiene ningún serial disponible
-        if (availableCount === 0) {
-            const ans = prompt(
-                `Este producto NO tiene seriales registrados en el sistema.\n\n` +
-                `¿Cuántas unidades (de las ${totalUnits}) deseas marcar SIN SERIAL? (1 a ${totalUnits}):`,
-                totalUnits
-            );
-            if (ans === null) return;
-            let count = parseInt(ans, 10);
-            if (isNaN(count) || count < 1) count = 1;
-            if (count > totalUnits) count = totalUnits;
-
-            inputs.forEach((inp, i) => {
-                if (i < count) {
-                    inp.value = 'SIN-SERIAL';
-                    inp.classList.remove('bg-white', 'text-brand-black', 'border-gray-200');
-                    inp.classList.add('bg-amber-50', 'text-amber-800', 'border-amber-300');
-                } else {
-                    inp.value = '';
-                    inp.classList.remove('bg-amber-50', 'text-amber-800', 'border-amber-300');
-                    inp.classList.add('bg-white', 'text-brand-black', 'border-gray-200');
-                }
-            });
-        } else {
-            // El sistema tiene menos seriales que las unidades pedidas (availableCount < totalUnits)
-            const maxAllowedNoSerial = totalUnits - availableCount;
-            const ans = prompt(
-                `El producto cuenta con ${availableCount} serial(es) registrado(s) en el sistema.\n` +
-                `Debes ingresar código para al menos ${availableCount} unidad(es).\n\n` +
-                `¿Cuántas unidades deseas marcar SIN SERIAL? (1 a ${maxAllowedNoSerial}):`,
-                maxAllowedNoSerial
-            );
-            if (ans === null) return;
-            let count = parseInt(ans, 10);
-            if (isNaN(count) || count < 1) count = 1;
-            if (count > maxAllowedNoSerial) count = maxAllowedNoSerial;
-
-            const startNoSerialIdx = totalUnits - count;
-            inputs.forEach((inp, i) => {
-                if (i >= startNoSerialIdx) {
-                    inp.value = 'SIN-SERIAL';
-                    inp.classList.remove('bg-white', 'text-brand-black', 'border-gray-200');
-                    inp.classList.add('bg-amber-50', 'text-amber-800', 'border-amber-300');
-                } else {
-                    inp.classList.remove('bg-amber-50', 'text-amber-800', 'border-amber-300');
-                    inp.classList.add('bg-white', 'text-brand-black', 'border-gray-200');
-                }
-            });
-        }
-
+    } else {
+        // Marcar todas las unidades de este ítem como SIN-SERIAL directamente
+        inputs.forEach(inp => {
+            inp.value = 'SIN-SERIAL';
+            inp.classList.remove('bg-white', 'text-brand-black', 'border-gray-200');
+            inp.classList.add('bg-amber-50', 'text-amber-800', 'border-amber-300');
+        });
         const lbl = document.getElementById(`label-noserial-${idx}`);
         if (lbl) lbl.textContent = 'Quitar Sin Serial';
-        if (currentOrderId) saveDraftSerials(currentOrderId);
-
-    } catch (e) {
-        console.error("Error validando seriales de despacho:", e);
-        alert("Error al verificar seriales en inventario.");
-    } finally {
-        if (btn) btn.innerHTML = originalBtnHtml;
     }
+
+    if (currentOrderId) saveDraftSerials(currentOrderId);
 };
 
 // --- SISTEMA DE TOAST HUD NO BLOQUEANTE ---
@@ -2377,23 +2302,18 @@ export async function saveAlistamiento(onSuccess) {
         const allSnsInOrder = [];
         const updatedItems = [];
 
-        // 1. Recoger y validar que todos los campos de serial tengan un valor
+        // 1. Recoger seriales asignados (los vacíos o sin serial se marcan como SIN-SERIAL automáticamente)
         for (let idx = 0; idx < items.length; idx++) {
             const item = items[idx];
             const qty = item.quantity || 1;
             const inputs = document.querySelectorAll(`.sn-input[data-item-index="${idx}"]`);
             const sns = Array.from(inputs).map(i => {
-                const val = i.value.trim().toUpperCase().replace(/[\/\\;\s]+$/, '');
-                return isNoSerial(val) ? 'SIN-SERIAL' : val;
+                const val = (i.value || '').trim().toUpperCase().replace(/[\/\\;\s]+$/, '');
+                return (!val || isNoSerial(val)) ? 'SIN-SERIAL' : val;
             });
 
-            if (sns.length < qty) {
-                throw new Error(`Debes ingresar los ${qty} seriales para el producto "${item.name}".`);
-            }
-
-            const emptyIdx = sns.findIndex(s => !s);
-            if (emptyIdx !== -1) {
-                throw new Error(`Falta ingresar el serial (SN) de la unidad #${emptyIdx + 1} para "${item.name}". (Si el producto no tiene serial físico, pulsa "Marcar Sin Serial").`);
+            while (sns.length < qty) {
+                sns.push('SIN-SERIAL');
             }
 
             for (const sn of sns) {
@@ -2413,29 +2333,6 @@ export async function saveAlistamiento(onSuccess) {
             }
 
             updatedItems.push({ ...item, sns });
-        }
-
-        // 1.5 Validar regla estricta: Todo producto debe salir con código y solo se permite despachar sin código si el sistema no lo tiene
-        for (let idx = 0; idx < items.length; idx++) {
-            const item = items[idx];
-            const inputs = Array.from(document.querySelectorAll(`.sn-input[data-item-index="${idx}"]`));
-            const noSerialCount = inputs.filter(i => isNoSerial(i.value)).length;
-
-            if (noSerialCount > 0) {
-                const availableDocs = await getAvailableSerialsForItem(item);
-                const availableCount = availableDocs.length;
-                const totalUnits = item.quantity || inputs.length || 1;
-                const maxAllowedNoSerial = Math.max(0, totalUnits - availableCount);
-
-                if (noSerialCount > maxAllowedNoSerial) {
-                    throw new Error(
-                        `Bloqueo de Despacho:\n` +
-                        `El producto "${item.name}" tiene ${availableCount} serial(es) disponible(s) en el sistema.\n` +
-                        `Todo producto debe salir con código. Solo se permite despachar sin serial si el sistema NO lo tiene.\n` +
-                        `(Unidades sin serial permitidas: ${maxAllowedNoSerial}, pero ingresaste: ${noSerialCount}).`
-                    );
-                }
-            }
         }
 
         // 2. Validación estricta y detección de seriales a actualizar o regularizar
@@ -4035,22 +3932,12 @@ export async function processBulkPacking() {
                 const qty = Number(item.quantity) || 1;
                 const inputs = Array.from(document.querySelectorAll(`.bulk-sn-input[data-order-id="${order.id}"][data-item-idx="${idx}"]`));
                 const sns = inputs.map(i => {
-                    const val = i.value.trim().toUpperCase();
-                    return isNoSerial(val) ? 'SIN-SERIAL' : val;
+                    const val = (i.value || '').trim().toUpperCase();
+                    return (!val || isNoSerial(val)) ? 'SIN-SERIAL' : val;
                 });
 
-                if (sns.length < qty) {
-                    throw new Error(`Faltan campos de serial para "${item.name || item.title}" en el pedido ${orderNum}.`);
-                }
-
-                const emptyIdx = sns.findIndex(s => !s);
-                if (emptyIdx !== -1) {
-                    const emptyInput = inputs[emptyIdx];
-                    if (emptyInput) {
-                        emptyInput.classList.add('border-rose-500', 'bg-rose-50');
-                        emptyInput.focus();
-                    }
-                    throw new Error(`Falta ingresar el serial de la unidad #${emptyIdx + 1} de "${item.name || item.title}" en el pedido ${orderNum}. Si el producto no tiene serial físico, pulsa "Marcar Sin Serial".`);
+                while (sns.length < qty) {
+                    sns.push('SIN-SERIAL');
                 }
 
                 for (const sn of sns) {
