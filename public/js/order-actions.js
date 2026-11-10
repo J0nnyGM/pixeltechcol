@@ -293,14 +293,43 @@ window.toggleItemNoSerial = (idx) => {
         const lbl = document.getElementById(`label-noserial-${idx}`);
         if (lbl) lbl.textContent = 'Marcar Sin Serial (N/A)';
     } else {
-        // Marcar todas las unidades de este ítem como SIN-SERIAL directamente
-        inputs.forEach(inp => {
-            inp.value = 'SIN-SERIAL';
-            inp.classList.remove('bg-white', 'text-brand-black', 'border-gray-200');
-            inp.classList.add('bg-amber-50', 'text-amber-800', 'border-amber-300');
-        });
+        const totalUnits = inputs.length;
+        let count = totalUnits;
+
+        if (totalUnits > 1) {
+            const ans = prompt(
+                `¿Cuántas unidades (de las ${totalUnits}) deseas marcar SIN SERIAL? (1 a ${totalUnits}):`,
+                totalUnits
+            );
+            if (ans === null) return;
+            count = parseInt(ans, 10);
+            if (isNaN(count) || count < 1) count = 1;
+            if (count > totalUnits) count = totalUnits;
+        }
+
+        let marked = 0;
+        // 1. Priorizar campos vacíos o ya sin serial
+        for (let i = 0; i < inputs.length && marked < count; i++) {
+            if (!inputs[i].value.trim() || isNoSerial(inputs[i].value)) {
+                inputs[i].value = 'SIN-SERIAL';
+                inputs[i].classList.remove('bg-white', 'text-brand-black', 'border-gray-200');
+                inputs[i].classList.add('bg-amber-50', 'text-amber-800', 'border-amber-300');
+                marked++;
+            }
+        }
+        // 2. Si aún falta por marcar, completar desde las últimas unidades
+        for (let i = inputs.length - 1; i >= 0 && marked < count; i--) {
+            if (inputs[i].value !== 'SIN-SERIAL') {
+                inputs[i].value = 'SIN-SERIAL';
+                inputs[i].classList.remove('bg-white', 'text-brand-black', 'border-gray-200');
+                inputs[i].classList.add('bg-amber-50', 'text-amber-800', 'border-amber-300');
+                marked++;
+            }
+        }
+
+        const allNowNoSerial = inputs.every(inp => isNoSerial(inp.value));
         const lbl = document.getElementById(`label-noserial-${idx}`);
-        if (lbl) lbl.textContent = 'Quitar Sin Serial';
+        if (lbl) lbl.textContent = allNowNoSerial ? 'Quitar Sin Serial' : 'Marcar Sin Serial (N/A)';
     }
 
     if (currentOrderId) saveDraftSerials(currentOrderId);
@@ -2302,18 +2331,29 @@ export async function saveAlistamiento(onSuccess) {
         const allSnsInOrder = [];
         const updatedItems = [];
 
-        // 1. Recoger seriales asignados (los vacíos o sin serial se marcan como SIN-SERIAL automáticamente)
+        // 1. Recoger y validar seriales (avisa si algún campo está en blanco)
         for (let idx = 0; idx < items.length; idx++) {
             const item = items[idx];
             const qty = item.quantity || 1;
-            const inputs = document.querySelectorAll(`.sn-input[data-item-index="${idx}"]`);
-            const sns = Array.from(inputs).map(i => {
+            const inputs = Array.from(document.querySelectorAll(`.sn-input[data-item-index="${idx}"]`));
+            const sns = inputs.map(i => {
                 const val = (i.value || '').trim().toUpperCase().replace(/[\/\\;\s]+$/, '');
-                return (!val || isNoSerial(val)) ? 'SIN-SERIAL' : val;
+                return isNoSerial(val) ? 'SIN-SERIAL' : val;
             });
 
-            while (sns.length < qty) {
-                sns.push('SIN-SERIAL');
+            if (sns.length < qty) {
+                throw new Error(`Debes ingresar los ${qty} seriales para el producto "${item.name || item.title || 'Producto'}".`);
+            }
+
+            const emptyIdx = sns.findIndex(s => !s);
+            if (emptyIdx !== -1) {
+                const emptyInput = inputs[emptyIdx];
+                if (emptyInput) {
+                    emptyInput.classList.add('border-red-500', 'bg-red-50');
+                    emptyInput.focus();
+                    setTimeout(() => emptyInput.classList.remove('border-red-500', 'bg-red-50'), 3500);
+                }
+                throw new Error(`Falta ingresar el serial (SN) de la unidad #${emptyIdx + 1} para "${item.name || item.title || 'Producto'}". Si el producto no tiene serial físico, pulsa "Marcar Sin Serial".`);
             }
 
             for (const sn of sns) {
@@ -3933,11 +3973,22 @@ export async function processBulkPacking() {
                 const inputs = Array.from(document.querySelectorAll(`.bulk-sn-input[data-order-id="${order.id}"][data-item-idx="${idx}"]`));
                 const sns = inputs.map(i => {
                     const val = (i.value || '').trim().toUpperCase();
-                    return (!val || isNoSerial(val)) ? 'SIN-SERIAL' : val;
+                    return isNoSerial(val) ? 'SIN-SERIAL' : val;
                 });
 
-                while (sns.length < qty) {
-                    sns.push('SIN-SERIAL');
+                if (sns.length < qty) {
+                    throw new Error(`Faltan campos de serial para "${item.name || item.title}" en el pedido ${orderNum}.`);
+                }
+
+                const emptyIdx = sns.findIndex(s => !s);
+                if (emptyIdx !== -1) {
+                    const emptyInput = inputs[emptyIdx];
+                    if (emptyInput) {
+                        emptyInput.classList.add('border-rose-500', 'bg-rose-50');
+                        emptyInput.focus();
+                        setTimeout(() => emptyInput.classList.remove('border-rose-500', 'bg-rose-50'), 3500);
+                    }
+                    throw new Error(`Falta ingresar el serial de la unidad #${emptyIdx + 1} de "${item.name || item.title}" en el pedido ${orderNum}. Si el producto no tiene serial físico, pulsa "Marcar Sin Serial".`);
                 }
 
                 for (const sn of sns) {
