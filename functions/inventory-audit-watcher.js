@@ -172,7 +172,8 @@ exports.watchInventoryChanges = onDocumentWritten("products/{productId}", async 
                         relatedReference = foundOrder.id;
                     }
                 } else if (deltaStock > 0) {
-                    changeType = "DEVOLUCION_CANCELACION";
+                    changeType = "AJUSTE_MANUAL";
+                    changeDetails = `Ingreso o ajuste manual de inventario (+${deltaStock} ud(s))`;
                 }
             }
         } catch (err) {

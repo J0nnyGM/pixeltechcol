@@ -1678,30 +1678,37 @@ function createWebhookHandler({
                             const pData = pDoc.data();
                             const qty = Number(p.qty) || 1;
 
-                            let rootBranchStock = { ...(pData.branchStock || {}) };
+                            let currentGlobalStock = Number(pData.stock) || 0;
+                            let newGlobalStock = Math.max(0, currentGlobalStock - qty);
+
+                            let rootBranchStock = pData.branchStock ? { ...pData.branchStock } : null;
                             let newCombinations = Array.isArray(pData.combinations) ? JSON.parse(JSON.stringify(pData.combinations)) : [];
+                            const branchToDeduct = isFullOrder ? 'full' : 'bodega';
 
                             if (p.isVariant && newCombinations.length > 0 && newCombinations[p.variantIndex]) {
                                 let combo = newCombinations[p.variantIndex];
-                                if (!combo.branchStock) combo.branchStock = {};
+                                let curComboStock = Number(combo.stock) || 0;
+                                combo.stock = Math.max(0, curComboStock - qty);
 
-                                const branchToDeduct = isFullOrder ? 'full' : 'bodega';
+                                if (combo.branchStock) {
+                                    let curBranchStock = combo.branchStock[branchToDeduct] !== undefined
+                                        ? (Number(combo.branchStock[branchToDeduct]) || 0)
+                                        : curComboStock;
+                                    combo.branchStock[branchToDeduct] = Math.max(0, curBranchStock - qty);
+                                }
 
-                                let currentBranchStock = combo.branchStock[branchToDeduct] !== undefined
-                                    ? (Number(combo.branchStock[branchToDeduct]) || 0)
-                                    : Math.max(0, (Number(combo.stock) || 0) - Object.entries(combo.branchStock).filter(([k]) => k !== branchToDeduct).reduce((s, [, v]) => s + (Number(v) || 0), 0));
+                                newGlobalStock = newCombinations.reduce((s, c) => s + (Number(c.stock) || 0), 0);
 
-                                combo.branchStock[branchToDeduct] = Math.max(0, currentBranchStock - qty);
-                                combo.stock = Object.values(combo.branchStock).reduce((s, v) => s + (Number(v) || 0), 0);
-
-                                rootBranchStock = {};
-                                newCombinations.forEach(c => {
-                                    if (c.branchStock) {
-                                        Object.keys(c.branchStock).forEach(bId => {
-                                            rootBranchStock[bId] = (rootBranchStock[bId] || 0) + (Number(c.branchStock[bId]) || 0);
-                                        });
-                                    }
-                                });
+                                if (newCombinations.some(c => c.branchStock)) {
+                                    rootBranchStock = {};
+                                    newCombinations.forEach(c => {
+                                        if (c.branchStock) {
+                                            Object.keys(c.branchStock).forEach(bId => {
+                                                rootBranchStock[bId] = (rootBranchStock[bId] || 0) + (Number(c.branchStock[bId]) || 0);
+                                            });
+                                        }
+                                    });
+                                }
                             } else if (newCombinations.length > 0) {
                                 let bestComboIdx = 0;
                                 let maxComboStock = -1;
@@ -1716,50 +1723,53 @@ function createWebhookHandler({
                                 }
 
                                 let combo = newCombinations[bestComboIdx];
-                                if (!combo.branchStock) combo.branchStock = {};
+                                let curComboStock = Number(combo.stock) || 0;
+                                combo.stock = Math.max(0, curComboStock - qty);
 
-                                const branchToDeduct = isFullOrder ? 'full' : 'bodega';
+                                if (combo.branchStock) {
+                                    let curBranchStock = combo.branchStock[branchToDeduct] !== undefined
+                                        ? (Number(combo.branchStock[branchToDeduct]) || 0)
+                                        : curComboStock;
+                                    combo.branchStock[branchToDeduct] = Math.max(0, curBranchStock - qty);
+                                }
 
-                                let currentBranchStock = combo.branchStock[branchToDeduct] !== undefined
-                                    ? (Number(combo.branchStock[branchToDeduct]) || 0)
-                                    : Math.max(0, (Number(combo.stock) || 0) - Object.entries(combo.branchStock).filter(([k]) => k !== branchToDeduct).reduce((s, [, v]) => s + (Number(v) || 0), 0));
+                                newGlobalStock = newCombinations.reduce((s, c) => s + (Number(c.stock) || 0), 0);
 
-                                combo.branchStock[branchToDeduct] = Math.max(0, currentBranchStock - qty);
-                                combo.stock = Object.values(combo.branchStock).reduce((s, v) => s + (Number(v) || 0), 0);
-
-                                rootBranchStock = {};
-                                newCombinations.forEach(c => {
-                                    if (c.branchStock) {
-                                        Object.keys(c.branchStock).forEach(bId => {
-                                            rootBranchStock[bId] = (rootBranchStock[bId] || 0) + (Number(c.branchStock[bId]) || 0);
-                                        });
-                                    }
-                                });
+                                if (newCombinations.some(c => c.branchStock)) {
+                                    rootBranchStock = {};
+                                    newCombinations.forEach(c => {
+                                        if (c.branchStock) {
+                                            Object.keys(c.branchStock).forEach(bId => {
+                                                rootBranchStock[bId] = (rootBranchStock[bId] || 0) + (Number(c.branchStock[bId]) || 0);
+                                            });
+                                        }
+                                    });
+                                }
                             } else {
-                                const branchToDeduct = isFullOrder ? 'full' : 'bodega';
-
-                                let currentBranchStock = rootBranchStock[branchToDeduct] !== undefined
-                                    ? (Number(rootBranchStock[branchToDeduct]) || 0)
-                                    : Math.max(0, (Number(pData.stock) || 0) - Object.entries(rootBranchStock).filter(([k]) => k !== branchToDeduct).reduce((s, [, v]) => s + (Number(v) || 0), 0));
-
-                                rootBranchStock[branchToDeduct] = Math.max(0, currentBranchStock - qty);
+                                // Producto simple
+                                if (rootBranchStock) {
+                                    let curBranchStock = rootBranchStock[branchToDeduct] !== undefined
+                                        ? (Number(rootBranchStock[branchToDeduct]) || 0)
+                                        : currentGlobalStock;
+                                    rootBranchStock[branchToDeduct] = Math.max(0, curBranchStock - qty);
+                                }
                             }
 
-                            let calculatedGlobalStock = Object.values(rootBranchStock).reduce((s, v) => s + (Number(v) || 0), 0);
-                            if (newCombinations.length > 0) {
-                                calculatedGlobalStock = newCombinations.reduce((s, c) => s + (Number(c.stock) || 0), 0);
-                            }
-
-                            t.update(pDoc.ref, {
-                                stock: calculatedGlobalStock,
-                                branchStock: rootBranchStock,
+                            const updatePayload = {
+                                stock: newGlobalStock,
                                 combinations: newCombinations,
                                 lastStockChangeReason: 'VENTA_PEDIDO',
                                 lastStockChangeDetails: isFullOrder 
                                     ? `Venta Mercado Envios Full ${storeTitle} pedido #${orderId}`
                                     : `Venta ${storeTitle} pedido #${orderId}`,
                                 updatedAt: admin.firestore.FieldValue.serverTimestamp()
-                            });
+                            };
+
+                            if (rootBranchStock) {
+                                updatePayload.branchStock = rootBranchStock;
+                            }
+
+                            t.update(pDoc.ref, updatePayload);
                         }
                     }
                 }

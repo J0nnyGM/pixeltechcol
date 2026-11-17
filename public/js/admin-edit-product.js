@@ -666,6 +666,7 @@ form.onsubmit = async (e) => {
                 capacity: cap, 
                 price: data?.price || 0, 
                 stock: data?.stock || 0,
+                branchStock: { bodega: data?.stock || 0 },
                 sku: rowSku 
             });
             if((data?.price || 0) < minPrice) minPrice = data?.price;
@@ -681,11 +682,14 @@ form.onsubmit = async (e) => {
             brand: document.getElementById('p-brand').value,
             category: pCategoryHidden.value || document.getElementById('p-category').value,
             subcategory: document.getElementById('p-subcategory').value,
-            status: document.getElementById('p-status').value, // 🔥 CORRECCIÓN: Seleccionado del desplegable
+            status: document.getElementById('p-status').value,
             description: descriptionEditor.innerHTML,
             updatedAt: new Date(),
             price: finalPrice,
             stock: finalStock,
+            branchStock: { bodega: finalStock },
+            lastStockChangeReason: 'AJUSTE_MANUAL',
+            lastStockChangeDetails: `Modificación manual en edición de producto (${finalStock} uds)`,
             warranty: {
                 time: Number(document.getElementById('p-warranty-time').value) || 0,
                 unit: document.getElementById('p-warranty-unit').value
