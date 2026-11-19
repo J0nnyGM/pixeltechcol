@@ -1029,6 +1029,22 @@ function createWebhookHandler({
 
             console.log(`[ML] Notificacion de ${storeTitle} recibida: topic=${topic || 'none'}, resource=${resource}`);
 
+            // Verificación de sincronización activa desde config/developer
+            try {
+                const devConfigDoc = await db.collection('config').doc('developer').get();
+                if (devConfigDoc.exists) {
+                    const devData = devConfigDoc.data();
+                    const mlSyncActive = devData.ML_SYNC_ENABLED !== false;
+                    const mlOrdersSyncActive = devData.ML_ORDERS_SYNC_ENABLED !== false;
+                    if (!mlSyncActive || !mlOrdersSyncActive) {
+                        console.log(`[ML Webhook] Sincronización de pedidos pausada por desarrollador (ML_SYNC=${mlSyncActive}, ORDERS_SYNC=${mlOrdersSyncActive}). Omitiendo notificación: ${resource}`);
+                        return res.status(200).send("OK: Sincronización de MercadoLibre pausada por desarrollador");
+                    }
+                }
+            } catch (cfgErr) {
+                console.warn("[ML Webhook] No se pudo verificar config/developer:", cfgErr.message);
+            }
+
             const mlConfigDoc = await db.collection('config').doc(storeDocName).get();
             if (!mlConfigDoc.exists) throw new Error(`Falta configuracion de ${storeDocName} en DB`);
             const ML_TOKEN = mlConfigDoc.data().accessToken || mlConfigDoc.data().access_token;
@@ -2601,6 +2617,22 @@ async function updateMLStockBySKU(db, storeDocName, sku, newStock) {
 async function syncProductStockToML(db, beforeData, afterData) {
     if (!afterData) return;
 
+    // Verificación de sincronización de stock activa desde config/developer
+    try {
+        const devConfigDoc = await db.collection('config').doc('developer').get();
+        if (devConfigDoc.exists) {
+            const devData = devConfigDoc.data();
+            const mlSyncActive = devData.ML_SYNC_ENABLED !== false;
+            const mlStockSyncActive = devData.ML_STOCK_SYNC_ENABLED !== false;
+            if (!mlSyncActive || !mlStockSyncActive) {
+                console.log(`[ML Stock Sync] Sincronización automática de stock hacia MercadoLibre pausada por desarrollador.`);
+                return;
+            }
+        }
+    } catch (cfgErr) {
+        console.warn("[ML Stock Sync] Error verificando config/developer:", cfgErr.message);
+    }
+
     const stores = ['mercadolibre', 'mercadolibre_store2', 'mercadolibre_store3'];
     const skusToSync = [];
 
@@ -2645,6 +2677,14 @@ exports.syncAllStockToML = functions.https.onCall(async (data, context) => {
     const stores = ['mercadolibre', 'mercadolibre_store2', 'mercadolibre_store3'];
     
     try {
+        const devConfigDoc = await db.collection('config').doc('developer').get();
+        if (devConfigDoc.exists) {
+            const devData = devConfigDoc.data();
+            if (devData.ML_SYNC_ENABLED === false || devData.ML_STOCK_SYNC_ENABLED === false) {
+                throw new functions.https.HttpsError('failed-precondition', 'La sincronización de stock con MercadoLibre está pausada en la Configuración de Desarrollador.');
+            }
+        }
+
         const productsSnap = await db.collection('products').get();
         let totalSKUs = 0;
         let totalUpdated = 0;
@@ -3023,6 +3063,19 @@ exports.revalidatePendingMLOrders = onSchedule({
         });
 
         if (dueDocs.length > 0) {
+            try {
+                const devConfigDoc = await db.collection('config').doc('developer').get();
+                if (devConfigDoc.exists) {
+                    const devData = devConfigDoc.data();
+                    if (devData.ML_SYNC_ENABLED === false || devData.ML_ORDERS_SYNC_ENABLED === false) {
+                        console.log(`[ML] Revalidación de órdenes omitida: sincronización pausada por desarrollador.`);
+                        return;
+                    }
+                }
+            } catch (cfgErr) {
+                console.warn("[ML] Error verificando config/developer en revalidación:", cfgErr.message);
+            }
+
             console.log(`[ML] Revalidando ${dueDocs.length} ordenes de MercadoLibre pendientes tras 5 minutos...`);
 
             for (const docSnap of dueDocs) {

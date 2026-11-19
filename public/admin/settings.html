@@ -633,6 +633,54 @@
                                     <span class="text-[9px] font-black uppercase tracking-wider text-gray-400 bg-gray-100 px-2 py-0.5 rounded">OAuth 2.0 Auto-Sync</span>
                                 </div>
 
+                                <!-- Control Maestro de Sincronización MercadoLibre -->
+                                <div class="p-4 bg-white rounded-xl border border-gray-200 mb-4 shadow-2xs">
+                                    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                                        <div class="flex items-center gap-3">
+                                            <div id="ml-sync-icon-container" class="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center text-lg transition-colors">
+                                                <i class="fa-solid fa-arrows-rotate"></i>
+                                            </div>
+                                            <div>
+                                                <div class="flex items-center gap-2">
+                                                    <h5 class="text-xs font-black uppercase tracking-wider text-gray-900">Sincronización General con MercadoLibre</h5>
+                                                    <span id="ml-sync-status-badge" class="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-700 border border-emerald-200">
+                                                        ACTIVO
+                                                    </span>
+                                                </div>
+                                                <p id="ml-sync-status-desc" class="text-[11px] text-gray-500 font-medium">Conexión bidireccional activa: procesando webhooks, pedidos entrantes y stock.</p>
+                                            </div>
+                                        </div>
+                                        <label class="relative inline-flex items-center cursor-pointer shrink-0">
+                                            <input type="checkbox" id="dev-ml-sync-enabled" class="sr-only peer" checked>
+                                            <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
+                                        </label>
+                                    </div>
+
+                                    <!-- Opciones Granulares -->
+                                    <div id="ml-sub-options-container" class="mt-4 pt-3 border-t border-gray-100 grid grid-cols-1 sm:grid-cols-2 gap-3 transition-all">
+                                        <div class="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-gray-100">
+                                            <div class="pr-2">
+                                                <span class="text-[10px] font-black uppercase tracking-wider text-gray-800 block">Sincronizar Stock (PixelTech &rarr; ML)</span>
+                                                <span class="text-[10px] text-gray-400 font-medium block">Actualiza publicaciones al modificar inventario local</span>
+                                            </div>
+                                            <label class="relative inline-flex items-center cursor-pointer shrink-0">
+                                                <input type="checkbox" id="dev-ml-stock-sync-enabled" class="sr-only peer" checked>
+                                                <div class="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500"></div>
+                                            </label>
+                                        </div>
+                                        <div class="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-gray-100">
+                                            <div class="pr-2">
+                                                <span class="text-[10px] font-black uppercase tracking-wider text-gray-800 block">Procesar Pedidos (ML &rarr; PixelTech)</span>
+                                                <span class="text-[10px] text-gray-400 font-medium block">Descarga ventas entrantes y descuenta stock</span>
+                                            </div>
+                                            <label class="relative inline-flex items-center cursor-pointer shrink-0">
+                                                <input type="checkbox" id="dev-ml-orders-sync-enabled" class="sr-only peer" checked>
+                                                <div class="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500"></div>
+                                            </label>
+                                        </div>
+                                    </div>
+                                </div>
+
                                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <!-- Tienda 1 -->
                                     <div class="p-4 bg-white rounded-xl border border-gray-200 md:col-span-2">
@@ -926,11 +974,20 @@
                 updateBadge(badges.smtp, !!(data.SMTP_HOST && data.SMTP_HOST.trim()));
                 updateBadge(badges.wa, !!(data.WHATSAPP_PHONE_ID && data.WHATSAPP_API_TOKEN && data.WHATSAPP_API_TOKEN.trim()));
                 
+                const isMlSyncGloballyActive = data.ML_SYNC_ENABLED !== false;
+
                 // MercadoLibre Tienda 1
                 const hasToken1 = !!(data.ML_ACCESS_TOKEN || data.ML_REFRESH_TOKEN);
                 const hasApp1 = !!(data.ML_APP_ID && data.ML_APP_ID.trim());
                 if (hasToken1) {
-                    updateBadge(badges.ml1, true, "VINCULADO (ACTIVO)");
+                    if (!isMlSyncGloballyActive) {
+                        if (badges.ml1) {
+                            badges.ml1.className = "px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest bg-amber-100 text-amber-800 border border-amber-200";
+                            badges.ml1.textContent = "VINCULADO (PAUSADO)";
+                        }
+                    } else {
+                        updateBadge(badges.ml1, true, "VINCULADO (ACTIVO)");
+                    }
                     if (btnMl1) btnMl1.innerHTML = `<i class="fa-solid fa-rotate text-[9px]"></i> Re-vincular / Actualizar`;
                 } else if (hasApp1) {
                     if (badges.ml1) {
@@ -947,7 +1004,14 @@
                 const hasToken2 = !!(data.ML_ACCESS_TOKEN_2 || data.ML_REFRESH_TOKEN_2);
                 const hasApp2 = !!(data.ML_APP_ID_2 && data.ML_APP_ID_2.trim());
                 if (hasToken2) {
-                    updateBadge(badges.ml2, true, "VINCULADO (ACTIVO)");
+                    if (!isMlSyncGloballyActive) {
+                        if (badges.ml2) {
+                            badges.ml2.className = "px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest bg-amber-100 text-amber-800 border border-amber-200";
+                            badges.ml2.textContent = "VINCULADO (PAUSADO)";
+                        }
+                    } else {
+                        updateBadge(badges.ml2, true, "VINCULADO (ACTIVO)");
+                    }
                     if (btnMl2) btnMl2.innerHTML = `<i class="fa-solid fa-rotate text-[9px]"></i> Re-vincular / Actualizar`;
                 } else if (hasApp2) {
                     if (badges.ml2) {
@@ -964,7 +1028,14 @@
                 const hasToken3 = !!(data.ML_ACCESS_TOKEN_3 || data.ML_REFRESH_TOKEN_3);
                 const hasApp3 = !!(data.ML_APP_ID_3 && data.ML_APP_ID_3.trim());
                 if (hasToken3) {
-                    updateBadge(badges.ml3, true, "VINCULADO (ACTIVO)");
+                    if (!isMlSyncGloballyActive) {
+                        if (badges.ml3) {
+                            badges.ml3.className = "px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest bg-amber-100 text-amber-800 border border-amber-200";
+                            badges.ml3.textContent = "VINCULADO (PAUSADO)";
+                        }
+                    } else {
+                        updateBadge(badges.ml3, true, "VINCULADO (ACTIVO)");
+                    }
                     if (btnMl3) btnMl3.innerHTML = `<i class="fa-solid fa-rotate text-[9px]"></i> Re-vincular / Actualizar`;
                 } else if (hasApp3) {
                     if (badges.ml3) {
@@ -1211,15 +1282,102 @@
                 mlRedirect3: document.getElementById('dev-ml-redirect-3'),
                 falUserId: document.getElementById('dev-fal-user-id'),
                 falApiKey: document.getElementById('dev-fal-api-key'),
-                falApiUrl: document.getElementById('dev-fal-api-url')
+                falApiUrl: document.getElementById('dev-fal-api-url'),
+                mlSyncEnabled: document.getElementById('dev-ml-sync-enabled'),
+                mlStockSyncEnabled: document.getElementById('dev-ml-stock-sync-enabled'),
+                mlOrdersSyncEnabled: document.getElementById('dev-ml-orders-sync-enabled')
             };
             const btnSave = document.getElementById('btn-save-developer');
+
+            const mlSyncStatusBadge = document.getElementById('ml-sync-status-badge');
+            const mlSyncStatusDesc = document.getElementById('ml-sync-status-desc');
+            const mlSyncIconContainer = document.getElementById('ml-sync-icon-container');
+            const mlSubOptionsContainer = document.getElementById('ml-sub-options-container');
+
+            function updateMLSyncUI(syncEnabled, stockEnabled, ordersEnabled) {
+                if (inputs.mlSyncEnabled) inputs.mlSyncEnabled.checked = syncEnabled;
+                if (inputs.mlStockSyncEnabled) {
+                    inputs.mlStockSyncEnabled.checked = stockEnabled;
+                    inputs.mlStockSyncEnabled.disabled = !syncEnabled;
+                }
+                if (inputs.mlOrdersSyncEnabled) {
+                    inputs.mlOrdersSyncEnabled.checked = ordersEnabled;
+                    inputs.mlOrdersSyncEnabled.disabled = !syncEnabled;
+                }
+                if (mlSubOptionsContainer) {
+                    mlSubOptionsContainer.style.opacity = syncEnabled ? '1' : '0.4';
+                    mlSubOptionsContainer.style.pointerEvents = syncEnabled ? 'auto' : 'none';
+                }
+                if (mlSyncStatusBadge) {
+                    if (syncEnabled) {
+                        mlSyncStatusBadge.className = "px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-700 border border-emerald-200";
+                        mlSyncStatusBadge.textContent = "ACTIVO";
+                    } else {
+                        mlSyncStatusBadge.className = "px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-amber-100 text-amber-700 border border-amber-200 animate-pulse";
+                        mlSyncStatusBadge.textContent = "PAUSADO";
+                    }
+                }
+                if (mlSyncStatusDesc) {
+                    if (syncEnabled) {
+                        mlSyncStatusDesc.textContent = "Conexión bidireccional activa: procesando webhooks, pedidos entrantes y stock.";
+                    } else {
+                        mlSyncStatusDesc.textContent = "Sincronización pausada: no se procesan ventas entrantes de ML ni se envía stock local.";
+                    }
+                }
+                if (mlSyncIconContainer) {
+                    if (syncEnabled) {
+                        mlSyncIconContainer.className = "w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center text-lg transition-colors";
+                    } else {
+                        mlSyncIconContainer.className = "w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center text-lg transition-colors";
+                    }
+                }
+            }
+
+            const handleMLSyncToggleChange = async () => {
+                if (currentUserRole !== 'developer') {
+                    showNotification("Acceso denegado: Únicamente el rol DEVELOPER puede cambiar la sincronización.", "error");
+                    return;
+                }
+                const syncEnabled = inputs.mlSyncEnabled ? inputs.mlSyncEnabled.checked : true;
+                const stockEnabled = inputs.mlStockSyncEnabled ? inputs.mlStockSyncEnabled.checked : true;
+                const ordersEnabled = inputs.mlOrdersSyncEnabled ? inputs.mlOrdersSyncEnabled.checked : true;
+                
+                updateMLSyncUI(syncEnabled, stockEnabled, ordersEnabled);
+
+                try {
+                    await setDoc(configRef, {
+                        ML_SYNC_ENABLED: syncEnabled,
+                        ML_STOCK_SYNC_ENABLED: stockEnabled,
+                        ML_ORDERS_SYNC_ENABLED: ordersEnabled,
+                        developerUpdatedAt: new Date(),
+                        developerUpdatedBy: auth.currentUser ? auth.currentUser.email : 'developer'
+                    }, { merge: true });
+
+                    showNotification(
+                        syncEnabled 
+                            ? "Sincronización de MercadoLibre ACTIVADA exitosamente" 
+                            : "Sincronización de MercadoLibre PAUSADA (Modo seguro activo)", 
+                        syncEnabled ? "success" : "warning"
+                    );
+                } catch (err) {
+                    console.error("Error al actualizar sincronización ML:", err);
+                    showNotification("Error al guardar estado de sincronización: " + err.message, "error");
+                }
+            };
+
+            if (inputs.mlSyncEnabled) inputs.mlSyncEnabled.addEventListener('change', handleMLSyncToggleChange);
+            if (inputs.mlStockSyncEnabled) inputs.mlStockSyncEnabled.addEventListener('change', handleMLSyncToggleChange);
+            if (inputs.mlOrdersSyncEnabled) inputs.mlOrdersSyncEnabled.addEventListener('change', handleMLSyncToggleChange);
 
             // Leer valores de Firestore config/developer
             onSnapshot(configRef, (snap) => {
                 if (snap.exists()) {
                     const data = snap.data();
                     currentDevData = data;
+                    const isMlSyncActive = data.ML_SYNC_ENABLED !== false;
+                    const isMlStockActive = data.ML_STOCK_SYNC_ENABLED !== false;
+                    const isMlOrdersActive = data.ML_ORDERS_SYNC_ENABLED !== false;
+                    updateMLSyncUI(isMlSyncActive, isMlStockActive, isMlOrdersActive);
                     if (inputs.mpToken) inputs.mpToken.value = data.MP_ACCESS_TOKEN || '';
                     if (inputs.addiId) inputs.addiId.value = data.ADDI_CLIENT_ID || '';
                     if (inputs.addiSecret) inputs.addiSecret.value = data.ADDI_CLIENT_SECRET || '';
@@ -1305,6 +1463,9 @@
                         ML_REDIRECT_URI: inputs.mlRedirect ? inputs.mlRedirect.value.trim() : 'https://mercadolibrewebhook-muiondpggq-uc.a.run.app',
                         ML_REDIRECT_URI_2: inputs.mlRedirect2 ? inputs.mlRedirect2.value.trim() : 'https://us-central1-pixeltechcol.cloudfunctions.net/mercadolibreStore2Webhook',
                         ML_REDIRECT_URI_3: inputs.mlRedirect3 ? inputs.mlRedirect3.value.trim() : 'https://us-central1-pixeltechcol.cloudfunctions.net/mercadolibreStore3Webhook',
+                        ML_SYNC_ENABLED: inputs.mlSyncEnabled ? inputs.mlSyncEnabled.checked : true,
+                        ML_STOCK_SYNC_ENABLED: inputs.mlStockSyncEnabled ? inputs.mlStockSyncEnabled.checked : true,
+                        ML_ORDERS_SYNC_ENABLED: inputs.mlOrdersSyncEnabled ? inputs.mlOrdersSyncEnabled.checked : true,
                         developerUpdatedAt: new Date(),
                         developerUpdatedBy: auth.currentUser ? auth.currentUser.email : 'system'
                     }, { merge: true });
