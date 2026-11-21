@@ -644,7 +644,7 @@
                                                 <div class="flex items-center gap-2">
                                                     <h5 class="text-xs font-black uppercase tracking-wider text-gray-900">Sincronización General con MercadoLibre</h5>
                                                     <span id="ml-sync-status-badge" class="px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-700 border border-emerald-200">
-                                                        ACTIVO
+                                                        TOTALMENTE ACTIVO
                                                     </span>
                                                 </div>
                                                 <p id="ml-sync-status-desc" class="text-[11px] text-gray-500 font-medium">Conexión bidireccional activa: procesando webhooks, pedidos entrantes y stock.</p>
@@ -660,8 +660,11 @@
                                     <div id="ml-sub-options-container" class="mt-4 pt-3 border-t border-gray-100 grid grid-cols-1 sm:grid-cols-2 gap-3 transition-all">
                                         <div class="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-gray-100">
                                             <div class="pr-2">
-                                                <span class="text-[10px] font-black uppercase tracking-wider text-gray-800 block">Sincronizar Stock (PixelTech &rarr; ML)</span>
-                                                <span class="text-[10px] text-gray-400 font-medium block">Actualiza publicaciones al modificar inventario local</span>
+                                                <div class="flex items-center gap-2 mb-0.5">
+                                                    <span class="text-[10px] font-black uppercase tracking-wider text-gray-800 block">Sincronizar Stock (PixelTech &rarr; ML)</span>
+                                                    <span id="ml-stock-sync-badge" class="px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-700 border border-emerald-200">ACTIVO</span>
+                                                </div>
+                                                <span id="ml-stock-sync-desc" class="text-[10px] text-gray-400 font-medium block">Actualiza publicaciones al modificar inventario local</span>
                                             </div>
                                             <label class="relative inline-flex items-center cursor-pointer shrink-0">
                                                 <input type="checkbox" id="dev-ml-stock-sync-enabled" class="sr-only peer" checked>
@@ -670,8 +673,11 @@
                                         </div>
                                         <div class="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-gray-100">
                                             <div class="pr-2">
-                                                <span class="text-[10px] font-black uppercase tracking-wider text-gray-800 block">Procesar Pedidos (ML &rarr; PixelTech)</span>
-                                                <span class="text-[10px] text-gray-400 font-medium block">Descarga ventas entrantes y descuenta stock</span>
+                                                <div class="flex items-center gap-2 mb-0.5">
+                                                    <span class="text-[10px] font-black uppercase tracking-wider text-gray-800 block">Procesar Pedidos (ML &rarr; PixelTech)</span>
+                                                    <span id="ml-orders-sync-badge" class="px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-700 border border-emerald-200">ACTIVO</span>
+                                                </div>
+                                                <span id="ml-orders-sync-desc" class="text-[10px] text-gray-400 font-medium block">Descarga ventas entrantes y descuenta stock</span>
                                             </div>
                                             <label class="relative inline-flex items-center cursor-pointer shrink-0">
                                                 <input type="checkbox" id="dev-ml-orders-sync-enabled" class="sr-only peer" checked>
@@ -975,78 +981,61 @@
                 updateBadge(badges.wa, !!(data.WHATSAPP_PHONE_ID && data.WHATSAPP_API_TOKEN && data.WHATSAPP_API_TOKEN.trim()));
                 
                 const isMlSyncGloballyActive = data.ML_SYNC_ENABLED !== false;
+                const isMlStockActive = data.ML_STOCK_SYNC_ENABLED !== false;
+                const isMlOrdersActive = data.ML_ORDERS_SYNC_ENABLED !== false;
+
+                const updateStoreBadge = (badgeEl, hasToken, hasApp, btnEl, storeNum) => {
+                    if (hasToken) {
+                        if (!isMlSyncGloballyActive) {
+                            if (badgeEl) {
+                                badgeEl.className = "px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest bg-amber-100 text-amber-800 border border-amber-200 animate-pulse";
+                                badgeEl.textContent = "VINCULADO (PAUSADO)";
+                            }
+                        } else if (!isMlStockActive && !isMlOrdersActive) {
+                            if (badgeEl) {
+                                badgeEl.className = "px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest bg-amber-100 text-amber-800 border border-amber-200 animate-pulse";
+                                badgeEl.textContent = "VINCULADO (PAUSADO)";
+                            }
+                        } else if (!isMlStockActive) {
+                            if (badgeEl) {
+                                badgeEl.className = "px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest bg-sky-100 text-sky-800 border border-sky-200";
+                                badgeEl.textContent = "VINCULADO (STOCK PAUSADO)";
+                            }
+                        } else if (!isMlOrdersActive) {
+                            if (badgeEl) {
+                                badgeEl.className = "px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest bg-sky-100 text-sky-800 border border-sky-200";
+                                badgeEl.textContent = "VINCULADO (PEDIDOS PAUSADOS)";
+                            }
+                        } else {
+                            updateBadge(badgeEl, true, "VINCULADO (ACTIVO)");
+                        }
+                        if (btnEl) btnEl.innerHTML = `<i class="fa-solid fa-rotate text-[9px]"></i> Re-vincular / Actualizar`;
+                    } else if (hasApp) {
+                        if (badgeEl) {
+                            badgeEl.className = "px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest bg-amber-100 text-amber-800 border border-amber-200 animate-pulse";
+                            badgeEl.textContent = "PENDIENTE AUTORIZACIÓN";
+                        }
+                        if (btnEl) btnEl.innerHTML = `<i class="fa-solid fa-link text-[9px]"></i> Vincular Tienda ${storeNum} (1-Clic)`;
+                    } else {
+                        updateBadge(badgeEl, false, "VINCULADO", "DESACTIVADO");
+                        if (btnEl) btnEl.innerHTML = `<i class="fa-solid fa-plus text-[9px]"></i> Configurar App ID`;
+                    }
+                };
 
                 // MercadoLibre Tienda 1
                 const hasToken1 = !!(data.ML_ACCESS_TOKEN || data.ML_REFRESH_TOKEN);
                 const hasApp1 = !!(data.ML_APP_ID && data.ML_APP_ID.trim());
-                if (hasToken1) {
-                    if (!isMlSyncGloballyActive) {
-                        if (badges.ml1) {
-                            badges.ml1.className = "px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest bg-amber-100 text-amber-800 border border-amber-200";
-                            badges.ml1.textContent = "VINCULADO (PAUSADO)";
-                        }
-                    } else {
-                        updateBadge(badges.ml1, true, "VINCULADO (ACTIVO)");
-                    }
-                    if (btnMl1) btnMl1.innerHTML = `<i class="fa-solid fa-rotate text-[9px]"></i> Re-vincular / Actualizar`;
-                } else if (hasApp1) {
-                    if (badges.ml1) {
-                        badges.ml1.className = "px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest bg-amber-100 text-amber-800 border border-amber-200 animate-pulse";
-                        badges.ml1.textContent = "PENDIENTE AUTORIZACIÓN";
-                    }
-                    if (btnMl1) btnMl1.innerHTML = `<i class="fa-solid fa-link text-[9px]"></i> Vincular Tienda 1 (1-Clic)`;
-                } else {
-                    updateBadge(badges.ml1, false, "VINCULADO", "DESACTIVADO");
-                    if (btnMl1) btnMl1.innerHTML = `<i class="fa-solid fa-plus text-[9px]"></i> Configurar App ID`;
-                }
+                updateStoreBadge(badges.ml1, hasToken1, hasApp1, btnMl1, 1);
 
                 // MercadoLibre Tienda 2
                 const hasToken2 = !!(data.ML_ACCESS_TOKEN_2 || data.ML_REFRESH_TOKEN_2);
                 const hasApp2 = !!(data.ML_APP_ID_2 && data.ML_APP_ID_2.trim());
-                if (hasToken2) {
-                    if (!isMlSyncGloballyActive) {
-                        if (badges.ml2) {
-                            badges.ml2.className = "px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest bg-amber-100 text-amber-800 border border-amber-200";
-                            badges.ml2.textContent = "VINCULADO (PAUSADO)";
-                        }
-                    } else {
-                        updateBadge(badges.ml2, true, "VINCULADO (ACTIVO)");
-                    }
-                    if (btnMl2) btnMl2.innerHTML = `<i class="fa-solid fa-rotate text-[9px]"></i> Re-vincular / Actualizar`;
-                } else if (hasApp2) {
-                    if (badges.ml2) {
-                        badges.ml2.className = "px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest bg-amber-100 text-amber-800 border border-amber-200 animate-pulse";
-                        badges.ml2.textContent = "PENDIENTE AUTORIZACIÓN";
-                    }
-                    if (btnMl2) btnMl2.innerHTML = `<i class="fa-solid fa-link text-[9px]"></i> Vincular Tienda 2 (1-Clic)`;
-                } else {
-                    updateBadge(badges.ml2, false, "VINCULADO", "DESACTIVADO");
-                    if (btnMl2) btnMl2.innerHTML = `<i class="fa-solid fa-plus text-[9px]"></i> Configurar App ID`;
-                }
+                updateStoreBadge(badges.ml2, hasToken2, hasApp2, btnMl2, 2);
 
                 // MercadoLibre Tienda 3
                 const hasToken3 = !!(data.ML_ACCESS_TOKEN_3 || data.ML_REFRESH_TOKEN_3);
                 const hasApp3 = !!(data.ML_APP_ID_3 && data.ML_APP_ID_3.trim());
-                if (hasToken3) {
-                    if (!isMlSyncGloballyActive) {
-                        if (badges.ml3) {
-                            badges.ml3.className = "px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest bg-amber-100 text-amber-800 border border-amber-200";
-                            badges.ml3.textContent = "VINCULADO (PAUSADO)";
-                        }
-                    } else {
-                        updateBadge(badges.ml3, true, "VINCULADO (ACTIVO)");
-                    }
-                    if (btnMl3) btnMl3.innerHTML = `<i class="fa-solid fa-rotate text-[9px]"></i> Re-vincular / Actualizar`;
-                } else if (hasApp3) {
-                    if (badges.ml3) {
-                        badges.ml3.className = "px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest bg-amber-100 text-amber-800 border border-amber-200 animate-pulse";
-                        badges.ml3.textContent = "PENDIENTE AUTORIZACIÓN";
-                    }
-                    if (btnMl3) btnMl3.innerHTML = `<i class="fa-solid fa-link text-[9px]"></i> Vincular Tienda 3 (1-Clic)`;
-                } else {
-                    updateBadge(badges.ml3, false, "VINCULADO", "DESACTIVADO");
-                    if (btnMl3) btnMl3.innerHTML = `<i class="fa-solid fa-plus text-[9px]"></i> Configurar App ID`;
-                }
+                updateStoreBadge(badges.ml3, hasToken3, hasApp3, btnMl3, 3);
 
                 updateBadge(badges.chatbot, !!(data.CHATBOT_ENABLED && data.GEMINI_API_KEY && data.GEMINI_API_KEY.trim()));
 
@@ -1293,6 +1282,10 @@
             const mlSyncStatusDesc = document.getElementById('ml-sync-status-desc');
             const mlSyncIconContainer = document.getElementById('ml-sync-icon-container');
             const mlSubOptionsContainer = document.getElementById('ml-sub-options-container');
+            const mlStockSyncBadge = document.getElementById('ml-stock-sync-badge');
+            const mlStockSyncDesc = document.getElementById('ml-stock-sync-desc');
+            const mlOrdersSyncBadge = document.getElementById('ml-orders-sync-badge');
+            const mlOrdersSyncDesc = document.getElementById('ml-orders-sync-desc');
 
             function updateMLSyncUI(syncEnabled, stockEnabled, ordersEnabled) {
                 if (inputs.mlSyncEnabled) inputs.mlSyncEnabled.checked = syncEnabled;
@@ -1308,34 +1301,94 @@
                     mlSubOptionsContainer.style.opacity = syncEnabled ? '1' : '0.4';
                     mlSubOptionsContainer.style.pointerEvents = syncEnabled ? 'auto' : 'none';
                 }
-                if (mlSyncStatusBadge) {
-                    if (syncEnabled) {
-                        mlSyncStatusBadge.className = "px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-700 border border-emerald-200";
-                        mlSyncStatusBadge.textContent = "ACTIVO";
+
+                // 1. Badge y descripcion de Sincronizacion de Stock
+                if (mlStockSyncBadge) {
+                    if (!syncEnabled) {
+                        mlStockSyncBadge.className = "px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider bg-gray-100 text-gray-500 border border-gray-200";
+                        mlStockSyncBadge.textContent = "DESACTIVADO (GLOBAL)";
+                    } else if (stockEnabled) {
+                        mlStockSyncBadge.className = "px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-700 border border-emerald-200";
+                        mlStockSyncBadge.textContent = "ACTIVO";
                     } else {
+                        mlStockSyncBadge.className = "px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider bg-amber-100 text-amber-700 border border-amber-200 animate-pulse";
+                        mlStockSyncBadge.textContent = "PAUSADO";
+                    }
+                }
+                if (mlStockSyncDesc) {
+                    if (!syncEnabled) {
+                        mlStockSyncDesc.textContent = "Detenido por pausa global de sincronizacion.";
+                    } else if (stockEnabled) {
+                        mlStockSyncDesc.textContent = "Actualiza publicaciones en ML al modificar inventario local.";
+                    } else {
+                        mlStockSyncDesc.textContent = "Envio automatico de stock pausado (no altera publicaciones de ML).";
+                    }
+                }
+
+                // 2. Badge y descripcion de Procesamiento de Pedidos
+                if (mlOrdersSyncBadge) {
+                    if (!syncEnabled) {
+                        mlOrdersSyncBadge.className = "px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider bg-gray-100 text-gray-500 border border-gray-200";
+                        mlOrdersSyncBadge.textContent = "DESACTIVADO (GLOBAL)";
+                    } else if (ordersEnabled) {
+                        mlOrdersSyncBadge.className = "px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-700 border border-emerald-200";
+                        mlOrdersSyncBadge.textContent = "ACTIVO";
+                    } else {
+                        mlOrdersSyncBadge.className = "px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-wider bg-amber-100 text-amber-700 border border-amber-200 animate-pulse";
+                        mlOrdersSyncBadge.textContent = "PAUSADO";
+                    }
+                }
+                if (mlOrdersSyncDesc) {
+                    if (!syncEnabled) {
+                        mlOrdersSyncDesc.textContent = "Detenido por pausa global de sincronizacion.";
+                    } else if (ordersEnabled) {
+                        mlOrdersSyncDesc.textContent = "Descarga ventas entrantes y descuenta stock automaticamente.";
+                    } else {
+                        mlOrdersSyncDesc.textContent = "Recepcion de ordenes pausada (webhooks responden 200 sin procesar ventas).";
+                    }
+                }
+
+                // 3. Badge y descripcion General
+                if (mlSyncStatusBadge) {
+                    if (!syncEnabled) {
                         mlSyncStatusBadge.className = "px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-amber-100 text-amber-700 border border-amber-200 animate-pulse";
-                        mlSyncStatusBadge.textContent = "PAUSADO";
+                        mlSyncStatusBadge.textContent = "TOTALMENTE PAUSADO";
+                    } else if (stockEnabled && ordersEnabled) {
+                        mlSyncStatusBadge.className = "px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-700 border border-emerald-200";
+                        mlSyncStatusBadge.textContent = "TOTALMENTE ACTIVO";
+                    } else {
+                        mlSyncStatusBadge.className = "px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wider bg-sky-100 text-sky-800 border border-sky-300";
+                        mlSyncStatusBadge.textContent = "PARCIALMENTE ACTIVO";
                     }
                 }
                 if (mlSyncStatusDesc) {
-                    if (syncEnabled) {
-                        mlSyncStatusDesc.textContent = "Conexión bidireccional activa: procesando webhooks, pedidos entrantes y stock.";
+                    if (!syncEnabled) {
+                        mlSyncStatusDesc.textContent = "Sincronizacion pausada globalmente: no se procesan ventas entrantes ni se envia stock a MercadoLibre.";
+                    } else if (stockEnabled && ordersEnabled) {
+                        mlSyncStatusDesc.textContent = "Conexion bidireccional activa: procesando webhooks, pedidos entrantes y stock.";
+                    } else if (!stockEnabled && ordersEnabled) {
+                        mlSyncStatusDesc.textContent = "Modo seguro: Recepcion de pedidos ACTIVA. Envio de stock a MercadoLibre PAUSADO.";
+                    } else if (stockEnabled && !ordersEnabled) {
+                        mlSyncStatusDesc.textContent = "Modo seguro: Envio de stock a MercadoLibre ACTIVO. Procesamiento de pedidos PAUSADO.";
                     } else {
-                        mlSyncStatusDesc.textContent = "Sincronización pausada: no se procesan ventas entrantes de ML ni se envía stock local.";
+                        mlSyncStatusDesc.textContent = "Sincronizacion general activa, pero ambos sub-servicios estan pausados manualmente.";
                     }
                 }
                 if (mlSyncIconContainer) {
-                    if (syncEnabled) {
+                    if (!syncEnabled) {
+                        mlSyncIconContainer.className = "w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center text-lg transition-colors";
+                    } else if (stockEnabled && ordersEnabled) {
                         mlSyncIconContainer.className = "w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center text-lg transition-colors";
                     } else {
-                        mlSyncIconContainer.className = "w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center text-lg transition-colors";
+                        mlSyncIconContainer.className = "w-10 h-10 rounded-xl bg-sky-50 text-sky-600 flex items-center justify-center text-lg transition-colors";
                     }
                 }
             }
 
-            const handleMLSyncToggleChange = async () => {
-                if (currentUserRole !== 'developer') {
-                    showNotification("Acceso denegado: Únicamente el rol DEVELOPER puede cambiar la sincronización.", "error");
+            const handleMLSyncToggleChange = async (e) => {
+                const canManage = (currentUserRole === 'developer' || currentUserRole === 'admin');
+                if (!canManage) {
+                    showNotification("Acceso denegado: Unicamente roles autorizados pueden cambiar la sincronizacion.", "error");
                     return;
                 }
                 const syncEnabled = inputs.mlSyncEnabled ? inputs.mlSyncEnabled.checked : true;
@@ -1353,15 +1406,19 @@
                         developerUpdatedBy: auth.currentUser ? auth.currentUser.email : 'developer'
                     }, { merge: true });
 
-                    showNotification(
-                        syncEnabled 
-                            ? "Sincronización de MercadoLibre ACTIVADA exitosamente" 
-                            : "Sincronización de MercadoLibre PAUSADA (Modo seguro activo)", 
-                        syncEnabled ? "success" : "warning"
-                    );
+                    let msg = "Estado de sincronizacion guardado";
+                    if (e && e.target === inputs.mlSyncEnabled) {
+                        msg = syncEnabled ? "Sincronizacion General con MercadoLibre ACTIVADA" : "Sincronizacion General con MercadoLibre PAUSADA";
+                    } else if (e && e.target === inputs.mlStockSyncEnabled) {
+                        msg = stockEnabled ? "Sincronizacion de Stock a MercadoLibre ACTIVADA" : "Sincronizacion de Stock a MercadoLibre PAUSADA";
+                    } else if (e && e.target === inputs.mlOrdersSyncEnabled) {
+                        msg = ordersEnabled ? "Procesamiento de Pedidos de MercadoLibre ACTIVADO" : "Procesamiento de Pedidos de MercadoLibre PAUSADO";
+                    }
+
+                    showNotification(msg, (syncEnabled && stockEnabled && ordersEnabled) ? "success" : "warning");
                 } catch (err) {
-                    console.error("Error al actualizar sincronización ML:", err);
-                    showNotification("Error al guardar estado de sincronización: " + err.message, "error");
+                    console.error("Error al actualizar sincronizacion ML:", err);
+                    showNotification("Error al guardar estado de sincronizacion: " + err.message, "error");
                 }
             };
 
@@ -1424,8 +1481,9 @@
 
             // Guardar cambios al presionar botón
             btnSave.addEventListener('click', async () => {
-                if (currentUserRole !== 'developer') {
-                    showNotification("Acceso denegado: Únicamente el rol DEVELOPER puede modificar credenciales de backend.", "error");
+                const canSave = (currentUserRole === 'developer' || currentUserRole === 'admin');
+                if (!canSave) {
+                    showNotification("Acceso denegado: Únicamente roles autorizados pueden modificar credenciales de backend.", "error");
                     return;
                 }
 

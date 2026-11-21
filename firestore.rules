@@ -132,10 +132,10 @@ service cloud.firestore {
     match /payables/{payableId} { allow read, write: if isStaff(); }
     
     // 🛡️ CONFIGURACIONES Y BLINDAJE DE SEGURIDAD
-    // Credenciales sensibles: lectura permitida a Admin/Developer (para monitoreo de estado), escritura EXCLUSIVA a Developer
+    // Credenciales sensibles: lectura y modificación permitida a Admin/Developer
     match /config/developer {
       allow read: if isAdmin() || isDeveloper();
-      allow write: if isDeveloper();
+      allow write: if isAdmin() || isDeveloper();
     }
 
     // Configuración de modo mantenimiento (tienda pública)
