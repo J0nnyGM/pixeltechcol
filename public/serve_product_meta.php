@@ -20,8 +20,8 @@ if (!is_dir($cache_dir)) {
     @mkdir($cache_dir, 0755, true);
 }
 
-// Usamos prefijo prod_v2_ para invalidar caches obsoletas con esqueletos pegados
-$cache_file = $cache_dir . '/prod_v2_' . md5($product_id) . '.html';
+// Usamos prefijo prod_v3_ para invalidar caches con precios corruptos por backreference $2
+$cache_file = $cache_dir . '/prod_v3_' . md5($product_id) . '.html';
 $cache_time = 7200; // 2 horas (7200 segundos)
 
 if (file_exists($cache_file) && (time() - filemtime($cache_file)) < $cache_time) {
@@ -196,32 +196,42 @@ if ($http_code == 200 && $response) {
     </script>
         ";
 
-        $safe_meta_tags = str_replace('$', '\\$', $meta_tags);
-        $html = preg_replace('/<title>.*?<\/title>/is', $safe_meta_tags, $html);
-        
+        $html = preg_replace_callback('/<title>.*?<\/title>/is', function() use ($meta_tags) {
+            return $meta_tags;
+        }, $html, 1);
+
         // Inyeccion directa de foto principal
-        $safe_image = str_replace('$', '\\$', $image);
-        $html = preg_replace('/(<img[^>]*id="p-main-image"[^>]*src=")([^"]*)("[^>]*>)/is', '${1}' . $safe_image . '$3', $html);
-        
-        // Inyeccion directa de precio
+        $safe_image = htmlspecialchars($image, ENT_QUOTES, 'UTF-8');
+        $html = preg_replace_callback('/(<img[^>]*id="p-main-image"[^>]*src=")([^"]*)("[^>]*>)/is', function($m) use ($safe_image) {
+            return $m[1] . $safe_image . $m[3];
+        }, $html, 1);
+
+        // Inyeccion directa de precio (preg_replace_callback evita que $1/$2 en $2.400.000 se interpreten como backreferences)
         $formatted_price = "$" . number_format($price, 0, ',', '.');
-        $html = preg_replace('/(<span[^>]*id="p-price"[^>]*>).*?(<\/span>)/is', '${1}' . $formatted_price . '$2', $html);
+        $html = preg_replace_callback('/(<span[^>]*id="p-price"[^>]*>).*?(<\/span>)/is', function($m) use ($formatted_price) {
+            return $m[1] . $formatted_price . $m[2];
+        }, $html, 1);
 
         // Inyeccion directa de nombre
-        $safe_name = str_replace('$', '\\$', $name);
-        $html = preg_replace('/(<h1[^>]*id="p-name"[^>]*>)(.*?)(<\/h1>)/is', '${1}' . $safe_name . '${3}', $html);
-        
+        $safe_name = htmlspecialchars($name, ENT_QUOTES, 'UTF-8');
+        $html = preg_replace_callback('/(<h1[^>]*id="p-name"[^>]*>)(.*?)(<\/h1>)/is', function($m) use ($safe_name) {
+            return $m[1] . $safe_name . $m[3];
+        }, $html, 1);
+
         // Inyeccion directa de descripcion
         if (isset($fields['description']['stringValue'])) {
             $raw_desc = $fields['description']['stringValue'];
-            $safe_desc_html = str_replace('$', '\\$', $raw_desc);
-            $html = preg_replace('/(<div[^>]*id="p-description"[^>]*>)(.*?)(<\/div>)/is', '${1}' . $safe_desc_html . '${3}', $html);
+            $html = preg_replace_callback('/(<div[^>]*id="p-description"[^>]*>)(.*?)(<\/div>)/is', function($m) use ($raw_desc) {
+                return $m[1] . $raw_desc . $m[3];
+            }, $html, 1);
         }
 
         // Inyeccion directa de SKU si existe
         if (!empty($fullProduct['sku'])) {
             $safe_sku = htmlspecialchars($fullProduct['sku'], ENT_QUOTES, 'UTF-8');
-            $html = preg_replace('/(<p[^>]*id="p-sku-display"[^>]*>).*?(<\/p>)/is', '${1}REF: ' . $safe_sku . '${2}', $html);
+            $html = preg_replace_callback('/(<p[^>]*id="p-sku-display"[^>]*>).*?(<\/p>)/is', function($m) use ($safe_sku) {
+                return $m[1] . 'REF: ' . $safe_sku . $m[2];
+            }, $html, 1);
         }
 
         // Inyeccion directa de stock si existe
@@ -229,10 +239,14 @@ if ($http_code == 200 && $response) {
             $stk = intval($fullProduct['stock']);
             if ($stk > 0) {
                 $stock_html = '<i class="fa-solid fa-circle-check"></i> ' . $stk . ' unidades disponibles';
-                $html = preg_replace('/(<p[^>]*id="p-stock-text"[^>]*>).*?(<\/p>)/is', '${1}' . $stock_html . '${2}', $html);
+                $html = preg_replace_callback('/(<p[^>]*id="p-stock-text"[^>]*>).*?(<\/p>)/is', function($m) use ($stock_html) {
+                    return $m[1] . $stock_html . $m[2];
+                }, $html, 1);
             } else {
                 $stock_html = '<i class="fa-solid fa-circle-xmark"></i> Agotado';
-                $html = preg_replace('/(<p[^>]*id="p-stock-text"[^>]*>).*?(<\/p>)/is', '${1}' . $stock_html . '${2}', $html);
+                $html = preg_replace_callback('/(<p[^>]*id="p-stock-text"[^>]*>).*?(<\/p>)/is', function($m) use ($stock_html) {
+                    return $m[1] . $stock_html . $m[2];
+                }, $html, 1);
                 $html = preg_replace('/text-green-600/i', 'text-red-500', $html);
             }
         }
@@ -246,13 +260,14 @@ if ($http_code == 200 && $response) {
         $safe_thumb_img = htmlspecialchars($image, ENT_QUOTES, 'UTF-8');
         $safe_thumb_alt = htmlspecialchars($name, ENT_QUOTES, 'UTF-8');
         $thumb_markup = '<img src="' . $safe_thumb_img . '" class="min-w-[80px] w-20 md:w-full h-20 object-contain bg-white border rounded-xl cursor-pointer transition-all duration-200 shrink-0 snap-center thumb-active" width="80" height="80" alt="' . $safe_thumb_alt . '">';
-        $html = preg_replace('/(<div[^>]*id="p-thumbnails"[^>]*>).*?(<\/div>\s*<div[^>]*class="order-1)/is', '${1}' . $thumb_markup . '</div><div class="order-1', $html);
-        
+        $html = preg_replace_callback('/(<div[^>]*id="p-thumbnails"[^>]*>).*?(<\/div>\s*<div[^>]*class="order-1)/is', function($m) use ($thumb_markup) {
+            return $m[1] . $thumb_markup . '</div><div class="order-1';
+        }, $html, 1);
+
         // Inyectamos el producto COMPLETO para hidratacion inmediata en JS sin esperas de red
-        $preloadedData = json_encode($fullProduct, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-        $safe_preloadedData = str_replace('$', '\\$', $preloadedData);
-        $html = str_replace('</head>', "\n<script>window.__PRELOADED_PRODUCT__ = $safe_preloadedData;</script>\n</head>", $html);
-        
+        $preloadedData = json_encode($fullProduct, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_TAG);
+        $html = str_replace('</head>', "\n<script>window.__PRELOADED_PRODUCT__ = $preloadedData;</script>\n</head>", $html);
+
         // Guardamos en cache del servidor para visitas subsecuentes
         @file_put_contents($cache_file, $html);
     }
