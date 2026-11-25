@@ -1,16 +1,40 @@
 import { db, doc, runTransaction } from "./firebase-init.js";
 
+function normalizeBranchMap(branchStock, fallbackTotal = 0) {
+    const safeTotal = Math.max(0, Math.round(Number(fallbackTotal) || 0));
+    if (!branchStock || typeof branchStock !== 'object') {
+        return { bodega: safeTotal, full: 0 };
+    }
+    const res = {};
+    for (const [k, v] of Object.entries(branchStock)) {
+        res[k] = Math.max(0, Math.round(Number(v) || 0));
+    }
+    if (res.bodega === undefined) res.bodega = 0;
+    if (res.full === undefined) res.full = 0;
+    if (Object.values(res).reduce((a, b) => a + b, 0) === 0 && safeTotal > 0) {
+        res.bodega = safeTotal;
+    }
+    return res;
+}
+
+function sumBranches(branchMap) {
+    return Object.values(branchMap || {}).reduce((acc, v) => acc + Math.max(0, Math.round(Number(v) || 0)), 0);
+}
+
 /**
- * Ajusta el stock de un producto de forma segura (Atómica).
- * Soporta productos simples y productos con Matriz de Variantes.
- * * @param {string} productId - ID del producto
+ * Ajusta el stock de un producto de forma segura (Atomica).
+ * Soporta productos simples y productos con Matriz de Variantes, garantizando
+ * siempre la invariante: stock === suma(combinations) === suma(branchStock).
+ * @param {string} productId - ID del producto
  * @param {number} quantityChange - Cantidad a sumar (positivo) o restar (negativo)
- * @param {string|null} variantColor - (Opcional) Color específico
- * @param {string|null} variantCapacity - (Opcional) Capacidad específica
+ * @param {string|null} variantColor - (Opcional) Color especifico
+ * @param {string|null} variantCapacity - (Opcional) Capacidad especifica
  */
 export async function adjustStock(productId, quantityChange, variantColor = null, variantCapacity = null, changeReason = null, changeDetails = null, targetBranch = 'bodega') {
     const productRef = doc(db, "products", productId);
     const branchKey = targetBranch || 'bodega';
+    const delta = Math.round(Number(quantityChange) || 0);
+    if (delta === 0) return;
 
     try {
         await runTransaction(db, async (transaction) => {
@@ -18,18 +42,23 @@ export async function adjustStock(productId, quantityChange, variantColor = null
             if (!productSnap.exists()) throw `El producto ${productId} no existe`;
 
             const pData = productSnap.data();
-            let newStock = (Number(pData.stock) || 0) + quantityChange;
             let newCombinations = Array.isArray(pData.combinations) ? JSON.parse(JSON.stringify(pData.combinations)) : [];
-            let rootBranchStock = pData.branchStock ? { ...pData.branchStock } : null;
+            let rootBranchStock = {};
+            let newStock = 0;
 
             // --- CASO 1: PRODUCTO CON MATRIZ DE VARIANTES ---
             if (newCombinations.length > 0) {
-                let comboIndex = -1;
+                // Normalizar branchStock en TODAS las combinaciones para no perder variantes hermanas
+                newCombinations.forEach(c => {
+                    c.branchStock = normalizeBranchMap(c.branchStock, c.stock);
+                    c.stock = sumBranches(c.branchStock);
+                });
 
+                let comboIndex = -1;
                 if (variantColor || variantCapacity) {
                     const normColor = String(variantColor || '').trim().toLowerCase();
                     const normCap = String(variantCapacity || '').trim().toLowerCase();
-                    comboIndex = newCombinations.findIndex(c => 
+                    comboIndex = newCombinations.findIndex(c =>
                         (String(c.color || '').trim().toLowerCase() === normColor || (!c.color && !variantColor)) &&
                         (String(c.capacity || '').trim().toLowerCase() === normCap || (!c.capacity && !variantCapacity))
                     );
@@ -39,63 +68,50 @@ export async function adjustStock(productId, quantityChange, variantColor = null
                     comboIndex = 0;
                 }
 
-                if (comboIndex >= 0) {
-                    const combo = newCombinations[comboIndex];
-                    const currentVariantStock = Number(combo.stock) || 0;
-                    const newVariantStock = currentVariantStock + quantityChange;
-
-                    if (newVariantStock < 0) {
-                        throw `Stock insuficiente para la variante: ${pData.name} (${variantColor || ''} ${variantCapacity || ''})`;
-                    }
-
-                    combo.stock = newVariantStock;
-
-                    if (combo.branchStock) {
-                        let curBranchStock = combo.branchStock[branchKey] !== undefined
-                            ? (Number(combo.branchStock[branchKey]) || 0)
-                            : Math.max(0, currentVariantStock - Object.entries(combo.branchStock).filter(([k]) => k !== branchKey).reduce((s, [, v]) => s + (Number(v) || 0), 0));
-                        combo.branchStock[branchKey] = Math.max(0, curBranchStock + quantityChange);
-                    }
-
-                    newStock = newCombinations.reduce((sum, item) => sum + (Number(item.stock) || 0), 0);
-                } else {
-                    if (quantityChange < 0 && newStock < 0) {
-                        throw `Stock global insuficiente para ${pData.name}`;
-                    }
+                if (comboIndex < 0) {
+                    throw `No se encontro la variante (${variantColor || ''} ${variantCapacity || ''}) en ${pData.name}`;
                 }
 
-                if (newCombinations.some(c => c.branchStock)) {
-                    rootBranchStock = {};
-                    newCombinations.forEach(c => {
-                        if (c.branchStock) {
-                            Object.keys(c.branchStock).forEach(bId => {
-                                rootBranchStock[bId] = (rootBranchStock[bId] || 0) + (Number(c.branchStock[bId]) || 0);
-                            });
-                        }
+                const combo = newCombinations[comboIndex];
+                const curBranchVal = Number(combo.branchStock[branchKey]) || 0;
+                const nextBranchVal = curBranchVal + delta;
+
+                if (delta < 0 && nextBranchVal < 0) {
+                    throw `Stock insuficiente en ${branchKey} para la variante ${pData.name} (${combo.color || ''} ${combo.capacity || ''}). Disponible: ${curBranchVal}, solicitado: ${Math.abs(delta)}.`;
+                }
+
+                combo.branchStock[branchKey] = Math.max(0, nextBranchVal);
+                combo.stock = sumBranches(combo.branchStock);
+
+                // Recalcular rootBranchStock y stock global desde TODAS las combinaciones
+                rootBranchStock = { bodega: 0, full: 0 };
+                newCombinations.forEach(c => {
+                    Object.keys(c.branchStock).forEach(bId => {
+                        rootBranchStock[bId] = (rootBranchStock[bId] || 0) + (Number(c.branchStock[bId]) || 0);
                     });
-                }
+                });
+                newStock = sumBranches(rootBranchStock);
             } else {
-                if (newStock < 0) {
-                    throw `Stock global insuficiente para ${pData.name}`;
+                // --- CASO 2: PRODUCTO SIMPLE ---
+                rootBranchStock = normalizeBranchMap(pData.branchStock, pData.stock);
+                const curBranchVal = Number(rootBranchStock[branchKey]) || 0;
+                const nextBranchVal = curBranchVal + delta;
+
+                if (delta < 0 && nextBranchVal < 0) {
+                    throw `Stock insuficiente en ${branchKey} para ${pData.name}. Disponible: ${curBranchVal}, solicitado: ${Math.abs(delta)}.`;
                 }
+
+                rootBranchStock[branchKey] = Math.max(0, nextBranchVal);
+                newStock = sumBranches(rootBranchStock);
             }
 
-            if (rootBranchStock && (!newCombinations || !newCombinations.some(c => c.branchStock))) {
-                let curBranchStock = rootBranchStock[branchKey] !== undefined
-                    ? (Number(rootBranchStock[branchKey]) || 0)
-                    : Math.max(0, (Number(pData.stock) || 0) - Object.entries(rootBranchStock).filter(([k]) => k !== branchKey).reduce((s, [, v]) => s + (Number(v) || 0), 0));
-                rootBranchStock[branchKey] = Math.max(0, curBranchStock + quantityChange);
-            }
-
-            const updatePayload = { 
+            const updatePayload = {
                 stock: newStock,
                 combinations: newCombinations,
+                branchStock: rootBranchStock,
                 updatedAt: new Date()
             };
 
-            if (rootBranchStock) {
-                updatePayload.branchStock = rootBranchStock;
-            }
             if (changeReason) {
                 updatePayload.lastStockChangeReason = changeReason;
             }
@@ -106,7 +122,7 @@ export async function adjustStock(productId, quantityChange, variantColor = null
             transaction.update(productRef, updatePayload);
         });
 
-        console.log(`[Inventario] Stock actualizado: ${productId} | Var: ${variantColor}/${variantCapacity} | Delta: ${quantityChange} | Motivo: ${changeReason || 'General'}`);
+        console.log(`[Inventario] Stock actualizado: ${productId} | Var: ${variantColor}/${variantCapacity} | Sucursal: ${branchKey} | Delta: ${delta} | Motivo: ${changeReason || 'General'}`);
 
     } catch (e) {
         console.error("[Inventario Error] Error critico en ajuste de inventario:", e);

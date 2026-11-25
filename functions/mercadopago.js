@@ -1,6 +1,7 @@
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 const { MercadoPagoConfig, Preference, Payment } = require("mercadopago");
+const { initProductWorkingState, applyStockDeltaToState } = require("./inventory-helper");
 
 // --- CONFIGURACIÓN DINÁMICA CON FALLBACK A .ENV ---
 async function getMPClient(db) {
@@ -236,78 +237,48 @@ exports.webhook = async (req, res) => {
                 // FASE 1: LECTURAS (t.get)
                 // ==========================================
                 const docSnap = await t.get(orderRef);
-                if (!docSnap.exists || docSnap.data().status === 'PAGADO' || docSnap.data().paymentStatus === 'PAID') return;
-                
+                if (!docSnap.exists) return;
                 const oData = docSnap.data();
+                if (oData.status === 'PAGADO' || oData.paymentStatus === 'PAID' || oData.status === 'CANCELADO' || oData.status === 'RECHAZADO') return;
 
-                // Leer Inventario
-                const prodReads = [];
-                if (!oData.isStockDeducted) {
+                // Leer Inventario (una sola lectura por producto unico)
+                const workingProducts = new Map();
+                let totalActualDeducted = 0;
+                if (!oData.isStockDeducted && Array.isArray(oData.items)) {
                     for (const i of oData.items) {
-                        const pRef = db.collection('products').doc(i.id);
-                        const pDoc = await t.get(pRef);
-                        if (pDoc.exists) {
-                            const pData = pDoc.data();
-                            const qty = parseInt(i.quantity) || 1;
-                            let newS = Math.max(0, (Number(pData.stock) || 0) - qty);
-                            let newC = Array.isArray(pData.combinations) ? JSON.parse(JSON.stringify(pData.combinations)) : [];
-                            let rootBranchStock = pData.branchStock ? { ...pData.branchStock } : null;
-
-                            if (newC.length > 0) {
-                                let idx = -1;
-                                if (i.color || i.capacity) {
-                                    const normColor = String(i.color || '').trim().toLowerCase();
-                                    const normCap = String(i.capacity || '').trim().toLowerCase();
-                                    idx = newC.findIndex(c => 
-                                        (String(c.color || '').trim().toLowerCase() === normColor || (!c.color && !i.color)) &&
-                                        (String(c.capacity || '').trim().toLowerCase() === normCap || (!c.capacity && !i.capacity))
-                                    );
-                                }
-                                if (idx < 0 && newC.length === 1) idx = 0;
-
-                                if (idx >= 0) {
-                                    newC[idx].stock = Math.max(0, (Number(newC[idx].stock) || 0) - qty);
-                                    if (newC[idx].branchStock) {
-                                        let curBodega = newC[idx].branchStock['bodega'] !== undefined
-                                            ? (Number(newC[idx].branchStock['bodega']) || 0)
-                                            : Math.max(0, (Number(newC[idx].stock) || 0) + qty - Object.entries(newC[idx].branchStock).filter(([k]) => k !== 'bodega').reduce((s, [, v]) => s + (Number(v) || 0), 0));
-                                        newC[idx].branchStock['bodega'] = Math.max(0, curBodega - qty);
-                                    }
-                                }
-
-                                newS = newC.reduce((sum, c) => sum + (Number(c.stock) || 0), 0);
-
-                                if (newC.some(c => c.branchStock)) {
-                                    rootBranchStock = {};
-                                    newC.forEach(c => {
-                                        if (c.branchStock) {
-                                            Object.keys(c.branchStock).forEach(bId => {
-                                                rootBranchStock[bId] = (rootBranchStock[bId] || 0) + (Number(c.branchStock[bId]) || 0);
-                                            });
-                                        }
-                                    });
-                                }
-                            } else if (rootBranchStock) {
-                                let curBodega = rootBranchStock['bodega'] !== undefined
-                                    ? (Number(rootBranchStock['bodega']) || 0)
-                                    : Math.max(0, (Number(pData.stock) || 0) - Object.entries(rootBranchStock).filter(([k]) => k !== 'bodega').reduce((s, [, v]) => s + (Number(v) || 0), 0));
-                                rootBranchStock['bodega'] = Math.max(0, curBodega - qty);
+                        if (!i.id) continue;
+                        if (!workingProducts.has(i.id)) {
+                            const pRef = db.collection('products').doc(i.id);
+                            const pDoc = await t.get(pRef);
+                            if (pDoc.exists) {
+                                workingProducts.set(i.id, {
+                                    ref: pRef,
+                                    state: initProductWorkingState(pDoc.data()),
+                                    totalDelta: 0
+                                });
                             }
+                        }
+                    }
 
-                            const stockPayload = { 
-                                stock: newS, 
-                                combinations: newC,
-                                lastStockChangeReason: 'VENTA_PEDIDO',
-                                lastStockChangeDetails: `Venta web MercadoPago pedido #${orderId.slice(0, 8)}`,
-                                updatedAt: admin.firestore.FieldValue.serverTimestamp()
-                            };
-                            if (rootBranchStock) stockPayload.branchStock = rootBranchStock;
-                            prodReads.push({ ref: pRef, payload: stockPayload });
+                    for (const i of oData.items) {
+                        const entry = workingProducts.get(i.id);
+                        if (!entry) continue;
+                        const qty = Math.max(1, parseInt(i.quantity, 10) || 1);
+                        const resDelta = applyStockDeltaToState(entry.state, {
+                            delta: -qty,
+                            branch: 'bodega',
+                            color: i.color || '',
+                            capacity: i.capacity || '',
+                            fallbackBestVariant: true
+                        });
+                        if (resDelta.appliedDelta < 0) {
+                            entry.totalDelta += resDelta.appliedDelta;
+                            totalActualDeducted += Math.abs(resDelta.appliedDelta);
                         }
                     }
                 }
 
-                // Leer Tesorería
+                // Leer Tesoreria
                 const accQ = await t.get(db.collection('accounts').where('gatewayLink', '==', 'MERCADOPAGO').limit(1));
                 let accDoc = null;
                 if(!accQ.empty) {
@@ -321,7 +292,7 @@ exports.webhook = async (req, res) => {
                     }
                 }
 
-                // Leer Remisión (BLINDAJE AGREGADO)
+                // Leer Remision (BLINDAJE AGREGADO)
                 const remSnap = await t.get(remRef);
 
                 // ==========================================
@@ -347,11 +318,19 @@ exports.webhook = async (req, res) => {
                     accName = accDoc.data().name;
                 }
 
-                for(const p of prodReads) {
-                    t.update(p.ref, p.payload);
+                for (const [, entry] of workingProducts) {
+                    if (entry.totalDelta === 0) continue;
+                    t.update(entry.ref, {
+                        stock: entry.state.stock,
+                        combinations: entry.state.combinations,
+                        branchStock: entry.state.branchStock,
+                        lastStockChangeReason: 'VENTA_PEDIDO',
+                        lastStockChangeDetails: `Venta web MercadoPago pedido #${orderId.slice(0, 8)}`,
+                        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                    });
                 }
                 
-                // Escribir Remisión blindada
+                // Escribir Remision blindada
                 if (!remSnap.exists) {
                     t.set(remRef, {
                         orderId, source: 'WEBHOOK_MP', items: oData.items,
@@ -367,7 +346,7 @@ exports.webhook = async (req, res) => {
                     paymentStatus: 'PAID', 
                     paymentId,
                     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-                    isStockDeducted: true, 
+                    isStockDeducted: Boolean(oData.isStockDeducted || totalActualDeducted > 0), 
                     paymentAccountId: accId, 
                     paymentMethodName: accName
                 });
@@ -375,11 +354,13 @@ exports.webhook = async (req, res) => {
             console.log("[MercadoPago] Order Approved:", orderId);
         } 
         
-        // --- B. PAGO RECHAZADO / CANCELADO ---
+        // --- B. PAGO RECHAZADO / CANCELADO (Transaccional para evitar race con approved) ---
         else if (status === 'rejected' || status === 'cancelled') {
-            const docCheck = await orderRef.get();
-            if (docCheck.exists && docCheck.data().paymentStatus !== 'PAID') {
+            await db.runTransaction(async (t) => {
+                const docCheck = await t.get(orderRef);
+                if (!docCheck.exists) return;
                 const orderData = docCheck.data();
+                if (orderData.paymentStatus === 'PAID' || orderData.status === 'PAGADO') return;
                 const updateObj = {
                     status: 'RECHAZADO', 
                     paymentId, 
@@ -389,9 +370,9 @@ exports.webhook = async (req, res) => {
                 if (orderData.requiresInvoice) {
                     updateObj.billingStatus = 'CANCELLED';
                 }
-                await orderRef.update(updateObj);
-                console.log(" MP Order Rejected:", orderId);
-            }
+                t.update(orderRef, updateObj);
+            });
+            console.log("[MercadoPago] Order Rejected:", orderId);
         }
         
         res.status(200).send("OK");

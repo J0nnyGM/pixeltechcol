@@ -61,15 +61,21 @@ exports.watchInventoryChanges = onDocumentWritten("products/{productId}", async 
     }
 
     // 3. Comparar Stock Global
-    const beforeStock = typeof beforeData.stock === 'number' ? beforeData.stock : 0;
-    const afterStock = typeof afterData.stock === 'number' ? afterData.stock : 0;
+    const beforeStock = Number(beforeData.stock) || 0;
+    const afterStock = Number(afterData.stock) || 0;
     const deltaStock = afterStock - beforeStock;
 
-    // 4. Comparar Combinaciones / Variantes (Color, Capacidad)
+    // 3b. Comparar branchStock raiz (detecta traslados bodega <-> full aunque deltaStock sea 0)
+    const beforeRootBranch = JSON.stringify(beforeData.branchStock || {});
+    const afterRootBranch = JSON.stringify(afterData.branchStock || {});
+    const rootBranchChanged = beforeRootBranch !== afterRootBranch;
+
+    // 4. Comparar Combinaciones / Variantes (Color, Capacidad) y su branchStock
     const beforeCombos = Array.isArray(beforeData.combinations) ? beforeData.combinations : [];
     const afterCombos = Array.isArray(afterData.combinations) ? afterData.combinations : [];
 
     const variantChanges = [];
+    let comboBranchChanged = false;
     const comboMapBefore = {};
     beforeCombos.forEach(c => {
         const key = `${c.color || ''}_${c.capacity || ''}`;
@@ -79,8 +85,12 @@ exports.watchInventoryChanges = onDocumentWritten("products/{productId}", async 
     afterCombos.forEach(ac => {
         const key = `${ac.color || ''}_${ac.capacity || ''}`;
         const bc = comboMapBefore[key];
-        const oldVal = bc && typeof bc.stock === 'number' ? bc.stock : (bc && typeof bc.quantity === 'number' ? bc.quantity : 0);
-        const newVal = typeof ac.stock === 'number' ? ac.stock : (typeof ac.quantity === 'number' ? ac.quantity : 0);
+        const oldVal = bc ? (Number(bc.stock ?? bc.quantity) || 0) : 0;
+        const newVal = Number(ac.stock ?? ac.quantity) || 0;
+
+        if (bc && JSON.stringify(bc.branchStock || {}) !== JSON.stringify(ac.branchStock || {})) {
+            comboBranchChanged = true;
+        }
         
         if (oldVal !== newVal) {
             variantChanges.push({
@@ -93,17 +103,17 @@ exports.watchInventoryChanges = onDocumentWritten("products/{productId}", async 
         }
     });
 
-    // Si NO hubo ningún cambio en stock global ni en variantes, ignorar (fue edición de precio, imagen o texto)
-    if (deltaStock === 0 && variantChanges.length === 0) {
+    // Si NO hubo ningun cambio en stock global, variantes ni sucursales, ignorar (fue edicion de precio, imagen o texto)
+    if (deltaStock === 0 && variantChanges.length === 0 && !rootBranchChanged && !comboBranchChanged) {
         return null;
     }
 
     // 5. Determinar Causa / Origen del Cambio
-    let changeType = deltaStock < 0 ? "VENTA_PEDIDO" : "AJUSTE_MANUAL";
+    let changeType = deltaStock < 0 ? "VENTA_PEDIDO" : (deltaStock === 0 && (rootBranchChanged || comboBranchChanged) ? "TRASLADO_SUCURSAL" : "AJUSTE_MANUAL");
     let changeDetails = "";
     let relatedReference = "";
 
-    // A) Si el objeto actualizado trae una etiqueta explícita de origen recién seteada
+    // A) Si el objeto actualizado trae una etiqueta explicita de origen recien seteada
     const hasFreshReason = afterData.lastStockChangeReason && (
         !beforeData ||
         beforeData.lastStockChangeReason !== afterData.lastStockChangeReason ||
@@ -119,12 +129,15 @@ exports.watchInventoryChanges = onDocumentWritten("products/{productId}", async 
             changeType = afterData.lastStockChangeReason;
             changeDetails = afterData.lastStockChangeDetails || "";
         }
+    } else if (deltaStock === 0 && (rootBranchChanged || comboBranchChanged)) {
+        changeType = "TRASLADO_SUCURSAL";
+        changeDetails = `Actualizacion de sucursales (bodega/full): ${beforeRootBranch} -> ${afterRootBranch}`;
     } else {
         const nowMs = Date.now();
         const ninetySecsAgo = new Date(nowMs - 90000);
 
         try {
-            // B) Buscar si se registró una Entrada de Inventario (compra) en los últimos 90 segundos
+            // B) Buscar si se registro una Entrada de Inventario (compra) en los ultimos 90 segundos
             const purchasesSnap = await db.collection("purchases")
                 .where("createdAt", ">=", ninetySecsAgo)
                 .get();
@@ -145,9 +158,10 @@ exports.watchInventoryChanges = onDocumentWritten("products/{productId}", async 
                 changeType = "ENTRADA_COMPRA";
                 changeDetails = `Reabastecimiento mediante Entrada de Inventario / Compra (Ref: ${relatedReference})`;
             } else {
-                // C) Buscar si se creó/modificó un Pedido (Venta o Cancelación) en los últimos 90 segundos
+                // C) Buscar si se creo/modifico un Pedido (Venta o Cancelacion) en los ultimos 90 segundos
+                const orderQueryField = deltaStock > 0 ? "updatedAt" : "createdAt";
                 const ordersSnap = await db.collection("orders")
-                    .where("createdAt", ">=", ninetySecsAgo)
+                    .where(orderQueryField, ">=", ninetySecsAgo)
                     .get();
 
                 let foundOrder = null;
@@ -164,7 +178,7 @@ exports.watchInventoryChanges = onDocumentWritten("products/{productId}", async 
                 if (foundOrder) {
                     if (['CANCELADO', 'RECHAZADO'].includes(foundOrder.status) && deltaStock > 0) {
                         changeType = "DEVOLUCION_CANCELACION";
-                        changeDetails = `Devolución de stock por anulación/cancelación del pedido #${foundOrder.internalOrderNumber || foundOrder.id}`;
+                        changeDetails = `Devolucion de stock por anulacion/cancelacion del pedido #${foundOrder.internalOrderNumber || foundOrder.id}`;
                         relatedReference = foundOrder.id;
                     } else if (deltaStock < 0) {
                         changeType = "VENTA_PEDIDO";
@@ -187,17 +201,19 @@ exports.watchInventoryChanges = onDocumentWritten("products/{productId}", async 
             const variantText = variantChanges.length > 0 
                 ? ` (Variantes: ${variantChanges.map(v => `${v.color || ''} ${v.capacity || ''}`.trim() + `: ${v.before} -> ${v.after}`).join(', ')})`
                 : '';
-            changeDetails = `Modificación manual directa en edición de producto (${beforeStock} -> ${afterStock})${variantText}`;
+            changeDetails = `Modificacion manual directa en edicion de producto (${beforeStock} -> ${afterStock})${variantText}`;
         } else if (changeType === "ENTRADA_COMPRA") {
             changeDetails = `Entrada de inventario realizada (${deltaStock > 0 ? '+' : ''}${deltaStock} ud(s))`;
         } else if (changeType === "VENTA_PEDIDO") {
             changeDetails = `Salida por venta de producto (${deltaStock} ud(s))`;
         } else if (changeType === "DEVOLUCION_CANCELACION") {
             changeDetails = `Retorno de stock por pedido cancelado (+${deltaStock} ud(s))`;
+        } else if (changeType === "TRASLADO_SUCURSAL") {
+            changeDetails = `Traslado entre sucursales (${beforeRootBranch} -> ${afterRootBranch})`;
         }
     }
 
-    // 6. Guardar el Registro de Auditoría en Firestore
+    // 6. Guardar el Registro de Auditoria en Firestore
     try {
         await db.collection("inventory_audit_logs").add({
             productId: productId,
@@ -209,7 +225,9 @@ exports.watchInventoryChanges = onDocumentWritten("products/{productId}", async 
             beforeStock: beforeStock,
             afterStock: afterStock,
             deltaStock: deltaStock,
-            changeType: changeType, // "ENTRADA_COMPRA", "VENTA_PEDIDO", "DEVOLUCION_CANCELACION", "AJUSTE_MANUAL", "CREACION_PRODUCTO"
+            beforeBranchStock: beforeData.branchStock || null,
+            afterBranchStock: afterData.branchStock || null,
+            changeType: changeType,
             changeDetails: changeDetails,
             variantChanges: variantChanges,
             relatedReference: relatedReference,
@@ -219,25 +237,36 @@ exports.watchInventoryChanges = onDocumentWritten("products/{productId}", async 
 
         console.log(`[Vigilante Inventario] Registrado cambio en ${productId} (${changeType}): ${deltaStock > 0 ? '+' : ''}${deltaStock}`);
     } catch (auditErr) {
-        console.error("Error guardando registro de auditoría de inventario:", auditErr);
+        console.error("Error guardando registro de auditoria de inventario:", auditErr);
     }
 
-    // 7. Sincronización automática de stock en tiempo real hacia MercadoLibre (Tiendas 1, 2 y 3)
+    // 7. Sincronizacion automatica de stock en tiempo real hacia MercadoLibre (Tiendas 1, 2 y 3)
     try {
         const { syncProductStockToML } = require('./mercadolibre');
         if (typeof syncProductStockToML === 'function') {
-            await syncProductStockToML(db, beforeData, afterData);
+            await syncProductStockToML(db, beforeData, afterData, productId);
         }
     } catch (syncErr) {
         console.error("[Vigilante Inventario] Error sincronizando stock a MercadoLibre:", syncErr.message);
     }
 
-    // 8. Limpiar etiquetas de motivo del documento para evitar contaminación en ediciones futuras
+    // 8. Limpiar etiquetas de motivo solo si siguen coincidiendo con el evento procesado (evita pisar eventos concurrentes)
     if (afterData.lastStockChangeReason || afterData.lastStockChangeDetails) {
         try {
-            await event.data.after.ref.update({
-                lastStockChangeReason: admin.firestore.FieldValue.delete(),
-                lastStockChangeDetails: admin.firestore.FieldValue.delete()
+            const pRef = event.data.after.ref;
+            await db.runTransaction(async (t) => {
+                const snap = await t.get(pRef);
+                if (!snap.exists) return;
+                const cur = snap.data();
+                if (
+                    cur.lastStockChangeReason === afterData.lastStockChangeReason &&
+                    cur.lastStockChangeDetails === afterData.lastStockChangeDetails
+                ) {
+                    t.update(pRef, {
+                        lastStockChangeReason: admin.firestore.FieldValue.delete(),
+                        lastStockChangeDetails: admin.firestore.FieldValue.delete()
+                    });
+                }
             });
         } catch (cleanErr) {
             console.warn("[InventoryWatcher] Error limpiando lastStockChangeReason:", cleanErr.message);

@@ -1,7 +1,10 @@
-import { auth, db, storage, doc, getDoc, updateDoc, collection, getDocs, addDoc, query, orderBy, limit, ref, uploadBytes, getDownloadURL, writeBatch, where, onSnapshot } from './firebase-init.js';
+import { auth, db, storage, doc, getDoc, updateDoc, collection, getDocs, addDoc, query, orderBy, limit, ref, uploadBytes, getDownloadURL, writeBatch, where, onSnapshot, runTransaction } from './firebase-init.js';
 import { loadAdminSidebar } from './admin-ui.js';
 
 loadAdminSidebar();
+
+let initialLoadedStock = 0;
+let initialMatrixStock = {};
 
 const params = new URLSearchParams(window.location.search);
 const productId = params.get('id');
@@ -120,7 +123,8 @@ async function initEdit() {
         document.getElementById('p-sku').value = p.sku || '';
         document.getElementById('p-brand').value = p.brand || '';
         document.getElementById('p-price').value = new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(initialPrice);
-        document.getElementById('p-stock').value = p.stock || 0; 
+        document.getElementById('p-stock').value = p.stock || 0;
+        initialLoadedStock = Number(p.stock) || 0;
         document.getElementById('p-status').value = p.status || 'active';
         
         // 2. Categoría
@@ -206,6 +210,7 @@ async function initEdit() {
                         stock: comb.stock, 
                         sku: comb.sku 
                     };
+                    initialMatrixStock[key] = Number(comb.stock) || 0;
                 }
             });
         }
@@ -640,87 +645,170 @@ form.onsubmit = async (e) => {
 
         const capacities = definedCaps.map(cap => ({ label: cap, price: 0 }));
 
-        const combinations = [];
-        let minPrice = Infinity;
-        const activeKeys = [];
-        
-        if(definedColors.length > 0 && definedCaps.length > 0) definedColors.forEach(c => definedCaps.forEach(k => activeKeys.push(`${c}-${k}`)));
-        else if(definedColors.length > 0) definedColors.forEach(c => activeKeys.push(c));
-        else if(definedCaps.length > 0) definedCaps.forEach(k => activeKeys.push(k));
+        const productRef = doc(db, "products", productId);
+        const historyRef = doc(collection(db, "products", productId, "history"));
 
-        activeKeys.forEach(key => {
-            const data = matrixData[key];
-            const parts = key.split('-');
-            const color = definedColors.length > 0 ? (parts.length > 1 ? parts[0] : (definedColors.includes(key) ? key : null)) : null;
-            const cap = definedCaps.length > 0 ? (parts.length > 1 ? parts[1] : (definedCaps.includes(key) ? key : null)) : null;
-            
-            if(cap) {
-                const cIdx = capacities.findIndex(c => c.label === cap);
-                if(cIdx >= 0 && data?.price) capacities[cIdx].price = data.price;
+        const activeEntries = [];
+        if (definedColors.length > 0 && definedCaps.length > 0) {
+            definedColors.forEach(c => definedCaps.forEach(k => activeEntries.push({ key: `${c}-${k}`, color: c, cap: k })));
+        } else if (definedColors.length > 0) {
+            definedColors.forEach(c => activeEntries.push({ key: c, color: c, cap: null }));
+        } else if (definedCaps.length > 0) {
+            definedCaps.forEach(k => activeEntries.push({ key: k, color: null, cap: k }));
+        }
+
+        const formSku = document.getElementById('p-sku').value;
+        const formSimpleStock = Math.max(0, Math.round(Number(stockInput.value) || 0));
+        const simpleStockEdited = formSimpleStock !== Math.round(Number(initialLoadedStock) || 0);
+
+        await runTransaction(db, async (tx) => {
+            const liveSnap = await tx.get(productRef);
+            if (!liveSnap.exists()) throw new Error("Producto no encontrado.");
+            const liveData = liveSnap.data();
+            const liveCombos = Array.isArray(liveData.combinations) ? liveData.combinations : [];
+
+            const combinations = [];
+            let minPrice = Infinity;
+            let anyStockChanged = false;
+
+            activeEntries.forEach(({ key, color, cap }) => {
+                const data = matrixData[key];
+                if (cap) {
+                    const cIdx = capacities.findIndex(c => c.label === cap);
+                    if (cIdx >= 0 && data?.price) capacities[cIdx].price = data.price;
+                }
+
+                const rowSku = data?.sku || `${formSku}-${color ? color.substring(0, 3) : ''}-${cap ? cap : ''}`.toUpperCase();
+
+                // Buscar combinacion en vivo para preservar branchStock.full, costos y ventas concurrentes
+                const liveComb = liveCombos.find(lc =>
+                    String(lc.color || '').trim().toLowerCase() === String(color || '').trim().toLowerCase() &&
+                    String(lc.capacity || '').trim().toLowerCase() === String(cap || '').trim().toLowerCase()
+                );
+
+                const formVarStock = Math.max(0, Math.round(Number(data?.stock) || 0));
+                const hadInitial = Object.prototype.hasOwnProperty.call(initialMatrixStock, key);
+                const varStockEdited = !hadInitial || (formVarStock !== Math.round(Number(initialMatrixStock[key]) || 0));
+
+                let nextBranchStock;
+                if (liveComb && !varStockEdited) {
+                    // No se edito el stock de esta variante: preservar exactamente el stock vivo (ventas/traslados concurrentes)
+                    const liveTotal = Math.max(0, Math.round(Number(liveComb.stock) || 0));
+                    nextBranchStock = (liveComb.branchStock && typeof liveComb.branchStock === 'object')
+                        ? { ...liveComb.branchStock }
+                        : { bodega: liveTotal, full: 0 };
+                    if (nextBranchStock.bodega === undefined) nextBranchStock.bodega = 0;
+                    if (nextBranchStock.full === undefined) nextBranchStock.full = 0;
+                    if ((Number(nextBranchStock.bodega) + Number(nextBranchStock.full)) === 0 && liveTotal > 0) {
+                        nextBranchStock.bodega = liveTotal;
+                    }
+                } else {
+                    // Usuario edito el stock de esta variante: preservar branchStock.full y ajustar bodega
+                    const liveFull = Math.max(0, Math.round(Number(liveComb?.branchStock?.full) || 0));
+                    const extraBranches = {};
+                    if (liveComb?.branchStock && typeof liveComb.branchStock === 'object') {
+                        Object.entries(liveComb.branchStock).forEach(([k, v]) => {
+                            if (k !== 'bodega' && k !== 'full') extraBranches[k] = Math.max(0, Math.round(Number(v) || 0));
+                        });
+                    }
+                    const otherSum = liveFull + Object.values(extraBranches).reduce((a, b) => a + b, 0);
+                    const nextBodega = Math.max(0, formVarStock - otherSum);
+                    nextBranchStock = { ...extraBranches, bodega: nextBodega, full: liveFull };
+                    anyStockChanged = true;
+                }
+
+                const nextVarStock = Object.values(nextBranchStock).reduce((a, b) => a + (Number(b) || 0), 0);
+
+                combinations.push({
+                    ...(liveComb || {}),
+                    color: color,
+                    capacity: cap,
+                    price: data?.price || 0,
+                    stock: nextVarStock,
+                    branchStock: nextBranchStock,
+                    sku: rowSku
+                });
+                if ((data?.price || 0) < minPrice) minPrice = data?.price;
+            });
+
+            const isSimple = combinations.length === 0;
+            const finalPrice = isSimple ? getRawPrice() : (Number.isFinite(minPrice) ? minPrice : getRawPrice());
+
+            let finalBranchStock = { bodega: 0, full: 0 };
+            let finalStock = 0;
+
+            if (isSimple) {
+                const liveTotal = Math.max(0, Math.round(Number(liveData.stock) || 0));
+                const liveBS = (liveData.branchStock && typeof liveData.branchStock === 'object')
+                    ? { ...liveData.branchStock }
+                    : { bodega: liveTotal, full: 0 };
+                if (liveBS.bodega === undefined) liveBS.bodega = 0;
+                if (liveBS.full === undefined) liveBS.full = 0;
+                if ((Number(liveBS.bodega) + Number(liveBS.full)) === 0 && liveTotal > 0) liveBS.bodega = liveTotal;
+
+                if (!simpleStockEdited) {
+                    finalBranchStock = liveBS;
+                } else {
+                    const liveFull = Math.max(0, Math.round(Number(liveBS.full) || 0));
+                    const extraSum = Object.entries(liveBS)
+                        .filter(([k]) => k !== 'bodega' && k !== 'full')
+                        .reduce((a, [, v]) => a + Math.max(0, Math.round(Number(v) || 0)), 0);
+                    finalBranchStock = { ...liveBS, bodega: Math.max(0, formSimpleStock - liveFull - extraSum), full: liveFull };
+                    anyStockChanged = true;
+                }
+                finalStock = Object.values(finalBranchStock).reduce((a, b) => a + (Number(b) || 0), 0);
+            } else {
+                combinations.forEach(c => {
+                    Object.keys(c.branchStock || {}).forEach(bId => {
+                        finalBranchStock[bId] = (finalBranchStock[bId] || 0) + (Number(c.branchStock[bId]) || 0);
+                    });
+                });
+                finalStock = Object.values(finalBranchStock).reduce((a, b) => a + (Number(b) || 0), 0);
             }
 
-            const rowSku = data?.sku || `${document.getElementById('p-sku').value}-${color?color.substring(0,3):''}-${cap?cap:''}`.toUpperCase();
+            const updateData = {
+                name: document.getElementById('p-name').value,
+                sku: formSku,
+                brand: document.getElementById('p-brand').value,
+                category: pCategoryHidden.value || document.getElementById('p-category').value,
+                subcategory: document.getElementById('p-subcategory').value,
+                status: document.getElementById('p-status').value,
+                description: descriptionEditor.innerHTML,
+                updatedAt: new Date(),
+                price: finalPrice,
+                stock: finalStock,
+                branchStock: finalBranchStock,
+                warranty: {
+                    time: Number(document.getElementById('p-warranty-time').value) || 0,
+                    unit: document.getElementById('p-warranty-unit').value
+                },
+                isSimple: isSimple,
+                combinations: combinations,
+                hasVariants: definedColors.length > 0,
+                hasCapacities: definedCaps.length > 0,
+                variants: variants,
+                capacities: capacities,
+                definedColors: definedColors,
+                definedCapacities: definedCaps,
+                images: finalGlobalUrls,
+                colorImages: colorUrlsMap,
+                mainImage: finalGlobalUrls[0] || (Object.values(colorUrlsMap)[0] && Object.values(colorUrlsMap)[0][0]) || ''
+            };
 
-            combinations.push({
-                color: color, 
-                capacity: cap, 
-                price: data?.price || 0, 
-                stock: data?.stock || 0,
-                branchStock: { bodega: data?.stock || 0 },
-                sku: rowSku 
+            if (anyStockChanged) {
+                updateData.lastStockChangeReason = 'AJUSTE_MANUAL';
+                updateData.lastStockChangeDetails = `Modificacion manual en edicion de producto (${finalStock} uds)`;
+            }
+
+            tx.update(productRef, updateData);
+            tx.set(historyRef, {
+                adminEmail: auth.currentUser.email,
+                action: anyStockChanged ? 'Edicion de Producto/Stock' : 'Edicion de Producto (sin cambio de stock)',
+                timestamp: new Date()
             });
-            if((data?.price || 0) < minPrice) minPrice = data?.price;
         });
 
-        const isSimple = combinations.length === 0;
-        const finalPrice = isSimple ? getRawPrice() : minPrice;
-        const finalStock = isSimple ? Number(stockInput.value) : combinations.reduce((a, b) => a + b.stock, 0);
-
-        const updateData = {
-            name: document.getElementById('p-name').value,
-            sku: document.getElementById('p-sku').value,
-            brand: document.getElementById('p-brand').value,
-            category: pCategoryHidden.value || document.getElementById('p-category').value,
-            subcategory: document.getElementById('p-subcategory').value,
-            status: document.getElementById('p-status').value,
-            description: descriptionEditor.innerHTML,
-            updatedAt: new Date(),
-            price: finalPrice,
-            stock: finalStock,
-            branchStock: { bodega: finalStock },
-            lastStockChangeReason: 'AJUSTE_MANUAL',
-            lastStockChangeDetails: `Modificación manual en edición de producto (${finalStock} uds)`,
-            warranty: {
-                time: Number(document.getElementById('p-warranty-time').value) || 0,
-                unit: document.getElementById('p-warranty-unit').value
-            },
-            isSimple: isSimple,
-            combinations: combinations,
-            
-            hasVariants: definedColors.length > 0,
-            hasCapacities: definedCaps.length > 0,
-            variants: variants, 
-            capacities: capacities, 
-            definedColors: definedColors, 
-            definedCapacities: definedCaps, 
-            images: finalGlobalUrls,
-            colorImages: colorUrlsMap,
-            mainImage: finalGlobalUrls[0] || (Object.values(colorUrlsMap)[0] && Object.values(colorUrlsMap)[0][0]) || ''
-        };
-
-        const batch = writeBatch(db);
-        const productRef = doc(db, "products", productId);
-        batch.update(productRef, updateData);
-
-        const historyRef = doc(collection(db, "products", productId, "history"));
-        batch.set(historyRef, {
-            adminEmail: auth.currentUser.email,
-            action: `Edición de Producto/Stock`,
-            timestamp: new Date()
-        });
-
-        await batch.commit();
-        alert("✅ Producto actualizado correctamente.");
+        alert("Producto actualizado correctamente.");
         window.location.href = "products.html";
 
     } catch (err) { 

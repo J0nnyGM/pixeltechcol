@@ -2,6 +2,7 @@ const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 const axios = require("axios");
 const cors = require('cors')({ origin: true });
+const { initProductWorkingState, applyStockDeltaToState } = require("./inventory-helper");
 
 if (!admin.apps.length) {
     admin.initializeApp();
@@ -310,79 +311,49 @@ exports.webhook = async (req, res) => {
                     if (!docSnap.exists) return;
                     const oData = docSnap.data();
                     
-                    if (oData.paymentStatus === 'PAID' || oData.status === 'PAGADO') {
-                        console.log(` Webhook duplicado ignorado. La orden ${orderId} ya estaba pagada.`);
+                    if (oData.paymentStatus === 'PAID' || oData.status === 'PAGADO' || oData.status === 'CANCELADO' || oData.status === 'RECHAZADO') {
+                        console.log(`Webhook duplicado o estado cerrado ignorado para orden ${orderId} (${oData.status}).`);
                         return;
                     }
 
-                    // 2. Leer Inventario
-                    const prodReads = [];
-                    if (!oData.isStockDeducted) {
+                    // 2. Leer Inventario (una sola lectura por producto unico)
+                    const workingProducts = new Map();
+                    let totalActualDeducted = 0;
+                    if (!oData.isStockDeducted && Array.isArray(oData.items)) {
                         for (const i of oData.items) {
-                            const pRef = db.collection('products').doc(i.id);
-                            const pDoc = await t.get(pRef);
-                            if (pDoc.exists) {
-                                const pData = pDoc.data();
-                                const qty = parseInt(i.quantity) || 1;
-                                let newS = Math.max(0, (Number(pData.stock) || 0) - qty);
-                                let newC = Array.isArray(pData.combinations) ? JSON.parse(JSON.stringify(pData.combinations)) : [];
-                                let rootBranchStock = pData.branchStock ? { ...pData.branchStock } : null;
-
-                                if (newC.length > 0) {
-                                    let idx = -1;
-                                    if (i.color || i.capacity) {
-                                        const normColor = String(i.color || '').trim().toLowerCase();
-                                        const normCap = String(i.capacity || '').trim().toLowerCase();
-                                        idx = newC.findIndex(c =>
-                                            (String(c.color || '').trim().toLowerCase() === normColor || (!c.color && !i.color)) &&
-                                            (String(c.capacity || '').trim().toLowerCase() === normCap || (!c.capacity && !i.capacity))
-                                        );
-                                    }
-                                    if (idx < 0 && newC.length === 1) idx = 0;
-
-                                    if (idx >= 0) {
-                                        newC[idx].stock = Math.max(0, (Number(newC[idx].stock) || 0) - qty);
-                                        if (newC[idx].branchStock) {
-                                            let curBodega = newC[idx].branchStock['bodega'] !== undefined
-                                                ? (Number(newC[idx].branchStock['bodega']) || 0)
-                                                : Math.max(0, (Number(newC[idx].stock) || 0) + qty - Object.entries(newC[idx].branchStock).filter(([k]) => k !== 'bodega').reduce((s, [, v]) => s + (Number(v) || 0), 0));
-                                            newC[idx].branchStock['bodega'] = Math.max(0, curBodega - qty);
-                                        }
-                                    }
-
-                                    newS = newC.reduce((sum, c) => sum + (Number(c.stock) || 0), 0);
-
-                                    if (newC.some(c => c.branchStock)) {
-                                        rootBranchStock = {};
-                                        newC.forEach(c => {
-                                            if (c.branchStock) {
-                                                Object.keys(c.branchStock).forEach(bId => {
-                                                    rootBranchStock[bId] = (rootBranchStock[bId] || 0) + (Number(c.branchStock[bId]) || 0);
-                                                });
-                                            }
-                                        });
-                                    }
-                                } else if (rootBranchStock) {
-                                    let curBodega = rootBranchStock['bodega'] !== undefined
-                                        ? (Number(rootBranchStock['bodega']) || 0)
-                                        : Math.max(0, (Number(pData.stock) || 0) - Object.entries(rootBranchStock).filter(([k]) => k !== 'bodega').reduce((s, [, v]) => s + (Number(v) || 0), 0));
-                                    rootBranchStock['bodega'] = Math.max(0, curBodega - qty);
+                            if (!i.id) continue;
+                            if (!workingProducts.has(i.id)) {
+                                const pRef = db.collection('products').doc(i.id);
+                                const pDoc = await t.get(pRef);
+                                if (pDoc.exists) {
+                                    workingProducts.set(i.id, {
+                                        ref: pRef,
+                                        state: initProductWorkingState(pDoc.data()),
+                                        totalDelta: 0
+                                    });
                                 }
+                            }
+                        }
 
-                                const stockPayload = { 
-                                    stock: newS, 
-                                    combinations: newC,
-                                    lastStockChangeReason: 'VENTA_PEDIDO',
-                                    lastStockChangeDetails: `Venta web ADDI pedido #${orderId.slice(0, 8)}`,
-                                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
-                                };
-                                if (rootBranchStock) stockPayload.branchStock = rootBranchStock;
-                                prodReads.push({ ref: pRef, payload: stockPayload });
+                        for (const i of oData.items) {
+                            const entry = workingProducts.get(i.id);
+                            if (!entry) continue;
+                            const qty = Math.max(1, parseInt(i.quantity, 10) || 1);
+                            const resDelta = applyStockDeltaToState(entry.state, {
+                                delta: -qty,
+                                branch: 'bodega',
+                                color: i.color || '',
+                                capacity: i.capacity || '',
+                                fallbackBestVariant: true
+                            });
+                            if (resDelta.appliedDelta < 0) {
+                                entry.totalDelta += resDelta.appliedDelta;
+                                totalActualDeducted += Math.abs(resDelta.appliedDelta);
                             }
                         }
                     }
 
-                    // 3. Leer Cuentas (Tesorería)
+                    // 3. Leer Cuentas (Tesoreria)
                     const accQ = await t.get(db.collection('accounts').where('gatewayLink', '==', 'ADDI').limit(1));
                     let accDoc = (!accQ.empty) ? accQ.docs[0] : null;
                     if (!accDoc) {
@@ -390,14 +361,14 @@ exports.webhook = async (req, res) => {
                         if (!defQ.empty) accDoc = defQ.docs[0];
                     }
 
-                    // 4. Leer Remisión
+                    // 4. Leer Remision
                     const remSnap = await t.get(remRef);
 
                     // ==========================================
                     // FASE 2: SOLO ESCRITURAS (t.set, t.update)
                     // ==========================================
 
-                    // A. Escribir Tesorería
+                    // A. Escribir Tesoreria
                     let accId = null, accName = 'ADDI';
                     if (accDoc) {
                         accId = accDoc.id;
@@ -420,12 +391,20 @@ exports.webhook = async (req, res) => {
                         });
                     }
 
-                    // B. Escribir Inventario
-                    for (const p of prodReads) {
-                        t.update(p.ref, p.payload);
+                    // B. Escribir Inventario (un solo update por producto)
+                    for (const [, entry] of workingProducts) {
+                        if (entry.totalDelta === 0) continue;
+                        t.update(entry.ref, {
+                            stock: entry.state.stock,
+                            combinations: entry.state.combinations,
+                            branchStock: entry.state.branchStock,
+                            lastStockChangeReason: 'VENTA_PEDIDO',
+                            lastStockChangeDetails: `Venta web ADDI pedido #${orderId.slice(0, 8)}`,
+                            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                        });
                     }
 
-                    // C. Escribir Remisión
+                    // C. Escribir Remision
                     if (!remSnap.exists) {
                         t.set(remRef, {
                             orderId, source: 'WEBHOOK_ADDI', items: oData.items,
@@ -442,28 +421,32 @@ exports.webhook = async (req, res) => {
                         status: 'PAGADO',
                         paymentStatus: 'PAID',
                         paymentId: body.applicationId || 'ADDI',
+                        paymentAccountId: accId,
+                        paymentMethodName: accName,
                         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-                        isStockDeducted: true
+                        isStockDeducted: Boolean(oData.isStockDeducted || totalActualDeducted > 0)
                     });
                 });
                 
                 console.log("[ADDI] Order Approved Procesado Correctamente");
                 
             } else if (status === 'REJECTED' || status === 'DECLINED' || status === 'ABANDONED') {
-                const docCheck = await orderRef.get();
-                if (docCheck.exists && docCheck.data().paymentStatus !== 'PAID') {
+                await db.runTransaction(async (t) => {
+                    const docCheck = await t.get(orderRef);
+                    if (!docCheck.exists) return;
                     const orderData = docCheck.data();
+                    if (orderData.paymentStatus === 'PAID' || orderData.status === 'PAGADO') return;
                     const updateObj = {
                         status: 'RECHAZADO',
                         statusDetail: status,
-                        updatedAt: admin.firestore.FieldValue.serverTimestamp() //  NUEVO
+                        updatedAt: admin.firestore.FieldValue.serverTimestamp()
                     };
                     if (orderData.requiresInvoice) {
                         updateObj.billingStatus = 'CANCELLED';
                     }
-                    await orderRef.update(updateObj);
-                    console.log(" Orden Rechazada por ADDI");
-                }
+                    t.update(orderRef, updateObj);
+                });
+                console.log("[ADDI] Orden Rechazada:", orderId);
             }
             res.status(200).send("OK");
         } catch (e) {

@@ -993,7 +993,7 @@ paymentForm.onsubmit = async (e) => {
                     const isFullyPaid = newPaid >= (total - refunded);
 
                     let nextStatus = data.status;
-                    if (isFullyPaid && ['PENDIENTE', 'PENDIENTE_PAGO', 'CANCELADO'].includes(data.status)) {
+                    if (isFullyPaid && ['PENDIENTE', 'PENDIENTE_PAGO'].includes(data.status)) {
                         nextStatus = 'PAGADO';
                     }
 

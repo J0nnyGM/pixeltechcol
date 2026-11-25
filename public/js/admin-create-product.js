@@ -502,11 +502,13 @@ form.onsubmit = async (e) => {
 
             const rowSku = data?.sku || `${document.getElementById('p-sku').value}-${color?color.substring(0,3):''}-${cap?cap:''}`.toUpperCase();
 
+            const varStock = Math.max(0, Math.round(Number(data?.stock) || 0));
             combinations.push({
                 color: color,
                 capacity: cap,
                 price: data?.price || 0,
-                stock: data?.stock || 0,
+                stock: varStock,
+                branchStock: { bodega: varStock, full: 0 },
                 sku: rowSku
             });
             if((data?.price || 0) < minPrice) minPrice = data?.price;
@@ -514,7 +516,7 @@ form.onsubmit = async (e) => {
 
         const isSimple = combinations.length === 0;
         const finalPrice = isSimple ? getRawPrice() : minPrice; 
-        const finalStock = isSimple ? Number(stockInput.value) : combinations.reduce((a, b) => a + b.stock, 0);
+        const finalStock = isSimple ? Math.max(0, Math.round(Number(stockInput.value) || 0)) : combinations.reduce((a, b) => a + b.stock, 0);
 
         const productData = {
             name: document.getElementById('p-name').value,
@@ -523,11 +525,12 @@ form.onsubmit = async (e) => {
             category: pCategoryHidden.value,
             subcategory: pSubCategoryHidden.value,
             description: descriptionEditor.innerHTML,
-            status: document.getElementById('p-status').value, // 🔥 CORRECCIÓN AQUÍ: Toma del select "Borrador/Activo"
+            status: document.getElementById('p-status').value,
             createdAt: new Date(),
             updatedAt: new Date(),
             price: finalPrice,
             stock: finalStock,
+            branchStock: { bodega: finalStock, full: 0 },
             warranty: {
                 time: Number(document.getElementById('p-warranty-time').value) || 0,
                 unit: document.getElementById('p-warranty-unit').value

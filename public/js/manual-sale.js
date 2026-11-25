@@ -224,15 +224,24 @@ function strikeText(text) {
     return text.toString().split('').map(char => char + '\u0336').join('');
 }
 
+function getBodegaAvailable(entity) {
+    if (!entity) return 0;
+    if (entity.branchStock && typeof entity.branchStock === 'object' && entity.branchStock.bodega !== undefined) {
+        return Math.max(0, parseInt(entity.branchStock.bodega) || 0);
+    }
+    const fullQty = (entity.branchStock && typeof entity.branchStock === 'object') ? (parseInt(entity.branchStock.full) || 0) : 0;
+    return Math.max(0, (parseInt(entity.stock) || 0) - fullQty);
+}
+
 function getProductTotalStock(product) {
     if (!product) return 0;
     if (product.combinations && Array.isArray(product.combinations) && product.combinations.length > 0) {
-        return product.combinations.reduce((sum, c) => sum + (parseInt(c.stock) || 0), 0);
+        return product.combinations.reduce((sum, c) => sum + getBodegaAvailable(c), 0);
     }
     if (product.variants && Array.isArray(product.variants) && product.variants.length > 0) {
-        return product.variants.reduce((sum, v) => sum + (parseInt(v.stock) || 0), 0);
+        return product.variants.reduce((sum, v) => sum + getBodegaAvailable(v), 0);
     }
-    return parseInt(product.stock) || 0;
+    return getBodegaAvailable(product);
 }
 
 function getColorsForProduct(product) {
@@ -266,18 +275,18 @@ function getStockForColor(product, colorName, selectedCap) {
     if (product.combinations && Array.isArray(product.combinations) && product.combinations.length > 0) {
         if (selectedCap) {
             const combo = product.combinations.find(c => c.color === colorName && c.capacity === selectedCap);
-            return combo ? (parseInt(combo.stock) || 0) : 0;
+            return combo ? getBodegaAvailable(combo) : 0;
         } else {
             return product.combinations
                 .filter(c => c.color === colorName)
-                .reduce((sum, c) => sum + (parseInt(c.stock) || 0), 0);
+                .reduce((sum, c) => sum + getBodegaAvailable(c), 0);
         }
     }
     if (product.variants && Array.isArray(product.variants) && product.variants.length > 0) {
         const variant = product.variants.find(v => v.color === colorName);
-        return variant ? (parseInt(variant.stock) || 0) : 0;
+        return variant ? getBodegaAvailable(variant) : 0;
     }
-    return parseInt(product.stock) || 0;
+    return getBodegaAvailable(product);
 }
 
 function getStockForCapacity(product, capName, selectedColor) {
@@ -285,14 +294,14 @@ function getStockForCapacity(product, capName, selectedColor) {
     if (product.combinations && Array.isArray(product.combinations) && product.combinations.length > 0) {
         if (selectedColor) {
             const combo = product.combinations.find(c => c.capacity === capName && c.color === selectedColor);
-            return combo ? (parseInt(combo.stock) || 0) : 0;
+            return combo ? getBodegaAvailable(combo) : 0;
         } else {
             return product.combinations
                 .filter(c => c.capacity === capName)
-                .reduce((sum, c) => sum + (parseInt(c.stock) || 0), 0);
+                .reduce((sum, c) => sum + getBodegaAvailable(c), 0);
         }
     }
-    return parseInt(product.stock) || 0;
+    return getBodegaAvailable(product);
 }
 
 function getPriceForCombination(product, selectedColor, selectedCap) {
@@ -1315,13 +1324,34 @@ async function saveOrder() {
         }
     });
 
+    // Validar stock acumulado cuando se agregan filas duplicadas del mismo producto/variante
+    const qtyByVariantKey = new Map();
+    const maxByVariantKey = new Map();
+    document.querySelectorAll('.item-row-container').forEach(row => {
+        const id = row.querySelector('.p-id').value;
+        const qty = parseInt(row.querySelector('.p-qty').value) || 0;
+        const maxStock = parseInt(row.querySelector('.p-max-stock').value) || 0;
+        if (id && qty > 0) {
+            const cVal = row.querySelector('.p-color')?.value || '';
+            const capVal = row.querySelector('.p-capacity')?.value || '';
+            const vKey = `${id}__${cVal}__${capVal}`;
+            qtyByVariantKey.set(vKey, (qtyByVariantKey.get(vKey) || 0) + qty);
+            maxByVariantKey.set(vKey, maxStock);
+        }
+    });
+    for (const [vKey, totalQty] of qtyByVariantKey.entries()) {
+        if (totalQty > (maxByVariantKey.get(vKey) || 0)) {
+            hasStockError = true;
+        }
+    }
+
     if (hasVariantError) {
         // Enfoque sutil y silencioso en el primer elemento con error
         const firstErrorEl = document.querySelector('.item-row-container select.border-red-500');
         if (firstErrorEl) firstErrorEl.focus();
         return;
     }
-    if (hasStockError) return alert("Uno de los productos seleccionados excede o no tiene stock disponible.");
+    if (hasStockError) return alert("Uno de los productos seleccionados excede o no tiene stock disponible en bodega.");
     if (items.length === 0) return alert("Debes agregar al menos un producto a la venta.");
 
     const shippingMode = document.getElementById('m-shipping-mode').value;
@@ -1440,17 +1470,31 @@ async function saveOrder() {
             createdAt: new Date(), updatedAt: new Date(), shippingData, buyerInfo: { name: custName, email: emailVal || "", phone: custPhone, document: custDoc }
         };
         
-        // 3. Crear orden y remision con stock ya validado y descontado
-        let orderRef;
+        // 3. Crear orden y remision atomicamente en una transaccion
+        const orderRef = doc(collection(db, "orders"));
+        const remissionRef = doc(db, "remissions", orderRef.id);
         try {
-            orderRef = await addDoc(collection(db, "orders"), orderData);
-            await setDoc(doc(db, "remissions", orderRef.id), { ...orderData, orderId: orderRef.id, status: 'PENDIENTE_ALISTAMIENTO', type: 'DIRECTA' });
+            await runTransaction(db, async (tx) => {
+                tx.set(orderRef, orderData);
+                tx.set(remissionRef, { ...orderData, orderId: orderRef.id, status: 'PENDIENTE_ALISTAMIENTO', type: 'DIRECTA' });
+            });
         } catch (createErr) {
             console.error("Error guardando orden en Firestore:", createErr);
             for (const item of stockDeductedItems) {
                 try {
                     await adjustStock(item.id, item.quantity, item.color, item.capacity, 'AJUSTE_MANUAL', 'Rollback por error al guardar orden');
                 } catch (rbErr) { console.error("Error en rollback:", rbErr); }
+            }
+            if (accountId !== 'credit') {
+                try {
+                    await runTransaction(db, async (t) => {
+                        const accRef = doc(db, "accounts", accountId);
+                        const d = await t.get(accRef);
+                        if (d.exists()) {
+                            t.update(accRef, { balance: (Number(d.data().balance) || 0) - total });
+                        }
+                    });
+                } catch (accRbErr) { console.error("Error revirtiendo saldo de cuenta:", accRbErr); }
             }
             if (expenseDocRef) {
                 try { await deleteDoc(expenseDocRef); } catch (e) { console.error("Error eliminando expense:", e); }

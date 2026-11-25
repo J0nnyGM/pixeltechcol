@@ -733,25 +733,40 @@ window.submitInventoryTransfer = async () => {
             if (!pSnap.exists()) throw new Error("El producto ya no existe en la base de datos.");
 
             const pData = pSnap.data();
-            let rootBranchStock = pData.branchStock ? { ...pData.branchStock } : null;
             let combinations = Array.isArray(pData.combinations) ? JSON.parse(JSON.stringify(pData.combinations)) : [];
+            const liveGlobalStock = Math.max(0, Math.round(Number(pData.stock) || 0));
+            let rootBranchStock = (pData.branchStock && typeof pData.branchStock === 'object')
+                ? { ...pData.branchStock }
+                : { bodega: liveGlobalStock, full: 0 };
 
-            if (!rootBranchStock) {
-                rootBranchStock = { bodega: Number(pData.stock) || 0, full: 0 };
-            }
             if (rootBranchStock.bodega === undefined) rootBranchStock.bodega = 0;
             if (rootBranchStock.full === undefined) rootBranchStock.full = 0;
+            // Si el producto simple recibio compras antiguas que solo subieron stock y no branchStock, alinear bodega sin borrar esas unidades
+            if (combinations.length === 0) {
+                const bsSum = Object.values(rootBranchStock).reduce((a, b) => a + (Number(b) || 0), 0);
+                if (liveGlobalStock > bsSum) {
+                    rootBranchStock.bodega = (Number(rootBranchStock.bodega) || 0) + (liveGlobalStock - bsSum);
+                }
+            }
 
             let variantLabel = null;
 
             if (combinations.length > 0 && selectedVariantIndex >= 0 && combinations[selectedVariantIndex]) {
-                const combo = combinations[selectedVariantIndex];
-                if (!combo.branchStock) {
-                    combo.branchStock = { bodega: Number(combo.stock) || 0, full: 0 };
-                }
-                if (combo.branchStock.bodega === undefined) combo.branchStock.bodega = 0;
-                if (combo.branchStock.full === undefined) combo.branchStock.full = 0;
+                // Normalizar branchStock en TODAS las variantes hermanas para que ninguna desaparezca del total
+                combinations.forEach(c => {
+                    const cStk = Math.max(0, Math.round(Number(c.stock) || 0));
+                    const bs = (c.branchStock && typeof c.branchStock === 'object') ? { ...c.branchStock } : { bodega: cStk, full: 0 };
+                    if (bs.bodega === undefined) bs.bodega = 0;
+                    if (bs.full === undefined) bs.full = 0;
+                    const cSum = Object.values(bs).reduce((a, b) => a + (Number(b) || 0), 0);
+                    if (cStk > cSum) {
+                        bs.bodega = (Number(bs.bodega) || 0) + (cStk - cSum);
+                    }
+                    c.branchStock = bs;
+                    c.stock = Object.values(bs).reduce((a, b) => a + (Number(b) || 0), 0);
+                });
 
+                const combo = combinations[selectedVariantIndex];
                 const curFrom = Number(combo.branchStock[fromBranch]) || 0;
                 if (curFrom < qty) {
                     throw new Error(`Stock insuficiente en ${fromBranch} para la variante.`);
@@ -759,17 +774,16 @@ window.submitInventoryTransfer = async () => {
 
                 combo.branchStock[fromBranch] = curFrom - qty;
                 combo.branchStock[toBranch] = (Number(combo.branchStock[toBranch]) || 0) + qty;
-                combo.stock = (Number(combo.branchStock.bodega) || 0) + (Number(combo.branchStock.full) || 0);
+                combo.stock = Object.values(combo.branchStock).reduce((a, b) => a + (Number(b) || 0), 0);
 
-                variantLabel = `${combo.color || 'Estándar'} ${combo.capacity ? `/ ${combo.capacity}` : ''}`;
+                variantLabel = `${combo.color || 'Estandar'} ${combo.capacity ? `/ ${combo.capacity}` : ''}`;
 
-                // Recalcular rootBranchStock sumando todas las combinaciones
+                // Recalcular rootBranchStock sumando TODAS las combinaciones y todas sus sucursales
                 rootBranchStock = { bodega: 0, full: 0 };
                 combinations.forEach(c => {
-                    if (c.branchStock) {
-                        rootBranchStock.bodega += Number(c.branchStock.bodega) || 0;
-                        rootBranchStock.full += Number(c.branchStock.full) || 0;
-                    }
+                    Object.keys(c.branchStock || {}).forEach(bId => {
+                        rootBranchStock[bId] = (rootBranchStock[bId] || 0) + (Number(c.branchStock[bId]) || 0);
+                    });
                 });
             } else {
                 const curFrom = Number(rootBranchStock[fromBranch]) || 0;
@@ -780,11 +794,13 @@ window.submitInventoryTransfer = async () => {
                 rootBranchStock[toBranch] = (Number(rootBranchStock[toBranch]) || 0) + qty;
             }
 
-            const finalGlobalStock = (Number(rootBranchStock.bodega) || 0) + (Number(rootBranchStock.full) || 0);
+            const finalGlobalStock = Object.values(rootBranchStock).reduce((a, b) => a + (Number(b) || 0), 0);
 
             const updateProductPayload = {
                 branchStock: rootBranchStock,
                 stock: finalGlobalStock,
+                lastStockChangeReason: 'TRASLADO_SUCURSAL',
+                lastStockChangeDetails: `Traslado ${fromBranch} -> ${toBranch} (${qty} uds)${variantLabel ? ' ' + variantLabel : ''}`,
                 updatedAt: now
             };
             if (combinations.length > 0) {

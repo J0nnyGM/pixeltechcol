@@ -3,6 +3,7 @@ const db = admin.firestore();
 
 const functions = require("firebase-functions");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
+const { initProductWorkingState, applyStockDeltaToState } = require("./inventory-helper");
 
 /**
  * TAREA PROGRAMADA: EJECUTAR TRANSFERENCIAS AUTOMÁTICAS
@@ -129,38 +130,48 @@ exports.cancelAbandonedPayments = onSchedule({
     timeout36Hours.setHours(timeout36Hours.getHours() - 36);
     const timeoutTimestamp36h = admin.firestore.Timestamp.fromDate(timeout36Hours);
 
-    console.log("⏰ Revisando órdenes abandonadas en 2 fases...");
+    console.log("[Scheduler] Revisando ordenes abandonadas en 2 fases...");
 
     try {
-        const batch = db.batch();
         let countCanceledOnline = 0;
         let countCanceledManual = 0;
 
-        // --- FASE 1: Órdenes Online (4 Horas) ---
+        // --- FASE 1: Ordenes Online (4 Horas) en transaccion individual para evitar pisar pagos recien aprobados ---
         const onlineSnapshot = await db.collection('orders')
             .where('status', '==', 'PENDIENTE_PAGO')
             .where('createdAt', '<=', timeoutTimestamp4h)
             .get();
 
-        onlineSnapshot.docs.forEach((doc) => {
-            const orderData = doc.data();
-            if (orderData.paymentStatus === 'PAID') return;
+        for (const docSnap of onlineSnapshot.docs) {
+            try {
+                let didCancel = false;
+                await db.runTransaction(async (t) => {
+                    const freshSnap = await t.get(docSnap.ref);
+                    if (!freshSnap.exists) return;
+                    const freshData = freshSnap.data();
+                    if (freshData.status !== 'PENDIENTE_PAGO' || freshData.paymentStatus === 'PAID' || freshData.isStockDeducted === true) {
+                        return;
+                    }
 
-            const updateObj = {
-                status: 'CANCELADO',
-                statusDetail: 'expired_by_system',
-                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-                notes: (orderData.notes || "") + " [Sistema: Cancelado por inactividad de pago online mayor a 4h]"
-            };
-            if (orderData.requiresInvoice) {
-                updateObj.billingStatus = 'CANCELLED';
+                    const updateObj = {
+                        status: 'CANCELADO',
+                        statusDetail: 'expired_by_system',
+                        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                        notes: (freshData.notes || "") + " [Sistema: Cancelado por inactividad de pago online mayor a 4h]"
+                    };
+                    if (freshData.requiresInvoice) {
+                        updateObj.billingStatus = 'CANCELLED';
+                    }
+                    t.update(docSnap.ref, updateObj);
+                    didCancel = true;
+                });
+                if (didCancel) countCanceledOnline++;
+            } catch (err) {
+                console.error(`[Scheduler] Error cancelando orden online ${docSnap.id}:`, err);
             }
+        }
 
-            batch.update(doc.ref, updateObj);
-            countCanceledOnline++;
-        });
-
-        // --- FASE 2: Órdenes Manuales (36 Horas) ---
+        // --- FASE 2: Ordenes Manuales (36 Horas) ---
         const manualSnapshot = await db.collection('orders')
             .where('status', '==', 'PENDIENTE')
             .where('createdAt', '<=', timeoutTimestamp36h)
@@ -169,96 +180,85 @@ exports.cancelAbandonedPayments = onSchedule({
         const manualDocsToProcess = [];
         manualSnapshot.docs.forEach((doc) => {
             const orderData = doc.data();
-            
-            // Ignoramos si ya está pagada (por precaución)
             if (orderData.paymentStatus === 'PAID') return;
-
-            // CRÍTICO: Proteger pedidos Contra Entrega (COD) para que no se cancelen
             if (orderData.paymentMethod === 'COD' || orderData.paymentMethod === 'CONTRAENTREGA') return;
-
-            // Si es Transferencia Manual y proviene de la TIENDA_WEB, procedemos.
             if (orderData.paymentMethod === 'MANUAL' && orderData.source === 'TIENDA_WEB') {
                 manualDocsToProcess.push({ ref: doc.ref, data: orderData });
             }
         });
 
-        // Procesamos cada orden manual por expirar en su propia transacción
         for (const docObj of manualDocsToProcess) {
             const orderRef = docObj.ref;
             const orderId = orderRef.id;
+            const remissionRef = db.collection('remissions').doc(orderId);
 
             try {
+                let didCancelManual = false;
                 await db.runTransaction(async (t) => {
+                    // FASE A: TODAS LAS LECTURAS ANTES DE CUALQUIER ESCRITURA
                     const freshOrderSnap = await t.get(orderRef);
                     if (!freshOrderSnap.exists) return;
                     const freshOrderData = freshOrderSnap.data();
-                    
-                    if (freshOrderData.status === 'CANCELADO') return;
 
-                    // 1. Devolver el stock si se había descontado previamente
-                    if (freshOrderData.isStockDeducted === true) {
-                        for (const item of freshOrderData.items || []) {
-                            const pRef = db.collection('products').doc(item.id);
-                            const pDoc = await t.get(pRef);
-                            if (pDoc.exists) {
-                                const pData = pDoc.data();
-                                const qty = Number(item.quantity) || 1;
-                                let newStock = (Number(pData.stock) || 0) + qty;
-                                let newCombos = Array.isArray(pData.combinations) ? JSON.parse(JSON.stringify(pData.combinations)) : [];
-                                let rootBranchStock = pData.branchStock ? { ...pData.branchStock } : null;
+                    // Revalidar estado y pago DENTRO de la transaccion
+                    if (freshOrderData.status !== 'PENDIENTE' || freshOrderData.paymentStatus === 'PAID') return;
 
-                                if (newCombos.length > 0) {
-                                    let idx = -1;
-                                    if (item.color || item.capacity) {
-                                        const normColor = String(item.color || '').trim().toLowerCase();
-                                        const normCap = String(item.capacity || '').trim().toLowerCase();
-                                        idx = newCombos.findIndex(c => 
-                                            (String(c.color || '').trim().toLowerCase() === normColor || (!c.color && !item.color)) &&
-                                            (String(c.capacity || '').trim().toLowerCase() === normCap || (!c.capacity && !item.capacity))
-                                        );
-                                    }
-                                    if (idx < 0 && newCombos.length === 1) idx = 0;
+                    const remSnap = await t.get(remissionRef);
 
-                                    if (idx >= 0) {
-                                        newCombos[idx].stock = (Number(newCombos[idx].stock) || 0) + qty;
-                                        if (newCombos[idx].branchStock) {
-                                            let curBodega = Number(newCombos[idx].branchStock['bodega']) || 0;
-                                            newCombos[idx].branchStock['bodega'] = curBodega + qty;
-                                        }
-                                    }
-
-                                    newStock = newCombos.reduce((s, c) => s + (Number(c.stock) || 0), 0);
-
-                                    if (newCombos.some(c => c.branchStock)) {
-                                        rootBranchStock = {};
-                                        newCombos.forEach(c => {
-                                            if (c.branchStock) {
-                                                Object.keys(c.branchStock).forEach(bId => {
-                                                    rootBranchStock[bId] = (rootBranchStock[bId] || 0) + (Number(c.branchStock[bId]) || 0);
-                                                });
-                                            }
-                                        });
-                                    }
-                                } else if (rootBranchStock) {
-                                    let curBodega = Number(rootBranchStock['bodega']) || 0;
-                                    rootBranchStock['bodega'] = curBodega + qty;
+                    const workingProducts = new Map();
+                    if (freshOrderData.isStockDeducted === true && Array.isArray(freshOrderData.items)) {
+                        for (const item of freshOrderData.items) {
+                            if (!item.id) continue;
+                            if (!workingProducts.has(item.id)) {
+                                const pRef = db.collection('products').doc(item.id);
+                                const pDoc = await t.get(pRef);
+                                if (pDoc.exists) {
+                                    workingProducts.set(item.id, {
+                                        ref: pRef,
+                                        state: initProductWorkingState(pDoc.data()),
+                                        totalDelta: 0
+                                    });
                                 }
-
-                                let updatePayload = { 
-                                    stock: newStock,
-                                    combinations: newCombos,
-                                    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-                                    lastStockChangeReason: 'DEVOLUCION_CANCELACION',
-                                    lastStockChangeDetails: `Devolución por cancelación automática del pedido #${orderId.slice(0, 8)}`
-                                };
-                                if (rootBranchStock) updatePayload.branchStock = rootBranchStock;
-
-                                t.update(pRef, updatePayload);
                             }
+                        }
+
+                        for (const item of freshOrderData.items) {
+                            const entry = workingProducts.get(item.id);
+                            if (!entry) continue;
+                            const qty = Math.max(0, (Number(item.quantity) || 0) - (Number(item.returnedQty) || 0));
+                            if (qty <= 0) continue;
+
+                            const resDelta = applyStockDeltaToState(entry.state, {
+                                delta: qty,
+                                branch: 'bodega',
+                                color: item.color || '',
+                                capacity: item.capacity || '',
+                                fallbackBestVariant: true
+                            });
+                            entry.totalDelta += resDelta.appliedDelta;
                         }
                     }
 
-                    // 2. Actualizar el estado de la orden
+                    // FASE B: TODAS LAS ESCRITURAS (exactamente UN update por producto unico)
+                    for (const [, entry] of workingProducts) {
+                        if (entry.totalDelta === 0) continue;
+                        t.update(entry.ref, {
+                            stock: entry.state.stock,
+                            combinations: entry.state.combinations,
+                            branchStock: entry.state.branchStock,
+                            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                            lastStockChangeReason: 'DEVOLUCION_CANCELACION',
+                            lastStockChangeDetails: `Devolucion por cancelacion automatica del pedido #${orderId.slice(0, 8)}`
+                        });
+                    }
+
+                    if (remSnap.exists && remSnap.data().status !== 'ANULADA') {
+                        t.update(remissionRef, {
+                            status: 'ANULADA',
+                            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                        });
+                    }
+
                     const updateObj = {
                         status: 'CANCELADO',
                         isStockDeducted: false,
@@ -271,28 +271,23 @@ exports.cancelAbandonedPayments = onSchedule({
                     }
 
                     t.update(orderRef, updateObj);
+                    didCancelManual = true;
                 });
-                countCanceledManual++;
+                if (didCancelManual) countCanceledManual++;
             } catch (err) {
-                console.error(` Error al expirar y devolver stock de la orden manual ${orderId}:`, err);
+                console.error(`[Scheduler] Error al expirar y devolver stock de la orden manual ${orderId}:`, err);
             }
-        }
-
-        // --- EJECUTAR CANCELACIONES RESTANTES (Pasarelas Online en batch) ---
-        if (countCanceledOnline > 0) {
-            await batch.commit();
-            console.log(` Se cancelaron automáticamente ${countCanceledOnline} órdenes online abandonadas.`);
         }
 
         const totalCanceled = countCanceledOnline + countCanceledManual;
         if (totalCanceled > 0) {
-            console.log(` Revisiones completadas. Total órdenes canceladas por inactividad: ${totalCanceled} (Online: ${countCanceledOnline}, Manual: ${countCanceledManual}).`);
+            console.log(`[Scheduler] Revisiones completadas. Total ordenes canceladas por inactividad: ${totalCanceled} (Online: ${countCanceledOnline}, Manual: ${countCanceledManual}).`);
         } else {
-            console.log(` Revisiones completadas. No hubo órdenes vencidas para cancelar en este ciclo.`);
+            console.log(`[Scheduler] Revisiones completadas. No hubo ordenes vencidas para cancelar en este ciclo.`);
         }
 
     } catch (error) {
-        console.error(" Error en cancelAbandonedPayments:", error);
+        console.error("[Scheduler] Error en cancelAbandonedPayments:", error);
     }
 });
 

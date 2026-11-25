@@ -2,6 +2,11 @@
 const functions = require("firebase-functions");
 const { onSchedule } = require("firebase-functions/v2/scheduler");
 const admin = require("firebase-admin");
+const {
+    initProductWorkingState,
+    applyStockDeltaToState,
+    getBodegaStockForItem
+} = require("./inventory-helper");
 
 async function getMLConfig(db, storeDocName = 'mercadolibre') {
     let appId, clientSecret, redirectUri;
@@ -1187,26 +1192,82 @@ function createWebhookHandler({
                         // REGLA CRITICA: En ordenes FULL el paquete y el stock estan en las bodegas de Mercado Libre.
                         // No se requiere retencion fisica ni confirmacion en bodega local. Se cancela directamente en automatico.
                         if (orderIsFull) {
-                            console.log(`[ML FULL] Orden de ${storeTitle} ${orderId} fue cancelada en MercadoLibre. Pasando directamente a CANCELADO (Full gestiona su propio stock).`);
-                            await db.collection('orders').doc(orderId).update({
-                                status: 'CANCELADO',
-                                statusDetail: 'CANCELADO_FULL_AUTOMATICO',
-                                isFull: true,
-                                isMlFull: true,
-                                logisticType: 'fulfillment',
-                                shippingType: 'FULL',
-                                cancellationPendingConfirm: false,
-                                cancellationConfirmed: true,
-                                cancellationConfirmedAt: admin.firestore.FieldValue.serverTimestamp(),
-                                mlCancelled: true,
-                                mlStatus: orderData.status || 'cancelled',
-                                shippingStatus: rawShipment?.status || existingOrder.shippingStatus || 'cancelled',
-                                cancellationRequestedAt: admin.firestore.FieldValue.serverTimestamp(),
-                                cancellationReason: cancelReason,
-                                cancellationPreviousStatus: existingOrder.status || 'ALISTADO',
-                                isStockDeducted: false,
-                                paymentStatus: 'REFUNDED',
-                                updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                            console.log(`[ML FULL] Orden de ${storeTitle} ${orderId} fue cancelada en MercadoLibre. Pasando directamente a CANCELADO.`);
+                            const orderRef = db.collection('orders').doc(orderId);
+                            await db.runTransaction(async (t) => {
+                                const freshOrderSnap = await t.get(orderRef);
+                                if (!freshOrderSnap.exists) return;
+                                const freshOrder = freshOrderSnap.data();
+                                if (freshOrder.status === 'CANCELADO') return;
+
+                                // Si la orden Full realmente desconto unidades de branchStock.full al crearse, devolverlas solo a full (nunca a bodega).
+                                const shouldRestoreFull = freshOrder.isStockDeducted === true && !freshOrder.isHistoricalPreAudit;
+                                const workingProducts = new Map();
+
+                                if (shouldRestoreFull && Array.isArray(freshOrder.items)) {
+                                    for (const it of freshOrder.items) {
+                                        if (!it.id || String(it.id).includes('UNKNOWN') || it.isLinkedToCatalog === false) continue;
+                                        if (it.stockDeducted === false) continue;
+                                        const qty = Math.max(0, (Number(it.quantity) || 0) - (Number(it.returnedQty) || 0));
+                                        if (qty <= 0) continue;
+
+                                        if (!workingProducts.has(it.id)) {
+                                            const pRef = db.collection('products').doc(it.id);
+                                            const pSnap = await t.get(pRef);
+                                            if (pSnap.exists) {
+                                                workingProducts.set(it.id, { ref: pRef, state: initProductWorkingState(pSnap.data()) });
+                                            }
+                                        }
+                                    }
+
+                                    for (const it of freshOrder.items) {
+                                        const entry = workingProducts.get(it.id);
+                                        if (!entry || it.stockDeducted === false) continue;
+                                        const qty = Math.max(0, (Number(it.quantity) || 0) - (Number(it.returnedQty) || 0));
+                                        if (qty <= 0) continue;
+
+                                        applyStockDeltaToState(entry.state, {
+                                            delta: qty,
+                                            branch: 'full',
+                                            color: it.color || '',
+                                            capacity: it.capacity || '',
+                                            fallbackBestVariant: true
+                                        });
+                                    }
+
+                                    for (const [, entry] of workingProducts) {
+                                        if (!entry.state.modified) continue;
+                                        t.update(entry.ref, {
+                                            stock: entry.state.stock,
+                                            combinations: entry.state.combinations,
+                                            branchStock: entry.state.branchStock,
+                                            lastStockChangeReason: 'DEVOLUCION_CANCELACION',
+                                            lastStockChangeDetails: `Devolucion automatica Mercado Envios Full cancelado #${orderId}`,
+                                            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                                        });
+                                    }
+                                }
+
+                                t.update(orderRef, {
+                                    status: 'CANCELADO',
+                                    statusDetail: 'CANCELADO_FULL_AUTOMATICO',
+                                    isFull: true,
+                                    isMlFull: true,
+                                    logisticType: 'fulfillment',
+                                    shippingType: 'FULL',
+                                    cancellationPendingConfirm: false,
+                                    cancellationConfirmed: true,
+                                    cancellationConfirmedAt: admin.firestore.FieldValue.serverTimestamp(),
+                                    mlCancelled: true,
+                                    mlStatus: orderData.status || 'cancelled',
+                                    shippingStatus: rawShipment?.status || freshOrder.shippingStatus || 'cancelled',
+                                    cancellationRequestedAt: admin.firestore.FieldValue.serverTimestamp(),
+                                    cancellationReason: cancelReason,
+                                    cancellationPreviousStatus: freshOrder.status || 'ALISTADO',
+                                    isStockDeducted: false,
+                                    paymentStatus: 'REFUNDED',
+                                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                                });
                             });
 
                             return sendOk("OK: Full order cancelled automatically without requiring warehouse confirmation");
@@ -1450,7 +1511,26 @@ function createWebhookHandler({
 
             const packMembershipCheck = await db.collection('orders').where('packOrderIds', 'array-contains', String(orderData.id)).limit(1).get();
             if (!packMembershipCheck.empty) {
-                console.log(`[ML] La orden ML #${orderData.id} ya fue consolidada en el paquete ${packMembershipCheck.docs[0].id}.`);
+                const parentPackDoc = packMembershipCheck.docs[0];
+                const parentData = parentPackDoc.data();
+                const isSubCancelled = isOrderCancelled(orderData, rawShipment);
+                if (isSubCancelled && parentData.status !== 'CANCELADO' && !parentData.cancellationPendingConfirm) {
+                    const isParentFull = Boolean(parentData.isFull || parentData.isMlFull || parentData.logisticType === 'fulfillment');
+                    if (!isParentFull) {
+                        console.log(`[ML] Sub-orden ${orderData.id} del paquete ${parentPackDoc.id} fue cancelada en ML. Marcando paquete en CANCELACION_PENDIENTE.`);
+                        await parentPackDoc.ref.update({
+                            status: 'CANCELACION_PENDIENTE',
+                            cancellationPendingConfirm: true,
+                            mlCancelled: true,
+                            cancellationReason: `Sub-orden ML #${orderData.id} cancelada en paquete consolidado`,
+                            cancellationPreviousStatus: parentData.status || 'PENDIENTE',
+                            cancellationRequestedAt: admin.firestore.FieldValue.serverTimestamp(),
+                            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                        });
+                        return sendOk(`OK: Paquete ${parentPackDoc.id} marcado en CANCELACION_PENDIENTE por sub-orden #${orderData.id}.`);
+                    }
+                }
+                console.log(`[ML] La orden ML #${orderData.id} ya fue consolidada en el paquete ${parentPackDoc.id}.`);
                 return sendOk(`OK: La orden ML #${orderData.id} ya fue consolidada previamente.`);
             }
 
@@ -1670,18 +1750,25 @@ function createWebhookHandler({
                     accName = accDoc.data().name || paymentMethod;
                 }
 
-                const pDocsMap = new Map();
+                const workingProducts = new Map();
                 for (const p of itemsToDeduct) {
-                    if (!pDocsMap.has(p.docId)) {
+                    if (!workingProducts.has(p.docId)) {
                         const pRef = db.collection('products').doc(p.docId);
                         const pDoc = await t.get(pRef);
                         if (pDoc.exists) {
-                            pDocsMap.set(p.docId, pDoc);
+                            workingProducts.set(p.docId, {
+                                ref: pRef,
+                                state: initProductWorkingState(pDoc.data()),
+                                totalDelta: 0
+                            });
                         }
                     }
                 }
 
-                const shouldDeductStock = orderData.status !== 'cancelled' && !isHistoricalPreAudit;
+                const isNewOrderCancelled = isOrderCancelled(orderData, rawShipment);
+                const shouldDeductStock = !isNewOrderCancelled && !isHistoricalPreAudit;
+                const branchToDeduct = isFullOrder ? 'full' : 'bodega';
+                let totalActualDeducted = 0;
 
                 if (shouldDeductStock) {
                     if (accDoc) {
@@ -1689,106 +1776,52 @@ function createWebhookHandler({
                     }
 
                     for (const p of itemsToDeduct) {
-                        const pDoc = pDocsMap.get(p.docId);
-                        if (pDoc) {
-                            const pData = pDoc.data();
-                            const qty = Number(p.qty) || 1;
+                        const entry = workingProducts.get(p.docId);
+                        if (!entry) continue;
+                        const qty = Math.max(1, Number(p.qty) || 1);
 
-                            let currentGlobalStock = Number(pData.stock) || 0;
-                            let newGlobalStock = Math.max(0, currentGlobalStock - qty);
+                        const deltaRes = applyStockDeltaToState(entry.state, {
+                            delta: -qty,
+                            branch: branchToDeduct,
+                            variantIndex: p.isVariant ? p.variantIndex : -1,
+                            color: p.color || '',
+                            capacity: p.capacity || '',
+                            fallbackBestVariant: true
+                        });
 
-                            let rootBranchStock = pData.branchStock ? { ...pData.branchStock } : null;
-                            let newCombinations = Array.isArray(pData.combinations) ? JSON.parse(JSON.stringify(pData.combinations)) : [];
-                            const branchToDeduct = isFullOrder ? 'full' : 'bodega';
+                        if (deltaRes.appliedDelta < 0) {
+                            entry.totalDelta += deltaRes.appliedDelta;
+                            totalActualDeducted += Math.abs(deltaRes.appliedDelta);
+                        }
 
-                            if (p.isVariant && newCombinations.length > 0 && newCombinations[p.variantIndex]) {
-                                let combo = newCombinations[p.variantIndex];
-                                let curComboStock = Number(combo.stock) || 0;
-                                combo.stock = Math.max(0, curComboStock - qty);
-
-                                if (combo.branchStock) {
-                                    let curBranchStock = combo.branchStock[branchToDeduct] !== undefined
-                                        ? (Number(combo.branchStock[branchToDeduct]) || 0)
-                                        : curComboStock;
-                                    combo.branchStock[branchToDeduct] = Math.max(0, curBranchStock - qty);
-                                }
-
-                                newGlobalStock = newCombinations.reduce((s, c) => s + (Number(c.stock) || 0), 0);
-
-                                if (newCombinations.some(c => c.branchStock)) {
-                                    rootBranchStock = {};
-                                    newCombinations.forEach(c => {
-                                        if (c.branchStock) {
-                                            Object.keys(c.branchStock).forEach(bId => {
-                                                rootBranchStock[bId] = (rootBranchStock[bId] || 0) + (Number(c.branchStock[bId]) || 0);
-                                            });
-                                        }
-                                    });
-                                }
-                            } else if (newCombinations.length > 0) {
-                                let bestComboIdx = 0;
-                                let maxComboStock = -1;
-                                for (let cI = 0; cI < newCombinations.length; cI++) {
-                                    const cFullStk = isFullOrder ? (Number(newCombinations[cI].branchStock?.['full']) || 0) : 0;
-                                    const cStk = Number(newCombinations[cI].stock) || 0;
-                                    const score = cFullStk > 0 ? (cFullStk + 100000) : cStk;
-                                    if (score > maxComboStock) {
-                                        maxComboStock = score;
-                                        bestComboIdx = cI;
-                                    }
-                                }
-
-                                let combo = newCombinations[bestComboIdx];
-                                let curComboStock = Number(combo.stock) || 0;
-                                combo.stock = Math.max(0, curComboStock - qty);
-
-                                if (combo.branchStock) {
-                                    let curBranchStock = combo.branchStock[branchToDeduct] !== undefined
-                                        ? (Number(combo.branchStock[branchToDeduct]) || 0)
-                                        : curComboStock;
-                                    combo.branchStock[branchToDeduct] = Math.max(0, curBranchStock - qty);
-                                }
-
-                                newGlobalStock = newCombinations.reduce((s, c) => s + (Number(c.stock) || 0), 0);
-
-                                if (newCombinations.some(c => c.branchStock)) {
-                                    rootBranchStock = {};
-                                    newCombinations.forEach(c => {
-                                        if (c.branchStock) {
-                                            Object.keys(c.branchStock).forEach(bId => {
-                                                rootBranchStock[bId] = (rootBranchStock[bId] || 0) + (Number(c.branchStock[bId]) || 0);
-                                            });
-                                        }
-                                    });
-                                }
-                            } else {
-                                // Producto simple
-                                if (rootBranchStock) {
-                                    let curBranchStock = rootBranchStock[branchToDeduct] !== undefined
-                                        ? (Number(rootBranchStock[branchToDeduct]) || 0)
-                                        : currentGlobalStock;
-                                    rootBranchStock[branchToDeduct] = Math.max(0, curBranchStock - qty);
-                                }
+                        // Registrar variante efectivamente descontada en dbItems si no tenia color/capacidad explicito
+                        if (deltaRes.matchedVariantIndex >= 0 && entry.state.combinations[deltaRes.matchedVariantIndex]) {
+                            const matchedCombo = entry.state.combinations[deltaRes.matchedVariantIndex];
+                            const dbItemMatch = dbItems.find(di => di.id === p.docId && !di.color && !di.capacity);
+                            if (dbItemMatch) {
+                                dbItemMatch.color = matchedCombo.color || '';
+                                dbItemMatch.capacity = matchedCombo.capacity || '';
                             }
-
-                            const updatePayload = {
-                                stock: newGlobalStock,
-                                combinations: newCombinations,
-                                lastStockChangeReason: 'VENTA_PEDIDO',
-                                lastStockChangeDetails: isFullOrder 
-                                    ? `Venta Mercado Envios Full ${storeTitle} pedido #${orderId}`
-                                    : `Venta ${storeTitle} pedido #${orderId}`,
-                                updatedAt: admin.firestore.FieldValue.serverTimestamp()
-                            };
-
-                            if (rootBranchStock) {
-                                updatePayload.branchStock = rootBranchStock;
-                            }
-
-                            t.update(pDoc.ref, updatePayload);
                         }
                     }
+
+                    // Ejecutar exactamente UN t.update por producto unico (evita perdida de descuentos en pedidos multi-variante)
+                    for (const [, entry] of workingProducts) {
+                        if (entry.totalDelta === 0) continue;
+                        t.update(entry.ref, {
+                            stock: entry.state.stock,
+                            combinations: entry.state.combinations,
+                            branchStock: entry.state.branchStock,
+                            lastStockChangeReason: 'VENTA_PEDIDO',
+                            lastStockChangeDetails: isFullOrder
+                                ? `Venta Mercado Envios Full ${storeTitle} pedido #${orderId}`
+                                : `Venta ${storeTitle} pedido #${orderId}`,
+                            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                        });
+                    }
                 }
+
+                const actualStockDeducted = totalActualDeducted > 0;
 
                 if (existingPackDocSnap) {
                     const epData = freshPackDoc ? freshPackDoc.data() : existingPackDocSnap.data();
@@ -1813,7 +1846,7 @@ function createWebhookHandler({
                         subtotal: combinedNetAmount,
                         amountPaid: combinedNetAmount,
                         totalDeductions: combinedDeductions,
-                        isStockDeducted: shouldDeductStock,
+                        isStockDeducted: Boolean(epData.isStockDeducted || actualStockDeducted),
                         isHistoricalPreAudit: isHistoricalPreAudit,
                         stockDeductionSkipped: isHistoricalPreAudit ? "Orden previa al corte de inventario (30 de octubre de 2026). No descuenta stock fisico." : null,
                         isFull: Boolean(isFullOrder || epData.isFull || epData.isMlFull),
@@ -1857,7 +1890,6 @@ function createWebhookHandler({
                         }, { merge: true });
                     }
 
-                    const isNewOrderCancelled = isOrderCancelled(orderData, rawShipment);
                     const orderInitialStatus = isNewOrderCancelled
                         ? (isFullOrder ? 'CANCELADO' : 'CANCELACION_PENDIENTE')
                         : (isFullOrder
@@ -1923,6 +1955,7 @@ function createWebhookHandler({
                         shippingTracking: buyerInfo.guideNumber,
                         shippingId: rawShipmentId,
                         pack_id: orderData.pack_id ? String(orderData.pack_id) : "",
+                        packOrderIds: orderData.pack_id ? [String(orderData.id)] : [],
                         mlStore: storeNumber,
                         mlOrderId: rawOrderId,
                         items: dbItems,
@@ -1954,7 +1987,7 @@ function createWebhookHandler({
                         cancellationPreviousStatus: 'PENDIENTE',
                         paymentMethod: paymentMethod,
                         paymentStatus: isNewOrderCancelled ? 'REFUNDED' : 'PAID',
-                        isStockDeducted: shouldDeductStock,
+                        isStockDeducted: actualStockDeducted,
                         paymentAccountId: accId,
                         mlValidationCount: 1,
                         mlNeedsSecondValidation: !isHistoricalPreAudit,
@@ -1967,9 +2000,10 @@ function createWebhookHandler({
 
             // Registrar orden en la cola de validacion secundaria a los 5 minutos (solo ordenes nuevas no historicas)
             if (!isHistoricalPreAudit) {
+                const targetRevalOrderId = existingPackDocSnap ? existingPackDocSnap.id : orderId;
                 try {
-                    await db.collection('ml_pending_revalidations').doc(orderId).set({
-                        orderId: orderId,
+                    await db.collection('ml_pending_revalidations').doc(targetRevalOrderId).set({
+                        orderId: targetRevalOrderId,
                         rawOrderId: rawOrderId,
                         storeNumber: storeNumber,
                         storeDocName: storeDocName,
@@ -2614,10 +2648,10 @@ async function updateMLStockBySKU(db, storeDocName, sku, newStock) {
     }
 }
 
-async function syncProductStockToML(db, beforeData, afterData) {
+async function syncProductStockToML(db, beforeData, afterData, productId = null) {
     if (!afterData) return;
 
-    // Verificación de sincronización de stock activa desde config/developer
+    // Verificacion de sincronizacion de stock activa desde config/developer
     try {
         const devConfigDoc = await db.collection('config').doc('developer').get();
         if (devConfigDoc.exists) {
@@ -2625,7 +2659,7 @@ async function syncProductStockToML(db, beforeData, afterData) {
             const mlSyncActive = devData.ML_SYNC_ENABLED !== false;
             const mlStockSyncActive = devData.ML_STOCK_SYNC_ENABLED !== false;
             if (!mlSyncActive || !mlStockSyncActive) {
-                console.log(`[ML Stock Sync] Sincronización automática de stock hacia MercadoLibre pausada por desarrollador.`);
+                console.log(`[ML Stock Sync] Sincronizacion automatica de stock hacia MercadoLibre pausada por desarrollador.`);
                 return;
             }
         }
@@ -2633,27 +2667,41 @@ async function syncProductStockToML(db, beforeData, afterData) {
         console.warn("[ML Stock Sync] Error verificando config/developer:", cfgErr.message);
     }
 
+    // Releer el documento mas reciente para evitar que invocaciones concurrentes sobrescriban ML con stock antiguo
+    let latestData = afterData;
+    if (productId) {
+        try {
+            const freshSnap = await db.collection('products').doc(productId).get();
+            if (freshSnap.exists) {
+                latestData = freshSnap.data();
+            }
+        } catch (freshErr) {
+            console.warn(`[ML Stock Sync] No se pudo releer producto ${productId}:`, freshErr.message);
+        }
+    }
+
     const stores = ['mercadolibre', 'mercadolibre_store2', 'mercadolibre_store3'];
     const skusToSync = [];
 
-    if (afterData.hasVariants && afterData.combinations) {
-        const oldCombos = (beforeData && beforeData.combinations) ? beforeData.combinations : [];
-        afterData.combinations.forEach((c) => {
+    const hasCombos = Array.isArray(latestData.combinations) && latestData.combinations.length > 0;
+    if (hasCombos) {
+        const oldCombos = (beforeData && Array.isArray(beforeData.combinations)) ? beforeData.combinations : [];
+        latestData.combinations.forEach((c) => {
             if (c.sku) {
-                const newStock = parseInt(c.stock) || 0;
-                const oldCombo = oldCombos.find(oc => (oc.sku === c.sku) || (oc.color === c.color && oc.capacity === c.capacity));
-                const oldStock = oldCombo ? (parseInt(oldCombo.stock) || 0) : null;
+                const newBodega = getBodegaStockForItem(latestData, c);
+                const oldCombo = oldCombos.find(oc => (oc.sku && oc.sku === c.sku) || (oc.color === c.color && oc.capacity === c.capacity));
+                const oldBodega = oldCombo ? getBodegaStockForItem(beforeData, oldCombo) : null;
 
-                if (oldStock === null || oldStock !== newStock) {
-                    skusToSync.push({ sku: c.sku, stock: newStock });
+                if (oldBodega === null || oldBodega !== newBodega) {
+                    skusToSync.push({ sku: c.sku, stock: newBodega });
                 }
             }
         });
-    } else if (afterData.sku) {
-        const newStock = parseInt(afterData.stock) || 0;
-        const oldStock = beforeData ? (parseInt(beforeData.stock) || 0) : null;
-        if (oldStock === null || oldStock !== newStock) {
-            skusToSync.push({ sku: afterData.sku, stock: newStock });
+    } else if (latestData.sku) {
+        const newBodega = getBodegaStockForItem(latestData, null);
+        const oldBodega = beforeData ? getBodegaStockForItem(beforeData, null) : null;
+        if (oldBodega === null || oldBodega !== newBodega) {
+            skusToSync.push({ sku: latestData.sku, stock: newBodega });
         }
     }
 
@@ -2662,7 +2710,7 @@ async function syncProductStockToML(db, beforeData, afterData) {
             try {
                 await updateMLStockBySKU(db, storeDoc, item.sku, item.stock);
             } catch (err) {
-                console.error(`Error sync automático ML ${storeDoc} para SKU ${item.sku}:`, err);
+                console.error(`Error sync automatico ML ${storeDoc} para SKU ${item.sku}:`, err);
             }
         }
     }
@@ -2681,7 +2729,7 @@ exports.syncAllStockToML = functions.https.onCall(async (data, context) => {
         if (devConfigDoc.exists) {
             const devData = devConfigDoc.data();
             if (devData.ML_SYNC_ENABLED === false || devData.ML_STOCK_SYNC_ENABLED === false) {
-                throw new functions.https.HttpsError('failed-precondition', 'La sincronización de stock con MercadoLibre está pausada en la Configuración de Desarrollador.');
+                throw new functions.https.HttpsError('failed-precondition', 'La sincronizacion de stock con MercadoLibre esta pausada en la Configuracion de Desarrollador.');
             }
         }
 
@@ -2693,12 +2741,12 @@ exports.syncAllStockToML = functions.https.onCall(async (data, context) => {
             const p = docSnap.data();
             const skusToSync = [];
 
-            if (p.hasVariants && p.combinations) {
+            if (Array.isArray(p.combinations) && p.combinations.length > 0) {
                 p.combinations.forEach(c => {
-                    if (c.sku) skusToSync.push({ sku: c.sku, stock: parseInt(c.stock) || 0 });
+                    if (c.sku) skusToSync.push({ sku: c.sku, stock: getBodegaStockForItem(p, c) });
                 });
             } else if (p.sku) {
-                skusToSync.push({ sku: p.sku, stock: parseInt(p.stock) || 0 });
+                skusToSync.push({ sku: p.sku, stock: getBodegaStockForItem(p, null) });
             }
 
             for (const item of skusToSync) {
@@ -3048,6 +3096,19 @@ exports.revalidatePendingMLOrders = onSchedule({
     const now = admin.firestore.Timestamp.now();
 
     try {
+        try {
+            const devConfigDoc = await db.collection('config').doc('developer').get();
+            if (devConfigDoc.exists) {
+                const devData = devConfigDoc.data();
+                if (devData.ML_SYNC_ENABLED === false || devData.ML_ORDERS_SYNC_ENABLED === false) {
+                    console.log(`[ML] Revalidacion de ordenes omitida: sincronizacion pausada por desarrollador.`);
+                    return;
+                }
+            }
+        } catch (cfgErr) {
+            console.warn("[ML] Error verificando config/developer en revalidacion:", cfgErr.message);
+        }
+
         const pendingSnap = await db.collection('ml_pending_revalidations')
             .where('status', '==', 'PENDING')
             .limit(50)
@@ -3063,19 +3124,6 @@ exports.revalidatePendingMLOrders = onSchedule({
         });
 
         if (dueDocs.length > 0) {
-            try {
-                const devConfigDoc = await db.collection('config').doc('developer').get();
-                if (devConfigDoc.exists) {
-                    const devData = devConfigDoc.data();
-                    if (devData.ML_SYNC_ENABLED === false || devData.ML_ORDERS_SYNC_ENABLED === false) {
-                        console.log(`[ML] Revalidación de órdenes omitida: sincronización pausada por desarrollador.`);
-                        return;
-                    }
-                }
-            } catch (cfgErr) {
-                console.warn("[ML] Error verificando config/developer en revalidación:", cfgErr.message);
-            }
-
             console.log(`[ML] Revalidando ${dueDocs.length} ordenes de MercadoLibre pendientes tras 5 minutos...`);
 
             for (const docSnap of dueDocs) {

@@ -1251,6 +1251,9 @@ window.executeCancelManualOrder = async function() {
 
     try {
         let isStockDeducted = false;
+        let freshItems = [];
+        let isFullOrder = false;
+        let ordNum = order.internalOrderNumber || order.id;
 
         await runTransaction(db, async (t) => {
             const oRef = doc(db, "orders", order.id);
@@ -1259,8 +1262,11 @@ window.executeCancelManualOrder = async function() {
             const oData = oSnap.data();
 
             if (oData.status === 'CANCELADO') throw new Error("La orden ya estaba cancelada.");
-            
-            isStockDeducted = oData.isStockDeducted === true || oData.source === 'MANUAL';
+
+            isStockDeducted = oData.isStockDeducted === true || (oData.source === 'MANUAL' && oData.isStockDeducted !== false);
+            freshItems = Array.isArray(oData.items) ? oData.items : [];
+            isFullOrder = Boolean(oData.isFull || oData.isMlFull || oData.logisticType === 'fulfillment');
+            ordNum = oData.internalOrderNumber || order.id;
 
             let accSnap = null;
             let accRef = null;
@@ -1312,10 +1318,13 @@ window.executeCancelManualOrder = async function() {
             }
         });
 
-        if (shouldReturnStock && isStockDeducted && order.items && order.items.length > 0) {
-            const ordNum = order.internalOrderNumber || order.id;
-            for (const item of order.items) {
-                await safeAdjustStock(item.id, item.quantity, item.color, item.capacity, 'DEVOLUCION_CANCELACION', `Devolución por anulación del pedido #${ordNum}`);
+        if (shouldReturnStock && isStockDeducted && freshItems.length > 0) {
+            for (const item of freshItems) {
+                if (item.stockDeducted === false) continue;
+                const qtyToRestore = Math.max(0, (Number(item.quantity) || 1) - (Number(item.returnedQty) || 0));
+                if (qtyToRestore <= 0) continue;
+                const targetBranch = item.linkedBranch || (isFullOrder ? 'full' : 'bodega');
+                await safeAdjustStock(item.id, qtyToRestore, item.color, item.capacity, 'DEVOLUCION_CANCELACION', `Devolución por anulación del pedido #${ordNum}`, targetBranch);
             }
         }
 
@@ -1394,14 +1403,15 @@ function isExternalOrUnknownProduct(id) {
     return id.startsWith('ML-UNKNOWN') || id.startsWith('UNKNOWN-');
 }
 
-async function safeAdjustStock(id, delta, color, capacity, reason = null, details = null, retries = 3) {
+async function safeAdjustStock(id, delta, color, capacity, reason = null, details = null, targetBranch = 'bodega', retries = 3) {
     if (!id || isExternalOrUnknownProduct(id)) {
         console.warn(`[Stock] Omitiendo ajuste para producto externo o sin ID local: ${id}`);
         return;
     }
+    const branch = (typeof targetBranch === 'string' && targetBranch) ? targetBranch : 'bodega';
     for (let i = 0; i < retries; i++) {
         try {
-            await adjustStock(id, delta, color, capacity, reason, details);
+            await adjustStock(id, delta, color, capacity, reason, details, branch);
             return; 
         } catch(e) {
             const errStr = String(e?.message || e || '');
@@ -1430,6 +1440,11 @@ export async function confirmOrderCancellation(orderId) {
         }
 
         const o = oSnap.data();
+        if (o.status === 'CANCELADO' && o.cancellationConfirmed) {
+            alert("La cancelación de este pedido ya fue confirmada previamente.");
+            return;
+        }
+
         const isFullOrder = Boolean(o.isFull || o.isMlFull || o.logisticType === 'fulfillment');
 
         // Si es orden FULL, delegar al flujo seguro de Full sin solicitar retención de bodega ni alterar inventario local
@@ -1451,7 +1466,93 @@ export async function confirmOrderCancellation(orderId) {
 
         const userName = auth.currentUser?.displayName || auth.currentUser?.email || 'Usuario';
 
-        // 1. Liberar seriales legítimos a AVAILABLE (sin borrar información en el pedido)
+        // 1. Transaccion atomica PRIMERO para bloquear doble clic / doble retorno de stock y reversar tesoreria
+        let itemsToRestore = [];
+        let ordNum = orderId;
+        await runTransaction(db, async (t) => {
+            itemsToRestore = [];
+            const oRef = doc(db, "orders", orderId);
+            const freshSnap = await t.get(oRef);
+            if (!freshSnap.exists()) throw new Error("El pedido no existe en la base de datos.");
+            const freshOrder = freshSnap.data();
+
+            if (freshOrder.status === 'CANCELADO' && freshOrder.cancellationConfirmed) {
+                throw new Error("Esta cancelación ya fue confirmada previamente.");
+            }
+            if (freshOrder.isFull || freshOrder.isMlFull || freshOrder.logisticType === 'fulfillment') {
+                throw new Error("Este pedido es Mercado Envíos FULL y no debe retornar stock a bodega.");
+            }
+
+            ordNum = freshOrder.internalOrderNumber || orderId;
+            const wasStockDeducted = Boolean(freshOrder.isStockDeducted && !freshOrder.isHistoricalPreAudit);
+            if (wasStockDeducted && Array.isArray(freshOrder.items)) {
+                for (const item of freshOrder.items) {
+                    if (item.stockDeducted === false) continue;
+                    const qty = Math.max(0, (Number(item.quantity) || 1) - (Number(item.returnedQty) || 0));
+                    if (qty <= 0) continue;
+                    itemsToRestore.push({
+                        id: item.id,
+                        qty,
+                        color: item.color,
+                        capacity: item.capacity,
+                        branch: item.linkedBranch || 'bodega'
+                    });
+                }
+            }
+
+            const refundAmount = Number(freshOrder.netAmount) || Number(freshOrder.amountPaid) || Number(freshOrder.total) || 0;
+            let accRef = null;
+            let accSnap = null;
+            if (refundAmount > 0 && freshOrder.paymentAccountId && freshOrder.paymentStatus !== 'REFUNDED') {
+                accRef = doc(db, "accounts", freshOrder.paymentAccountId);
+                accSnap = await t.get(accRef);
+            }
+
+            const remRef = doc(db, "remissions", orderId);
+            const remSnap = await t.get(remRef);
+
+            if (accSnap && accSnap.exists()) {
+                const curBal = Number(accSnap.data().balance) || 0;
+                t.update(accRef, { balance: Math.max(0, curBal - refundAmount) });
+
+                const expenseRef = doc(collection(db, "expenses"));
+                t.set(expenseRef, {
+                    amount: refundAmount,
+                    category: "Cancelaciones / Anulaciones",
+                    description: `Reverso por cancelación de orden #${ordNum}`,
+                    paymentMethod: accSnap.data().name || freshOrder.paymentMethod || 'MercadoLibre',
+                    supplierName: freshOrder.userName || 'Cliente ML',
+                    date: serverTimestamp(),
+                    createdAt: serverTimestamp(),
+                    type: 'EXPENSE',
+                    orderId: orderId
+                });
+            }
+
+            t.update(oRef, {
+                status: 'CANCELADO',
+                cancellationPendingConfirm: false,
+                cancellationConfirmed: true,
+                cancellationConfirmedBy: userName,
+                cancellationConfirmedAt: serverTimestamp(),
+                cancellationRetainedInWarehouse: true,
+                cancelledWithoutStockReturn: itemsToRestore.length === 0,
+                paymentStatus: 'REFUNDED',
+                isStockDeducted: false,
+                updatedAt: serverTimestamp()
+            });
+
+            if (remSnap.exists()) {
+                t.update(remRef, { status: 'CANCELADO', updatedAt: serverTimestamp() });
+            }
+        });
+
+        // 2. Revertir stock a bodega (garantizado una sola vez gracias a la transaccion previa)
+        for (const item of itemsToRestore) {
+            await safeAdjustStock(item.id, item.qty, item.color, item.capacity, 'DEVOLUCION_CANCELACION', `Devolución por confirmación de cancelación del pedido #${ordNum}`, item.branch);
+        }
+
+        // 3. Liberar seriales legítimos a AVAILABLE (sin borrar información en el pedido)
         try {
             const linkedSerials = await getDocs(query(collection(db, "product_serials"), where("orderId", "==", orderId)));
             if (!linkedSerials.empty) {
@@ -1479,58 +1580,6 @@ export async function confirmOrderCancellation(orderId) {
         } catch (errSerials) {
             console.warn("Error liberando seriales en confirmOrderCancellation:", errSerials);
         }
-
-        // 2. Revertir stock a bodega si estaba descontado (el admin ya confirmó retención en bodega)
-        const shouldReturnStock = Boolean(o.isStockDeducted && o.items && o.items.length > 0);
-        if (shouldReturnStock) {
-            const ordNum = o.internalOrderNumber || orderId;
-            for (const item of o.items) {
-                const qty = Number(item.quantity) || 1;
-                await safeAdjustStock(item.id, qty, item.color, item.capacity, 'DEVOLUCION_CANCELACION', `Devolución por confirmación de cancelación del pedido #${ordNum}`);
-            }
-        }
-
-        // 3. Reversar contabilidad / tesorería si aplica
-        try {
-            const refundAmount = Number(o.netAmount) || Number(o.amountPaid) || Number(o.total) || 0;
-            if (refundAmount > 0 && o.paymentAccountId) {
-                const accRef = doc(db, "accounts", o.paymentAccountId);
-                const accSnap = await getDoc(accRef);
-                if (accSnap.exists()) {
-                    const curBal = Number(accSnap.data().balance) || 0;
-                    await updateDoc(accRef, { balance: Math.max(0, curBal - refundAmount) });
-
-                    const expenseRef = doc(collection(db, "expenses"));
-                    await setDoc(expenseRef, {
-                        amount: refundAmount,
-                        category: "Cancelaciones / Anulaciones",
-                        description: `Reverso por cancelación de orden #${orderId}`,
-                        paymentMethod: accSnap.data().name || o.paymentMethod || 'MercadoLibre',
-                        supplierName: o.userName || 'Cliente ML',
-                        date: serverTimestamp(),
-                        createdAt: serverTimestamp(),
-                        type: 'EXPENSE',
-                        orderId: orderId
-                    });
-                }
-            }
-        } catch (accErr) {
-            console.warn("Error ajustando tesorería en cancelación:", accErr);
-        }
-
-        // 4. Actualizar el documento de la orden (preservando o.items y seriales históricos)
-        await updateDoc(doc(db, "orders", orderId), {
-            status: 'CANCELADO',
-            cancellationPendingConfirm: false,
-            cancellationConfirmed: true,
-            cancellationConfirmedBy: userName,
-            cancellationConfirmedAt: serverTimestamp(),
-            cancellationRetainedInWarehouse: true,
-            cancelledWithoutStockReturn: !shouldReturnStock,
-            paymentStatus: 'REFUNDED',
-            isStockDeducted: false,
-            updatedAt: serverTimestamp()
-        });
 
         clearDraftSerials(orderId);
         showActionToast("Cancelación confirmada exitosamente. Seriales liberados a inventario disponible y registro preservado.", "success");
@@ -1566,6 +1615,11 @@ export async function confirmFullOrderCancellation(orderId) {
         }
 
         const o = oSnap.data();
+        if (o.status === 'CANCELADO' && o.cancellationConfirmed) {
+            alert("La cancelación de este pedido Full ya fue confirmada previamente.");
+            return;
+        }
+
         const ordNum = o.internalOrderNumber || orderId;
 
         const confirmMsg = 
@@ -1581,7 +1635,59 @@ export async function confirmFullOrderCancellation(orderId) {
 
         const userName = auth.currentUser?.displayName || auth.currentUser?.email || 'Administrador';
 
-        // 1. Liberar seriales por si acaso tuviera alguno asignado erróneamente
+        // 1. Transaccion atomica para actualizar orden y tesoreria sin duplicados
+        await runTransaction(db, async (t) => {
+            const oRef = doc(db, "orders", orderId);
+            const freshSnap = await t.get(oRef);
+            if (!freshSnap.exists()) throw new Error("El pedido no existe.");
+            const freshOrder = freshSnap.data();
+            if (freshOrder.status === 'CANCELADO' && freshOrder.cancellationConfirmed) {
+                throw new Error("Esta cancelación Full ya fue confirmada previamente.");
+            }
+
+            const refundAmount = Number(freshOrder.netAmount) || Number(freshOrder.amountPaid) || Number(freshOrder.total) || 0;
+            let accRef = null;
+            let accSnap = null;
+            if (refundAmount > 0 && freshOrder.paymentAccountId && freshOrder.paymentStatus !== 'REFUNDED') {
+                accRef = doc(db, "accounts", freshOrder.paymentAccountId);
+                accSnap = await t.get(accRef);
+            }
+
+            if (accSnap && accSnap.exists()) {
+                const curBal = Number(accSnap.data().balance) || 0;
+                t.update(accRef, { balance: Math.max(0, curBal - refundAmount) });
+
+                const expenseRef = doc(collection(db, "expenses"));
+                t.set(expenseRef, {
+                    amount: refundAmount,
+                    category: "Cancelaciones / Anulaciones",
+                    description: `Reverso por cancelación de orden Full #${ordNum}`,
+                    paymentMethod: accSnap.data().name || freshOrder.paymentMethod || 'MercadoLibre',
+                    supplierName: freshOrder.userName || 'Cliente ML',
+                    date: serverTimestamp(),
+                    createdAt: serverTimestamp(),
+                    type: 'EXPENSE',
+                    orderId: orderId
+                });
+            }
+
+            // IMPORTANTE: CERO MODIFICACION AL STOCK DE BODEGA LOCAL.
+            t.update(oRef, {
+                status: 'CANCELADO',
+                statusDetail: 'CANCELADO_FULL_AUTOMATICO',
+                cancellationPendingConfirm: false,
+                cancellationConfirmed: true,
+                cancellationConfirmedBy: userName,
+                cancellationConfirmedAt: serverTimestamp(),
+                cancellationRetainedInWarehouse: false,
+                cancelledWithoutStockReturn: true,
+                isStockDeducted: false,
+                paymentStatus: 'REFUNDED',
+                updatedAt: serverTimestamp()
+            });
+        });
+
+        // 2. Liberar seriales por si acaso tuviera alguno asignado erróneamente
         try {
             const linkedSerials = await getDocs(query(collection(db, "product_serials"), where("orderId", "==", orderId)));
             if (!linkedSerials.empty) {
@@ -1609,52 +1715,6 @@ export async function confirmFullOrderCancellation(orderId) {
         } catch (errSerials) {
             console.warn("Error liberando seriales en confirmFullOrderCancellation:", errSerials);
         }
-
-        // 2. IMPORTANTE: CERO MODIFICACIÓN AL STOCK DE BODEGA LOCAL.
-        // Las órdenes FULL tienen su inventario en las bodegas de Mercado Libre.
-
-        // 3. Reversar contabilidad / tesorería si aplica
-        try {
-            const refundAmount = Number(o.netAmount) || Number(o.amountPaid) || Number(o.total) || 0;
-            if (refundAmount > 0 && o.paymentAccountId) {
-                const accRef = doc(db, "accounts", o.paymentAccountId);
-                const accSnap = await getDoc(accRef);
-                if (accSnap.exists()) {
-                    const curBal = Number(accSnap.data().balance) || 0;
-                    await updateDoc(accRef, { balance: Math.max(0, curBal - refundAmount) });
-
-                    const expenseRef = doc(collection(db, "expenses"));
-                    await setDoc(expenseRef, {
-                        amount: refundAmount,
-                        category: "Cancelaciones / Anulaciones",
-                        description: `Reverso por cancelación de orden Full #${ordNum}`,
-                        paymentMethod: accSnap.data().name || o.paymentMethod || 'MercadoLibre',
-                        supplierName: o.userName || 'Cliente ML',
-                        date: serverTimestamp(),
-                        createdAt: serverTimestamp(),
-                        type: 'EXPENSE',
-                        orderId: orderId
-                    });
-                }
-            }
-        } catch (accErr) {
-            console.warn("Error ajustando tesorería en cancelación Full:", accErr);
-        }
-
-        // 4. Actualizar el documento de la orden
-        await updateDoc(doc(db, "orders", orderId), {
-            status: 'CANCELADO',
-            statusDetail: 'CANCELADO_FULL_AUTOMATICO',
-            cancellationPendingConfirm: false,
-            cancellationConfirmed: true,
-            cancellationConfirmedBy: userName,
-            cancellationConfirmedAt: serverTimestamp(),
-            cancellationRetainedInWarehouse: false,
-            cancelledWithoutStockReturn: true,
-            isStockDeducted: false,
-            paymentStatus: 'REFUNDED',
-            updatedAt: serverTimestamp()
-        });
 
         clearDraftSerials(orderId);
         showActionToast(`Orden Full #${ordNum} cancelada exitosamente sin modificar inventario local.`, "success");
@@ -1983,6 +2043,7 @@ function openEditOrderModal(order) {
     injectEditModalHtml();
     editOrderOriginal = JSON.parse(JSON.stringify(order));
     editItems = (order.items || []).map(i => ({
+        ...i,
         id: i.id || '',
         name: i.name || 'Producto',
         price: Number(i.price) || 0,
@@ -2152,8 +2213,23 @@ async function saveEditedOrder() {
         btn.disabled = true;
     }
 
+    const appliedDeltas = [];
+    let targetBranch = 'bodega';
+
     try {
-        const oldItems = editOrderOriginal.items || [];
+        const liveOrderSnap = await getDoc(doc(db, "orders", editOrderOriginal.id));
+        if (!liveOrderSnap.exists()) throw new Error("La orden ya no existe en la base de datos.");
+        const liveOrder = liveOrderSnap.data();
+
+        if (liveOrder.status === 'CANCELADO' || liveOrder.status === 'DEVUELTO') {
+            throw new Error(`No se puede editar una orden en estado ${liveOrder.status}.`);
+        }
+
+        const isFullOrder = Boolean(liveOrder.isFull || liveOrder.isMlFull || liveOrder.logisticType === 'fulfillment');
+        targetBranch = isFullOrder ? 'full' : 'bodega';
+        const orderHasStockDeducted = liveOrder.isStockDeducted === true || (liveOrder.source === 'MANUAL' && liveOrder.isStockDeducted !== false);
+
+        const oldItems = liveOrder.items || editOrderOriginal.items || [];
         const newItems = editItems;
         const newShipping = parseCurrency(getEl('eo-shipping-cost')?.value || 0);
         const newSubtotal = newItems.reduce((acc, i) => acc + ((Number(i.price) || 0) * (Number(i.quantity) || 1)), 0);
@@ -2161,63 +2237,88 @@ async function saveEditedOrder() {
         let newTax4x1000 = getEl('eo-apply-4x1000')?.checked ? Math.round(baseTotal * 0.004) : 0;
         const newTotal = baseTotal + newTax4x1000;
 
-        const deltaMap = {};
-        
-        oldItems.forEach(item => {
-            const k = `${item.id}|${item.color||''}|${item.capacity||''}`;
-            if (!deltaMap[k]) deltaMap[k] = { id: item.id, color: item.color, capacity: item.capacity, name: item.name || '', delta: 0 };
-            deltaMap[k].delta += Number(item.quantity || 1); 
-        });
+        if (orderHasStockDeducted) {
+            const deltaMap = {};
 
-        newItems.forEach(item => {
-            const k = `${item.id}|${item.color||''}|${item.capacity||''}`;
-            if (!deltaMap[k]) deltaMap[k] = { id: item.id, color: item.color, capacity: item.capacity, name: item.name || '', delta: 0 };
-            deltaMap[k].delta -= Number(item.quantity || 1); 
-        });
+            oldItems.forEach(item => {
+                if (item.stockDeducted === false) return;
+                const remainingQty = Math.max(0, Number(item.quantity || 1) - Number(item.returnedQty || 0));
+                const k = `${item.id}|${item.color||''}|${item.capacity||''}`;
+                if (!deltaMap[k]) deltaMap[k] = { id: item.id, color: item.color, capacity: item.capacity, name: item.name || '', delta: 0 };
+                deltaMap[k].delta += remainingQty;
+            });
 
-        // 1. VALIDACIÓN PREVIA DE DISPONIBILIDAD (Evita inconsistencias o descuentos parciales)
-        for (const key in deltaMap) {
-            const sd = deltaMap[key];
-            if (sd.delta < 0 && !isExternalOrUnknownProduct(sd.id)) {
-                const required = Math.abs(sd.delta);
-                const pSnap = await getDoc(doc(db, "products", sd.id));
-                if (pSnap.exists()) {
-                    const pData = pSnap.data();
-                    if (pData.combinations && pData.combinations.length > 0) {
-                        const combo = pData.combinations.find(c => 
-                            (c.color === sd.color || (!c.color && !sd.color)) &&
-                            (c.capacity === sd.capacity || (!c.capacity && !sd.capacity))
-                        );
-                        if (combo) {
-                            if ((combo.stock || 0) < required) {
-                                throw new Error(`Stock insuficiente para la variante "${pData.name} (${sd.color || ''} ${sd.capacity || ''})". Disponibles: ${combo.stock || 0}, Solicitados adicionales: ${required}.`);
+            newItems.forEach(item => {
+                if (item.stockDeducted === false) return;
+                const remainingQty = Math.max(0, Number(item.quantity || 1) - Number(item.returnedQty || 0));
+                const k = `${item.id}|${item.color||''}|${item.capacity||''}`;
+                if (!deltaMap[k]) deltaMap[k] = { id: item.id, color: item.color, capacity: item.capacity, name: item.name || '', delta: 0 };
+                deltaMap[k].delta -= remainingQty;
+            });
+
+            const getBranchAvail = (entity) => {
+                if (entity.branchStock && typeof entity.branchStock === 'object' && entity.branchStock[targetBranch] !== undefined) {
+                    return Math.max(0, Number(entity.branchStock[targetBranch]) || 0);
+                }
+                if (targetBranch === 'bodega') {
+                    const f = Number(entity.branchStock?.full) || 0;
+                    return Math.max(0, (Number(entity.stock) || 0) - f);
+                }
+                return 0;
+            };
+
+            // 1. VALIDACIÓN PREVIA DE DISPONIBILIDAD EN LA SUCURSAL CORRESPONDIENTE
+            for (const key in deltaMap) {
+                const sd = deltaMap[key];
+                if (sd.delta < 0 && !isExternalOrUnknownProduct(sd.id)) {
+                    const required = Math.abs(sd.delta);
+                    const pSnap = await getDoc(doc(db, "products", sd.id));
+                    if (pSnap.exists()) {
+                        const pData = pSnap.data();
+                        if (pData.combinations && pData.combinations.length > 0) {
+                            const combo = pData.combinations.find(c =>
+                                (c.color === sd.color || (!c.color && !sd.color)) &&
+                                (c.capacity === sd.capacity || (!c.capacity && !sd.capacity))
+                            );
+                            if (combo) {
+                                const avail = getBranchAvail(combo);
+                                if (avail < required) {
+                                    throw new Error(`Stock insuficiente en ${targetBranch} para la variante "${pData.name} (${sd.color || ''} ${sd.capacity || ''})". Disponibles: ${avail}, Solicitados adicionales: ${required}.`);
+                                }
+                            } else {
+                                const avail = getBranchAvail(pData);
+                                if (avail < required) {
+                                    throw new Error(`Stock insuficiente en ${targetBranch} para "${pData.name}". Disponibles: ${avail}, Solicitados adicionales: ${required}.`);
+                                }
                             }
-                        } else if ((pData.stock || 0) < required) {
-                            throw new Error(`Stock insuficiente para "${pData.name}". Disponibles: ${pData.stock || 0}, Solicitados adicionales: ${required}.`);
+                        } else {
+                            const avail = getBranchAvail(pData);
+                            if (avail < required) {
+                                throw new Error(`Stock insuficiente en ${targetBranch} para "${pData.name}". Disponibles: ${avail}, Solicitados adicionales: ${required}.`);
+                            }
                         }
-                    } else if ((pData.stock || 0) < required) {
-                        throw new Error(`Stock insuficiente para "${pData.name}". Disponibles: ${pData.stock || 0}, Solicitados adicionales: ${required}.`);
                     }
                 }
             }
-        }
 
-        if (btn) btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Ajustando Inventario...';
+            if (btn) btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Ajustando Inventario...';
 
-        // 2. AJUSTE EFECTIVO DE INVENTARIO
-        const editOrdNum = editOrderOriginal.internalOrderNumber || editOrderOriginal.id;
-        for (const key in deltaMap) {
-            const sd = deltaMap[key];
-            if (sd.delta !== 0) {
-                if (isExternalOrUnknownProduct(sd.id)) {
-                    console.warn(`[Stock] Omitiendo ajuste para ítem sin producto local registrado: ${sd.id}`);
-                    continue;
+            // 2. AJUSTE EFECTIVO DE INVENTARIO
+            const editOrdNum = liveOrder.internalOrderNumber || editOrderOriginal.id;
+            for (const key in deltaMap) {
+                const sd = deltaMap[key];
+                if (sd.delta !== 0) {
+                    if (isExternalOrUnknownProduct(sd.id)) {
+                        console.warn(`[Stock] Omitiendo ajuste para ítem sin producto local registrado: ${sd.id}`);
+                        continue;
+                    }
+                    const editReason = sd.delta < 0 ? 'VENTA_PEDIDO' : 'DEVOLUCION_CANCELACION';
+                    const editDetails = sd.delta < 0
+                        ? `Modificación de pedido #${editOrdNum} (unidades adicionales vendidas: ${Math.abs(sd.delta)})`
+                        : `Devolución de stock por modificación de pedido #${editOrdNum} (+${sd.delta} ud(s))`;
+                    await safeAdjustStock(sd.id, sd.delta, sd.color, sd.capacity, editReason, editDetails, targetBranch);
+                    appliedDeltas.push(sd);
                 }
-                const editReason = sd.delta < 0 ? 'VENTA_PEDIDO' : 'DEVOLUCION_CANCELACION';
-                const editDetails = sd.delta < 0 
-                    ? `Modificación de pedido #${editOrdNum} (unidades adicionales vendidas: ${Math.abs(sd.delta)})`
-                    : `Devolución de stock por modificación de pedido #${editOrdNum} (+${sd.delta} ud(s))`;
-                await safeAdjustStock(sd.id, sd.delta, sd.color, sd.capacity, editReason, editDetails);
             }
         }
 
@@ -2297,6 +2398,14 @@ async function saveEditedOrder() {
 
     } catch(e) {
         console.error(e);
+        // Rollback de deltas ya aplicados si fallo a mitad de proceso
+        for (const sd of appliedDeltas) {
+            try {
+                await safeAdjustStock(sd.id, -sd.delta, sd.color, sd.capacity, 'AJUSTE_MANUAL', `Rollback por error al editar pedido #${editOrderOriginal.id}`, targetBranch);
+            } catch (rbErr) {
+                console.error("Error en rollback de edicion de pedido:", rbErr);
+            }
+        }
         const errMsg = e?.message || (typeof e === 'string' ? e : "Error inesperado");
         alert("Error al editar la orden: " + errMsg);
     } finally {
@@ -3224,11 +3333,18 @@ if (refundForm) {
             let finalOrderStatus = '';
 
             await runTransaction(db, async (t) => {
+                // Reiniciar acumuladores en cada intento para evitar duplicados ante reintentos de transaccion
+                itemsToRestoreStock = [];
+                serialsToRelease = [];
+
                 const orderRef = doc(db, "orders", orderId);
                 const orderDoc = await t.get(orderRef);
                 if(!orderDoc.exists()) throw "Orden no encontrada";
                 
                 const oData = orderDoc.data();
+                if (oData.status === 'CANCELADO' || oData.status === 'DEVUELTO') {
+                    throw `No se puede procesar una devolución sobre una orden en estado ${oData.status}.`;
+                }
                 
                 if (wasPaid && amount > 0) {
                     const currentRefunded = oData.refundedAmount || 0;
@@ -3238,19 +3354,35 @@ if (refundForm) {
 
                 const originalItems = oData.items || [];
                 const updatedItems = JSON.parse(JSON.stringify(originalItems)); 
+                const isFullOrder = Boolean(oData.isFull || oData.isMlFull || oData.logisticType === 'fulfillment');
+                const canRestoreOrderStock = (oData.isStockDeducted === true || (oData.source === 'MANUAL' && oData.isStockDeducted !== false)) && !oData.isHistoricalPreAudit;
                 
                 let totalOriginalQty = 0;
                 let totalReturnedQtySoFar = 0;
 
-                document.querySelectorAll('.refund-item-row').forEach(row => {
+                const checkedRows = Array.from(document.querySelectorAll('.refund-item-row'));
+                for (const row of checkedRows) {
                     const check = row.querySelector('.refund-check');
                     if (check && check.checked) {
                         const idx = parseInt(check.dataset.index);
                         const qtyToReturn = parseInt(row.querySelector('.refund-qty').value);
                         
-                        if (qtyToReturn > 0) {
-                            updatedItems[idx].returnedQty = (updatedItems[idx].returnedQty || 0) + qtyToReturn;
-                            itemsToRestoreStock.push({ id: updatedItems[idx].id, qty: qtyToReturn, color: updatedItems[idx].color, capacity: updatedItems[idx].capacity });
+                        if (qtyToReturn > 0 && updatedItems[idx]) {
+                            const alreadyReturned = Number(updatedItems[idx].returnedQty) || 0;
+                            const maxReturnable = Math.max(0, (Number(updatedItems[idx].quantity) || 0) - alreadyReturned);
+                            if (qtyToReturn > maxReturnable) {
+                                throw `La cantidad a devolver de "${updatedItems[idx].name}" (${qtyToReturn}) excede las unidades disponibles para devolución (${maxReturnable}).`;
+                            }
+                            updatedItems[idx].returnedQty = alreadyReturned + qtyToReturn;
+                            if (canRestoreOrderStock && updatedItems[idx].stockDeducted !== false && !isFullOrder) {
+                                itemsToRestoreStock.push({
+                                    id: updatedItems[idx].id,
+                                    qty: qtyToReturn,
+                                    color: updatedItems[idx].color,
+                                    capacity: updatedItems[idx].capacity,
+                                    branch: updatedItems[idx].linkedBranch || 'bodega'
+                                });
+                            }
 
                             // Recoger seriales seleccionados para liberar en esta fila
                             const checkedSnInputs = row.querySelectorAll('.refund-sn-check:checked');
@@ -3274,7 +3406,7 @@ if (refundForm) {
                             }
                         }
                     }
-                });
+                }
 
                 updatedItems.forEach(i => {
                     totalOriginalQty += (i.quantity || 0);
@@ -3300,12 +3432,24 @@ if (refundForm) {
                     t.set(expenseRef, { amount: amount, category: "Devoluciones", description: `Reembolso ${newStatus === 'DEVUELTO' ? 'Total' : 'Parcial'} Orden #${orderId.slice(0,8)}`, paymentMethod: accDoc.data().name, supplierName: oData.userName || "Cliente", date: serverTimestamp(), createdAt: serverTimestamp(), type: 'EXPENSE', orderId: orderId, isRefund: true });
                 }
 
-                t.update(orderRef, { items: updatedItems, status: newStatus, refundedAmount: (oData.refundedAmount || 0) + amount, hasRefunds: true, lastRefundDate: serverTimestamp(), refundReason: reason, updatedAt: serverTimestamp() });
+                const orderRefundUpdate = {
+                    items: updatedItems,
+                    status: newStatus,
+                    refundedAmount: (oData.refundedAmount || 0) + amount,
+                    hasRefunds: true,
+                    lastRefundDate: serverTimestamp(),
+                    refundReason: reason,
+                    updatedAt: serverTimestamp()
+                };
+                if (newStatus === 'DEVUELTO') {
+                    orderRefundUpdate.isStockDeducted = false;
+                }
+                t.update(orderRef, orderRefundUpdate);
             });
 
             if (itemsToRestoreStock.length > 0) {
                 for (const item of itemsToRestoreStock) {
-                    await safeAdjustStock(item.id, item.qty, item.color, item.capacity, 'DEVOLUCION_CANCELACION', `Devolución de stock por reembolso en pedido #${orderId.slice(0, 8)}`);
+                    await safeAdjustStock(item.id, item.qty, item.color, item.capacity, 'DEVOLUCION_CANCELACION', `Devolución de stock por reembolso en pedido #${orderId.slice(0, 8)}`, item.branch);
                 }
             }
 
@@ -3435,6 +3579,10 @@ if (payForm) {
                 if (!orderDoc.exists()) throw "La orden no existe.";
                 const oData = orderDoc.data();
 
+                if (oData.status === 'CANCELADO') {
+                    throw "No se puede registrar un pago sobre una orden cancelada.";
+                }
+
                 const currentPending = (oData.total || 0) - (oData.amountPaid || 0) - (oData.refundedAmount || 0);
                 if (amount > currentPending) throw `El monto excede el saldo real pendiente ($${currentPending.toLocaleString()}).`;
 
@@ -3451,7 +3599,7 @@ if (payForm) {
                 const isFullyPaid = newAmountPaid >= ((oData.total || 0) - (oData.refundedAmount || 0));
                 
                 let nextStatus = oData.status; 
-                if (isFullyPaid && ['PENDIENTE', 'PENDIENTE_PAGO', 'CANCELADO'].includes(oData.status)) nextStatus = 'PAGADO';
+                if (isFullyPaid && ['PENDIENTE', 'PENDIENTE_PAGO'].includes(oData.status)) nextStatus = 'PAGADO';
 
                 t.update(orderRef, { status: nextStatus, paymentStatus: isFullyPaid ? 'PAID' : 'PARTIAL', amountPaid: newAmountPaid, paymentMethod: oData.paymentMethod || 'MANUAL', paymentAccountId: accId, paymentDate: serverTimestamp(), updatedAt: serverTimestamp() });
             });
@@ -4855,6 +5003,13 @@ window.confirmLinkProduct = async function() {
         confirmBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> Guardando Enlace...';
     }
 
+    let stockDeductedInThisAttempt = false;
+    let qty = 0;
+    let product = null;
+    let targetColor = "";
+    let targetCapacity = "";
+    let selectedBranch = 'bodega';
+
     try {
         const orderRef = doc(db, "orders", state.orderId);
         const orderSnap = await getDoc(orderRef);
@@ -4864,28 +5019,26 @@ window.confirmLinkProduct = async function() {
         const items = orderData.items || [];
         if (!items[state.itemIndex]) throw new Error("El item seleccionado no existe en la orden.");
 
-        const product = state.selectedProduct;
+        product = state.selectedProduct;
         const combos = Array.isArray(product.combinations) ? product.combinations : [];
         const combo = state.selectedVariantIndex >= 0 && combos[state.selectedVariantIndex] ? combos[state.selectedVariantIndex] : null;
 
         const branchSelectEl = getEl('link-product-branch-select');
         const deductCheckboxEl = getEl('link-product-deduct-stock');
-        const selectedBranch = branchSelectEl ? branchSelectEl.value : 'bodega';
+        selectedBranch = branchSelectEl ? branchSelectEl.value : 'bodega';
         const shouldDeduct = deductCheckboxEl ? deductCheckboxEl.checked : true;
 
         const currentItem = items[state.itemIndex];
-        const qty = Number(currentItem.quantity) || 1;
+        qty = Number(currentItem.quantity) || 1;
         const targetSku = (combo && combo.sku) ? String(combo.sku) : (product.sku ? String(product.sku) : "");
-        const targetColor = (combo && combo.color) ? String(combo.color) : (currentItem.color || "");
-        const targetCapacity = (combo && combo.capacity) ? String(combo.capacity) : (currentItem.capacity || "");
+        targetColor = (combo && combo.color) ? String(combo.color) : (currentItem.color || "");
+        targetCapacity = (combo && combo.capacity) ? String(combo.capacity) : (currentItem.capacity || "");
         const targetImage = product.mainImage || product.image || currentItem.image || "";
 
         const orderCreatedAt = orderData.createdAt?.toDate ? orderData.createdAt.toDate() : (orderData.createdAt?.seconds ? new Date(orderData.createdAt.seconds * 1000) : new Date(orderData.createdAt || 0));
         const isPreAudit = Boolean(orderData.isHistoricalPreAudit) || (orderCreatedAt > 0 && orderCreatedAt <= new Date('2026-10-30T23:28:30.000Z'));
         const isAlreadyDeducted = isPreAudit || Boolean(currentItem.stockDeducted) || (Boolean(orderData.isStockDeducted) && Boolean(currentItem.isLinkedToCatalog));
         const effectivelyShouldDeduct = !isPreAudit && shouldDeduct && !isAlreadyDeducted;
-
-        let stockDeductedInThisAttempt = false;
 
         // Si se solicito descontar inventario y el item NO habia sido descontado antes, invocar adjustStock
         if (effectivelyShouldDeduct) {
@@ -4919,15 +5072,19 @@ window.confirmLinkProduct = async function() {
             mainImage: targetImage,
             thumbnail: targetImage,
             isLinkedToCatalog: true,
-            stockDeducted: effectivelyShouldDeduct || Boolean(currentItem.stockDeducted),
+            stockDeducted: stockDeductedInThisAttempt || Boolean(currentItem.stockDeducted),
             linkedAt: new Date().toISOString(),
             linkedBy: auth.currentUser?.email || 'admin',
             linkedBranch: selectedBranch
         };
 
+        const orderNowHasDeductedStock = isPreAudit
+            ? false
+            : (stockDeductedInThisAttempt || Boolean(orderData.isStockDeducted) || items.some(it => it.stockDeducted === true));
+
         await updateDoc(orderRef, {
             items: items,
-            isStockDeducted: isPreAudit ? false : true,
+            isStockDeducted: orderNowHasDeductedStock,
             isHistoricalPreAudit: isPreAudit ? true : Boolean(orderData.isHistoricalPreAudit),
             stockDeductionSkipped: isPreAudit ? "Orden previa al corte de inventario (30 de octubre de 2026). No descuenta stock fisico." : (orderData.stockDeductionSkipped || null),
             updatedAt: serverTimestamp()
@@ -4948,7 +5105,7 @@ window.confirmLinkProduct = async function() {
         console.error("Error al confirmar enlace de producto:", err);
 
         // Si el stock fue descontado en este intento pero fallo guardar la orden, revertir para no descuadrar el inventario
-        if (stockDeductedInThisAttempt) {
+        if (stockDeductedInThisAttempt && product && product.id && qty > 0) {
             try {
                 console.warn(`Revirtiendo descuento de stock (${qty} un) en ${product.id} por fallo al actualizar orden...`);
                 await adjustStock(

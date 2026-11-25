@@ -299,25 +299,91 @@ window.confirmResolution = async () => {
         const pdfUrl = await uploadPDF(currentWarranty.id);
 
         await runTransaction(db, async (transaction) => {
+            const warrantyRef = doc(db, "warranties", currentWarranty.id);
+            const warrantySnap = await transaction.get(warrantyRef);
+            if (!warrantySnap.exists()) throw "Garantia no encontrada.";
+            const wData = warrantySnap.data();
+            if (wData.status === 'APROBADO' || wData.status === 'RECHAZADO') {
+                throw "Esta garantia ya fue resuelta previamente.";
+            }
+
             if (resolutionType === 'REPLACEMENT') {
                 if (!currentWarranty.productId) throw "Error: No hay ID de producto.";
                 const prodRef = doc(db, "products", currentWarranty.productId);
                 const prodSnap = await transaction.get(prodRef);
                 if (!prodSnap.exists()) throw "Producto no existe.";
-                const currentStock = prodSnap.data().stock || 0;
-                if (currentStock < 1) throw "⛔ No hay stock disponible para reemplazo.";
-                transaction.update(prodRef, { stock: currentStock - 1, updatedAt: new Date() }); // 🔥 updatedAt para el Store
+
+                const pData = prodSnap.data();
+                const newCombos = Array.isArray(pData.combinations) ? JSON.parse(JSON.stringify(pData.combinations)) : [];
+                let rootBranchStock = { bodega: 0, full: 0 };
+                let finalStock = 0;
+
+                if (newCombos.length > 0) {
+                    newCombos.forEach(c => {
+                        const cStk = Math.max(0, Math.round(Number(c.stock) || 0));
+                        const bs = (c.branchStock && typeof c.branchStock === 'object') ? { ...c.branchStock } : { bodega: cStk, full: 0 };
+                        if (bs.bodega === undefined) bs.bodega = 0;
+                        if (bs.full === undefined) bs.full = 0;
+                        if ((Number(bs.bodega) + Number(bs.full)) === 0 && cStk > 0) bs.bodega = cStk;
+                        c.branchStock = bs;
+                        c.stock = Object.values(bs).reduce((a, b) => a + (Number(b) || 0), 0);
+                    });
+
+                    const normColor = String(wData.variantColor || currentWarranty.variantColor || '').trim().toLowerCase();
+                    const normCap = String(wData.variantCapacity || currentWarranty.variantCapacity || '').trim().toLowerCase();
+                    let cIdx = -1;
+                    if (normColor || normCap) {
+                        cIdx = newCombos.findIndex(c =>
+                            (!normColor || String(c.color || '').trim().toLowerCase() === normColor) &&
+                            (!normCap || String(c.capacity || '').trim().toLowerCase() === normCap)
+                        );
+                    }
+                    if (cIdx < 0 && newCombos.length === 1) cIdx = 0;
+                    if (cIdx < 0) cIdx = newCombos.findIndex(c => (Number(c.branchStock?.bodega) || 0) >= 1);
+                    if (cIdx < 0) throw "No hay stock disponible en bodega para reemplazo de esta variante.";
+
+                    const curBodega = Number(newCombos[cIdx].branchStock.bodega) || 0;
+                    if (curBodega < 1) throw "No hay stock disponible en bodega para reemplazo.";
+
+                    newCombos[cIdx].branchStock.bodega = curBodega - 1;
+                    newCombos[cIdx].stock = Object.values(newCombos[cIdx].branchStock).reduce((a, b) => a + (Number(b) || 0), 0);
+
+                    newCombos.forEach(c => {
+                        Object.keys(c.branchStock).forEach(bId => {
+                            rootBranchStock[bId] = (rootBranchStock[bId] || 0) + (Number(c.branchStock[bId]) || 0);
+                        });
+                    });
+                    finalStock = Object.values(rootBranchStock).reduce((a, b) => a + (Number(b) || 0), 0);
+                } else {
+                    const baseStk = Math.max(0, Math.round(Number(pData.stock) || 0));
+                    rootBranchStock = (pData.branchStock && typeof pData.branchStock === 'object') ? { ...pData.branchStock } : { bodega: baseStk, full: 0 };
+                    if (rootBranchStock.bodega === undefined) rootBranchStock.bodega = 0;
+                    if (rootBranchStock.full === undefined) rootBranchStock.full = 0;
+                    if ((Number(rootBranchStock.bodega) + Number(rootBranchStock.full)) === 0 && baseStk > 0) rootBranchStock.bodega = baseStk;
+
+                    if ((Number(rootBranchStock.bodega) || 0) < 1) throw "No hay stock disponible en bodega para reemplazo.";
+                    rootBranchStock.bodega = Number(rootBranchStock.bodega) - 1;
+                    finalStock = Object.values(rootBranchStock).reduce((a, b) => a + (Number(b) || 0), 0);
+                }
+
+                transaction.update(prodRef, {
+                    stock: finalStock,
+                    combinations: newCombos,
+                    branchStock: rootBranchStock,
+                    lastStockChangeReason: 'AJUSTE_GARANTIA',
+                    lastStockChangeDetails: `Salida por reemplazo de garantia #${currentWarranty.id.slice(0, 8)}`,
+                    updatedAt: new Date()
+                });
             }
 
-            const warrantyRef = doc(db, "warranties", currentWarranty.id);
             transaction.update(warrantyRef, {
                 status: 'APROBADO',
                 resolutionType: resolutionType,
                 receivedItems: received,
-                adminResponse: notes || "Garantía aprobada.",
+                adminResponse: notes || "Garantia aprobada.",
                 technicalReportUrl: pdfUrl || null,
                 resolvedAt: new Date(),
-                updatedAt: new Date() // 🔥 updatedAt para el Store
+                updatedAt: new Date()
             });
 
             const rmaRef = doc(collection(db, "warranty_inventory"));
@@ -327,13 +393,13 @@ window.confirmResolution = async () => {
                 productName: currentWarranty.productName,
                 sn: currentWarranty.snProvided,
                 componentsReceived: received,
-                notes: `Resolución: ${resolutionType}. ${notes}`,
+                notes: `Resolucion: ${resolutionType}. ${notes}`,
                 status: 'EN_REVISION_TECNICA',
                 entryDate: new Date()
             });
         });
 
-        alert("✅ Garantía procesada.");
+        alert("Garantia procesada.");
         resolutionModal.classList.add('hidden');
         closeManageModal();
         

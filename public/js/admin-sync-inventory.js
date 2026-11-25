@@ -977,18 +977,22 @@ async function openSyncModal(prod) {
             propagateContainer.classList.toggle('hidden', !hasVariants);
         }
 
-        // Configurar filas de variantes
+        // Configurar filas de variantes (conteo fisico en sede/bodega, preservando stock Full)
         variantRowsState = prod.combinations.map((c, idx) => {
             const key = `${c.color || ''}__${c.capacity || ''}__${idx}`;
-            const sysStock = Number(c.stock) || 0;
+            const fullStock = Number(c.branchStock?.full) || 0;
+            const sysBodega = (c.branchStock && typeof c.branchStock === 'object' && c.branchStock.bodega !== undefined)
+                ? (Number(c.branchStock.bodega) || 0)
+                : Math.max(0, (Number(c.stock) || 0) - fullStock);
             const varCost = cleanNumber(c.cost || c.lastPurchaseCost || c.unitCost || currentFifoCost || 0);
             return {
                 key,
                 color: c.color || '',
                 capacity: c.capacity || '',
                 sku: c.sku || `${prod.sku || 'SKU'}-${idx+1}`,
-                systemStock: sysStock,
-                physicalStock: sysStock, // Inicializa igual al sistema
+                systemStock: sysBodega,
+                physicalStock: sysBodega, // Inicializa igual al sistema en bodega
+                fullStock,
                 price: cleanNumber(c.price || prod.price || 0),
                 fifoCost: varCost
             };
@@ -1019,7 +1023,10 @@ async function openSyncModal(prod) {
             propagateContainer.classList.add('hidden');
         }
 
-        currentSystemTotalStock = Number(prod.stock) || 0;
+        const prodFullStock = Number(prod.branchStock?.full) || 0;
+        currentSystemTotalStock = (prod.branchStock && typeof prod.branchStock === 'object' && prod.branchStock.bodega !== undefined)
+            ? (Number(prod.branchStock.bodega) || 0)
+            : Math.max(0, (Number(prod.stock) || 0) - prodFullStock);
         currentPhysicalTotalStock = currentSystemTotalStock;
 
         const inputSimple = document.getElementById('input-simple-physical-stock');
@@ -1879,32 +1886,34 @@ async function handleSubmitSync() {
     const deltaTotal = finalPhysicalStock - currentSystemTotalStock;
 
     const addedSerials = currentProductSerials.filter(s => s.auditState === 'NEW');
-    const removedSerials = currentProductSerials.filter(s => s.auditState === 'REMOVED');
-    const activeSerials = currentProductSerials.filter(s => s.auditState !== 'REMOVED');
+    let removedSerials = currentProductSerials.filter(s => s.auditState === 'REMOVED');
+    let activeSerials = currentProductSerials.filter(s => s.auditState !== 'REMOVED');
     const unitsWithoutSerial = Math.max(0, finalPhysicalStock - activeSerials.length);
 
-    // Validación de coherencia y distribución con/sin serial
+    // Validacion de coherencia y distribucion con/sin serial
     if (activeSerials.length > 0 && activeSerials.length !== finalPhysicalStock) {
         if (finalPhysicalStock > activeSerials.length) {
             const proceed = confirm(
-                `DISTRIBUCIÓN DE UNIDADES EN SINCRONIZACIÓN:\n\n` +
-                `- Conteo físico total: ${finalPhysicalStock} unidad(es).\n` +
-                `- Con serial físico (SN/IMEI): ${activeSerials.length} serial(es).\n` +
-                `- Quedarán SIN SERIAL: ${unitsWithoutSerial} unidad(es).\n\n` +
-                `¿Deseas aplicar la sincronización registrando ${unitsWithoutSerial} unidad(es) sin serial en el sistema?`
+                `DISTRIBUCION DE UNIDADES EN SINCRONIZACION:\n\n` +
+                `- Conteo fisico total: ${finalPhysicalStock} unidad(es).\n` +
+                `- Con serial fisico (SN/IMEI): ${activeSerials.length} serial(es).\n` +
+                `- Quedaran SIN SERIAL: ${unitsWithoutSerial} unidad(es).\n\n` +
+                `Deseas aplicar la sincronizacion registrando ${unitsWithoutSerial} unidad(es) sin serial en el sistema?`
             );
             if (!proceed) return;
         } else if (finalPhysicalStock === 0) {
             const retireAll = confirm(
                 `DESCUADRE DETECTADO:\n\n` +
-                `- Has indicado Conteo Físico = 0 unidades en sede.\n` +
+                `- Has indicado Conteo Fisico = 0 unidades en sede.\n` +
                 `- Pero en el sistema figuran ${activeSerials.length} seriales que no fueron marcados como despachados en el pasado.\n\n` +
-                `¿Deseas dar de baja automáticamente todos estos ${activeSerials.length} seriales para que el producto y sus seriales queden 100% en 0?`
+                `Deseas dar de baja automaticamente todos estos ${activeSerials.length} seriales para que el producto y sus seriales queden 100% en 0?`
             );
             if (retireAll) {
                 currentProductSerials.forEach(s => {
                     if (s.auditState !== 'NEW') s.auditState = 'REMOVED';
                 });
+                removedSerials = currentProductSerials.filter(s => s.auditState === 'REMOVED');
+                activeSerials = currentProductSerials.filter(s => s.auditState !== 'REMOVED');
                 renderSerialsTable();
                 updateSerialsSummaryCounter();
             } else {
@@ -2023,66 +2032,93 @@ async function handleSubmitSync() {
 
         const weekKey = getWeekKey(new Date());
 
-        // 1. Actualizar Producto
+        // 1. Re-leer documento vivo del producto para preservar branchStock.full y cambios concurrentes
         const productRef = doc(db, "products", currentProduct.id);
+        const liveSnap = await getDoc(productRef);
+        const liveProduct = liveSnap.exists() ? { id: liveSnap.id, ...liveSnap.data() } : currentProduct;
+
+        const preserveOtherBranches = (bMap) => {
+            const out = {};
+            if (bMap && typeof bMap === 'object') {
+                for (const [k, v] of Object.entries(bMap)) {
+                    if (k === 'bodega') continue;
+                    out[k] = Math.max(0, Number(v) || 0);
+                }
+            }
+            if (out.full === undefined) out.full = 0;
+            return out;
+        };
+
+        const sumBranchMap = (bMap) => Object.values(bMap).reduce((s, v) => s + (Number(v) || 0), 0);
+
+        let variantChangesForLog = [];
+        let updatedCombinations = null;
+        let finalRootBranchStock = {};
+        let finalRootStock = 0;
+
+        if (hasVariants && Array.isArray(liveProduct.combinations) && liveProduct.combinations.length > 0) {
+            updatedCombinations = liveProduct.combinations.map((comb, idx) => {
+                const matchRow = variantRowsState.find(r => r.color === (comb.color || '') && r.capacity === (comb.capacity || ''))
+                    || variantRowsState[idx];
+
+                const otherBranches = preserveOtherBranches(comb.branchStock);
+                const prevBodega = (comb.branchStock && typeof comb.branchStock === 'object' && comb.branchStock.bodega !== undefined)
+                    ? (Number(comb.branchStock.bodega) || 0)
+                    : Math.max(0, (Number(comb.stock) || 0) - (otherBranches.full || 0));
+                const newVarBodega = Math.max(0, matchRow ? (Number(matchRow.physicalStock) || 0) : prevBodega);
+                const newCombBranch = { ...otherBranches, bodega: newVarBodega };
+                const newCombTotal = sumBranchMap(newCombBranch);
+                const varCost = (matchRow && matchRow.fifoCost > 0) ? matchRow.fifoCost : enteredFifoCost;
+
+                variantChangesForLog.push({
+                    color: comb.color || 'Estándar',
+                    capacity: comb.capacity || '',
+                    before: prevBodega,
+                    after: newVarBodega,
+                    delta: newVarBodega - prevBodega,
+                    fifoCost: varCost
+                });
+
+                return {
+                    ...comb,
+                    stock: newCombTotal,
+                    branchStock: newCombBranch,
+                    cost: varCost,
+                    lastPurchaseCost: varCost,
+                    unitCost: varCost
+                };
+            });
+
+            finalRootBranchStock = { bodega: 0, full: 0 };
+            updatedCombinations.forEach(c => {
+                for (const [k, v] of Object.entries(c.branchStock || {})) {
+                    finalRootBranchStock[k] = (finalRootBranchStock[k] || 0) + (Number(v) || 0);
+                }
+            });
+            finalRootStock = sumBranchMap(finalRootBranchStock);
+        } else {
+            const otherBranches = preserveOtherBranches(liveProduct.branchStock);
+            finalRootBranchStock = { ...otherBranches, bodega: Math.max(0, Number(finalPhysicalStock) || 0) };
+            finalRootStock = sumBranchMap(finalRootBranchStock);
+        }
+
         const productUpdateData = {
-            stock: finalPhysicalStock,
+            stock: finalRootStock,
+            branchStock: finalRootBranchStock,
             status: selectedStatus,
             lastPurchaseCost: enteredFifoCost,
             costPrice: enteredFifoCost,
             cost: enteredFifoCost,
             fifoCost: enteredFifoCost,
+            lastStockChangeReason: 'AJUSTE_MANUAL',
+            lastStockChangeDetails: `Sincronización física (Bodega): ${currentSystemTotalStock} -> ${finalPhysicalStock} (${deltaTotal >= 0 ? '+' : ''}${deltaTotal}) | ${reason}`,
             updatedAt: now,
             lastInventoryAudit: now,
             lastInventoryAuditWeek: weekKey,
             lastInventoryAuditAdmin: currentUser?.email || 'admin@pixeltechcol.com'
         };
 
-        if (currentProduct.branchStock || typeof currentProduct.branchStock === 'object') {
-            productUpdateData.branchStock = {
-                ...(currentProduct.branchStock || {}),
-                bodega: finalPhysicalStock
-            };
-        }
-
-        let variantChangesForLog = [];
-        let updatedCombinations = null;
-
-        if (hasVariants) {
-            updatedCombinations = currentProduct.combinations.map((comb, idx) => {
-                const matchRow = variantRowsState.find(r => r.color === (comb.color || '') && r.capacity === (comb.capacity || '')) 
-                    || variantRowsState[idx];
-                
-                const newVarStock = matchRow ? matchRow.physicalStock : (Number(comb.stock) || 0);
-                const varCost = (matchRow && matchRow.fifoCost > 0) ? matchRow.fifoCost : enteredFifoCost;
-
-                variantChangesForLog.push({
-                    color: comb.color || 'Estándar',
-                    capacity: comb.capacity || '',
-                    before: Number(comb.stock) || 0,
-                    after: newVarStock,
-                    delta: newVarStock - (Number(comb.stock) || 0),
-                    fifoCost: varCost
-                });
-
-                const updatedComb = {
-                    ...comb,
-                    stock: newVarStock,
-                    cost: varCost,
-                    lastPurchaseCost: varCost,
-                    unitCost: varCost
-                };
-
-                if (comb.branchStock || typeof comb.branchStock === 'object') {
-                    updatedComb.branchStock = {
-                        ...(comb.branchStock || {}),
-                        bodega: newVarStock
-                    };
-                }
-
-                return updatedComb;
-            });
-
+        if (updatedCombinations) {
             productUpdateData.combinations = updatedCombinations;
         }
 
@@ -2162,7 +2198,7 @@ async function handleSubmitSync() {
             fifoCostBefore: cleanNumber(currentProduct.lastPurchaseCost || currentProduct.costPrice || 0),
             fifoCostAfter: enteredFifoCost,
             totalValuation: finalValuation,
-            changeDetails: `Sincronización física de inventario: ${currentSystemTotalStock} -> ${finalPhysicalStock} (${deltaTotal >= 0 ? '+' : ''}${deltaTotal} uds) | Costo FIFO: $${enteredFifoCost.toLocaleString('es-CO')}${selectedStatus !== (currentProduct.status || 'active') ? ` | Estado: ${selectedStatus}` : ''}`,
+            changeDetails: `Sincronización física de inventario (Bodega): ${currentSystemTotalStock} -> ${finalPhysicalStock} (${deltaTotal >= 0 ? '+' : ''}${deltaTotal} uds) | Full preservado: ${finalRootBranchStock.full || 0} | Costo FIFO: $${enteredFifoCost.toLocaleString('es-CO')}${selectedStatus !== (currentProduct.status || 'active') ? ` | Estado: ${selectedStatus}` : ''}`,
             variantChanges: variantChangesForLog,
             serialsAdded: addedSerials.map(s => s.serialNumber),
             serialsRemoved: removedSerials.map(s => s.serialNumber),
@@ -2179,14 +2215,15 @@ async function handleSubmitSync() {
         if (currentProduct) {
             currentProduct.lastInventoryAudit = new Date();
             currentProduct.lastInventoryAuditWeek = weekKey;
-            currentProduct.stock = finalPhysicalStock;
+            currentProduct.stock = finalRootStock;
+            currentProduct.branchStock = finalRootBranchStock;
             currentProduct.status = selectedStatus;
             currentProduct.lastPurchaseCost = enteredFifoCost;
             currentProduct.costPrice = enteredFifoCost;
             currentProduct.cost = enteredFifoCost;
             currentProduct.fifoCost = enteredFifoCost;
-            if (currentProduct.branchStock) {
-                currentProduct.branchStock.bodega = finalPhysicalStock;
+            if (updatedCombinations) {
+                currentProduct.combinations = updatedCombinations;
             }
             auditedProductIdsMap[currentProduct.id] = new Date();
             if (!productAuditHistoryMap[currentProduct.id]) {
@@ -2197,16 +2234,14 @@ async function handleSubmitSync() {
             if (prodInAll) {
                 prodInAll.lastInventoryAudit = new Date();
                 prodInAll.lastInventoryAuditWeek = weekKey;
-                prodInAll.stock = finalPhysicalStock;
+                prodInAll.stock = finalRootStock;
+                prodInAll.branchStock = finalRootBranchStock;
                 prodInAll.status = selectedStatus;
                 prodInAll.lastPurchaseCost = enteredFifoCost;
                 prodInAll.costPrice = enteredFifoCost;
                 prodInAll.cost = enteredFifoCost;
                 prodInAll.fifoCost = enteredFifoCost;
-                if (prodInAll.branchStock) {
-                    prodInAll.branchStock.bodega = finalPhysicalStock;
-                }
-                if (hasVariants && updatedCombinations) {
+                if (updatedCombinations) {
                     prodInAll.combinations = updatedCombinations;
                 }
             }

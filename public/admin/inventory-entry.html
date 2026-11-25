@@ -2171,9 +2171,27 @@
                             const pData = snap.data();
                             let combinations = pData.combinations && Array.isArray(pData.combinations) ? JSON.parse(JSON.stringify(pData.combinations)) : [];
                             const initialStock = parseInt(pData.stock) || 0;
-                            let baseStock = initialStock;
+                            let rootBranchStock = (pData.branchStock && typeof pData.branchStock === 'object')
+                                ? { ...pData.branchStock }
+                                : { bodega: initialStock, full: 0 };
+                            if (rootBranchStock.bodega === undefined) rootBranchStock.bodega = 0;
+                            if (rootBranchStock.full === undefined) rootBranchStock.full = 0;
+                            if ((Number(rootBranchStock.bodega) + Number(rootBranchStock.full)) === 0 && initialStock > 0) {
+                                rootBranchStock.bodega = initialStock;
+                            }
 
-                            // Calcular delta neto por cada variante / combinación entre ítems antiguos y nuevos de esta compra
+                            // Normalizar branchStock en TODAS las combinaciones antes de aplicar deltas
+                            combinations.forEach(c => {
+                                const cStk = Math.max(0, parseInt(c.stock) || 0);
+                                const bs = (c.branchStock && typeof c.branchStock === 'object') ? { ...c.branchStock } : { bodega: cStk, full: 0 };
+                                if (bs.bodega === undefined) bs.bodega = 0;
+                                if (bs.full === undefined) bs.full = 0;
+                                if ((Number(bs.bodega) + Number(bs.full)) === 0 && cStk > 0) bs.bodega = cStk;
+                                c.branchStock = bs;
+                                c.stock = Object.values(bs).reduce((s, v) => s + (Number(v) || 0), 0);
+                            });
+
+                            // Calcular delta neto por cada variante / combinacion entre items antiguos y nuevos de esta compra
                             const oldItemsForThis = oldItems.filter(i => i.id === pid);
                             const newGroup = groupedItems[pid];
                             const newUpdatesForThis = newGroup ? newGroup.updates : [];
@@ -2196,19 +2214,22 @@
                                         .reduce((sum, nu) => sum + (parseInt(nu.qty) || 0), 0);
                                     const deltaQty = newQty - oldQty;
 
-                                    const cIdx = combinations.findIndex(c => 
-                                        (c.color || '') === vColor && 
-                                        (c.capacity || '') === vCap
+                                    let cIdx = combinations.findIndex(c => 
+                                        String(c.color || '').trim().toLowerCase() === String(vColor || '').trim().toLowerCase() && 
+                                        String(c.capacity || '').trim().toLowerCase() === String(vCap || '').trim().toLowerCase()
                                     );
+                                    if (cIdx < 0 && combinations.length === 1 && !vColor && !vCap) cIdx = 0;
 
                                     if (cIdx >= 0) {
-                                        // Aplicar delta neto al stock existente: si deltaQty == 0, el stock NO cambia
-                                        combinations[cIdx].stock = Math.max(0, (parseInt(combinations[cIdx].stock) || 0) + deltaQty);
+                                        const curBodega = Number(combinations[cIdx].branchStock.bodega) || 0;
+                                        combinations[cIdx].branchStock.bodega = Math.max(0, curBodega + deltaQty);
+                                        combinations[cIdx].stock = Object.values(combinations[cIdx].branchStock).reduce((s, v) => s + (Number(v) || 0), 0);
                                     } else if (newQty > 0) {
                                         combinations.push({
                                             color: vColor,
                                             capacity: vCap,
                                             stock: newQty,
+                                            branchStock: { bodega: newQty, full: 0 },
                                             price: pData.price || 0,
                                             sku: `${pData.sku || ''}-${(vColor || '').substring(0,3)}-${vCap || ''}`.toUpperCase()
                                         });
@@ -2219,7 +2240,7 @@
                                 const oldQty = oldItemsForThis.reduce((sum, oi) => sum + (parseInt(oi.quantity) || 0), 0);
                                 const newQty = newUpdatesForThis.reduce((sum, nu) => sum + (parseInt(nu.qty) || 0), 0);
                                 const deltaQty = newQty - oldQty;
-                                baseStock = Math.max(0, baseStock + deltaQty);
+                                rootBranchStock.bodega = Math.max(0, (Number(rootBranchStock.bodega) || 0) + deltaQty);
                             }
 
                             if (newGroup) {
@@ -2229,24 +2250,31 @@
                                 });
                             }
 
-                            // Paso C: Calcular stock final
+                            // Paso C: Recalcular rootBranchStock y stock final desde las sucursales
                             let finalProductStock = 0;
                             if (combinations.length > 0) {
-                                finalProductStock = combinations.reduce((sum, c) => sum + (parseInt(c.stock) || 0), 0);
+                                rootBranchStock = { bodega: 0, full: 0 };
+                                combinations.forEach(c => {
+                                    Object.keys(c.branchStock || {}).forEach(bId => {
+                                        rootBranchStock[bId] = (rootBranchStock[bId] || 0) + (Number(c.branchStock[bId]) || 0);
+                                    });
+                                });
+                                finalProductStock = Object.values(rootBranchStock).reduce((s, v) => s + (Number(v) || 0), 0);
                             } else {
-                                finalProductStock = baseStock;
+                                finalProductStock = Object.values(rootBranchStock).reduce((s, v) => s + (Number(v) || 0), 0);
                             }
 
                             const updatePayload = {
                                 stock: finalProductStock,
+                                branchStock: rootBranchStock,
                                 combinations: combinations,
+                                lastStockChangeReason: 'ENTRADA_COMPRA',
+                                lastStockChangeDetails: `Edicion de compra #${editingPurchaseId ? editingPurchaseId.slice(0, 8) : ''}`,
                                 updatedAt: now
                             };
                             if (newGroup) updatePayload.lastPurchaseCost = lastCost;
                             if (pData.status === 'out_of_stock' && finalProductStock > 0) {
                                 updatePayload.status = 'active';
-                            } else if (finalProductStock <= 0 && pData.status === 'active') {
-                                updatePayload.status = 'out_of_stock';
                             }
 
                             transaction.update(doc(db, "products", pid), updatePayload);
@@ -2441,10 +2469,28 @@
                         const pRef = doc(db, "products", pid);
                         const group = groupedItems[pid];
 
-                        let combinations = pData.combinations && Array.isArray(pData.combinations) ? [...pData.combinations] : [];
+                        let combinations = pData.combinations && Array.isArray(pData.combinations) ? JSON.parse(JSON.stringify(pData.combinations)) : [];
                         let lastCost = pData.lastPurchaseCost || 0;
                         let additionalStockTotal = 0;
                         const initialStock = parseInt(pData.stock) || 0;
+                        let rootBranchStock = (pData.branchStock && typeof pData.branchStock === 'object')
+                            ? { ...pData.branchStock }
+                            : { bodega: initialStock, full: 0 };
+                        if (rootBranchStock.bodega === undefined) rootBranchStock.bodega = 0;
+                        if (rootBranchStock.full === undefined) rootBranchStock.full = 0;
+                        if ((Number(rootBranchStock.bodega) + Number(rootBranchStock.full)) === 0 && initialStock > 0) {
+                            rootBranchStock.bodega = initialStock;
+                        }
+
+                        combinations.forEach(c => {
+                            const cStk = Math.max(0, parseInt(c.stock) || 0);
+                            const bs = (c.branchStock && typeof c.branchStock === 'object') ? { ...c.branchStock } : { bodega: cStk, full: 0 };
+                            if (bs.bodega === undefined) bs.bodega = 0;
+                            if (bs.full === undefined) bs.full = 0;
+                            if ((Number(bs.bodega) + Number(bs.full)) === 0 && cStk > 0) bs.bodega = cStk;
+                            c.branchStock = bs;
+                            c.stock = Object.values(bs).reduce((s, v) => s + (Number(v) || 0), 0);
+                        });
 
                         group.updates.forEach(update => {
                             const rowTotal = update.qty * update.unitCostEntered;
@@ -2453,24 +2499,31 @@
                             lastCost = unitCostBase;
                             additionalStockTotal += update.qty;
 
-                            if (update.selectedColor || update.selectedCap) {
-                                const comboIndex = combinations.findIndex(c => {
-                                    const colorMatch = (c.color || "") === (update.selectedColor || "");
-                                    const capMatch = (c.capacity || "") === (update.selectedCap || "");
+                            if (update.selectedColor || update.selectedCap || combinations.length > 0) {
+                                let comboIndex = combinations.findIndex(c => {
+                                    const colorMatch = String(c.color || "").trim().toLowerCase() === String(update.selectedColor || "").trim().toLowerCase();
+                                    const capMatch = String(c.capacity || "").trim().toLowerCase() === String(update.selectedCap || "").trim().toLowerCase();
                                     return colorMatch && capMatch;
                                 });
+                                if (comboIndex < 0 && combinations.length === 1 && !update.selectedColor && !update.selectedCap) {
+                                    comboIndex = 0;
+                                }
 
                                 if (comboIndex >= 0) {
-                                    combinations[comboIndex].stock = (parseInt(combinations[comboIndex].stock) || 0) + update.qty;
+                                    combinations[comboIndex].branchStock.bodega = (Number(combinations[comboIndex].branchStock.bodega) || 0) + update.qty;
+                                    combinations[comboIndex].stock = Object.values(combinations[comboIndex].branchStock).reduce((s, v) => s + (Number(v) || 0), 0);
                                 } else {
                                     combinations.push({
                                         color: update.selectedColor,
                                         capacity: update.selectedCap,
                                         stock: update.qty,
+                                        branchStock: { bodega: update.qty, full: 0 },
                                         price: pData.price || 0,
                                         sku: `${pData.sku || ''}-${(update.selectedColor || '').substring(0,3)}-${update.selectedCap || ''}`.toUpperCase()
                                     });
                                 }
+                            } else {
+                                rootBranchStock.bodega = (Number(rootBranchStock.bodega) || 0) + update.qty;
                             }
 
                             purchaseItems.push({
@@ -2502,15 +2555,24 @@
 
                         let newStockTotal = 0;
                         if (combinations.length > 0) {
-                            newStockTotal = combinations.reduce((sum, i) => sum + (parseInt(i.stock) || 0), 0);
+                            rootBranchStock = { bodega: 0, full: 0 };
+                            combinations.forEach(c => {
+                                Object.keys(c.branchStock || {}).forEach(bId => {
+                                    rootBranchStock[bId] = (rootBranchStock[bId] || 0) + (Number(c.branchStock[bId]) || 0);
+                                });
+                            });
+                            newStockTotal = Object.values(rootBranchStock).reduce((s, v) => s + (Number(v) || 0), 0);
                         } else {
-                            newStockTotal = initialStock + additionalStockTotal;
+                            newStockTotal = Object.values(rootBranchStock).reduce((s, v) => s + (Number(v) || 0), 0);
                         }
 
                         const updateProductPayload = {
                             stock: newStockTotal,
+                            branchStock: rootBranchStock,
                             combinations: combinations,
                             lastPurchaseCost: lastCost,
+                            lastStockChangeReason: 'ENTRADA_COMPRA',
+                            lastStockChangeDetails: `Ingreso de compra (+${additionalStockTotal} uds)`,
                             updatedAt: now
                         };
                         if (pData.status === 'out_of_stock' && newStockTotal > 0) {

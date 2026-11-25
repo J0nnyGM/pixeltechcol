@@ -1,4 +1,4 @@
-import { db, doc, getDoc, updateDoc, collection, onSnapshot } from './firebase-init.js';
+import { db, doc, getDoc, updateDoc, collection, onSnapshot, runTransaction } from './firebase-init.js';
 import { loadAdminSidebar } from './admin-ui.js';
 import { AdminStore } from './admin-store.js';
 import { isAuthorizedForTransfer, openTransferFullModal } from './inventory-transfer.js';
@@ -892,7 +892,7 @@ function checkTransferHeaderButton() {
 checkTransferHeaderButton();
 window.addEventListener('adminRoleResolved', () => {
     checkTransferHeaderButton();
-    renderTable();
+    renderViewFromMemory();
 });
 
 window.addEventListener('inventoryTransferCompleted', async (e) => {
@@ -906,7 +906,7 @@ window.addEventListener('inventoryTransferCompleted', async (e) => {
                 if (idx >= 0) {
                     adminProductsCache[idx] = updatedProd;
                 }
-                applyFilters();
+                renderViewFromMemory();
             }
         } catch (err) {
             console.error("Error al actualizar producto tras traslado:", err);
@@ -1036,54 +1036,102 @@ if(discountForm) {
         btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i>';
 
         try {
-            const product = currentEditingProduct;
-            let minPrice = Infinity;
-            let rootOriginalPrice = product.originalPrice || product.price;
-            let updatedCombinations = product.combinations || [];
-            let updatedCapacities = product.capacities || [];
-
-            if (updatedCombinations.length > 0) {
-                document.querySelectorAll('.var-discount-input').forEach(inp => {
-                    const idx = inp.dataset.index; const newPriceRaw = parseCurrency(inp.value); const comb = updatedCombinations[idx];
-                    if (!comb.originalPrice) comb.originalPrice = comb.price;
-                    comb.price = (newPriceRaw > 0 && newPriceRaw < comb.originalPrice) ? newPriceRaw : comb.originalPrice;
-                    if (comb.price < minPrice) minPrice = comb.price;
+            const varInputsMap = [];
+            document.querySelectorAll('.var-discount-input').forEach(inp => {
+                varInputsMap.push({
+                    idx: parseInt(inp.dataset.index, 10),
+                    newPriceRaw: parseCurrency(inp.value)
                 });
-                updatedCapacities = updatedCapacities.map(cap => {
-                    const matchingComb = updatedCombinations.find(c => c.capacity === cap.label);
-                    return (matchingComb && matchingComb.price < (cap.originalPrice || cap.price)) ? { ...cap, originalPrice: cap.originalPrice || cap.price, price: matchingComb.price } : cap;
-                });
-            } else {
-                const newPriceRaw = parseCurrency(dNewPriceInput.value);
-                if (newPriceRaw <= 0 || newPriceRaw >= rootOriginalPrice) throw new Error("Precio inválido.");
-                minPrice = newPriceRaw;
-            }
+            });
+            const simpleNewPriceRaw = dNewPriceInput ? parseCurrency(dNewPriceInput.value) : 0;
 
             let endDate = new Date();
             if (currentDurationType === 'days') {
-                const days = parseInt(document.getElementById('d-duration-days').value);
-                if (!days) throw new Error("Ingresa días."); endDate.setDate(endDate.getDate() + days);
+                const days = parseInt(document.getElementById('d-duration-days').value, 10);
+                if (!days) throw new Error("Ingresa dias.");
+                endDate.setDate(endDate.getDate() + days);
             } else {
                 const dateVal = document.getElementById('d-duration-date').value;
-                if (!dateVal) throw new Error("Selecciona fecha."); endDate = new Date(dateVal);
+                if (!dateVal) throw new Error("Selecciona fecha.");
+                endDate = new Date(dateVal);
             }
 
-            await updateDoc(doc(db, "products", currentEditingId), { originalPrice: rootOriginalPrice, price: minPrice, promoEndsAt: endDate, updatedAt: new Date(), combinations: updatedCombinations, capacities: updatedCapacities });
+            const prodRef = doc(db, "products", currentEditingId);
+            await runTransaction(db, async (tx) => {
+                const liveSnap = await tx.get(prodRef);
+                if (!liveSnap.exists()) throw new Error("Producto no encontrado.");
+                const liveProd = liveSnap.data();
+
+                let minPrice = Infinity;
+                let rootOriginalPrice = liveProd.originalPrice || liveProd.price;
+                let updatedCombinations = Array.isArray(liveProd.combinations) ? JSON.parse(JSON.stringify(liveProd.combinations)) : [];
+                let updatedCapacities = Array.isArray(liveProd.capacities) ? JSON.parse(JSON.stringify(liveProd.capacities)) : [];
+
+                if (updatedCombinations.length > 0) {
+                    varInputsMap.forEach(({ idx, newPriceRaw }) => {
+                        const comb = updatedCombinations[idx];
+                        if (!comb) return;
+                        if (!comb.originalPrice) comb.originalPrice = comb.price;
+                        comb.price = (newPriceRaw > 0 && newPriceRaw < comb.originalPrice) ? newPriceRaw : comb.originalPrice;
+                        if (comb.price < minPrice) minPrice = comb.price;
+                    });
+                    if (!Number.isFinite(minPrice)) {
+                        minPrice = Math.min(...updatedCombinations.map(c => Number(c.price) || 0));
+                    }
+                    updatedCapacities = updatedCapacities.map(cap => {
+                        const matchingComb = updatedCombinations.find(c => c.capacity === cap.label);
+                        return (matchingComb && matchingComb.price < (cap.originalPrice || cap.price)) ? { ...cap, originalPrice: cap.originalPrice || cap.price, price: matchingComb.price } : cap;
+                    });
+                } else {
+                    if (simpleNewPriceRaw <= 0 || simpleNewPriceRaw >= rootOriginalPrice) throw new Error("Precio invalido.");
+                    minPrice = simpleNewPriceRaw;
+                }
+
+                tx.update(prodRef, {
+                    originalPrice: rootOriginalPrice,
+                    price: minPrice,
+                    promoEndsAt: endDate,
+                    updatedAt: new Date(),
+                    combinations: updatedCombinations,
+                    capacities: updatedCapacities
+                });
+            });
+
             alert("Oferta aplicada con exito."); closeDiscountModal();
         } catch (e) { alert("Error: " + e.message); } finally { btn.disabled = false; btn.innerHTML = originalText; }
     });
 }
 
 window.removeDiscount = async () => {
-    if (!confirm("¿Restaurar precios originales?")) return;
+    if (!confirm("Restaurar precios originales?")) return;
     try {
-        const product = currentEditingProduct;
-        if (!product.originalPrice) return;
+        const prodRef = doc(db, "products", currentEditingId);
+        await runTransaction(db, async (tx) => {
+            const liveSnap = await tx.get(prodRef);
+            if (!liveSnap.exists()) return;
+            const liveProd = liveSnap.data();
+            if (!liveProd.originalPrice) return;
 
-        let updatedCombinations = (product.combinations || []).map(c => ({ ...c, price: c.originalPrice || c.price, originalPrice: 0 }));
-        let updatedCapacities = (product.capacities || []).map(c => ({ ...c, price: c.originalPrice || c.price, originalPrice: 0 }));
+            const updatedCombinations = (liveProd.combinations || []).map(c => ({
+                ...c,
+                price: c.originalPrice || c.price,
+                originalPrice: 0
+            }));
+            const updatedCapacities = (liveProd.capacities || []).map(c => ({
+                ...c,
+                price: c.originalPrice || c.price,
+                originalPrice: 0
+            }));
 
-        await updateDoc(doc(db, "products", currentEditingId), { price: product.originalPrice, originalPrice: 0, promoEndsAt: null, updatedAt: new Date(), combinations: updatedCombinations, capacities: updatedCapacities });
+            tx.update(prodRef, {
+                price: liveProd.originalPrice,
+                originalPrice: 0,
+                promoEndsAt: null,
+                updatedAt: new Date(),
+                combinations: updatedCombinations,
+                capacities: updatedCapacities
+            });
+        });
         alert("Oferta removida con exito."); closeDiscountModal();
     } catch (e) { console.error(e); }
 };
