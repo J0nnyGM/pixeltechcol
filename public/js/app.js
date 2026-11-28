@@ -1,5 +1,5 @@
 import { auth, db, onAuthStateChanged, collection, getDocs, query, where, limit, doc, getDoc, orderBy, onSnapshot } from "./firebase-init.js";
-import { addToCart, updateCartCount, getProductQtyInCart, removeFromCart, removeOneUnit } from "./cart.js";
+import { addToCart, updateCartCount, getProductQtyInCart, removeFromCart, removeOneUnit, getWebSellableStock } from "./cart.js";
 
 console.log("🚀 PixelTech Store Iniciada - Modo SmartSync Dual");
 
@@ -52,10 +52,11 @@ const SmartProductSync = {
             console.log("⬇️ Descargando catálogo y activando tiempo real...");
             q = query(collectionRef, where("status", "==", "active"));
         } 
-        // CASO 2: Usuario recurrente -> Escuchar SOLO lo que cambió desde su última visita
+        // CASO 2: Usuario recurrente -> Escuchar SOLO lo que cambió desde su última visita (margen de 10 min por desfase de reloj)
         else {
-            console.log("🔄 Escuchando actualizaciones en tiempo real desde:", new Date(lastSyncTime).toLocaleString());
-            q = query(collectionRef, where("updatedAt", ">", new Date(lastSyncTime)));
+            const safeSince = Math.max(0, lastSyncTime - 10 * 60 * 1000);
+            console.log("Escuchando actualizaciones en tiempo real desde:", new Date(safeSince).toLocaleString());
+            q = query(collectionRef, where("updatedAt", ">", new Date(safeSince)));
         }
 
         onSnapshot(q, (snapshot) => {
@@ -450,9 +451,21 @@ window.confirmAdd = (context) => {
     const selCap = container.dataset.selCap || null;
 
     let finalPrice = p.price;
-    if (selCap && p.capacities) {
+    if (Array.isArray(p.combinations) && p.combinations.length > 0) {
+        const combo = p.combinations.find(c =>
+            (c.color === selColor || (!c.color && !selColor)) &&
+            (c.capacity === selCap || (!c.capacity && !selCap))
+        );
+        if (combo && combo.price) finalPrice = combo.price;
+    } else if (selCap && p.capacities) {
         const c = p.capacities.find(x => x.label === selCap);
         if (c) finalPrice = c.price;
+    }
+
+    const availStock = getWebSellableStock(p, selColor, selCap);
+    if (availStock <= 0) {
+        alert("Esta variante se encuentra agotada en este momento.");
+        return;
     }
 
     let finalImage = p.mainImage || p.image;
@@ -461,7 +474,7 @@ window.confirmAdd = (context) => {
         if (v && v.images?.[0]) finalImage = v.images[0];
     }
 
-    addToCart({
+    const res = addToCart({
         id: p.id,
         name: p.name,
         price: finalPrice,
@@ -469,8 +482,13 @@ window.confirmAdd = (context) => {
         image: finalImage,
         color: selColor,
         capacity: selCap,
-        quantity: 1
+        quantity: 1,
+        maxStock: availStock
     });
+    if (res && !res.success && res.message) {
+        alert(res.message);
+        return;
+    }
 
     if (context === 'modal') window.closeGlobalModal();
     else window.closeCardOverlay(context);
@@ -555,7 +573,8 @@ window.quickAdd = (id) => {
         }
     }
 
-    addToCart({
+    const availStock = getWebSellableStock(p, selectedColor, selectedCapacity);
+    const res = addToCart({
         id: p.id,
         name: p.name,
         price: finalPrice,
@@ -563,8 +582,13 @@ window.quickAdd = (id) => {
         image: finalImage,
         color: selectedColor,
         capacity: selectedCapacity,
-        quantity: 1
+        quantity: 1,
+        maxStock: availStock
     });
+    if (res && !res.success && res.message) {
+        alert(res.message);
+        return;
+    }
 
     updateCartCount();
     refreshAllGrids();
@@ -750,7 +774,7 @@ function loadPromoSlider() {
     onSnapshot(q, (snapshot) => {
         let promos = [];
         snapshot.forEach(doc => promos.push({id: doc.id, ...doc.data()}));
-        promos = promos.filter(p => p.stock > 0);
+        promos = promos.filter(p => getWebSellableStock(p) > 0);
 
         localStorage.setItem('pixeltech_promo_slider_cache', JSON.stringify(promos));
 
@@ -847,7 +871,7 @@ function loadNewLaunch() {
     onSnapshot(q, (snapshot) => {
         let launches = [];
         snapshot.forEach(doc => launches.push({id: doc.id, ...doc.data()}));
-        launches = launches.filter(x => x.stock > 0);
+        launches = launches.filter(x => getWebSellableStock(x) > 0);
         
         if (launches.length === 0) {
             localStorage.removeItem('pixeltech_launch_cache');
@@ -979,10 +1003,10 @@ function loadViewHistory() {
 }
 
 function loadWeeklyChoices() {
-    weeklyData = allProductsCache.filter(p => p.isWeeklyChoice === true && p.stock > 0);
+    weeklyData = allProductsCache.filter(p => p.isWeeklyChoice === true && getWebSellableStock(p) > 0);
 
     if (weeklyData.length < 3 && allProductsCache.length > 0) {
-        const pool = allProductsCache.filter(p => !weeklyData.includes(p) && p.stock > 0);
+        const pool = allProductsCache.filter(p => !weeklyData.includes(p) && getWebSellableStock(p) > 0);
         pool.sort(() => 0.5 - Math.random());
         const needed = 4 - weeklyData.length;
         weeklyData = [...weeklyData, ...pool.slice(0, needed)];
@@ -1015,7 +1039,7 @@ function loadPromotionsGrid() {
     }
 
     // 2. Procesar Promociones reales
-    const validPromos = allProductsCache.filter(p => p.stock > 0 && p.originalPrice > p.price);
+    const validPromos = allProductsCache.filter(p => getWebSellableStock(p) > 0 && p.originalPrice > p.price);
     
     if (validPromos.length === 0) {
         // Si ya cargó el catálogo pero NO hay ofertas reales, ocultamos la sección completa
@@ -1075,7 +1099,7 @@ function loadFeatured() {
 
     // 2. Generar nueva lista si es necesario (Primera vez o pasaron 8 días)
     if (needsRefresh) {
-        const availablePool = allProductsCache.filter(p => p.stock > 0);
+        const availablePool = allProductsCache.filter(p => getWebSellableStock(p) > 0);
 
         if (availablePool.length > 0) {
             let pool = [...availablePool];
@@ -1138,10 +1162,10 @@ function loadBestSellers() {
         return;
     }
 
-    let best = allProductsCache.filter(p => (p.originalPrice > p.price || p.isWeeklyChoice) && p.stock > 0);
+    let best = allProductsCache.filter(p => (p.originalPrice > p.price || p.isWeeklyChoice) && getWebSellableStock(p) > 0);
     
     if (best.length < 8) {
-        const others = allProductsCache.filter(p => !best.includes(p) && p.stock > 0);
+        const others = allProductsCache.filter(p => !best.includes(p) && getWebSellableStock(p) > 0);
         others.sort(() => 0.5 - Math.random());
         best = [...best, ...others.slice(0, 8 - best.length)];
     }
@@ -1251,7 +1275,7 @@ track.innerHTML = content + content + content + content;
 
 // 2. CORRECCIÓN EN LAS TARJETAS NORMALES
 function createProductCard(p, style = "normal", prefix = "grid") {
-    const isOutOfStock = (p.maxStock !== undefined && p.maxStock <= 0) || (p.stock || 0) <= 0;
+    const isOutOfStock = (p.maxStock !== undefined && p.maxStock <= 0) || getWebSellableStock(p) <= 0;
     const hasDiscount = !isOutOfStock && (p.originalPrice && p.originalPrice > p.price);
     
     let freeThreshold = Infinity;

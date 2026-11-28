@@ -181,9 +181,9 @@ class StoreModule {
             q = query(colRef, ...this.queryConstraints);
             console.log(` [Store: ${this.name}] Descarga inicial limpia.`);
         } else {
-            // DELTA SYNC: Le pedimos a Firebase CUALQUIER cosa que haya cambiado.
-            // No usamos queryConstraints aquí para no romper Firebase con falta de índices compuestos.
-            const serverDate = new Date(this.lastSyncTime);
+            // DELTA SYNC: ventana de solapamiento de 10 min para inmunidad ante desfase de reloj cliente/servidor
+            const safeSinceMs = Math.max(0, this.lastSyncTime - (10 * 60 * 1000));
+            const serverDate = new Date(safeSinceMs);
             q = query(colRef, where("updatedAt", ">", serverDate));
             console.log(` [Store: ${this.name}] Buscando deltas desde:`, serverDate.toLocaleString());
         }

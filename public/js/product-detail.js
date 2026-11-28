@@ -1,5 +1,5 @@
 import { db, doc, collection, query, where, limit, getDocs, getDoc, onSnapshot } from './firebase-init.js';
-import { addToCart } from './cart.js'; 
+import { addToCart, getWebSellableStock } from './cart.js'; 
 import { trackEcommerceEvent } from './global-components.js';
 
 // Estado local
@@ -254,9 +254,9 @@ async function renderProductData(p, productId) {
         if (validColor) state.selectedColor = validColor.color;
     }
 
-    // Inicializar valores base
+    // Inicializar valores base (stock de bodega vendible en web)
     state.currentPrice = p.price || 0;
-    state.currentStock = typeof p.stock === 'number' ? p.stock : 0;
+    state.currentStock = getWebSellableStock(p);
     
     const rawImages = Array.isArray(p.images) ? p.images : [];
     const allImages = [p.mainImage, ...rawImages].filter(Boolean);
@@ -476,17 +476,17 @@ async function updateShippingText() {
 
 function getStockForVariant(product, color, capacity) {
     if (!product) return 0;
-    if (product.isSimple) return product.stock || 0;
+    if (product.isSimple) return getWebSellableStock(product);
     if (!Array.isArray(product.combinations)) return 0;
     const variant = product.combinations.find(c => (c.color === color || (!c.color && !color)) && (c.capacity === capacity || (!c.capacity && !capacity)));
-    return variant ? (variant.stock || 0) : 0;
+    return variant ? getWebSellableStock(variant) : 0;
 }
 
 function updatePriceDisplay() {
     const p = state.product;
     if (!p) return;
     let price = p.price || 0;
-    let stock = typeof p.stock === 'number' ? p.stock : 0;
+    let stock = getWebSellableStock(p);
     let activeSku = p.sku || 'N/A'; 
 
     if (!p.isSimple && Array.isArray(p.combinations)) {
@@ -496,7 +496,7 @@ function updatePriceDisplay() {
                 (c.capacity === state.selectedCapacity || (!c.capacity && !state.selectedCapacity))
             );
             if (variant) {
-                stock = variant.stock || 0;
+                stock = getWebSellableStock(variant);
                 price = variant.price || price;
                 if(variant.sku) activeSku = variant.sku; 
             } else {
@@ -704,7 +704,7 @@ function renderOptions(p) {
         
         p.variants.forEach((v) => {
             const isSelected = state.selectedColor === v.color;
-            let isOut = p.hasCapacities ? (!Array.isArray(p.combinations) || !p.combinations.some(c => c.color === v.color && c.stock > 0)) : getStockForVariant(p, v.color, null) <= 0;
+            let isOut = p.hasCapacities ? (!Array.isArray(p.combinations) || !p.combinations.some(c => c.color === v.color && getWebSellableStock(c) > 0)) : getStockForVariant(p, v.color, null) <= 0;
             const btn = document.createElement('button');
             let classes = "px-6 py-3 rounded-xl border-2 text-xs font-bold uppercase transition-all duration-200 relative ";
             if (isOut) { classes += "bg-gray-100 text-gray-400 border-gray-100 cursor-not-allowed opacity-60 "; btn.disabled = true; }
@@ -785,9 +785,24 @@ function handleAddToCart() {
     const qty = parseInt(els.qty.value) || 1;
     const p = state.product;
     if (!p) return;
-    if (qty > state.currentStock) { alert(`Solo hay ${state.currentStock} unidades disponibles.`); return; }
+    if (qty > state.currentStock || state.currentStock <= 0) { alert(`Solo hay ${state.currentStock} unidades disponibles.`); return; }
     if (p.hasCapacities && !state.selectedCapacity) { alert("Selecciona una capacidad"); return; }
     if (p.hasVariants && !state.selectedColor) { alert("Selecciona un color"); return; }
+
+    const res = addToCart({
+        id: p.id,
+        name: p.name,
+        price: state.currentPrice,
+        image: state.currentImage,
+        color: state.selectedColor,
+        capacity: state.selectedCapacity,
+        quantity: qty,
+        maxStock: state.currentStock
+    });
+    if (res && !res.success) {
+        alert(res.message || `Solo hay ${state.currentStock} unidades disponibles.`);
+        return;
+    }
 
     const originalText = els.btnAdd.innerText;
     els.btnAdd.innerText = "¡Agregado!";
@@ -804,7 +819,6 @@ function handleAddToCart() {
         }]
     });
     
-    addToCart({ id: p.id, name: p.name, price: state.currentPrice, image: state.currentImage, color: state.selectedColor, capacity: state.selectedCapacity, quantity: qty });
     if(window.showToast) window.showToast(`${p.name} agregado al carrito`);
     setTimeout(() => { 
         if (els.btnAdd) {
@@ -830,7 +844,7 @@ function injectProductSchema(p) {
     const currentUrl = window.location.href; 
     
     const exactDisplayedPrice = state.currentPrice || p.price || 0;
-    const exactDisplayedStock = typeof state.currentStock === 'number' ? state.currentStock : (p.stock || 0);
+    const exactDisplayedStock = typeof state.currentStock === 'number' ? state.currentStock : getWebSellableStock(p);
     const availability = exactDisplayedStock > 0 ? "https://schema.org/InStock" : "https://schema.org/OutOfStock";
 
     let schemaProductName = p.name;

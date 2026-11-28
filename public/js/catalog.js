@@ -1,5 +1,5 @@
 import { db, collection, getDocs, query, where, limit, onSnapshot } from "./firebase-init.js";
-import { addToCart, updateCartCount, getProductQtyInCart, removeOneUnit } from "./cart.js";
+import { addToCart, updateCartCount, getProductQtyInCart, removeOneUnit, getWebSellableStock } from "./cart.js";
 
 // --- ESTADO GLOBAL ---
 let allProducts = [];
@@ -112,10 +112,11 @@ const SmartCatalogSync = {
             console.log("⬇️ [Catálogo] Descargando inventario completo y activando tiempo real...");
             q = query(collectionRef, where("status", "==", "active"));
         } 
-        // CASO 2: Usuario recurrente (Solo escucha Deltas)
+        // CASO 2: Usuario recurrente (Solo escucha Deltas con margen de 10 min por desfase de reloj)
         else {
-            console.log("🔄 [Catálogo] Escuchando actualizaciones en tiempo real desde:", new Date(lastSyncTime).toLocaleString());
-            q = query(collectionRef, where("updatedAt", ">", new Date(lastSyncTime)));
+            const safeSince = Math.max(0, lastSyncTime - 10 * 60 * 1000);
+            console.log("[Catálogo] Escuchando actualizaciones en tiempo real desde:", new Date(safeSince).toLocaleString());
+            q = query(collectionRef, where("updatedAt", ">", new Date(safeSince)));
         }
 
         onSnapshot(q, (snapshot) => {
@@ -214,7 +215,8 @@ async function loadProductsSmart() {
         if (lastSyncTime === 0 || allProducts.length === 0) {
             q = query(collectionRef, where("status", "==", "active"));
         } else {
-            q = query(collectionRef, where("updatedAt", ">", new Date(lastSyncTime)));
+            const safeSince = Math.max(0, lastSyncTime - 10 * 60 * 1000);
+            q = query(collectionRef, where("updatedAt", ">", new Date(safeSince)));
         }
 
         const snap = await getDocs(q);
@@ -440,18 +442,30 @@ window.confirmAdd = (uniqueId) => {
     const selCap = container.dataset.selCap || null;
 
     if (p.hasVariants && !selColor) {
-        alert("🚨 Por favor, selecciona un Color.");
+        alert("Por favor, selecciona un Color.");
         return;
     }
     if (p.hasCapacities && !selCap) {
-        alert("🚨 Por favor, selecciona una Capacidad.");
+        alert("Por favor, selecciona una Capacidad.");
         return;
     }
 
     let finalPrice = p.price;
-    if (selCap && p.capacities) {
+    if (Array.isArray(p.combinations) && p.combinations.length > 0) {
+        const combo = p.combinations.find(c =>
+            (c.color === selColor || (!c.color && !selColor)) &&
+            (c.capacity === selCap || (!c.capacity && !selCap))
+        );
+        if (combo && combo.price) finalPrice = combo.price;
+    } else if (selCap && p.capacities) {
         const c = p.capacities.find(x => x.label === selCap);
         if (c) finalPrice = c.price;
+    }
+
+    const availStock = getWebSellableStock(p, selColor, selCap);
+    if (availStock <= 0) {
+        alert("Esta variante se encuentra agotada en este momento.");
+        return;
     }
 
     let finalImage = p.mainImage || p.image;
@@ -460,7 +474,11 @@ window.confirmAdd = (uniqueId) => {
         if (v && v.images?.[0]) finalImage = v.images[0];
     }
 
-    addToCart({ id: p.id, name: p.name, price: finalPrice, originalPrice: p.originalPrice || 0, image: finalImage, color: selColor, capacity: selCap, quantity: 1 });
+    const res = addToCart({ id: p.id, name: p.name, price: finalPrice, originalPrice: p.originalPrice || 0, image: finalImage, color: selColor, capacity: selCap, quantity: 1, maxStock: availStock });
+    if (res && !res.success && res.message) {
+        alert(res.message);
+        return;
+    }
     window.closeCardOverlay(uniqueId);
     renderGrid();
     updateCartCount();
@@ -485,7 +503,12 @@ window.quickAdd = (id) => {
         if (p.variants[0].images?.[0]) finalImage = p.variants[0].images[0];
     }
 
-    addToCart({ id: p.id, name: p.name, price: finalPrice, image: finalImage, color: selectedColor, capacity: selectedCapacity, quantity: 1 });
+    const availStock = getWebSellableStock(p, selectedColor, selectedCapacity);
+    const res = addToCart({ id: p.id, name: p.name, price: finalPrice, image: finalImage, color: selectedColor, capacity: selectedCapacity, quantity: 1, maxStock: availStock });
+    if (res && !res.success && res.message) {
+        alert(res.message);
+        return;
+    }
     renderGrid();
     updateCartCount();
 };
@@ -508,7 +531,7 @@ function renderGrid() {
     const productsToShow = filteredProducts.slice(start, end);
 
     grid.innerHTML = productsToShow.map(p => {
-        const isOutOfStock = (p.stock || 0) <= 0;
+        const isOutOfStock = getWebSellableStock(p) <= 0;
         const hasDiscount = !isOutOfStock && (p.originalPrice && p.originalPrice > p.price);
         const qtyInCart = getProductQtyInCart(p.id);
         const hasVariants = (p.hasVariants && p.variants?.length > 0) || (p.hasCapacities && p.capacities?.length > 0);
@@ -735,7 +758,13 @@ function applySortAndFilter() {
 window.handleCartAction = (productId, delta) => {
     const product = allProducts.find(p => p.id === productId);
     if (!product) return;
-    if (delta > 0) addToCart(product);
+    if (delta > 0) {
+        const res = addToCart({ ...product, maxStock: getWebSellableStock(product) });
+        if (res && !res.success && res.message) {
+            alert(res.message);
+            return;
+        }
+    }
     else removeOneUnit(productId);
     renderGrid();
     if (window.updateCartCountGlobal) window.updateCartCountGlobal();

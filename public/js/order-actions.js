@@ -418,8 +418,8 @@ export async function viewOrderDetail(orderId) {
             const uDoc = await getDoc(doc(db, "users", auth.currentUser.uid));
             if (uDoc.exists()) {
                 const uRole = uDoc.data().role;
-                if (['admin', 'developer'].includes(uRole)) isAdmin = true;
-                if (['admin', 'developer', 'ventas'].includes(uRole)) canLinkProduct = true;
+                if (['admin', 'administrador', 'developer'].includes(uRole)) isAdmin = true;
+                if (['admin', 'administrador', 'developer', 'ventas'].includes(uRole)) canLinkProduct = true;
             }
         }
 
@@ -479,11 +479,13 @@ export async function viewOrderDetail(orderId) {
         safeSetText('modal-order-id', `#${o.internalOrderNumber || snap.id.slice(0, 8).toUpperCase()}`);
         safeSetText('modal-order-date', formatOrderDateStr(o));
 
+        const isPendingCancelAction = o.status !== 'CANCELADO' && !o.cancellationConfirmed && (o.cancellationPendingConfirm === true || o.status === 'CANCELACION_PENDIENTE');
+
         const badge = getEl('modal-order-status-badge');
         if (badge) {
             let bText = o.status || 'PENDIENTE';
             let bClass = 'bg-yellow-100 text-yellow-700 border-yellow-200';
-            if ((o.cancellationPendingConfirm || o.status === 'CANCELACION_PENDIENTE') && !isFull) {
+            if (isPendingCancelAction && !isFull) {
                 bText = 'CANCELACION EN ML';
                 bClass = 'bg-rose-600 text-white border-rose-700 animate-pulse font-black shadow-md';
             } else if (o.status === 'ALISTADO') bClass = 'bg-blue-100 text-blue-700 border-blue-200';
@@ -491,7 +493,7 @@ export async function viewOrderDetail(orderId) {
             else if (o.status === 'PAGADO') bClass = 'bg-green-100 text-green-700 border-green-200'; 
             else if (o.status === 'DEVOLUCION_PARCIAL') bClass = 'bg-orange-100 text-orange-700 border-orange-200';
             else if (o.status === 'DEVUELTO') bClass = 'bg-purple-100 text-purple-700 border-purple-200';
-            else if (['CANCELADO', 'RECHAZADO'].includes(o.status) || (isFull && (o.cancellationPendingConfirm || o.status === 'CANCELACION_PENDIENTE'))) {
+            else if (['CANCELADO', 'RECHAZADO'].includes(o.status) || (isFull && isPendingCancelAction)) {
                 bText = 'CANCELADO';
                 bClass = 'bg-red-100 text-red-700 border-red-200';
             }
@@ -604,7 +606,7 @@ export async function viewOrderDetail(orderId) {
             }
 
             let cancelBannerHtml = '';
-            if ((o.cancellationPendingConfirm || o.status === 'CANCELACION_PENDIENTE') && !isFull) {
+            if (isPendingCancelAction && !isFull) {
                 cancelBannerHtml = `
                     <div class="mb-4 p-4 rounded-2xl bg-rose-50 border-2 border-rose-500 text-rose-950 shadow-md animate-in fade-in">
                         <div class="flex items-center justify-between border-b border-rose-200 pb-2 mb-2">
@@ -631,7 +633,7 @@ export async function viewOrderDetail(orderId) {
 
             let fullBannerHtml = '';
             if (isFull) {
-                const isPendingFullCancel = (o.cancellationPendingConfirm || o.status === 'CANCELACION_PENDIENTE');
+                const isPendingFullCancel = isPendingCancelAction;
                 const isCancelledFull = o.status === 'CANCELADO' || isPendingFullCancel || o.mlCancelled;
                 fullBannerHtml = `
                     <div class="mb-4 p-4 rounded-2xl ${isCancelledFull ? 'bg-amber-50 border border-amber-300 text-amber-950' : 'bg-emerald-50 border border-emerald-300 text-emerald-950'} shadow-sm flex items-center justify-between flex-wrap gap-3">
@@ -1237,9 +1239,30 @@ export function closeCancelOrderModal() {
 window.openCancelOrderModal = openCancelOrderModal;
 window.closeCancelOrderModal = closeCancelOrderModal;
 
+const inFlightCancelOrders = new Set();
+
+function notifyOrderPatchedLocally(orderId, partialUpdates = {}) {
+    if (!orderId) return;
+    try {
+        if (window.SmartAdminOrdersSync && typeof window.SmartAdminOrdersSync.patchOrderLocally === 'function') {
+            window.SmartAdminOrdersSync.patchOrderLocally(orderId, partialUpdates);
+        } else {
+            if (typeof window.reCalcularFiltroLocal === 'function') window.reCalcularFiltroLocal();
+            if (typeof window.renderOrdersFromMemory === 'function') window.renderOrdersFromMemory();
+        }
+        if (typeof window.patchDashboardOrderLocally === 'function') {
+            window.patchDashboardOrderLocally(orderId, partialUpdates);
+        }
+    } catch (syncErr) {
+        console.warn("[OrderActions] Error refrescando cache local:", syncErr);
+    }
+}
+
 window.executeCancelManualOrder = async function() {
-    const order = pendingCancelOrder;
-    if (!order) return;
+    const order = pendingCancelOrder || currentOrderData;
+    if (!order || !order.id) return;
+    if (inFlightCancelOrders.has(order.id)) return;
+    inFlightCancelOrders.add(order.id);
 
     const btn = getEl('com-btn-confirm');
     if (btn) {
@@ -1248,20 +1271,41 @@ window.executeCancelManualOrder = async function() {
     }
 
     const shouldReturnStock = Boolean(getEl('com-return-stock-checkbox')?.checked);
+    const userName = auth.currentUser?.displayName || auth.currentUser?.email || 'Administrador';
 
     try {
         let isStockDeducted = false;
         let freshItems = [];
         let isFullOrder = false;
         let ordNum = order.internalOrderNumber || order.id;
+        let finalPaymentStatus = 'CANCELLED';
+        let clearedStaleFlagOnly = false;
 
         await runTransaction(db, async (t) => {
+            isStockDeducted = false;
+            freshItems = [];
+            clearedStaleFlagOnly = false;
+
             const oRef = doc(db, "orders", order.id);
             const oSnap = await t.get(oRef);
             if (!oSnap.exists()) throw new Error("La orden no existe.");
             const oData = oSnap.data();
 
-            if (oData.status === 'CANCELADO') throw new Error("La orden ya estaba cancelada.");
+            if (oData.status === 'CANCELADO') {
+                if (oData.cancellationPendingConfirm === true || !oData.cancellationConfirmed) {
+                    clearedStaleFlagOnly = true;
+                    finalPaymentStatus = oData.paymentStatus || 'REFUNDED';
+                    t.update(oRef, {
+                        cancellationPendingConfirm: false,
+                        cancellationConfirmed: true,
+                        cancellationConfirmedBy: oData.cancellationConfirmedBy || userName,
+                        cancellationConfirmedAt: oData.cancellationConfirmedAt || serverTimestamp(),
+                        updatedAt: serverTimestamp()
+                    });
+                    return;
+                }
+                throw new Error("La orden ya estaba cancelada.");
+            }
 
             isStockDeducted = oData.isStockDeducted === true || (oData.source === 'MANUAL' && oData.isStockDeducted !== false);
             freshItems = Array.isArray(oData.items) ? oData.items : [];
@@ -1270,7 +1314,7 @@ window.executeCancelManualOrder = async function() {
 
             let accSnap = null;
             let accRef = null;
-            if (oData.amountPaid > 0 && oData.paymentAccountId) {
+            if (oData.amountPaid > 0 && oData.paymentAccountId && oData.paymentStatus !== 'REFUNDED') {
                 accRef = doc(db, "accounts", oData.paymentAccountId);
                 accSnap = await t.get(accRef);
             }
@@ -1279,7 +1323,7 @@ window.executeCancelManualOrder = async function() {
             const remSnap = await t.get(remRef);
 
             if (accSnap && accSnap.exists()) {
-                const newBalance = (accSnap.data().balance || 0) - oData.amountPaid;
+                const newBalance = (Number(accSnap.data().balance) || 0) - (Number(oData.amountPaid) || 0);
                 t.update(accRef, { balance: newBalance });
 
                 const expenseRef = doc(collection(db, "expenses"));
@@ -1297,11 +1341,16 @@ window.executeCancelManualOrder = async function() {
                 });
             }
 
+            finalPaymentStatus = oData.amountPaid > 0 ? 'REFUNDED' : 'CANCELLED';
             const updateObj = {
                 status: 'CANCELADO',
                 isStockDeducted: false,
+                cancellationPendingConfirm: false,
+                cancellationConfirmed: true,
+                cancellationConfirmedBy: userName,
+                cancellationConfirmedAt: serverTimestamp(),
                 cancelledWithoutStockReturn: !shouldReturnStock,
-                paymentStatus: oData.amountPaid > 0 ? 'REFUNDED' : 'CANCELLED',
+                paymentStatus: finalPaymentStatus,
                 refundedAmount: (oData.refundedAmount || 0) + (oData.amountPaid || 0),
                 cancelReason: shouldReturnStock 
                     ? 'Anulada por Administrador (Con retorno de stock)' 
@@ -1318,13 +1367,19 @@ window.executeCancelManualOrder = async function() {
             }
         });
 
-        if (shouldReturnStock && isStockDeducted && freshItems.length > 0) {
+        const stockWarnings = [];
+        if (!clearedStaleFlagOnly && shouldReturnStock && isStockDeducted && freshItems.length > 0) {
             for (const item of freshItems) {
                 if (item.stockDeducted === false) continue;
                 const qtyToRestore = Math.max(0, (Number(item.quantity) || 1) - (Number(item.returnedQty) || 0));
                 if (qtyToRestore <= 0) continue;
                 const targetBranch = item.linkedBranch || (isFullOrder ? 'full' : 'bodega');
-                await safeAdjustStock(item.id, qtyToRestore, item.color, item.capacity, 'DEVOLUCION_CANCELACION', `Devolución por anulación del pedido #${ordNum}`, targetBranch);
+                try {
+                    await safeAdjustStock(item.id, qtyToRestore, item.color, item.capacity, 'DEVOLUCION_CANCELACION', `Devolución por anulación del pedido #${ordNum}`, targetBranch);
+                } catch (stkErr) {
+                    console.error(`[Anulacion] Error restaurando stock de ${item.id}:`, stkErr);
+                    stockWarnings.push(`${item.name || item.id}: ${stkErr?.message || stkErr}`);
+                }
             }
         }
 
@@ -1357,17 +1412,33 @@ window.executeCancelManualOrder = async function() {
         }
 
         clearDraftSerials(order.id);
+        notifyOrderPatchedLocally(order.id, {
+            status: 'CANCELADO',
+            cancellationPendingConfirm: false,
+            cancellationConfirmed: true,
+            isStockDeducted: false,
+            paymentStatus: finalPaymentStatus
+        });
         closeCancelOrderModal();
-        alert("Venta anulada exitosamente.\n" + (shouldReturnStock ? "El stock fue devuelto al catálogo" : "Stock no modificado") + " y el dinero fue revertido de la cuenta (si aplica).");
-        getEl('order-modal').classList.add('hidden');
-        currentOrderData = null;
 
-        if (typeof window.reCalcularFiltroLocal === 'function') window.reCalcularFiltroLocal();
-        if (typeof window.renderOrdersFromMemory === 'function') window.renderOrdersFromMemory();
+        let doneMsg = "Venta anulada exitosamente.\n" + (shouldReturnStock ? "El stock fue devuelto al catálogo" : "Stock no modificado") + " y el dinero fue revertido de la cuenta (si aplica).";
+        if (stockWarnings.length > 0) {
+            doneMsg += "\n\nAdvertencia en stock (revisar manualmente):\n- " + stockWarnings.join("\n- ");
+        }
+        alert(doneMsg);
+        getEl('order-modal')?.classList.add('hidden');
+        currentOrderData = null;
 
     } catch (error) {
         console.error(error);
-        alert("Error al anular: " + error.message);
+        if (String(error?.message || '').includes('ya estaba cancelada')) {
+            notifyOrderPatchedLocally(order.id, { status: 'CANCELADO', cancellationPendingConfirm: false, cancellationConfirmed: true });
+            closeCancelOrderModal();
+            getEl('order-modal')?.classList.add('hidden');
+        }
+        alert("Error al anular: " + (error.message || error));
+    } finally {
+        inFlightCancelOrders.delete(order.id);
         if (btn) {
             btn.innerHTML = '<i class="fa-solid fa-ban"></i> <span>Confirmar Anulación</span>';
             btn.disabled = false;
@@ -1431,6 +1502,8 @@ async function safeAdjustStock(id, delta, color, capacity, reason = null, detail
 // ==========================================================================
 export async function confirmOrderCancellation(orderId) {
     if (!orderId) return;
+    if (inFlightCancelOrders.has(orderId)) return;
+    inFlightCancelOrders.add(orderId);
 
     try {
         const oSnap = await getDoc(doc(db, "orders", orderId));
@@ -1440,8 +1513,14 @@ export async function confirmOrderCancellation(orderId) {
         }
 
         const o = oSnap.data();
-        if (o.status === 'CANCELADO' && o.cancellationConfirmed) {
-            alert("La cancelación de este pedido ya fue confirmada previamente.");
+        if (o.status === 'CANCELADO' && o.cancellationConfirmed && !o.cancellationPendingConfirm) {
+            notifyOrderPatchedLocally(orderId, {
+                status: 'CANCELADO',
+                cancellationPendingConfirm: false,
+                cancellationConfirmed: true,
+                isStockDeducted: false
+            });
+            showActionToast("Esta cancelación ya estaba confirmada. Se actualizó la vista.", "info");
             return;
         }
 
@@ -1449,6 +1528,7 @@ export async function confirmOrderCancellation(orderId) {
 
         // Si es orden FULL, delegar al flujo seguro de Full sin solicitar retención de bodega ni alterar inventario local
         if (isFullOrder) {
+            inFlightCancelOrders.delete(orderId);
             return await confirmFullOrderCancellation(orderId);
         }
 
@@ -1476,7 +1556,7 @@ export async function confirmOrderCancellation(orderId) {
             if (!freshSnap.exists()) throw new Error("El pedido no existe en la base de datos.");
             const freshOrder = freshSnap.data();
 
-            if (freshOrder.status === 'CANCELADO' && freshOrder.cancellationConfirmed) {
+            if (freshOrder.status === 'CANCELADO' && freshOrder.cancellationConfirmed && !freshOrder.cancellationPendingConfirm) {
                 throw new Error("Esta cancelación ya fue confirmada previamente.");
             }
             if (freshOrder.isFull || freshOrder.isMlFull || freshOrder.logisticType === 'fulfillment') {
@@ -1484,7 +1564,8 @@ export async function confirmOrderCancellation(orderId) {
             }
 
             ordNum = freshOrder.internalOrderNumber || orderId;
-            const wasStockDeducted = Boolean(freshOrder.isStockDeducted && !freshOrder.isHistoricalPreAudit);
+            const alreadyCancelled = freshOrder.status === 'CANCELADO';
+            const wasStockDeducted = !alreadyCancelled && Boolean(freshOrder.isStockDeducted && !freshOrder.isHistoricalPreAudit);
             if (wasStockDeducted && Array.isArray(freshOrder.items)) {
                 for (const item of freshOrder.items) {
                     if (item.stockDeducted === false) continue;
@@ -1492,6 +1573,7 @@ export async function confirmOrderCancellation(orderId) {
                     if (qty <= 0) continue;
                     itemsToRestore.push({
                         id: item.id,
+                        name: item.name || item.id,
                         qty,
                         color: item.color,
                         capacity: item.capacity,
@@ -1503,7 +1585,7 @@ export async function confirmOrderCancellation(orderId) {
             const refundAmount = Number(freshOrder.netAmount) || Number(freshOrder.amountPaid) || Number(freshOrder.total) || 0;
             let accRef = null;
             let accSnap = null;
-            if (refundAmount > 0 && freshOrder.paymentAccountId && freshOrder.paymentStatus !== 'REFUNDED') {
+            if (!alreadyCancelled && refundAmount > 0 && freshOrder.paymentAccountId && freshOrder.paymentStatus !== 'REFUNDED') {
                 accRef = doc(db, "accounts", freshOrder.paymentAccountId);
                 accSnap = await t.get(accRef);
             }
@@ -1533,8 +1615,8 @@ export async function confirmOrderCancellation(orderId) {
                 status: 'CANCELADO',
                 cancellationPendingConfirm: false,
                 cancellationConfirmed: true,
-                cancellationConfirmedBy: userName,
-                cancellationConfirmedAt: serverTimestamp(),
+                cancellationConfirmedBy: freshOrder.cancellationConfirmedBy || userName,
+                cancellationConfirmedAt: freshOrder.cancellationConfirmedAt || serverTimestamp(),
                 cancellationRetainedInWarehouse: true,
                 cancelledWithoutStockReturn: itemsToRestore.length === 0,
                 paymentStatus: 'REFUNDED',
@@ -1548,8 +1630,14 @@ export async function confirmOrderCancellation(orderId) {
         });
 
         // 2. Revertir stock a bodega (garantizado una sola vez gracias a la transaccion previa)
+        const stockWarnings = [];
         for (const item of itemsToRestore) {
-            await safeAdjustStock(item.id, item.qty, item.color, item.capacity, 'DEVOLUCION_CANCELACION', `Devolución por confirmación de cancelación del pedido #${ordNum}`, item.branch);
+            try {
+                await safeAdjustStock(item.id, item.qty, item.color, item.capacity, 'DEVOLUCION_CANCELACION', `Devolución por confirmación de cancelación del pedido #${ordNum}`, item.branch);
+            } catch (stkErr) {
+                console.error(`[ConfirmCancel] Error restaurando stock de ${item.id}:`, stkErr);
+                stockWarnings.push(`${item.name}: ${stkErr?.message || stkErr}`);
+            }
         }
 
         // 3. Liberar seriales legítimos a AVAILABLE (sin borrar información en el pedido)
@@ -1582,22 +1670,40 @@ export async function confirmOrderCancellation(orderId) {
         }
 
         clearDraftSerials(orderId);
-        showActionToast("Cancelación confirmada exitosamente. Seriales liberados a inventario disponible y registro preservado.", "success");
+        notifyOrderPatchedLocally(orderId, {
+            status: 'CANCELADO',
+            cancellationPendingConfirm: false,
+            cancellationConfirmed: true,
+            cancellationRetainedInWarehouse: true,
+            isStockDeducted: false,
+            paymentStatus: 'REFUNDED'
+        });
+
+        if (stockWarnings.length > 0) {
+            alert(`Cancelación confirmada, pero hubo advertencias al restaurar stock:\n- ${stockWarnings.join('\n- ')}`);
+        } else {
+            showActionToast("Cancelación confirmada exitosamente. Stock y seriales liberados a inventario disponible.", "success");
+        }
 
         const modal = getEl('order-modal');
         if (modal && !modal.classList.contains('hidden')) {
             modal.classList.add('hidden');
         }
-
-        if (typeof window.reCalcularFiltroLocal === 'function') {
-            window.reCalcularFiltroLocal();
-        }
-        if (typeof window.renderOrdersFromMemory === 'function') {
-            window.renderOrdersFromMemory();
-        }
     } catch (err) {
         console.error("Error confirmando cancelación:", err);
-        alert("Error al confirmar la cancelación: " + err.message);
+        if (String(err?.message || '').includes('confirmada previamente')) {
+            notifyOrderPatchedLocally(orderId, {
+                status: 'CANCELADO',
+                cancellationPendingConfirm: false,
+                cancellationConfirmed: true,
+                isStockDeducted: false
+            });
+            showActionToast("Esta cancelación ya había sido confirmada. Vista sincronizada.", "info");
+        } else {
+            alert("Error al confirmar la cancelación: " + (err.message || err));
+        }
+    } finally {
+        inFlightCancelOrders.delete(orderId);
     }
 }
 
@@ -1606,6 +1712,8 @@ export async function confirmOrderCancellation(orderId) {
 // ==========================================================================
 export async function confirmFullOrderCancellation(orderId) {
     if (!orderId) return;
+    if (inFlightCancelOrders.has(orderId)) return;
+    inFlightCancelOrders.add(orderId);
 
     try {
         const oSnap = await getDoc(doc(db, "orders", orderId));
@@ -1615,8 +1723,14 @@ export async function confirmFullOrderCancellation(orderId) {
         }
 
         const o = oSnap.data();
-        if (o.status === 'CANCELADO' && o.cancellationConfirmed) {
-            alert("La cancelación de este pedido Full ya fue confirmada previamente.");
+        if (o.status === 'CANCELADO' && o.cancellationConfirmed && !o.cancellationPendingConfirm) {
+            notifyOrderPatchedLocally(orderId, {
+                status: 'CANCELADO',
+                cancellationPendingConfirm: false,
+                cancellationConfirmed: true,
+                isStockDeducted: false
+            });
+            showActionToast("La cancelación de este pedido Full ya estaba confirmada.", "info");
             return;
         }
 
@@ -1641,14 +1755,14 @@ export async function confirmFullOrderCancellation(orderId) {
             const freshSnap = await t.get(oRef);
             if (!freshSnap.exists()) throw new Error("El pedido no existe.");
             const freshOrder = freshSnap.data();
-            if (freshOrder.status === 'CANCELADO' && freshOrder.cancellationConfirmed) {
+            if (freshOrder.status === 'CANCELADO' && freshOrder.cancellationConfirmed && !freshOrder.cancellationPendingConfirm) {
                 throw new Error("Esta cancelación Full ya fue confirmada previamente.");
             }
 
             const refundAmount = Number(freshOrder.netAmount) || Number(freshOrder.amountPaid) || Number(freshOrder.total) || 0;
             let accRef = null;
             let accSnap = null;
-            if (refundAmount > 0 && freshOrder.paymentAccountId && freshOrder.paymentStatus !== 'REFUNDED') {
+            if (freshOrder.status !== 'CANCELADO' && refundAmount > 0 && freshOrder.paymentAccountId && freshOrder.paymentStatus !== 'REFUNDED') {
                 accRef = doc(db, "accounts", freshOrder.paymentAccountId);
                 accSnap = await t.get(accRef);
             }
@@ -1677,8 +1791,8 @@ export async function confirmFullOrderCancellation(orderId) {
                 statusDetail: 'CANCELADO_FULL_AUTOMATICO',
                 cancellationPendingConfirm: false,
                 cancellationConfirmed: true,
-                cancellationConfirmedBy: userName,
-                cancellationConfirmedAt: serverTimestamp(),
+                cancellationConfirmedBy: freshOrder.cancellationConfirmedBy || userName,
+                cancellationConfirmedAt: freshOrder.cancellationConfirmedAt || serverTimestamp(),
                 cancellationRetainedInWarehouse: false,
                 cancelledWithoutStockReturn: true,
                 isStockDeducted: false,
@@ -1717,22 +1831,24 @@ export async function confirmFullOrderCancellation(orderId) {
         }
 
         clearDraftSerials(orderId);
+        notifyOrderPatchedLocally(orderId, {
+            status: 'CANCELADO',
+            cancellationPendingConfirm: false,
+            cancellationConfirmed: true,
+            isStockDeducted: false,
+            paymentStatus: 'REFUNDED'
+        });
         showActionToast(`Orden Full #${ordNum} cancelada exitosamente sin modificar inventario local.`, "success");
 
         const modal = getEl('order-modal');
         if (modal && !modal.classList.contains('hidden')) {
             modal.classList.add('hidden');
         }
-
-        if (window.SmartAdminOrdersSync && typeof window.SmartAdminOrdersSync.syncAndRender === 'function') {
-            window.SmartAdminOrdersSync.syncAndRender();
-        } else {
-            if (typeof window.reCalcularFiltroLocal === 'function') window.reCalcularFiltroLocal();
-            if (typeof window.renderOrdersFromMemory === 'function') window.renderOrdersFromMemory();
-        }
     } catch (err) {
         console.error("Error confirmando cancelación Full:", err);
-        alert("Error al confirmar la cancelación Full: " + err.message);
+        alert("Error al confirmar la cancelación Full: " + (err.message || err));
+    } finally {
+        inFlightCancelOrders.delete(orderId);
     }
 }
 
@@ -1749,8 +1865,8 @@ export async function cancelAllPendingFullOrders() {
         if (Array.isArray(window.adminOrdersCache)) {
             window.adminOrdersCache.forEach(o => {
                 const isFull = Boolean(o.isFull || o.isMlFull || o.logisticType === 'fulfillment');
-                const isPending = (o.cancellationPendingConfirm === true || o.status === 'CANCELACION_PENDIENTE');
-                if (isFull && isPending && o.status !== 'CANCELADO') {
+                const isPending = o.status !== 'CANCELADO' && !o.cancellationConfirmed && (o.cancellationPendingConfirm === true || o.status === 'CANCELACION_PENDIENTE');
+                if (isFull && isPending) {
                     pendingMap.set(o.id, o);
                 }
             });
@@ -1822,13 +1938,6 @@ export async function cancelAllPendingFullOrders() {
                 updatedAt: serverTimestamp()
             });
 
-            // Actualizar objeto en memoria si existe
-            o.status = 'CANCELADO';
-            o.cancellationPendingConfirm = false;
-            o.cancellationConfirmed = true;
-            o.isStockDeducted = false;
-            o.cancelledWithoutStockReturn = true;
-
             clearDraftSerials(o.id);
             batchCount++;
 
@@ -1843,7 +1952,18 @@ export async function cancelAllPendingFullOrders() {
             await batch.commit();
         }
 
-        const msg = `¡Éxito! Se cancelaron ${pendingList.length} orden(es) Full de forma segura. El inventario local no fue alterado.`;
+        for (const o of pendingList) {
+            notifyOrderPatchedLocally(o.id, {
+                status: 'CANCELADO',
+                cancellationPendingConfirm: false,
+                cancellationConfirmed: true,
+                isStockDeducted: false,
+                cancelledWithoutStockReturn: true,
+                paymentStatus: 'REFUNDED'
+            });
+        }
+
+        const msg = `Se cancelaron ${pendingList.length} orden(es) Full de forma segura. El inventario local no fue alterado.`;
         if (typeof showActionToast === 'function') {
             showActionToast(msg, "success", 5000);
         } else {
@@ -1853,13 +1973,6 @@ export async function cancelAllPendingFullOrders() {
         const modal = getEl('order-modal');
         if (modal && !modal.classList.contains('hidden')) {
             modal.classList.add('hidden');
-        }
-
-        if (window.SmartAdminOrdersSync && typeof window.SmartAdminOrdersSync.syncAndRender === 'function') {
-            window.SmartAdminOrdersSync.syncAndRender();
-        } else {
-            if (typeof window.reCalcularFiltroLocal === 'function') window.reCalcularFiltroLocal();
-            if (typeof window.renderOrdersFromMemory === 'function') window.renderOrdersFromMemory();
         }
     } catch (err) {
         console.error("Error en cancelAllPendingFullOrders:", err);
@@ -1881,6 +1994,7 @@ export async function reportCancellationConflict(orderId) {
         await updateDoc(doc(db, "orders", orderId), {
             status: 'DESPACHADO',
             cancellationPendingConfirm: false,
+            cancellationConfirmed: true,
             cancellationConflict: true,
             cancellationConflictAt: serverTimestamp(),
             cancellationConflictBy: userName,
@@ -1888,18 +2002,17 @@ export async function reportCancellationConflict(orderId) {
             updatedAt: serverTimestamp()
         });
 
+        notifyOrderPatchedLocally(orderId, {
+            status: 'DESPACHADO',
+            cancellationPendingConfirm: false,
+            cancellationConfirmed: true,
+            cancellationConflict: true
+        });
         showActionToast("Conflicto registrado. La orden se mantiene como DESPACHADA.", "info");
 
         const modal = getEl('order-modal');
         if (modal && !modal.classList.contains('hidden')) {
             modal.classList.add('hidden');
-        }
-
-        if (typeof window.reCalcularFiltroLocal === 'function') {
-            window.reCalcularFiltroLocal();
-        }
-        if (typeof window.renderOrdersFromMemory === 'function') {
-            window.renderOrdersFromMemory();
         }
     } catch (err) {
         console.error("Error reportando conflicto:", err);

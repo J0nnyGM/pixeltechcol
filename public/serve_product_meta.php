@@ -20,8 +20,8 @@ if (!is_dir($cache_dir)) {
     @mkdir($cache_dir, 0755, true);
 }
 
-// Usamos prefijo prod_v3_ para invalidar caches con precios corruptos por backreference $2
-$cache_file = $cache_dir . '/prod_v3_' . md5($product_id) . '.html';
+// Usamos prefijo prod_v4_ para invalidar caches con stock total (Full + Bodega)
+$cache_file = $cache_dir . '/prod_v4_' . md5($product_id) . '.html';
 $cache_time = 7200; // 2 horas (7200 segundos)
 
 if (file_exists($cache_file) && (time() - filemtime($cache_file)) < $cache_time) {
@@ -157,6 +157,19 @@ if ($http_code == 200 && $response) {
         $isSimple = !empty($fullProduct['isSimple']) || (empty($fullProduct['hasVariants']) && empty($fullProduct['hasCapacities']));
         $fullProduct['isSimple'] = $isSimple;
 
+        // Stock real vendible en web (solo bodega, excluye unidades en MercadoLibre Full)
+        $webStock = null;
+        if (isset($fullProduct['branchStock']) && is_array($fullProduct['branchStock'])) {
+            if (isset($fullProduct['branchStock']['bodega'])) {
+                $webStock = max(0, intval($fullProduct['branchStock']['bodega']));
+            } elseif (isset($fullProduct['branchStock']['full']) && isset($fullProduct['stock'])) {
+                $webStock = max(0, intval($fullProduct['stock']) - intval($fullProduct['branchStock']['full']));
+            }
+        }
+        if ($webStock === null && isset($fullProduct['stock'])) {
+            $webStock = max(0, intval($fullProduct['stock']));
+        }
+
         // 6. Schema.org estructurado
         $schemaData = [
             "@context" => "https://schema.org/",
@@ -170,7 +183,7 @@ if ($http_code == 200 && $response) {
                 "url" => $productUrl,
                 "priceCurrency" => "COP",
                 "price" => $price,
-                "availability" => (!isset($fullProduct['stock']) || $fullProduct['stock'] > 0) ? "https://schema.org/InStock" : "https://schema.org/OutOfStock"
+                "availability" => ($webStock === null || $webStock > 0) ? "https://schema.org/InStock" : "https://schema.org/OutOfStock"
             ]
         ];
         $json_ld = json_encode($schemaData, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
@@ -234,9 +247,9 @@ if ($http_code == 200 && $response) {
             }, $html, 1);
         }
 
-        // Inyeccion directa de stock si existe
-        if (isset($fullProduct['stock'])) {
-            $stk = intval($fullProduct['stock']);
+        // Inyeccion directa de stock real de bodega si existe
+        if ($webStock !== null) {
+            $stk = $webStock;
             if ($stk > 0) {
                 $stock_html = '<i class="fa-solid fa-circle-check"></i> ' . $stk . ' unidades disponibles';
                 $html = preg_replace_callback('/(<p[^>]*id="p-stock-text"[^>]*>).*?(<\/p>)/is', function($m) use ($stock_html) {

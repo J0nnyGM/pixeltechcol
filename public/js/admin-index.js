@@ -977,11 +977,26 @@ function filterAndRenderOrders() {
     updateOrdersPaginationControls(startIndex + 1, endIndex, totalFiltered);
 }
 
+window.patchDashboardOrderLocally = function(orderId, partialUpdates = {}) {
+    if (!orderId || !Array.isArray(ordersCache)) return;
+    const idx = ordersCache.findIndex(o => o.id === orderId);
+    if (idx < 0) return;
+    const updated = { ...ordersCache[idx], ...partialUpdates };
+    const isStillActionable = ['PAGADO', 'PENDIENTE', 'ALISTADO', 'CANCELACION_PENDIENTE'].includes(updated.status) ||
+        (updated.cancellationPendingConfirm === true && updated.status !== 'CANCELADO' && !updated.cancellationConfirmed);
+    if (!isStillActionable) {
+        ordersCache.splice(idx, 1);
+    } else {
+        ordersCache[idx] = updated;
+    }
+    filterAndRenderOrders();
+};
+
 // Renderiza una fila de la tabla de pedidos (Desktop)
 function renderOrderRow(o, role) {
     const isWeb = o.source === 'TIENDA' || o.source === 'TIENDA_WEB';
     const isFull = Boolean(o.isFull || o.isMlFull || o.logisticType === 'fulfillment');
-    const isCancelPending = (o.cancellationPendingConfirm || o.status === 'CANCELACION_PENDIENTE') && !isFull;
+    const isCancelPending = o.status !== 'CANCELADO' && !o.cancellationConfirmed && (o.cancellationPendingConfirm === true || o.status === 'CANCELACION_PENDIENTE') && !isFull;
     const total = Number(o.total) || 0;
     const paid = Number(o.amountPaid) || 0;
     const refunded = Number(o.refundedAmount) || 0;
@@ -1141,7 +1156,7 @@ function renderOrderRow(o, role) {
 function renderOrderMobileCard(o, role) {
     const isWeb = o.source === 'TIENDA' || o.source === 'TIENDA_WEB';
     const isFull = Boolean(o.isFull || o.isMlFull || o.logisticType === 'fulfillment');
-    const isCancelPending = (o.cancellationPendingConfirm || o.status === 'CANCELACION_PENDIENTE') && !isFull;
+    const isCancelPending = o.status !== 'CANCELADO' && !o.cancellationConfirmed && (o.cancellationPendingConfirm === true || o.status === 'CANCELACION_PENDIENTE') && !isFull;
     const total = Number(o.total) || 0;
     const paid = Number(o.amountPaid) || 0;
     const refunded = Number(o.refundedAmount) || 0;

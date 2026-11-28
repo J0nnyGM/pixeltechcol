@@ -1179,8 +1179,8 @@ function createWebhookHandler({
                     const orderIsFull = isFullOrder || Boolean(existingOrder.isFull || existingOrder.isMlFull || existingOrder.logisticType === 'fulfillment');
 
                     if (isCancelled && existingOrder.status !== 'CANCELADO') {
-                        if (existingOrder.cancellationConfirmed) {
-                            return sendOk("OK: Cancellation already confirmed");
+                        if (existingOrder.cancellationConfirmed || existingOrder.cancellationConflict) {
+                            return sendOk("OK: Cancellation already confirmed or conflict reported");
                         }
 
                         const cancelReason = orderData.cancel_detail?.requested_by 
@@ -1514,7 +1514,7 @@ function createWebhookHandler({
                 const parentPackDoc = packMembershipCheck.docs[0];
                 const parentData = parentPackDoc.data();
                 const isSubCancelled = isOrderCancelled(orderData, rawShipment);
-                if (isSubCancelled && parentData.status !== 'CANCELADO' && !parentData.cancellationPendingConfirm) {
+                if (isSubCancelled && parentData.status !== 'CANCELADO' && !parentData.cancellationPendingConfirm && !parentData.cancellationConfirmed && !parentData.cancellationConflict) {
                     const isParentFull = Boolean(parentData.isFull || parentData.isMlFull || parentData.logisticType === 'fulfillment');
                     if (!isParentFull) {
                         console.log(`[ML] Sub-orden ${orderData.id} del paquete ${parentPackDoc.id} fue cancelada en ML. Marcando paquete en CANCELACION_PENDIENTE.`);
@@ -2955,7 +2955,7 @@ async function syncAndValidateMLOrder(orderId, db, isSecondValidation = false, m
         orderUpdates.shippingType = 'FULL';
     }
 
-    if (isCancelledInML && ord.status !== 'CANCELADO' && !ord.cancellationConfirmed) {
+    if (isCancelledInML && ord.status !== 'CANCELADO' && !ord.cancellationConfirmed && !ord.cancellationConflict) {
         if (isFullOrder) {
             console.log(`[ML FULL REVALIDATION] Orden ${ord.id} cancelada en MercadoLibre. Marcando CANCELADO directo (Full gestiona el stock de forma autonoma).`);
             orderUpdates.status = 'CANCELADO';

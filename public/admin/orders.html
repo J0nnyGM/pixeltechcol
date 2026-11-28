@@ -747,8 +747,15 @@
         }
         window.isOrderColecta = isOrderColecta;
 
+        function isOrderPendingCancelConfirm(o) {
+            if (!o) return false;
+            if (o.status === 'CANCELADO' || o.cancellationConfirmed === true) return false;
+            return Boolean(o.cancellationPendingConfirm === true || o.status === 'CANCELACION_PENDIENTE');
+        }
+        window.isOrderPendingCancelConfirm = isOrderPendingCancelConfirm;
+
         function getActionableSortWeight(o) {
-            const isCancel = Boolean(o.cancellationPendingConfirm || o.status === 'CANCELACION_PENDIENTE');
+            const isCancel = isOrderPendingCancelConfirm(o);
             const isFull = isOrderFull(o);
             if (isCancel && !isFull) return 0; // Urgente retención en bodega
             if (isOrderFlex(o)) return 1;      // Flex de primeras
@@ -852,7 +859,7 @@
             if (pillsContainer) {
                 let currentTabOrders = orders;
                 if (currentFilter === 'ACTIONABLE') {
-                    currentTabOrders = orders.filter(o => ["PAGADO", "PENDIENTE", "ALISTADO", "CANCELACION_PENDIENTE"].includes(o.status) || o.cancellationPendingConfirm);
+                    currentTabOrders = orders.filter(o => ["PAGADO", "PENDIENTE", "ALISTADO"].includes(o.status) || isOrderPendingCancelConfirm(o));
                 } else if (currentFilter === 'WAITING') {
                     currentTabOrders = orders.filter(o => o.status === "PENDIENTE_PAGO");
                 } else if (currentFilter === 'DISPATCHED') {
@@ -860,7 +867,7 @@
                 } else if (currentFilter === 'REFUNDS') {
                     currentTabOrders = orders.filter(o => ["DEVUELTO", "DEVOLUCION_PARCIAL"].includes(o.status));
                 } else if (currentFilter === 'FAILED') {
-                    currentTabOrders = orders.filter(o => ["CANCELADO", "RECHAZADO", "CANCELACION_PENDIENTE"].includes(o.status) || o.cancellationPendingConfirm);
+                    currentTabOrders = orders.filter(o => ["CANCELADO", "RECHAZADO"].includes(o.status) || isOrderPendingCancelConfirm(o));
                 }
 
                 if (currentDateFilter !== 'ALL') {
@@ -1346,18 +1353,13 @@
             },
 
             _doSyncAndRender() {
-                // Preservar cualquier orden añadida manualmente a runtimeMap (por búsquedas directas)
-                Object.keys(this.runtimeMap).forEach(id => {
-                    if (!this.actionableMap[id] && !this.recentMap[id] && !this.olderMap[id]) {
-                        this.olderMap[id] = this.runtimeMap[id];
-                    }
-                });
-
-                // Fusión limpia: historial viejo + recientes + todas las por atender en vivo
+                // Fusion limpia: historial viejo + recientes + todas las por atender en vivo
+                // NO re-insertar en olderMap ordenes que acaban de salir de actionableMap (evita resucitar CANCELACION_PENDIENTE ya confirmadas)
                 this.runtimeMap = { ...this.olderMap, ...this.recentMap, ...this.actionableMap };
 
                 if (Object.keys(this.runtimeMap).length === 0) {
                     adminOrdersCache = [];
+                    window.adminOrdersCache = adminOrdersCache;
                     const tableBody = document.getElementById('orders-table-body');
                     if (tableBody) tableBody.innerHTML = `<tr><td colspan="8" class="p-10 text-center text-xs text-brand-black font-bold uppercase">No se encontraron pedidos.</td></tr>`;
                     updatePaginationControls(0, 0, 0);
@@ -1371,6 +1373,36 @@
 
                 updateTabBadgesAndKPIs();
                 scheduleRenderOrders();
+            },
+
+            patchOrderLocally(orderId, partialUpdates = {}) {
+                if (!orderId) return;
+                const existing = this.actionableMap[orderId] || this.recentMap[orderId] || this.olderMap[orderId] || this.runtimeMap[orderId];
+                if (!existing) return;
+
+                const updated = {
+                    ...existing,
+                    ...partialUpdates,
+                    updatedAt: new Date().toISOString()
+                };
+
+                const isStillActionable = ["PAGADO", "PENDIENTE", "ALISTADO"].includes(updated.status) || isOrderPendingCancelConfirm(updated);
+                if (isStillActionable) {
+                    this.actionableMap[orderId] = updated;
+                } else {
+                    delete this.actionableMap[orderId];
+                }
+
+                if (this.recentMap[orderId]) {
+                    this.recentMap[orderId] = updated;
+                }
+                if (this.olderMap[orderId]) {
+                    this.olderMap[orderId] = updated;
+                } else if (!this.recentMap[orderId] && !isStillActionable) {
+                    this.olderMap[orderId] = updated;
+                }
+
+                this._doSyncAndRender();
             },
 
             listenForUpdates() {
@@ -1398,10 +1430,10 @@
                         freshActionable[id] = { id, ...data };
                     });
 
-                    // Limpieza en olderMap de pedidos que antes estaban 'por atender' pero ya cambiaron de estado en el servidor
+                    // Limpieza en olderMap de pedidos que antes estaban 'por atender' o con retencion pendiente pero ya cambiaron en el servidor
                     Object.keys(this.olderMap).forEach(id => {
                         const o = this.olderMap[id];
-                        if (o && ["PAGADO", "PENDIENTE", "ALISTADO", "CANCELACION_PENDIENTE"].includes(o.status) && !freshActionable[id]) {
+                        if (o && (["PAGADO", "PENDIENTE", "ALISTADO", "CANCELACION_PENDIENTE"].includes(o.status) || o.cancellationPendingConfirm === true) && !freshActionable[id]) {
                             delete this.olderMap[id];
                         }
                     });
@@ -1438,6 +1470,7 @@
                 });
             }
         };
+        window.SmartAdminOrdersSync = SmartAdminOrdersSync;
 
         async function fetchOlderOrdersFromServer() {
             if (isFetchingOlderServerDocs || !lastVisibleServerDoc) return false;
@@ -1538,7 +1571,7 @@
                 pageItems.forEach(o => {
                     const isFull = isOrderFull(o);
                     const isFlex = isOrderFlex(o);
-                    const isCancel = Boolean(o.cancellationPendingConfirm || o.status === 'CANCELACION_PENDIENTE');
+                    const isCancel = isOrderPendingCancelConfirm(o);
 
                     if (isCancel) {
                         if (isFull) cancelPendingFullOrders.push(o);
@@ -1731,8 +1764,8 @@
             let baseList = [];
             if (currentFilter === 'ACTIONABLE') {
                 baseList = adminOrdersCache.filter(o => 
-                    ["PAGADO", "PENDIENTE", "ALISTADO", "CANCELACION_PENDIENTE"].includes(o.status) || 
-                    o.cancellationPendingConfirm === true
+                    ["PAGADO", "PENDIENTE", "ALISTADO"].includes(o.status) || 
+                    isOrderPendingCancelConfirm(o)
                 );
             } else if (currentFilter === 'WAITING') {
                 baseList = adminOrdersCache.filter(o => o.status === "PENDIENTE_PAGO");
@@ -1742,8 +1775,8 @@
                 baseList = adminOrdersCache.filter(o => ["DEVUELTO", "DEVOLUCION_PARCIAL"].includes(o.status));
             } else if (currentFilter === 'FAILED') {
                 baseList = adminOrdersCache.filter(o => 
-                    ["CANCELADO", "RECHAZADO", "CANCELACION_PENDIENTE"].includes(o.status) || 
-                    o.cancellationPendingConfirm === true
+                    ["CANCELADO", "RECHAZADO"].includes(o.status) || 
+                    isOrderPendingCancelConfirm(o)
                 );
             } else {
                 baseList = [...adminOrdersCache];
@@ -2201,7 +2234,7 @@
         function renderRow(o) {
             const isTienda = o.source === 'TIENDA' || o.source === 'TIENDA_WEB';
             const isFull = Boolean(o.isFull || o.isMlFull || o.logisticType === 'fulfillment');
-            const isCancelPending = o.cancellationPendingConfirm || o.status === 'CANCELACION_PENDIENTE';
+            const isCancelPending = isOrderPendingCancelConfirm(o);
             
             // Estado Logístico Separado y Preciso
             let logPill = '';
@@ -2502,11 +2535,11 @@
             const allOrders = window.adminOrdersCache || adminOrdersCache || [];
             
             // Conteos por estado
-            const actionable = allOrders.filter(o => ["PAGADO", "PENDIENTE", "ALISTADO", "CANCELACION_PENDIENTE"].includes(o.status) || o.cancellationPendingConfirm);
+            const actionable = allOrders.filter(o => ["PAGADO", "PENDIENTE", "ALISTADO"].includes(o.status) || isOrderPendingCancelConfirm(o));
             const waiting = allOrders.filter(o => o.status === "PENDIENTE_PAGO");
             const dispatched = allOrders.filter(o => ["DESPACHADO", "ENTREGADO"].includes(o.status));
             const refunds = allOrders.filter(o => ["DEVUELTO", "DEVOLUCION_PARCIAL"].includes(o.status));
-            const failed = allOrders.filter(o => ["CANCELADO", "RECHAZADO", "CANCELACION_PENDIENTE"].includes(o.status) || o.cancellationPendingConfirm);
+            const failed = allOrders.filter(o => ["CANCELADO", "RECHAZADO"].includes(o.status) || isOrderPendingCancelConfirm(o));
             
             // Badges en pestañas
             const setBadge = (id, count) => {
@@ -2521,6 +2554,9 @@
             setBadge('badge-tab-all', allOrders.length);
             updateChannelFilterUI();
         }
+        window.reCalcularFiltroLocal = reCalcularFiltroLocal;
+        window.renderOrdersFromMemory = renderOrdersFromMemory;
+        window.renderOrdersMemory = renderOrdersFromMemory;
 
         // --- GESTOR DE BARRA FLOTANTE Y SELECCIÓN MASIVA ---
         window.updateBulkActionBar = function() {

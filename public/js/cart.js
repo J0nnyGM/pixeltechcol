@@ -22,13 +22,58 @@ function saveCart(cart) {
     startCartSync(); 
 }
 
+// Helper compartido: stock real vendible en tienda web (solo bodega, excluye Full de ML)
+export function getWebSellableStock(entity, color = null, capacity = null) {
+    if (!entity || typeof entity !== 'object') return 0;
+
+    const readBodega = (obj) => {
+        if (!obj || typeof obj !== 'object') return 0;
+        if (obj.branchStock && typeof obj.branchStock === 'object') {
+            if (obj.branchStock.bodega !== undefined && obj.branchStock.bodega !== null) {
+                return Math.max(0, Number(obj.branchStock.bodega) || 0);
+            }
+            if (obj.branchStock.full !== undefined && obj.branchStock.full !== null) {
+                return Math.max(0, (Number(obj.stock) || 0) - (Number(obj.branchStock.full) || 0));
+            }
+        }
+        return Math.max(0, Number(obj.stock) || 0);
+    };
+
+    if ((color !== null || capacity !== null) && Array.isArray(entity.combinations) && entity.combinations.length > 0) {
+        const combo = entity.combinations.find(c =>
+            (c.color === color || (!c.color && !color)) &&
+            (c.capacity === capacity || (!c.capacity && !capacity))
+        );
+        return combo ? readBodega(combo) : 0;
+    }
+
+    if (entity.branchStock && typeof entity.branchStock === 'object') {
+        return readBodega(entity);
+    }
+
+    if (Array.isArray(entity.combinations) && entity.combinations.length > 0) {
+        return entity.combinations.reduce((sum, c) => sum + readBodega(c), 0);
+    }
+
+    return Math.max(0, Number(entity.stock) || 0);
+}
+
 // --- 3. AGREGAR ITEM (VALIDANDO STOCK) ---
 export function addToCart(product) {
     const cart = getCart();
     
     const pColor = product.color || null;
     const pCapacity = product.capacity || null;
-    const maxStock = product.maxStock || 999; 
+    const hasExplicitMax = product.maxStock !== undefined && product.maxStock !== null;
+    const maxStock = hasExplicitMax
+        ? Math.max(0, Number(product.maxStock) || 0)
+        : ((product.stock !== undefined || product.branchStock !== undefined)
+            ? getWebSellableStock(product, pColor, pCapacity)
+            : 999);
+
+    if (maxStock <= 0) {
+        return { success: false, message: "Producto sin stock disponible." };
+    }
 
     const uniqueCartId = `${product.id}-${pColor || 'def'}-${pCapacity || 'def'}`;
     const existingItem = cart.find(item => item.cartId === uniqueCartId);
@@ -41,6 +86,7 @@ export function addToCart(product) {
             return { success: false, message: `Solo hay ${maxStock} unidades disponibles.` };
         }
         existingItem.quantity = newQty;
+        existingItem.maxStock = maxStock;
     } else {
         if (newQty > maxStock) {
             return { success: false, message: `Solo hay ${maxStock} unidades disponibles.` };
@@ -73,7 +119,7 @@ export function updateQuantity(cartId, newQty) {
 
     if (item) {
         const qty = parseInt(newQty);
-        const max = item.maxStock || 999; 
+        const max = (item.maxStock !== undefined && item.maxStock !== null) ? Number(item.maxStock) : 999; 
         
         if (qty > max) {
             return { success: false, message: `Máximo ${max} unidades.` };
@@ -187,14 +233,14 @@ function updateCartItemsFromCloud(productId, pData) {
     cart.forEach(item => {
         if (item.id === productId) {
             let newPrice = pData.price || 0;
-            let newStock = pData.stock || 0;
+            let newStock = getWebSellableStock(pData);
             const isInactive = pData.status !== 'active';
             
             // Si el producto fue desactivado o borrado, forzamos stock a 0
             if (isInactive) {
                 newStock = 0;
             } 
-            // Si tiene combinaciones, buscamos el stock y precio exacto de su variante
+            // Si tiene combinaciones, buscamos el stock de bodega y precio exacto de su variante
             else if (pData.combinations && pData.combinations.length > 0) {
                 const combo = pData.combinations.find(c => 
                     (c.color === item.color || (!c.color && !item.color)) &&
@@ -202,7 +248,7 @@ function updateCartItemsFromCloud(productId, pData) {
                 );
                 if (combo) {
                     newPrice = combo.price;
-                    newStock = combo.stock;
+                    newStock = getWebSellableStock(combo);
                 } else {
                     newStock = 0; // Esa variante específica ya no existe
                 }
